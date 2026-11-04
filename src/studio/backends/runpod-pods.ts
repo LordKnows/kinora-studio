@@ -117,7 +117,16 @@ export class RunPodPodsClient {
       if (v === null) delete body[k];
       else body[k] = v;
     }
-    return mapPod(await this.call("POST", "/pods", body));
+    try {
+      return mapPod(await this.call("POST", "/pods", body));
+    } catch (caught) {
+      /* Echo what was sent: a schema error names the field, not the value. */
+      if (caught instanceof StudioError && caught.code === "backend_error") {
+        const sent = { gpuTypeIds: body.gpuTypeIds, dataCenterIds: body.dataCenterIds, networkVolumeId: body.networkVolumeId, cloudType: body.cloudType, keys: Object.keys(body) };
+        throw new StudioError("backend_error", `${caught.message} — sent ${JSON.stringify(sent)}`, { ...(caught.details as object), sent });
+      }
+      throw caught;
+    }
   }
 
   async getPod(id: string): Promise<PodRecord | null> {
