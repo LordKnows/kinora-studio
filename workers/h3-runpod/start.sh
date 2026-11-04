@@ -50,31 +50,48 @@ if [ "$VOLUME_PATH" != "/workspace" ] && [ -d "$VOLUME_PATH" ]; then
   fi
   if [ -n "$MODELS_SRC" ]; then
     echo "[start] models come from the volume: $MODELS_SRC"
-    mkdir -p "$SLIM_DIR"
-    if [ -L "$SLIM_DIR/models" ]; then rm -f "$SLIM_DIR/models"; elif [ -d "$SLIM_DIR/models" ]; then mv "$SLIM_DIR/models" "$SLIM_DIR/models.local.$(date +%s)"; fi
-    ln -s "$MODELS_SRC" "$SLIM_DIR/models"
+    # Link per sub-folder, not the whole models/ directory: ComfyUI expects
+    # its full set of standard sub-folders (vae_approx, checkpoints, …) and
+    # the volume only carries the H3 ones. The image's own models/ keeps the
+    # standard layout; each folder the volume has replaces the local one.
+    # unet and diffusion_models are the same folder type to ComfyUI.
+    link_models() {
+      mkdir -p "$SLIM_DIR/models"
+      for std in checkpoints clip clip_vision configs controlnet diffusers diffusion_models embeddings gligen hypernetworks loras photomaker style_models text_encoders unet upscale_models vae vae_approx audio_encoders model_patches; do
+        [ -e "$SLIM_DIR/models/$std" ] || mkdir -p "$SLIM_DIR/models/$std"
+      done
+      for src in "$MODELS_SRC"/*/; do
+        [ -d "$src" ] || continue
+        sub="$(basename "$src")"
+        dst="$SLIM_DIR/models/$sub"
+        if [ -L "$dst" ] && [ "$(readlink "$dst")" = "${src%/}" ]; then continue; fi
+        if [ -L "$dst" ]; then unlink "$dst"; elif [ -d "$dst" ]; then mv "$dst" "$dst.local.$(date +%s)"; fi
+        ln -s "${src%/}" "$dst" && echo "[start] linked models/$sub -> ${src%/}"
+      done
+      if [ -d "$MODELS_SRC/diffusion_models" ] && [ ! -d "$MODELS_SRC/unet" ]; then
+        dst="$SLIM_DIR/models/unet"
+        if [ ! -L "$dst" ]; then [ -d "$dst" ] && mv "$dst" "$dst.local.$(date +%s)"; ln -s "$MODELS_SRC/diffusion_models" "$dst"; fi
+      fi
+    }
+    link_models
     # Belt and braces: ComfyUI also learns the path from extra_model_paths.yaml.
     cat > "$SLIM_DIR/extra_model_paths.yaml" <<YAML
 studio_volume:
   base_path: $MODELS_SRC
+  diffusion_models: diffusion_models
   unet: unet
-  diffusion_models: unet
   text_encoders: text_encoders
   vae: vae
   loras: loras
 YAML
     export MODELS_DIR="$MODELS_SRC"
     export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
-    # The image's installer may replace the pre-made directory (and the
-    # symlink in it) while it copies ComfyUI in. Keep re-pointing models/ at
-    # the volume: ComfyUI re-reads a model folder whose mtime changed, so a
-    # late link is picked up without a restart.
+    # The image's installer may replace models/ while it copies ComfyUI in;
+    # keep re-applying the links. ComfyUI re-reads a folder whose mtime
+    # changed, so a late link is picked up without a restart.
     (
       while true; do
-        if [ -d "$SLIM_DIR" ] && [ ! -L "$SLIM_DIR/models" ]; then
-          if [ -d "$SLIM_DIR/models" ]; then mv "$SLIM_DIR/models" "$SLIM_DIR/models.local.$(date +%s)"; fi
-          ln -s "$MODELS_SRC" "$SLIM_DIR/models" && echo "[start] re-linked $SLIM_DIR/models -> $MODELS_SRC"
-        fi
+        link_models >/dev/null 2>&1 || true
         sleep 10
       done
     ) &
