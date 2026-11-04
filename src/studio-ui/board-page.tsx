@@ -8,7 +8,7 @@ import type { ShotInput } from "@/studio/schemas";
 import type { Asset, Job, Take } from "@/studio/types";
 
 import { del, get, patch, post, usd } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
 import { useProjectContext } from "./shell";
 import { ShotEditor, validateDraft, type ShotDraft } from "./shot-editor";
 
@@ -362,7 +362,10 @@ function FramesPanel({ shot }: { shot: ShotView }) {
         )}
         {jobs.some((j) => j.status === "failed") && <Lamp state="failed" label={jobs.find((j) => j.status === "failed")?.error ?? "generation failed"} />}
       </Section>
-      <Section title="Or pick any image in the project">
+      <Section
+        title="Or pick any image in the project"
+        aside={<UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} label="Upload hero frame" onUploaded={({ assetId }) => pickHero.fire(assetId)} />}
+      >
         <div className="st-thumbs">
           {images.slice(0, 24).map((a) => (
             <button key={a.id} type="button" className="st-thumb" aria-pressed={shot.heroAssetId === a.id} onClick={() => void pickHero.fire(a.id)}>

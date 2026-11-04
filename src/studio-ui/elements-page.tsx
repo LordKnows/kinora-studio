@@ -6,7 +6,7 @@ import { CheckIcon } from "@/openhiggsfield/icons";
 import type { Asset, Element, Job } from "@/studio/types";
 
 import { del, get, patch, post } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Section, Lamp, useAction } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, Section, Lamp, UploadButton, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
 type ElementRow = Element & { refs: Asset[] };
@@ -200,8 +200,19 @@ function ElementEditor({
     await post(`/api/elements/${element.id}/promote`);
   });
 
-  const candidates = jobs.flatMap((j) => j.assets);
+  /* Generated candidates plus whatever the element already holds (uploads
+     arrive here, not through a job). */
+  const generated = jobs.flatMap((j) => j.assets);
+  const candidates = [...generated, ...(element?.refs ?? []).filter((r) => !generated.some((g) => g.id === r.id))];
   const running = jobs.some((j) => j.status === "queued" || j.status === "running");
+
+  const uploaded = async ({ assetId }: { assetId: string }) => {
+    if (!element) return;
+    const next = [...selected, assetId];
+    setSelected(next);
+    await post(`/api/elements/${element.id}/refs`, { assetIds: next });
+    await onSaved();
+  };
 
   return (
     <Drawer title={element ? element.name : "New element"} onClose={onClose}>
@@ -246,13 +257,16 @@ function ElementEditor({
           <Section
             title="Reference images"
             aside={
-              <Button size="sm" busy={generate.busy || running} onClick={() => void generate.fire()}>
-                {running ? "Generating…" : "Generate 4"}
-              </Button>
+              <span className="st-row">
+                <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />
+                <Button size="sm" busy={generate.busy || running} onClick={() => void generate.fire()}>
+                  {running ? "Generating…" : "Generate 4"}
+                </Button>
+              </span>
             }
           >
             {candidates.length === 0 && !running ? (
-              <Empty title="No candidates yet" hint="Generate references with the image model, then pick the keepers. The first pick is the primary reference." />
+              <Empty title="No references yet" hint="Upload your own image, or generate references with the image model, then pick the keepers. The first pick is the primary reference." />
             ) : (
               <>
                 <div className="st-thumbs">

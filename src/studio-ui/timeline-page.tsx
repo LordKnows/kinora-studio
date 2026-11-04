@@ -6,7 +6,7 @@ import type { TimelineInput } from "@/studio/schemas";
 import type { ExportJob } from "@/studio/types";
 
 import { get, post, put, usd, when } from "./api";
-import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction } from "./common";
+import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton } from "./common";
 import { useProjectContext } from "./shell";
 
 const PRESETS = ["master-768p", "master-upscaled", "social-9x16", "preview-480p"] as const;
@@ -154,6 +154,7 @@ export function TimelinePage() {
         <div className="st-card st-stack">
           <span className="st-label" style={{ marginBottom: 0 }}>Audio mix</span>
           <Field label="Music track">
+            <UploadButton accept="audio/mpeg,audio/wav,audio/x-wav" projectId={projectId} label="Upload music" onUploaded={async ({ assetId }) => { await reload(); set({ ...timeline, music: assetId }); }} />
             <select className="st-select" value={timeline.music ?? ""} onChange={(e) => set({ ...timeline, music: e.target.value || undefined })}>
               <option value="">None</option>
               {music.map((a) => (

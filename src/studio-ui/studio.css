@@ -1096,3 +1096,7 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+.ohf .st-danger {
+  color: var(--danger);
+}

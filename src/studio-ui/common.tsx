@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { CheckIcon, CloseIcon, CopyIcon, WarningIcon } from "@/openhiggsfield/icons";
+import { uploadMedia } from "@/generation/upload";
+import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "@/openhiggsfield/icons";
 
 import { ApiError, describe, usd } from "./api";
 
@@ -287,4 +288,52 @@ export function statusLabel(status: string): string {
     default:
       return status;
   }
+}
+
+/** A file picker that uploads straight to R2 (presign → PUT → commit) and
+    hands back the new asset. The caller decides what the asset becomes. */
+export function UploadButton({
+  accept,
+  projectId,
+  onUploaded,
+  label = "Upload",
+  size = "sm",
+}: {
+  accept: string;
+  projectId: string;
+  onUploaded: (asset: { assetId: string; url: string }) => Promise<void> | void;
+  label?: string;
+  size?: "sm";
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <span className="st-row">
+      <input
+        ref={input}
+        type="file"
+        accept={accept}
+        hidden
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (!file) return;
+          setBusy(true);
+          setError(null);
+          try {
+            await onUploaded(await uploadMedia(file, projectId));
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : String(caught));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      />
+      <Button size={size} busy={busy} onClick={() => input.current?.click()} title="Upload from this device">
+        <UploadIcon size={12} /> {busy ? "Uploading…" : label}
+      </Button>
+      {error && <span className="st-muted st-danger">{error}</span>}
+    </span>
+  );
 }
