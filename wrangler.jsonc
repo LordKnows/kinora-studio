@@ -14,14 +14,16 @@
   "vars": {
     "STUDIO_DB": "d1",
     "AUTH_MODE": "access",
+    "CF_ACCESS_TEAM_DOMAIN": "zyhu.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "d1ddd5e5eededf0a270cb63a3099fcdf238f54009d3d13aec0f4a842e5efdce4",
     "STUDIO_PUBLIC_URL": "https://studio.zyhu.dev",
     "R2_PUBLIC_BASE_URL": "https://studio.zyhu.dev/media",
     "R2_BUCKET": "studio",
     "RUNPOD_GPU_USD_PER_SECOND": "0.0012",
     "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "12"
   }
-  // Secrets (wrangler secret put …): CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD,
-  // RUNPOD_API_KEY, RUNPOD_ENDPOINT_ID, RUNPOD_ASSEMBLER_ENDPOINT_ID,
+  // Secrets (dashboard, type Secret — plain vars are overwritten by this file
+  // on every deploy): RUNPOD_API_KEY, RUNPOD_ENDPOINT_ID, RUNPOD_ASSEMBLER_ENDPOINT_ID,
   // RUNPOD_WEBHOOK_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
   // HF_API_BASE_URL, HF_API_KEY, CRON_SECRET, MCP_STATIC_TOKEN (optional)
 }
