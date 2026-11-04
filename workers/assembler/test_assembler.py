@@ -109,5 +109,6 @@ def test_repeat_plays_a_loop_clip_n_times(tmp_path):
         "subtitles": {"srt": "", "burn_in": False},
         "output": {"key": "exports/loop.mp4"},
     })
+    (tmp_path / "work").mkdir()
     out = h.assemble(params, tmp_path / "work", uploader)
     assert abs(out["duration_s"] - 6.0) < 0.3
