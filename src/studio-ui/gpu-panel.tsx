@@ -283,7 +283,7 @@ export function GpuSection() {
   );
 }
 
-type ManualRecipe = { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; gpuTypes: string[]; notes: string[] };
+type ManualRecipe = { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; entrypoint: string[]; gpuTypes: string[]; notes: string[] };
 
 /* The way around a volume the REST API cannot attach: create the pod in the
    RunPod console with these values, then hand its id to the studio. */
@@ -332,7 +332,8 @@ function AdoptPod({ onAdopted }: { onAdopted: () => Promise<void> }) {
           <CopyRow label="Expose HTTP ports" value={recipe.ports.join(", ")} />
           <CopyRow label="Container disk (GB)" value={String(recipe.containerDiskGb)} />
           <CopyRow label="Volume mount path" value={recipe.volumeMountPath} />
-          <CopyRow label="Container start command" value={recipe.dockerStartCmd} />
+          <CopyRow label="Entrypoint (JSON, overrides the image's /start.sh)" value={JSON.stringify(recipe.entrypoint)} />
+          <CopyRow label="Start command (only for images without an ENTRYPOINT)" value={recipe.dockerStartCmd} />
           <CopyRow label="GPU types (in priority order)" value={recipe.gpuTypes.join(", ")} />
           <div className="st-field">
             <span className="st-label">Environment variables</span>

@@ -215,7 +215,8 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
           ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
           env: podEnv(),
           allowedCudaVersions: pc.cudaVersions,
-          ...(pc.bootstrap ? { dockerStartCmd: bootstrapCommand(), dockerStartLine: bootstrapCommandLine() } : {}),
+          /* As the entrypoint: runpod/comfyui's own ENTRYPOINT would otherwise swallow the command. */
+          ...(pc.bootstrap ? { dockerEntrypoint: bootstrapCommand(), dockerStartCmd: bootstrapCommand(), dockerStartLine: bootstrapCommandLine() } : {}),
         }, pc.bodyOverrides);
         await repo.insertGpuPod({
           id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId ?? batch[0], gpuName: record.gpuDisplayName,
@@ -383,29 +384,41 @@ export async function adoptPod(podId: string): Promise<GpuState> {
     hand, so the job server comes up at boot without console edits. Env the
     pod already has is kept when RunPod returns it; the studio's keys win.
     With restart, a running pod is restarted so the change takes effect. */
-export async function applyBoot(podId: string, opts: { restart: boolean }): Promise<{ restarted: boolean; envKept: number }> {
+export async function applyBoot(podId: string, opts: { restart: boolean }): Promise<{ restarted: boolean; envKept: number; entrypointApplied: boolean }> {
   const client = pods();
   const raw = await client.getPodRaw(podId);
   if (!raw) throw new StudioError("not_found", `RunPod has no pod ${podId}`);
   const existing = raw.env && typeof raw.env === "object" && !Array.isArray(raw.env) ? (raw.env as Record<string, unknown>) : {};
   const kept: Record<string, string> = {};
   for (const [k, v] of Object.entries(existing)) if (typeof v === "string") kept[k] = v;
-  await client.updatePod(podId, { args: bootstrapCommandLine(), env: { ...kept, ...podEnv() } });
+  /* The image's ENTRYPOINT ignores a start command, so the boot script has
+     to become the entrypoint. RunPod's v2 PATCH may not accept that field;
+     then only args + env are set and the pod card says it must be rebuilt. */
+  let entrypointApplied = true;
+  try {
+    await client.updatePod(podId, { entrypoint: bootstrapCommand(), env: { ...kept, ...podEnv() } });
+  } catch (caught) {
+    const status = (caught as StudioError).details as { status?: number } | undefined;
+    if (status?.status !== 400 && status?.status !== 422) throw caught;
+    entrypointApplied = false;
+    await client.updatePod(podId, { args: bootstrapCommandLine(), env: { ...kept, ...podEnv() } });
+  }
   const status = String(raw.status ?? raw.desiredStatus ?? "").toUpperCase();
   const running = status === "RUNNING" || status === "STARTING";
   let restarted = false;
-  if (opts.restart && running) {
+  const caveat = entrypointApplied ? "" : " — RunPod refused to change the entrypoint, and this image ignores a start command: terminate this pod and press Start so the studio creates one with the boot script as entrypoint";
+  if (opts.restart && running && entrypointApplied) {
     await client.restartPod(podId);
     restarted = true;
     await repo.updateGpuPod(podId, { status: "starting", message: "boot command applied; restarting", startedAt: Date.now() });
   } else {
-    await repo.updateGpuPod(podId, { message: running ? "boot command applied; takes effect on the next restart" : "boot command applied" });
+    await repo.updateGpuPod(podId, { message: `${running ? "boot command applied; takes effect on the next restart" : "boot command applied"}${caveat}` });
   }
-  return { restarted, envKept: Object.keys(kept).length };
+  return { restarted, envKept: Object.keys(kept).length, entrypointApplied };
 }
 
 /** Web action: apply the boot command to the current pod and restart it. */
-export async function repairGpu(): Promise<GpuState & { repair: { restarted: boolean; envKept: number } }> {
+export async function repairGpu(): Promise<GpuState & { repair: { restarted: boolean; envKept: number; entrypointApplied: boolean } }> {
   const pod = await repo.currentGpuPod();
   if (!pod || pod.id.startsWith(UNAVAILABLE_PREFIX) || pod.status === "terminated") throw new StudioError("not_found", "no pod to repair");
   const repair = await applyBoot(pod.id, { restart: true });
@@ -413,7 +426,7 @@ export async function repairGpu(): Promise<GpuState & { repair: { restarted: boo
 }
 
 /** Everything to paste into the RunPod console when creating the pod by hand. */
-export function manualPodRecipe(): { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; gpuTypes: string[]; notes: string[] } {
+export function manualPodRecipe(): { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; entrypoint: string[]; gpuTypes: string[]; notes: string[] } {
   const pc = config.runpodPod();
   return {
     image: pc.image,
@@ -422,12 +435,14 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
     volumeMountPath: pc.volumeMountPath,
     env: podEnv(),
     dockerStartCmd: pc.bootstrap ? bootstrapCommandLine() : "(image default)",
+    entrypoint: pc.bootstrap ? bootstrapCommand() : [],
     gpuTypes: pc.gpuTypeIds,
     notes: [
       "Attach the model volume (minimax-h3-models) at the mount path. A global volume must NOT be mounted at /workspace: the image cannot build its Python env there.",
       "Expose the HTTP ports; the studio reaches the job server through RunPod's proxy on the first port.",
       "Paste the env vars exactly; STUDIO_BUNDLE_URL carries the worker token.",
-      "With RUNPOD_API=v2 the start command and env are applied by the studio when you adopt the pod; pasting them is only needed on v1.",
+      "runpod/comfyui has ENTRYPOINT /start.sh, which ignores a start command: the boot script must be the pod's entrypoint. Letting the studio create the pod (Start) sets it; by hand, the template needs an entrypoint override, which the console may not offer.",
+      "When you adopt the pod the studio tries to set the entrypoint and env itself; if RunPod refuses, the pod card says so and the pod has to be recreated by the studio.",
       "After the pod is created, paste its id into Settings → GPU pod → Adopt.",
     ],
   };

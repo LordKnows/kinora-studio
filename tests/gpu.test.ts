@@ -54,7 +54,8 @@ beforeAll(async () => {
       if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
       if (!body.gpu?.id || body.gpu.count !== 1) return json(422, { error: "gpu.id and gpu.count are required" });
       if (!body.mounts?.network?.[0]?.volumeId || !body.mounts.network[0].path) return json(422, { error: "mounts.network[].volumeId and path are required" });
-      if (typeof body.args !== "string") return json(422, { error: "args must be a string" });
+      if (body.args !== undefined && typeof body.args !== "string") return json(422, { error: "args must be a string" });
+      if (body.entrypoint !== undefined && !Array.isArray(body.entrypoint)) return json(422, { error: "entrypoint must be an array" });
       podCounter++;
       podsV2.set(`pod${podCounter}`, { env: body.env, args: body.args });
       return json(201, { id: `pod${podCounter}`, name: body.name, status: "RUNNING", cost: 2.5, gpu: { id: body.gpu.id, count: 1 }, dataCenterId: "EU-RO-1", mounts: body.mounts });
@@ -135,7 +136,7 @@ describe("pod mode", () => {
     expect(takes[0]!.requestId).toBeUndefined();
     const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url === "https://api.runpod.io/v2/pods");
     expect(creates).toHaveLength(1);
-    const create = creates[0]!.body as { gpu: { id: string; count: number }; ports: string[]; env: Record<string, string>; mounts: { network: Array<{ volumeId: string; path: string }> }; args: string; cloud: string; image: string; disk: number };
+    const create = creates[0]!.body as { gpu: { id: string; count: number }; ports: string[]; env: Record<string, string>; mounts: { network: Array<{ volumeId: string; path: string }> }; args?: string; entrypoint: string[]; cloud: string; image: string; disk: number };
     /* v2: one GPU per request; the first substring of the allow-list resolved to RunPod's exact id */
     expect(create.gpu).toEqual({ id: "NVIDIA H100 80GB HBM3", count: 1 });
     expect(create.image).toBe("me/comfy:1");
@@ -147,10 +148,11 @@ describe("pod mode", () => {
     /* the model volume as a network mount at the ComfyUI workspace */
     expect(create.mounts).toEqual({ network: [{ volumeId: "vol1", path: "/runpod-volume" }] });
     expect(create.env.STUDIO_VOLUME_PATH).toBe("/runpod-volume");
-    /* stock image: the pod bootstraps the job server from the studio; one shell-split string, single-quoted */
-    expect(create.args.startsWith("bash -lc '")).toBe(true);
-    expect(create.args).toContain("$STUDIO_BUNDLE_URL");
-    expect(create.args).toContain("start.sh");
+    /* stock image: the boot script replaces the image's ENTRYPOINT (which would swallow a start command) */
+    expect(create.args).toBeUndefined();
+    expect(create.entrypoint.slice(0, 2)).toEqual(["bash", "-lc"]);
+    expect(create.entrypoint[2]).toContain("$STUDIO_BUNDLE_URL");
+    expect(create.entrypoint[2]).toContain("start.sh");
     expect((await gpu.getGpuState()).pendingTakes).toBe(1);
 
     /* still booting: the sweep submits nothing */
@@ -198,8 +200,8 @@ describe("pod mode", () => {
     expect(adopted.pod!.adopted).toBe(true);
     expect(adopted.status).toBe("stopped");
     /* adoption puts the studio's boot command on the pod, keeping the env the pod already had */
-    const patch = calls.find((c) => c.method === "PATCH" && c.url.endsWith("/v2/pods/pod77"))!.body as { args: string; env: Record<string, string> };
-    expect(patch.args).toContain("$STUDIO_BUNDLE_URL");
+    const patch = calls.find((c) => c.method === "PATCH" && c.url.endsWith("/v2/pods/pod77"))!.body as { entrypoint: string[]; env: Record<string, string> };
+    expect(patch.entrypoint[2]).toContain("$STUDIO_BUNDLE_URL");
     expect(patch.env.JUPYTER_PASSWORD).toBe("jp");
     expect(patch.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(calls.some((c) => c.url.endsWith("/v2/pods/pod77/action") && (c.body as { action: string }).action === "restart")).toBe(false);

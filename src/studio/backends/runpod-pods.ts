@@ -38,13 +38,17 @@ export type CreatePodInput = {
   ports: string[];
   env: Record<string, string>;
   allowedCudaVersions?: string[];
-  /** Replaces the image's start command (RunPod: dockerStartCmd). */
+  /** Replaces the image's ENTRYPOINT (exec form). Needed for images such as
+      runpod/comfyui whose ENTRYPOINT ignores any start command passed as
+      arguments. v1: dockerEntrypoint; v2: entrypoint. */
+  dockerEntrypoint?: string[];
+  /** Replaces the image's CMD (v1: dockerStartCmd). Only useful when the image has no ENTRYPOINT. */
   dockerStartCmd?: string[];
   /** The same command as one shell-split string (v2 "args", console field). */
   dockerStartLine?: string;
 };
 
-export type PodPatch = { args?: string; env?: Record<string, string>; image?: string };
+export type PodPatch = { args?: string; entrypoint?: string[]; env?: Record<string, string>; image?: string };
 
 const NO_RESOURCE_PATTERNS = [/no longer any instances/i, /no instances available/i, /not enough.*resources/i, /unavailable/i, /no gpu/i, /out of stock/i, /capacity/i];
 
@@ -131,7 +135,8 @@ export class RunPodPodsClient {
       interruptible: false,
       ...(input.networkVolumeId ? { networkVolumeId: input.networkVolumeId } : {}),
       ...(input.allowedCudaVersions?.length ? { allowedCudaVersions: input.allowedCudaVersions } : {}),
-      ...(input.dockerStartCmd?.length ? { dockerStartCmd: input.dockerStartCmd } : {}),
+      ...(input.dockerEntrypoint?.length ? { dockerEntrypoint: input.dockerEntrypoint } : {}),
+      ...(input.dockerStartCmd?.length && !input.dockerEntrypoint?.length ? { dockerStartCmd: input.dockerStartCmd } : {}),
       ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
     };
     /* RUNPOD_POD_BODY_OVERRIDES: a JSON object merged last; null deletes a key.
@@ -165,7 +170,7 @@ export class RunPodPodsClient {
       disk: input.containerDiskInGb,
       ports: input.ports,
       env: input.env,
-      ...(input.dockerStartLine ? { args: input.dockerStartLine } : {}),
+      ...(input.dockerEntrypoint?.length ? { entrypoint: input.dockerEntrypoint } : input.dockerStartLine ? { args: input.dockerStartLine } : {}),
       ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
       ...(input.networkVolumeId ? { mounts: { network: [{ volumeId: input.networkVolumeId, path: input.volumeMountPath }] } } : {}),
     };
@@ -225,6 +230,7 @@ export class RunPodPodsClient {
     if (!this.v2()) throw new StudioError("backend_error", "editing a pod needs RUNPOD_API=v2");
     const body: Record<string, unknown> = {};
     if (patch.args !== undefined) body.args = patch.args;
+    if (patch.entrypoint !== undefined) body.entrypoint = patch.entrypoint;
     if (patch.env !== undefined) body.env = patch.env;
     if (patch.image !== undefined) body.image = patch.image;
     const answer = await this.callV2("PATCH", `/pods/${encodeURIComponent(id)}`, body);
