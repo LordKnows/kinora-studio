@@ -321,11 +321,11 @@ export async function podPlacements(): Promise<Array<{ dataCenterIds: string[]; 
 
 /** What RunPod shows this key: the volumes it can attach, with the one the
     studio is configured to use flagged. */
-export async function listVolumes(): Promise<{ configured: string | undefined; volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string; isConfigured: boolean }> }> {
+export async function listVolumes(): Promise<{ configured: string | undefined; volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string; isConfigured: boolean }>; raw: unknown }> {
   const pc = config.runpodPod();
   const configured = pc.volumes[0]?.volumeId ?? pc.networkVolumeId;
-  const volumes = (await pods().listNetworkVolumes()).map((v) => ({ id: v.id, name: v.name, size: v.size, dataCenterId: v.dataCenterId, isConfigured: v.id === configured }));
-  return { configured, volumes };
+  const { volumes, raw } = await pods().listNetworkVolumes();
+  return { configured, volumes: volumes.map((v) => ({ ...v, isConfigured: v.id === configured })), raw };
 }
 
 export function estimatedPodUsdPerHour(pod?: repo.GpuPod): number {

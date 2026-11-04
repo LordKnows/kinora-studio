@@ -152,24 +152,35 @@ export class RunPodPodsClient {
 
   /** REST first, GraphQL second, the built-in catalog last — a GPU listing
       must never stop a pod from being requested. `source` says which answered. */
-  /** Network volumes visible to this API key (REST first, GraphQL fallback). */
-  async listNetworkVolumes(): Promise<Array<{ id: string; name: string; size?: number; dataCenterId?: string; raw: unknown }>> {
+  /** Network volumes visible to this API key: REST and GraphQL are both
+      asked and merged, and the raw answers are returned for diagnosis. */
+  async listNetworkVolumes(): Promise<{ volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string }>; raw: { rest?: unknown; graphql?: unknown; errors: string[] } }> {
     const shape = (raw: unknown) => {
       const r = asRecord(raw);
-      return { id: str(r.id) ?? "", name: str(r.name) ?? "", size: num(r.size), dataCenterId: str(r.dataCenterId), raw };
+      return { id: str(r.id) ?? "", name: str(r.name) ?? "", size: num(r.size), dataCenterId: str(r.dataCenterId) };
     };
+    const found = new Map<string, ReturnType<typeof shape>>();
+    const raw: { rest?: unknown; graphql?: unknown; errors: string[] } = { errors: [] };
     try {
       const payload = await this.call("GET", "/networkvolumes");
-      const list = Array.isArray(payload) ? payload : Array.isArray((payload as { networkVolumes?: unknown })?.networkVolumes) ? (payload as { networkVolumes: unknown[] }).networkVolumes : [];
-      return list.map(shape);
-    } catch (restError) {
-      try {
-        const data = await this.graphql<{ myself: { networkVolumes: unknown[] } }>("{ myself { networkVolumes { id name size dataCenterId } } }");
-        return (data.myself?.networkVolumes ?? []).map(shape);
-      } catch (gqlError) {
-        throw new StudioError("backend_error", `could not list network volumes: ${restError instanceof Error ? restError.message : restError}; ${gqlError instanceof Error ? gqlError.message : gqlError}`);
+      raw.rest = payload;
+      const list = Array.isArray(payload) ? payload : [];
+      for (const key of ["networkVolumes", "volumes", "data", "items"]) {
+        const inner = (payload as Record<string, unknown> | null)?.[key];
+        if (Array.isArray(inner)) list.push(...inner);
       }
+      for (const v of list.map(shape)) if (v.id) found.set(v.id, v);
+    } catch (caught) {
+      raw.errors.push(`REST: ${caught instanceof Error ? caught.message : caught}`);
     }
+    try {
+      const data = await this.graphql<{ myself: { networkVolumes: unknown[] } }>("{ myself { networkVolumes { id name size dataCenterId } } }");
+      raw.graphql = data;
+      for (const v of (data.myself?.networkVolumes ?? []).map(shape)) if (v.id) found.set(v.id, v);
+    } catch (caught) {
+      raw.errors.push(`GraphQL: ${caught instanceof Error ? caught.message : caught}`);
+    }
+    return { volumes: [...found.values()], raw };
   }
 
   async listGpuTypes(): Promise<GpuType[]> {
