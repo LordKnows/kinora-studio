@@ -46,6 +46,19 @@ studio_volume:
 YAML
     export MODELS_DIR="$MODELS_SRC"
     export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
+    # The image's installer may replace the pre-made directory (and the
+    # symlink in it) while it copies ComfyUI in. Keep re-pointing models/ at
+    # the volume: ComfyUI re-reads a model folder whose mtime changed, so a
+    # late link is picked up without a restart.
+    (
+      while true; do
+        if [ -d "$SLIM_DIR" ] && [ ! -L "$SLIM_DIR/models" ]; then
+          if [ -d "$SLIM_DIR/models" ]; then mv "$SLIM_DIR/models" "$SLIM_DIR/models.local.$(date +%s)"; fi
+          ln -s "$MODELS_SRC" "$SLIM_DIR/models" && echo "[start] re-linked $SLIM_DIR/models -> $MODELS_SRC"
+        fi
+        sleep 10
+      done
+    ) &
   else
     echo "[start] the volume at $VOLUME_PATH has no models directory (looked for runpod-slim/ComfyUI/models, ComfyUI/models, models); set DOWNLOAD_MODELS=1 to fill it"
   fi
