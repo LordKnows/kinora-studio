@@ -188,10 +188,15 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
    不是默认的 `/workspace/ComfyUI/main.py`，在 Pod 环境变量里设 `COMFY_CMD`。
 2. **网络卷**：放 H3 权重，ID 填 `RUNPOD_NETWORK_VOLUME_ID`；`RUNPOD_DATACENTER_IDS`
    填卷所在的数据中心。
-3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填允许的 gpuTypeId（Settings → GPU pod → GPU
-   types 可查），Studio 只会在这些型号里起 Pod，按可用性自动挑。
-4. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
-   `mapping.json`。
+3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填型号名的子串，按优先级排列（默认
+   `RTX 5090,RTX PRO 6000,A100 80GB,A100-SXM4-80GB,H100 80GB,H100 PCIe,H200`），起 Pod 前
+   会解析成 RunPod 的精确 ID；Settings → GPU pod → GPU types 能看到哪些被匹配上。
+4. **多数据中心**：网络卷只能被同数据中心的 Pod 挂载，所以每个想用的数据中心各建一个放了
+   模型的卷，填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`（密钥）。起 Pod
+   时按顺序遍历数据中心（上次成功的优先），每个数据中心内 RunPod 在白名单 GPU 里按可用性挑，
+   全部失败才显示"暂时没资源"。只有一个卷时用 `RUNPOD_NETWORK_VOLUME_ID` + `RUNPOD_DATACENTER_IDS`。
+5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
+   `mapping.json`（已随交接文档放好）。
 
 Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，列为 TODO。
 

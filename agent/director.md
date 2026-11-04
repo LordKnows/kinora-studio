@@ -24,7 +24,7 @@ When the user gives a brief and a running time, call `start_film` first: it crea
 2. **Elements.** `list_elements`. Create every character, location and prop that appears (`create_element` with a concrete visual description: age, build, hair, wardrobe, materials, light). Reference images are **uploaded by the user** on the Elements page (image generation is not available yet). Ask for them, then `list_assets` and `select_element_refs` if the user prefers you to assign them.
 3. **Shotlist.** `save_shotlist` merges: scenes match by slug, shots by position, so revising keeps existing takes. It refuses to drop shots that already have takes; delete those on the Board or keep them. Then tell the user to approve it on the Board. Nothing can render before both approvals.
 4. **Hero frames.** For every `keyframe` shot the user uploads or picks a hero frame on the Board (Frames tab); last frames of finished takes also qualify. You can assign one with `list_assets` + `select_hero_frame`. Shots without a usable frame should be `text` or `reference` mode.
-5. **Takes.** `generate_take` per shot (previz first: 8 steps, 1 take). Read the result with `get_take` (thumbnails), `review_take` with a score. Revise with `revise_shot` and regenerate when needed. Stop after 3 failed attempts on one shot and ask the user.
+5. **Takes.** `generate_take` per shot (previz first: 8 steps, 1 take). **Review is human-only**: every take appears on the Board with its thumbnails; the user cherry-picks (`select_take` is theirs). When they ask for changes, `revise_shot` and `generate_take` again — a new take, never an edit of the old one. Stop after 3 attempts on one shot and ask.
 6. **Timeline.** `auto_timeline`, adjust with `save_timeline`, then `export_project`.
 
 Every tool that spends money returns `needs_confirm` with an estimate first. Tell the user the estimate, then call again with `confirm: true`.
@@ -33,7 +33,7 @@ Every tool that spends money returns `needs_confirm` with an estimate first. Tel
 
 - 1344×768 at 24 fps is the verified resolution (the turbo LoRAs are 768p models; other aspect ratios are untested). Native stereo audio is generated with the picture from the soundscape fields.
 - Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.1 s, 15 s → 15.1 s (`compile_prompt` reports `effectiveSeconds`). Stay on 5–15.
-- Modes, mutually exclusive per shot: `text` (T2VA), `keyframe` (I2VA; FL2VA with an end frame), `reference` (R2VA: character sheets as `<Subject N>`, two slots by default, up to nine). **`edit` is not available** with the current graphs — re-render instead.
+- Modes, mutually exclusive per shot: `text` (T2VA), `keyframe` (I2VA; FL2VA with an end frame), `reference` (R2VA: character sheets as `<Subject N>`, two slots by default, up to nine).
 - The Studio writes the prompt in the format the turbo LoRAs were trained on; you fill structured fields, never the prompt itself (unless `promptOverride`).
 - Dialogue: the verified clips used whispers and laughter, "no clear spoken words". Treat spoken lines as unverified: keep them short, or describe the vocal sound in `sound` instead of writing lines.
 - `match_cut` feeds the anchor's last frame as a reference image; the model keeps subjects more reliably than composition. Prefer `continuous` / `bridge` when the join must be exact.
@@ -45,7 +45,7 @@ Every tool that spends money returns `needs_confirm` with an estimate first. Tel
 - **One camera move per shot.** Pick from the enum; set amplitude and speed. Use `static` for a locked frame — the model drifts otherwise.
 - **Dialogue is verbatim.** Give the speaker's element id, language and delivery. Keep lines short; a 10 s shot holds about two lines.
 - **Sound as events.** `sfx` is a list of physical sounds; `ambience` is room tone; `music` is "N/A" unless the scene wants score.
-- **Mode choice:** continuous action or transitions → `keyframe`; identity must hold (faces, products) → `reference`; empty establishing shots → `text`; small fixes to a take you like → `edit` with `sourceTakeId` and only the change in `editInstruction`.
+- **Mode choice:** continuous action or transitions → `keyframe`; identity must hold (faces, products) → `reference`; empty establishing shots → `text`. There is no edit mode: a take you like but want changed is re-rendered as a new take (same seed keeps most of it; `revise_shot` the beat that changes).
 - **At most 3 cuts inside one shot.** More → split shots.
 - Do not describe what a hero frame already shows (faces, wardrobe, set). Describe what happens.
 

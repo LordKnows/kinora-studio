@@ -53,6 +53,12 @@ export const config = {
     gpuTypeIds: (env("RUNPOD_GPU_TYPES") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     networkVolumeId: env("RUNPOD_NETWORK_VOLUME_ID"),
     dataCenterIds: (env("RUNPOD_DATACENTER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    /** "DC:volumeId,DC:volumeId" — one model volume per data center; the pod
+        is tried in each in order. Falls back to networkVolumeId + dataCenterIds. */
+    volumes: (env("RUNPOD_NETWORK_VOLUMES") ?? "").split(",").map((s) => s.trim()).filter(Boolean).map((pair) => {
+      const i = pair.indexOf(":");
+      return i > 0 ? { dataCenterId: pair.slice(0, i).trim(), volumeId: pair.slice(i + 1).trim() } : { dataCenterId: "", volumeId: pair };
+    }),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
     containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "50"),
     volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/workspace",

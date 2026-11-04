@@ -10,7 +10,7 @@ import * as gpu from "@/studio/gpu";
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import {
-  ElementInput, ExportRequest, LookSettings, LoraInput, ProjectInput, ReviewInput, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput,
+  ElementInput, ExportRequest, LookSettings, LoraInput, ProjectInput, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -126,7 +126,6 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("list_takes", "All takes of a shot.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: await repo.listShotTakes(shotId) }));
   tool("cancel_take", "Cancel a queued or running take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));
   tool("retry_take", "Retry a failed or timed-out take (costs money; confirm).", z.object({ takeId: id, confirm: z.boolean().default(false) }), async ({ takeId, confirm }) => ({ take: await orch.retryTake(takeId, actor, confirm) }));
-  tool("review_take", "Score a take 1–5 with notes (recorded as an agent review).", z.object({ takeId: id }).extend(ReviewInput.shape), async ({ takeId, score, notes }) => ({ take: await orch.reviewTake(takeId, score, notes, actor) }));
   tool("select_take", "Mark a completed take as the shot's pick.", z.object({ shotId: id, takeId: id }), async ({ shotId, takeId }) => ({ shot: await orch.selectTake(shotId, takeId) }));
 
   tool("auto_timeline", "Build the timeline from the selected (or latest completed) take of every shot.", z.object({ projectId: id }), async ({ projectId }) => ({ timeline: await orch.autoTimeline(projectId) }));

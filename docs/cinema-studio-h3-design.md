@@ -1172,3 +1172,10 @@ Agent 连接
 MCP 以 `get_director_guide({section})`、resource 和 `direct_film` prompt 模板三种方式提供，
 `start_film` 在第一次调用时就把全部技能带入上下文。时间线才能做的事（叠化、J/L cut）在
 `TIMELINE_ONLY` 里列出，J/L cut 与淡入淡出仍是 TODO。
+
+## 附录 C. 决策记录（2026-11）
+
+- **edit 模式停用**：交接的 H3 图没有接视频输入，改动一个 take 的方式是改镜头后重新生成一个新 take，在 Board 里挑选。代码保留在 `H3_EDIT_MODE` 开关后。
+- **审片只由人做**：`review_take` 从 MCP 工具里移除，agent 只负责到分镜表和生成；评分、选 take 在网页上完成。
+- **粗剪预览在浏览器里做**：Timeline 页按顺序连播各 take 的 R2 文件（含入出点和 repeat），只做硬切；叠化、配乐、字幕要看导出文件。
+- **GPU × 数据中心**：白名单按子串匹配并按优先级排序；每个数据中心一个模型卷，起 Pod 时遍历。

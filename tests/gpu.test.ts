@@ -38,7 +38,7 @@ beforeAll(async () => {
   process.env.H3_PROMPT_FORMAT = "blocks";
   setDb(await memoryDb());
   Object.assign(process.env, {
-    RUNPOD_MODE: "pod", RUNPOD_API_KEY: "k", RUNPOD_WEBHOOK_SECRET: "s", RUNPOD_POD_IMAGE: "me/comfy:1", RUNPOD_GPU_TYPES: "NVIDIA H100 80GB HBM3,NVIDIA RTX PRO 6000",
+    RUNPOD_MODE: "pod", RUNPOD_API_KEY: "k", RUNPOD_WEBHOOK_SECRET: "s", RUNPOD_POD_IMAGE: "me/comfy:1", RUNPOD_GPU_TYPES: "H100 80GB,RTX PRO 6000",
     RUNPOD_NETWORK_VOLUME_ID: "vol1", STUDIO_WORKER_TOKEN: "tok", STUDIO_PUBLIC_URL: "https://studio.example", RUNPOD_IDLE_STOP_MINUTES: "15",
     R2_ACCOUNT_ID: "acc", R2_BUCKET: "studio", R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_PUBLIC_BASE_URL: "https://studio.example/media",
   });
@@ -57,7 +57,7 @@ beforeAll(async () => {
     if (url.endsWith("/start")) return scenario.startFails ? json(500, { error: "no GPU available for this pod" }) : json(200, { id: url.split("/")[5], desiredStatus: "RUNNING", costPerHr: 2.5 });
     if (url.endsWith("/stop")) return json(200, { id: "x", desiredStatus: "EXITED" });
     if (method === "DELETE") return json(200, {});
-    if (url.endsWith("/gputypes")) return json(200, [{ id: "NVIDIA H100 80GB HBM3", displayName: "H100 80GB", memoryInGb: 80, securePrice: 2.99 }, { id: "NVIDIA RTX 4090", displayName: "RTX 4090", memoryInGb: 24 }]);
+    if (url.endsWith("/gputypes")) return json(200, [{ id: "NVIDIA H100 80GB HBM3", displayName: "H100 80GB", memoryInGb: 80, securePrice: 2.99 }, { id: "NVIDIA RTX 4090", displayName: "RTX 4090", memoryInGb: 24 }, { id: "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", displayName: "RTX PRO 6000", memoryInGb: 96 }]);
     /* the pod's job server through the proxy */
     if (url.includes(".proxy.runpod.net")) {
       if (!scenario.healthy) return new Response("bad gateway", { status: 502 });
@@ -105,7 +105,8 @@ describe("pod mode", () => {
     expect(takes[0]!.status).toBe("queued");
     expect(takes[0]!.requestId).toBeUndefined();
     const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/pods"))!.body as { gpuTypeIds: string[]; ports: string[]; env: Record<string, string>; networkVolumeId: string };
-    expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000"]);
+    /* substrings resolved to RunPod's exact ids, allow-list order kept */
+    expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.networkVolumeId).toBe("vol1");
@@ -149,8 +150,22 @@ describe("pod mode", () => {
 
   it("lists GPU types flagged by the allow-list", async () => {
     const types = await gpu.listGpuTypes();
-    expect(types[0]).toMatchObject({ id: "NVIDIA H100 80GB HBM3", allowed: true });
+    expect(types.find((t) => t.id === "NVIDIA H100 80GB HBM3")?.allowed).toBe(true);
     expect(types.find((t) => t.id === "NVIDIA RTX 4090")?.allowed).toBe(false);
+  });
+
+  it("walks one placement per model volume and reports 暂时没资源 only after all fail", async () => {
+    process.env.RUNPOD_NETWORK_VOLUMES = "EU-RO-1:vol_eu,US-TX-3:vol_us";
+    await gpu.terminateGpu();
+    scenario.createMode = "nores";
+    const before = calls.length;
+    const state = await gpu.startGpu(web, true);
+    expect(state.status).toBe("unavailable");
+    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).map((c) => c.body as { dataCenterIds: string[]; networkVolumeId: string });
+    expect(creates.map((c) => c.networkVolumeId)).toEqual(["vol_eu", "vol_us"]);
+    expect(creates.map((c) => c.dataCenterIds)).toEqual([["EU-RO-1"], ["US-TX-3"]]);
+    scenario.createMode = "ok";
+    delete process.env.RUNPOD_NETWORK_VOLUMES;
   });
 });
 
@@ -189,7 +204,7 @@ describe("gpu stats and loras", () => {
     expect(compiled.estimate.source).toBe("measured");
 
     process.env.RUNPOD_GPU_PRIORITY = "cost";
-    expect(await gpu.prioritizedGpuTypes()).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000"]);
+    expect(await gpu.prioritizedGpuTypes()).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     process.env.RUNPOD_GPU_PRIORITY = "availability";
   });
 

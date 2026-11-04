@@ -148,34 +148,50 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
     }
   }
 
-  try {
-    const record = await client.createPod({
-      name: pc.podName,
-      imageName: pc.image,
-      gpuTypeIds: await prioritizedGpuTypes(),
-      cloudType: pc.cloudType,
-      containerDiskInGb: pc.containerDiskGb,
-      volumeMountPath: pc.volumeMountPath,
-      networkVolumeId: pc.networkVolumeId,
-      dataCenterIds: pc.dataCenterIds,
-      ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
-      env: podEnv(),
-      allowedCudaVersions: pc.cudaVersions,
-    });
-    await repo.insertGpuPod({
-      id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName, dataCenter: record.dataCenterId,
-      status: "starting", message: "created; pulling the image and loading models", costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
-    });
-    await repo.updateGpuPod(record.id, { startedAt: Date.now() });
-  } catch (caught) {
-    const message = caught instanceof Error ? caught.message : String(caught);
-    const noResources = caught instanceof StudioError && Boolean((caught.details as { noResources?: boolean } | undefined)?.noResources);
-    await repo.insertGpuPod({
-      id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable",
-      message: noResources ? `暂时没资源 — none of [${pc.gpuTypeIds.join(", ")}] has capacity right now (${message})` : `pod creation failed: ${message}`,
-    });
-    if (!noResources) throw caught;
+  /* GPU types × placements: RunPod tries every allowed GPU inside one call;
+     we walk the placements (one model volume per data center) ourselves. */
+  const gpuTypeIds = await prioritizedGpuTypes();
+  if (gpuTypeIds.length === 0) {
+    await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `none of RUNPOD_GPU_TYPES [${pc.gpuTypeIds.join(", ")}] matches a RunPod GPU type` });
+    return getGpuState();
   }
+  const attempts: string[] = [];
+  for (const placement of await podPlacements()) {
+    try {
+      const record = await client.createPod({
+        name: pc.podName,
+        imageName: pc.image,
+        gpuTypeIds,
+        cloudType: pc.cloudType,
+        containerDiskInGb: pc.containerDiskGb,
+        volumeMountPath: pc.volumeMountPath,
+        networkVolumeId: placement.networkVolumeId,
+        dataCenterIds: placement.dataCenterIds,
+        ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
+        env: podEnv(),
+        allowedCudaVersions: pc.cudaVersions,
+      });
+      await repo.insertGpuPod({
+        id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName,
+        dataCenter: record.dataCenterId ?? placement.dataCenterIds[0],
+        status: "starting", message: "created; pulling the image and loading models", costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
+      });
+      await repo.updateGpuPod(record.id, { startedAt: Date.now() });
+      return getGpuState();
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      const noResources = caught instanceof StudioError && Boolean((caught.details as { noResources?: boolean } | undefined)?.noResources);
+      attempts.push(`${placement.dataCenterIds.join("/") || "any"}: ${message}`);
+      if (!noResources) {
+        await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `pod creation failed: ${message}` });
+        throw caught;
+      }
+    }
+  }
+  await repo.insertGpuPod({
+    id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable",
+    message: `暂时没资源 — none of [${gpuTypeIds.join(", ")}] has capacity in any placement right now (${attempts.join(" | ")})`,
+  });
   return getGpuState();
 }
 
@@ -227,8 +243,8 @@ export async function autoStopIfIdle(hasWork: boolean): Promise<boolean> {
 }
 
 export async function listGpuTypes(): Promise<Array<GpuType & { allowed: boolean }>> {
-  const allowed = new Set(config.runpodPod().gpuTypeIds);
   const types = await pods().listGpuTypes();
+  const allowed = new Set(await resolveGpuTypeIds(config.runpodPod().gpuTypeIds, types));
   return types.map((t) => ({ ...t, allowed: allowed.has(t.id) })).sort((a, b) => Number(b.allowed) - Number(a.allowed) || a.displayName.localeCompare(b.displayName));
 }
 
@@ -248,14 +264,41 @@ export async function measuredForEstimate(): Promise<{ secondsPerOutputSecond?: 
   return { secondsPerOutputSecond: pick.secondsPerOutputSecond || undefined, usdPerHr: pod?.costPerHr ?? pick.usdPerHr, gpuTypeId: pick.gpuTypeId };
 }
 
+/** RUNPOD_GPU_TYPES entries are matched case-insensitively as substrings of
+    RunPod's gpuTypeIds ("RTX 5090" → "NVIDIA GeForce RTX 5090"), so the
+    allow-list survives RunPod's naming. Exact ids pass through. Order = priority. */
+export async function resolveGpuTypeIds(patterns: string[], known?: Array<{ id: string }>): Promise<string[]> {
+  const types = known ?? (await pods().listGpuTypes());
+  const out: string[] = [];
+  for (const pattern of patterns) {
+    const needle = pattern.toLowerCase();
+    const exact = types.find((t) => t.id === pattern);
+    const matches = exact ? [exact] : types.filter((t) => t.id.toLowerCase().includes(needle));
+    for (const m of matches) if (!out.includes(m.id)) out.push(m.id);
+  }
+  return out;
+}
+
 /** The allow-list in the order a pod should try it. RUNPOD_GPU_PRIORITY=cost
     sorts by measured USD per second of video (unknown types last); otherwise
     the configured order stands and RunPod picks by availability. */
-export async function prioritizedGpuTypes(): Promise<string[]> {
-  const ids = config.runpodPod().gpuTypeIds;
+export async function prioritizedGpuTypes(known?: Array<{ id: string }>): Promise<string[]> {
+  const ids = await resolveGpuTypeIds(config.runpodPod().gpuTypeIds, known);
   if ((process.env.RUNPOD_GPU_PRIORITY ?? "availability") !== "cost") return ids;
   const stats = new Map((await repo.gpuTypeStats()).map((s) => [s.gpuTypeId, s.usdPerVideoSecond ?? Infinity]));
   return [...ids].sort((a, b) => (stats.get(a) ?? Infinity) - (stats.get(b) ?? Infinity));
+}
+
+/** Where a pod may live: one entry per model volume (each volume pins its
+    data center). The data center of the last pod goes first. */
+export async function podPlacements(): Promise<Array<{ dataCenterIds: string[]; networkVolumeId?: string }>> {
+  const pc = config.runpodPod();
+  const list = pc.volumes.length
+    ? pc.volumes.map((v) => ({ dataCenterIds: v.dataCenterId ? [v.dataCenterId] : [], networkVolumeId: v.volumeId }))
+    : [{ dataCenterIds: pc.dataCenterIds, networkVolumeId: pc.networkVolumeId }];
+  const last = (await repo.listGpuPods(5)).find((p) => p.dataCenter)?.dataCenter;
+  if (last) list.sort((a, b) => Number(b.dataCenterIds.includes(last)) - Number(a.dataCenterIds.includes(last)));
+  return list;
 }
 
 export function estimatedPodUsdPerHour(pod?: repo.GpuPod): number {

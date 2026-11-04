@@ -7,6 +7,7 @@ import type { ExportJob } from "@/studio/types";
 
 import { get, post, put, usd, when } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton } from "./common";
+import { RoughCut } from "./rough-cut";
 import { useProjectContext } from "./shell";
 
 const PRESETS = ["master-768p", "master-upscaled", "social-9x16", "preview-480p"] as const;
@@ -149,6 +150,10 @@ export function TimelinePage() {
           })}
         </div>
       )}
+
+      <Section title="Rough cut preview">
+        <RoughCut timeline={timeline} view={view} />
+      </Section>
 
       <div className="st-split" style={{ marginTop: 24 }}>
         <div className="st-card st-stack">

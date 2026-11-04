@@ -115,7 +115,7 @@ export type Cinematography = z.infer<typeof Cinematography>;
 export const ShotBase = z.object({
     durationS: z.number().int().min(5).max(15).describe("5–15 seconds; chain shots for longer takes"),
     mode: z.enum(SHOT_MODES).describe(
-      "text: prompt only. keyframe: hero frame (+ optional end frame) drives it. reference: element refs lock identity (max 3 images). edit: revise an existing take.",
+      "text: prompt only. keyframe: hero frame (+ optional end frame) drives it. reference: element refs lock identity (max 3 images). (edit is disabled with the current H3 graphs — re-render the shot instead.)",
     ),
     intent: z.string().min(5).max(300).describe("One sentence: what this shot is for"),
     beats: z.array(Beat).min(1).max(6),
