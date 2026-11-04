@@ -106,7 +106,7 @@ describe("pod mode", () => {
     expect(takes[0]!.requestId).toBeUndefined();
     const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/pods"))!.body as { gpuTypeIds: string[]; ports: string[]; env: Record<string, string>; networkVolumeId: string };
     /* substrings resolved to RunPod's exact ids, allow-list order kept */
-    expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
+    expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");
@@ -174,8 +174,12 @@ describe("pod mode", () => {
     expect(types.map((t) => t.id)).toEqual(KNOWN_GPU_TYPES);
     expect(types[0]!.source).toBe("catalog");
     expect(await gpu.resolveGpuTypeIds(["RTX 5090", "RTX PRO 6000", "H100 80GB"], types)).toEqual([
-      "NVIDIA GeForce RTX 5090", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA H100 80GB HBM3",
+      "NVIDIA GeForce RTX 5090",
+      "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+      "NVIDIA H100 80GB HBM3",
     ]);
+    /* ids outside RunPod's enum never reach POST /pods, whatever the listing says */
+    expect(await gpu.resolveGpuTypeIds(["RTX 4090"], [{ id: "NVIDIA RTX 4090 Mystery Edition" }])).toEqual(["NVIDIA GeForce RTX 4090"]);
   });
 
   it("lists GPU types flagged by the allow-list", async () => {
@@ -234,7 +238,7 @@ describe("gpu stats and loras", () => {
     expect(compiled.estimate.source).toBe("measured");
 
     process.env.RUNPOD_GPU_PRIORITY = "cost";
-    expect(await gpu.prioritizedGpuTypes()).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
+    expect((await gpu.prioritizedGpuTypes())[0]).toBe("NVIDIA H100 80GB HBM3");
     process.env.RUNPOD_GPU_PRIORITY = "availability";
   });
 

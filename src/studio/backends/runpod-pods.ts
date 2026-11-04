@@ -180,24 +180,57 @@ function mapGpuType(raw: unknown): GpuType {
   };
 }
 
-/* RunPod gpuTypeIds as of 2026 (best knowledge; the live listing is preferred). */
+/* The gpuTypeIds RunPod's POST /pods accepts (its own schema enum, copied from
+   the 400 it returns otherwise). The allow-list resolves against this; the
+   live listing only decorates it with prices. */
 export const KNOWN_GPU_TYPES = [
-  "NVIDIA GeForce RTX 5090",
-  "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
-  "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "AMD Instinct MI300X OAM",
   "NVIDIA A100 80GB PCIe",
+  "NVIDIA A100-SXM4-40GB",
   "NVIDIA A100-SXM4-80GB",
-  "NVIDIA H100 80GB HBM3",
-  "NVIDIA H100 PCIe",
-  "NVIDIA H100 NVL",
-  "NVIDIA H200",
-  "NVIDIA B200",
-  "NVIDIA L40S",
-  "NVIDIA RTX 6000 Ada Generation",
-  "NVIDIA RTX A6000",
-  "NVIDIA GeForce RTX 4090",
   "NVIDIA A40",
+  "NVIDIA B200",
+  "NVIDIA B300 SXM6 AC",
+  "NVIDIA B300 SXM6 AC MIG 1g.34gb",
+  "NVIDIA GeForce RTX 3070",
+  "NVIDIA GeForce RTX 3080",
+  "NVIDIA GeForce RTX 3080 Ti",
+  "NVIDIA GeForce RTX 3090",
+  "NVIDIA GeForce RTX 3090 Ti",
+  "NVIDIA GeForce RTX 4070 Ti",
+  "NVIDIA GeForce RTX 4080",
+  "NVIDIA GeForce RTX 4080 SUPER",
+  "NVIDIA GeForce RTX 4090",
+  "NVIDIA GeForce RTX 5080",
+  "NVIDIA GeForce RTX 5090",
+  "NVIDIA H100 80GB HBM3",
+  "NVIDIA H100 NVL",
+  "NVIDIA H100 PCIe",
+  "NVIDIA H200",
+  "NVIDIA H200 NVL",
+  "NVIDIA L4",
+  "NVIDIA L40",
+  "NVIDIA L40S",
+  "NVIDIA RTX 2000 Ada Generation",
+  "NVIDIA RTX 4000 Ada Generation",
+  "NVIDIA RTX 4000 SFF Ada Generation",
+  "NVIDIA RTX 5000 Ada Generation",
+  "NVIDIA RTX 6000 Ada Generation",
+  "NVIDIA RTX A2000",
+  "NVIDIA RTX A4000",
+  "NVIDIA RTX A4500",
+  "NVIDIA RTX A5000",
+  "NVIDIA RTX A6000",
+  "NVIDIA RTX PRO 4000 Blackwell",
+  "NVIDIA RTX PRO 4500 Blackwell",
+  "NVIDIA RTX PRO 5000 Blackwell",
+  "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+  "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+  "Tesla V100-PCIE-16GB",
+  "Tesla V100-SXM2-16GB",
 ];
+export const KNOWN_GPU_TYPE_SET = new Set(KNOWN_GPU_TYPES);
 
 export function mapPod(payload: unknown): PodRecord {
   const r = asRecord(payload);

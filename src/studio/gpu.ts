@@ -3,7 +3,7 @@ import { config } from "./config";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { PodBackend } from "./backends/pod";
-import { RunPodPodsClient, podProxyUrl, type GpuType } from "./backends/runpod-pods";
+import { KNOWN_GPU_TYPES, KNOWN_GPU_TYPE_SET, RunPodPodsClient, podProxyUrl, type GpuType } from "./backends/runpod-pods";
 import type { Actor, GpuTypeStats } from "./types";
 
 /* Pod mode: the studio owns one RunPod pod. It is created on the first
@@ -282,16 +282,17 @@ export async function measuredForEstimate(): Promise<{ secondsPerOutputSecond?: 
 }
 
 /** RUNPOD_GPU_TYPES entries are matched case-insensitively as substrings of
-    RunPod's gpuTypeIds ("RTX 5090" → "NVIDIA GeForce RTX 5090"), so the
-    allow-list survives RunPod's naming. Exact ids pass through. Order = priority. */
+    the gpuTypeIds POST /pods accepts ("RTX 5090" → "NVIDIA GeForce RTX 5090"),
+    so the allow-list survives RunPod's naming. Exact ids pass through. Only
+    ids in RunPod's enum are ever sent. Order = priority. */
 export async function resolveGpuTypeIds(patterns: string[], known?: Array<{ id: string }>): Promise<string[]> {
-  const types = known ?? (await pods().listGpuTypes());
+  const universe = [...KNOWN_GPU_TYPES, ...(known ?? []).map((t) => t.id).filter((id) => KNOWN_GPU_TYPE_SET.has(id))];
+  const ids = [...new Set(universe)];
   const out: string[] = [];
   for (const pattern of patterns) {
     const needle = pattern.toLowerCase();
-    const exact = types.find((t) => t.id === pattern);
-    const matches = exact ? [exact] : types.filter((t) => t.id.toLowerCase().includes(needle));
-    for (const m of matches) if (!out.includes(m.id)) out.push(m.id);
+    const matches = ids.includes(pattern) ? [pattern] : ids.filter((id) => id.toLowerCase().includes(needle));
+    for (const m of matches) if (!out.includes(m)) out.push(m);
   }
   return out;
 }
