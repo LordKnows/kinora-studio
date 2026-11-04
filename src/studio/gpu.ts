@@ -64,15 +64,30 @@ function podEnv(): Record<string, string> {
    Jupyter) and then pulls the studio job server from the Studio and runs it.
    Idempotent across restarts; everything lands under /app/h3-runpod. */
 export function bootstrapCommand(): string[] {
+  /* No quote characters inside the script: the RunPod console takes the
+     command as one string and splits it shell-style, so the script is wrapped
+     in single quotes there and must not contain any. Every failure is logged
+     and followed by a long sleep so the pod's container log shows the reason
+     instead of a bare restart loop. */
   const script = [
-    "set -e",
-    "mkdir -p /app && cd /app",
-    'curl -fsSL -A "Mozilla/5.0 CinemaStudio" "$STUDIO_BUNDLE_URL" | tar xz',
+    "mkdir -p /app",
+    "cd /app",
+    "command -v curl >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl >/dev/null 2>&1) || true",
+    "for i in 1 2 3 4 5 6; do echo [studio] fetching job server, attempt $i; if curl -fsSL -A Mozilla/5.0 -o /app/bundle.tgz $STUDIO_BUNDLE_URL; then break; fi; sleep 10; done",
+    "if ! test -s /app/bundle.tgz; then echo [studio] cannot fetch the job server from $STUDIO_BUNDLE_URL - is /api/pod/ in the Access bypass list and STUDIO_WORKER_TOKEN the same as in the Studio; sleep 600; exit 1; fi",
+    "tar xzf /app/bundle.tgz || (echo [studio] bundle is not a tarball; head -c 300 /app/bundle.tgz; sleep 600; exit 1)",
     "python3 -m pip install -q requests boto3 >/dev/null 2>&1 || true",
     "command -v ffmpeg >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null 2>&1) || true",
-    "exec bash /app/h3-runpod/start.sh",
-  ].join(" && ");
+    "echo [studio] starting ComfyUI and the job server",
+    "bash /app/h3-runpod/start.sh",
+    "echo [studio] job server exited with status $?; sleep 600; exit 1",
+  ].join("; ");
   return ["bash", "-lc", script];
+}
+
+/** The same command as one line for the RunPod console (single-quoted). */
+export function bootstrapCommandLine(): string {
+  return bootstrapCommand().map((p) => (p.includes(" ") ? `'${p}'` : p)).join(" ");
 }
 
 export async function getGpuState(): Promise<GpuState> {
@@ -355,7 +370,7 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
     containerDiskGb: pc.containerDiskGb,
     volumeMountPath: pc.volumeMountPath,
     env: podEnv(),
-    dockerStartCmd: pc.bootstrap ? bootstrapCommand().map((p) => (p.includes(" ") ? JSON.stringify(p) : p)).join(" ") : "(image default)",
+    dockerStartCmd: pc.bootstrap ? bootstrapCommandLine() : "(image default)",
     gpuTypes: pc.gpuTypeIds,
     notes: [
       "Attach the global volume (minimax-h3-models) at the mount path.",

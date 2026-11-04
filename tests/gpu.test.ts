@@ -175,6 +175,8 @@ describe("pod mode", () => {
     expect(recipe.ports).toContain("8000/http");
     expect(recipe.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(recipe.env.STUDIO_BUNDLE_URL).toContain("/api/pod/bundle?token=tok");
+    expect(recipe.dockerStartCmd.startsWith("bash -lc '")).toBe(true);
+    expect(gpu.bootstrapCommand()[2]).not.toMatch(/['"]/);
   });
 
   it("falls back to GraphQL, then the built-in catalog, when the REST listing fails", async () => {
