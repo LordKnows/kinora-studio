@@ -6,7 +6,8 @@
 > 生成引擎统一换成 **自托管在 RunPod 上的 MiniMax H3 开源权重**，
 > 编排 agent 使用订阅版 Grok 与 Claude（不走 API）。
 >
-> 状态：设计稿 v2（v1 以 Higgsfield 托管 H3 为后端，v2 改为 RunPod 自托管）。
+> 状态：设计稿 v3（v1 以 Higgsfield 托管 H3 为后端；v2 改为 RunPod 自托管；
+> v3 确定部署目标为 Cloudflare Workers + R2，并补充前端分工、MCP 指南投递、服务器加固）。
 > 标注「待验证」的条目来自二手资料，实施前需对照官方文档或实测确认。
 
 ---
@@ -30,7 +31,8 @@
 │   Orchestrator（任务队列 + 服务端轮询 + 重试 + 预算）                     │
 │   Assembler（ffmpeg 拼接 / 混音 / 字幕 / 导出预设）                      │
 │   ──────────────────────────────────────────────────────────────────  │
-│   Postgres（项目 / 元素 / 镜头 / 任务）   Vercel Blob / S3（素材 / 成片）  │
+│   运行在 Cloudflare Workers（OpenNext）；Postgres（Neon 经 Hyperdrive）  │
+│   R2（所有素材 / 中间结果 / 成片）；Cron Triggers 做轮询兜底              │
 └──────────┬───────────────────────────────────────┬────────────────────┘
            │ GenerationBackend 接口                 │
            ▼                                       ▼
@@ -92,6 +94,9 @@
 - 单镜头生成 1–5 分钟，整片生成要能跑几十分钟，**不能依赖浏览器标签页存活**。
 - 成本可见：按秒计费，每次生成前显示预估，项目有预算上限。
 - 单用户 / 小团队自托管优先，不做多租户。
+- 部署目标：**Cloudflare**（Workers 跑应用、R2 存文件），GPU 在 RunPod，ffmpeg 在 RunPod CPU
+  worker 或 Cloudflare Containers。本地只做开发，不做生产，因为 MCP 连接器和 RunPod webhook
+  都需要公网 HTTPS。
 
 ---
 
@@ -262,14 +267,14 @@ type Timeline = { clips: { shotId: string; takeId: string; inS: number; outS: nu
 
 ### 3.2 存储选择
 
-- **Postgres**（Vercel Postgres / Neon / 自托管均可）：以上全部实体。现有的
+- **Postgres**（Neon，经 Cloudflare Hyperdrive 连接；或改用 D1）：以上全部实体。现有的
   IndexedDB 历史只保留为"个人画廊"的兼容路径，项目数据不进浏览器。
-- **Vercel Blob**（沿用）：上传素材、hero frame、Higgsfield 图像模型产物的镜像副本。
-- **S3 兼容桶**（新增，如 Cloudflare R2 / Backblaze B2）：RunPod worker 直接把生成的
-  视频写进这个桶，Studio 只拿 URL。原因：RunPod 的结果只保留 30 分钟，base64 回传又太大。
-  R2 / B2 与 RunPod 之间的出口流量费也比 Vercel Blob 便宜。
-- 任务队列：起步用 Postgres 表 + 一个 worker 轮询（Vercel Cron 或常驻进程）；
-  规模上去再换 Redis / Upstash QStash。
+- **Cloudflare R2**（唯一的文件存储，替代 Vercel Blob）：上传素材、角色图、hero frame、
+  每个 take 的视频、末帧、缩略帧、成片全部在这里。RunPod worker 用 S3 SDK 直传 R2，
+  Studio 只拿 URL。原因：Workers 没有磁盘；RunPod 的结果只保留 30 分钟；R2 没有出口流量费。
+  布局与成本见 §4.8。
+- 任务队列：Postgres 表 + Cloudflare Cron Triggers（每分钟）或 Durable Object alarm 驱动；
+  主路径仍是 RunPod webhook，队列只做兜底和并发控制。
 
 ---
 
@@ -287,6 +292,21 @@ type Timeline = { clips: { shotId: string; takeId: string; inS: number; outS: nu
   卡片内是镜头编辑器（beats / camera / dialogue / sound / refs）+ "编译 prompt"预览 + "生成 take"
 - `/p/[id]/timeline` 时间线：拖排顺序、选 take、转场、混音、导出
 - 现有的单发 composer 保留为 `/playground`，继续用现有 catalog
+
+**前端与聊天客户端的分工。** 前端不能省：挑 hero frame、确认角色图、并排比较 take、
+剪时间线，这些必须看图看视频才能做决定，聊天窗口做不了。Supercomputer 也没有取代
+Cinema Studio 的界面，只是把每一步派发到对应工作区。
+
+| 在聊天客户端里做（Grok / Claude 经 MCP） | 在 Web 前端里做 |
+|---|---|
+| 从一句话需求写剧本 | 看分镜表、改单个镜头字段 |
+| 拆镜头、写 beats / camera / dialogue | 选 hero frame、确认角色图 |
+| 决定每个镜头的模式 | 对比 take、打分、选定 |
+| 触发生成、读缩略帧做初审 | 时间线、导出 |
+| 回答预算、进度类问题 | Look 表单、RunPod / R2 配置页、测试连接 |
+
+两边操作同一份数据库。最小可用版本只需要**分镜表**（含镜头编辑、hero frame 选择、take 对比）
+和**时间线**两个页面；项目创建、Look、元素库第一版可以只经 MCP 工具操作，页面只读。
 
 ### 4.2 Prompt Compiler（确定性，无 LLM）
 
@@ -449,11 +469,11 @@ Take 创建 ──► 队列(Postgres) ──► 预算检查 ──► backend.
 RUNPOD_API_KEY=
 RUNPOD_ENDPOINT_ID=
 RUNPOD_WEBHOOK_SECRET=        # 签 webhook URL 的 HMAC 密钥
-TAKES_S3_ENDPOINT=            # R2 / B2 的 S3 端点
-TAKES_S3_BUCKET=
-TAKES_S3_ACCESS_KEY=
-TAKES_S3_SECRET_KEY=
-TAKES_PUBLIC_BASE_URL=        # 桶的公开读地址或 CDN
+R2_ACCOUNT_ID=
+R2_BUCKET=                    # 单桶，按前缀分项目
+R2_ACCESS_KEY_ID=             # 给 RunPod worker 的 S3 凭证（只授予该桶的写权限）
+R2_SECRET_ACCESS_KEY=
+R2_PUBLIC_BASE_URL=           # 桶绑定的自定义域名
 ```
 
 **成本模型**（P0 实测后填数）：
@@ -468,6 +488,94 @@ TAKES_PUBLIC_BASE_URL=        # 桶的公开读地址或 CDN
 **在没有实测 T 之前不要下结论**。
 
 ---
+
+### 4.7 部署：Cloudflare Workers
+
+**解决了什么。** 绑定自定义域名后自动 HTTPS，MCP 端点和 RunPod webhook 都有了公网地址，
+不需要隧道。R2 与 Workers 同账号，零出口流量费。
+
+**没有自动解决什么：OAuth。** Claude / Grok 的自定义连接器要求 MCP 服务器自己充当
+OAuth 2.1 授权服务器（元数据端点、动态客户端注册、授权码 + PKCE、签发 token）。
+用 Cloudflare 官方的 `workers-oauth-provider` 库和"远程 MCP 服务器"模板实现，
+登录方式接 GitHub 或 Google，单用户场景配置量很小。Claude 也接受无鉴权的 MCP 服务器，
+但那等于把 GPU 账单暴露给拿到 URL 的任何人，**不采用**。
+
+**Next.js 在 Workers 上的限制与对策：**
+
+| 限制 | 对策 |
+|---|---|
+| 必须经 OpenNext 适配器；Pages 对 Next 的支持已让位于 Workers | 用 `@opennextjs/cloudflare` 构建，CI 里跑一次 `preview` 验证 server actions 可用 |
+| 没有原生二进制，ffmpeg 不能跑 | Assembler 和末帧 / 缩略帧抽取放到 **RunPod CPU serverless worker**（和 H3 worker 同一套调用方式），或 Cloudflare Containers |
+| 没有常驻进程，不能起 15 s 轮询循环 | **Cron Triggers**（每分钟）扫 running 的 take 调 `/status`；需要更细粒度时用 Durable Object alarm |
+| 请求有 CPU 时间上限 | 所有重活都是"发请求 + 等 webhook"，Worker 本身只做调度 |
+| 数据库连接 | Neon Postgres 经 **Hyperdrive**（连接池 + 就近缓存），或直接用 D1 |
+
+**服务器部署相对本地必须补的加固**（本地可以偷懒、公网不能）：
+
+1. **网页登录。** 现有 `/api/blob` 是公开上传（README 自认）。至少单用户密码，或在前面套 Cloudflare Access。MCP 的 OAuth 只保护 agent 入口，不保护网页。
+2. **凭证只在服务端。** 现有仓库把 Higgsfield key 存用户 cookie，单人自用的服务器直接放 Workers secrets；RunPod key 和 R2 key 绝不进浏览器。
+3. **预算与限流从"建议"变"必须"。** 项目预算上限、每小时生成次数上限、花钱工具二次确认。
+4. **上传改为预签名直传 R2。** 浏览器拿短期签名 URL 直接传桶，Worker 不中转文件。
+5. **备份与审计。** Neon 定期备份；每个 take 的请求体、RunPod job id、`executionTime` 落库。
+
+流程顺序、角色分工、数据模型与本地部署完全一致。
+
+### 4.8 R2 存储布局、容量与成本
+
+**布局**（单桶，按前缀分项目，便于生命周期规则和整项目删除）：
+
+```
+r2://studio/
+  uploads/{deviceOrUser}/{assetId}.{ext}          浏览器预签名直传
+  projects/{projectId}/
+    elements/{elementId}/{assetId}.png             角色 / 场景 / 道具参考图（Higgsfield 产物回拉）
+    shots/{shotId}/
+      hero/{assetId}.png                           hero frame 候选（只保留被选中的）
+      takes/{takeId}.mp4                           RunPod worker 直传
+      takes/{takeId}.last.png                      末帧（供下一镜头首帧）
+      takes/{takeId}.thumbs/{n}.jpg                缩略帧（供 agent 审核）
+    exports/{jobId}.{preset}.mp4                   成片
+```
+
+**数据流**：RunPod 算 → R2 存 → Postgres 记账 → Workers 只做调度和展示，不碰文件内容。
+Higgsfield 图像模型的产物由 Worker 拿到 CDN URL 后立即回拉写入 R2，因为平台 URL 会过期。
+
+**容量**：R2 桶没有容量上限，单对象最大 5 TB，不存在"空间够不够"的问题。
+
+**价格**（2026 年第三方整理，下单前核对官方页）：
+
+| 项目 | 标准存储 | 免费额度 / 月 |
+|---|---|---|
+| 存储 | $0.015 / GB·月 | 10 GB |
+| Class A 写操作（PUT / COPY / LIST） | $4.50 / 百万次 | 100 万次 |
+| Class B 读操作（GET / HEAD） | $0.36 / 百万次 | 1000 万次 |
+| 出口流量 | 免费，无上限 | |
+| Infrequent Access 档 | $0.01 / GB·月 + $0.01 / GB 读取，30 天最短存储期 | 无 |
+
+**用量估算**：一个 30 镜头、每镜头 2 take 的项目，768p 视频每个 10–30 MB：
+
+| 内容 | 估算 |
+|---|---|
+| 60 个 take | 约 1.2 GB |
+| 角色图、hero frame、缩略帧 | 约 0.2 GB |
+| 成片与上采样版本 | 约 0.3 GB |
+| **合计** | **约 2 GB / 项目** |
+
+| 累计项目 | 存储 | 月费 |
+|---|---|---|
+| 5 | 10 GB | $0（免费额度内） |
+| 10 | 20 GB | 约 $0.15 |
+| 50 | 100 GB | 约 $1.35 |
+| 100 | 200 GB | 约 $2.85 |
+
+操作次数每项目几千次，在免费额度内。**存储费用不到 GPU 费用的 1%**，不值得为它优化。
+
+**策略**：
+
+- 生命周期规则先不做，存一年也只是几美元；留在 TODO。
+- 完成超过 90 天的项目可按前缀自动转 Infrequent Access；频繁回看的项目不转，因为有读取费。
+- 读取方式：第一版用桶绑定域名公开读 + 不可猜的随机路径；在意链接外泄再改为 Worker 签发短期 URL。
+- 建桶时指定地域提示：成片的存放与展示地域也在 MiniMax 许可证措辞范围内（§2.3）。
 
 ## 5. 核心工作流
 
@@ -535,6 +643,7 @@ Timeline 页面选 take、排序、转场 → `export(preset)` → Assembler wor
 
 因此 Studio 暴露一个 `https://<studio>/mcp` 端点，用户在两边各连一次。
 不需要任何 LLM API key；推理成本全部落在用户已有的订阅里。
+OAuth 由 Cloudflare 的 `workers-oauth-provider` 提供（§4.7）。
 
 ### 6.2 工具清单（MCP tools）
 
@@ -557,6 +666,7 @@ Timeline 页面选 take、排序、转场 → `export(preset)` → Assembler wor
 | `select_take` | shotId, takeId | |
 | `get_budget` | projectId | 已花 / 上限 |
 | `export` | projectId, preset | 触发组装 |
+| `get_director_guide` | 无 | 返回 `agent/director.md` 全文；Skill 要求开始项目时先调一次 |
 
 **边界**：任何花钱的工具（`generate_*`、`export`）在 MCP 层返回"预估费用 + 需要确认"，
 由用户在聊天里确认后 agent 再调一次带 `confirm: true`。防止 agent 一轮对话烧掉预算。
@@ -576,6 +686,21 @@ Timeline 页面选 take、排序、转场 → `export(preset)` → Assembler wor
    所以 prompt 必须自带完整结构，不能指望模型侧增强。
 
 Grok 和 Claude 用**同一份** Skill 和同一套工具，差别只在客户端。
+
+**H3 prompt 格式如何投递给 agent。** MCP 有 tools / resources / prompts 三种原语，但
+客户端支持参差不齐：Claude Desktop 能读 resources，claude.ai 和 Grok 的连接器基本只用
+tools，且模型是否主动读 resource 不可控。所以采用三层叠加、一个来源：
+
+1. **结构化 schema 做硬约束。** `save_shotlist` / `revise_shot` 的输入是 beats、camera、
+   dialogue、sound 等字段，不是自由文本 prompt；每个字段的 description 写明规则（例如 camera：
+   "自然语言、一个主运动、要锁定画面必须写 static"）。校验失败直接拒绝并返回原因。
+   Compiler 负责拼成 H3 格式，agent 不需要记住 H3 的 prompt 语法。
+2. **`get_director_guide` 工具返回指南全文。** tools 所有客户端都支持。
+3. **同一份文件也挂为 MCP resource，并供用户贴进自定义指令。**
+
+仓库只维护 `agent/director.md` 一个文件，三个出口都从它生成。指南本身要短，
+每次调用都占上下文；细节规则放进 schema description，指南只讲流程和判断标准。
+"skills" 是 Claude 侧的概念，MCP 服务器无法给 Grok 注入 skill，因此以 tools 为主对两家一致。
 
 ### 6.4 兜底：Prompt Pack（无连接器时）
 
@@ -630,7 +755,9 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 | `src/app/api/runpod/hook/route.ts`（新增） | 接 RunPod webhook，HMAC 验签，更新 Take |
 | `workers/h3-runpod/`（新增） | fork 的 ComfyUI worker：Dockerfile、固定的工作流 JSON、S3 上传、末帧抽取 |
 | `src/openhiggsfield/history.ts`、`idb.ts` | 仅保留给 `/playground` |
-| `src/app/api/blob/route.ts` | 保留；加鉴权（现在是公开上传） |
+| `src/app/api/blob/route.ts` | **移除**，改为 `/api/uploads/presign` 签发 R2 预签名 URL，并要求登录 |
+| `@vercel/blob` 依赖 | 移除；换 `@aws-sdk/client-s3` 或 Workers 的 R2 binding |
+| 构建与部署 | 新增 `@opennextjs/cloudflare`、`wrangler.toml`（R2 binding、Hyperdrive、Cron Triggers、secrets） |
 | 图像模型（Soul / Flux / Qwen 等） | 作为 hero frame 和角色设定图引擎直接复用 |
 | 新增 | `src/studio/`（领域模型、Compiler、Orchestrator）、`src/app/mcp/`、`src/app/p/[id]/*`、`workers/assembler/`、`agent/director.md` |
 
@@ -658,8 +785,9 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 | MCP 而不是 API | 零 LLM 费用、两家并列；代价是必须有公网 HTTPS + OAuth，且 agent 的行为取决于用户客户端版本 |
 | 确定性 Compiler 而不是让 agent 直接写 prompt | 稳定、可审计、Look 永不遗漏；代价是表达力受 schema 限制，所以保留 `promptOverride` |
 | 镜头 ≤15 s、靠末帧链接 | 符合 H3 限制；长镜头衔接处可能有跳变，需要 Assembler 加短 dissolve |
-| Postgres + 单 worker | 简单、自托管友好；并发上百镜头时需要换队列 |
-| 回拉所有产物到 Blob | 存储费用上升；换来历史不丢 |
+| Postgres + Cron 驱动的队列 | 简单；并发上百镜头时需要换 Queues / Durable Objects |
+| 所有产物落 R2 | 几美元级的存储费；换来历史不丢、零出口流量费 |
+| Cloudflare Workers 而不是 Vercel / VPS | 自动 HTTPS、R2 同账号、官方 OAuth 库；代价是没有 ffmpeg 和常驻进程，Assembler 和轮询要外置，Next 需经 OpenNext |
 
 **最高优先级风险：许可证地域。** MiniMax Community License 把美国、欧盟、英国、韩国排除在
 适用地域之外，且措辞覆盖模型和产物的使用、分发、展示。RunPod 的数据中心很多在美国和欧洲。
@@ -731,6 +859,15 @@ Cinema Studio
 - https://higgsfield.ai/blog/cinema-studio-4-0-complete-guide
 - https://higgsfield.ai/blog/cinema-studio-guide
 - https://higgsfield.ai/blog/how-we-built-supercomputer
+
+Cloudflare
+- https://developers.cloudflare.com/agents/guides/remote-mcp-server/
+- https://github.com/cloudflare/workers-oauth-provider
+- https://opennext.js.org/cloudflare
+- https://developers.cloudflare.com/r2/pricing/
+- https://upstash.com/kb/cloudflare-r2-pricing-in-2026-storage-operations-and-real-monthly-bills
+- https://www.bucketmate.app/blogs/cloudflare-r2-pricing-2026
+- https://tech-insider.org/cloudflare-r2-pricing-standard-vs-infrequent-access-2026/
 
 Agent 连接
 - https://docs.x.ai/grok/connectors
