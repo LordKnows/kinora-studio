@@ -13,10 +13,20 @@ fi
 if [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then bash /app/download_models.sh "${MODELS_DIR:-/workspace/ComfyUI/models}"; fi
 : "${STUDIO_PORT:=8000}"
 
+# Models on a network volume: either symlink the ComfyUI models dir to the
+# volume (default) or copy the files onto the pod's local disk first
+# (MODELS_COPY=1) — worth it when the volume is remote (a global volume read
+# across regions) and the base-model reloads between T2VA and R2VA are slow.
 if [ -n "${MODELS_LINK_FROM:-}" ] && [ -n "${MODELS_LINK_TO:-}" ]; then
-  # e.g. MODELS_LINK_FROM=/runpod-volume/models MODELS_LINK_TO=/workspace/ComfyUI/models
-  mkdir -p "$(dirname "$MODELS_LINK_TO")"
-  rm -rf "$MODELS_LINK_TO" && ln -s "$MODELS_LINK_FROM" "$MODELS_LINK_TO"
+  if [ "${MODELS_COPY:-0}" = "1" ]; then
+    echo "[start] copying models from $MODELS_LINK_FROM to $MODELS_LINK_TO"
+    mkdir -p "$MODELS_LINK_TO"
+    # rsync keeps a partial copy usable across restarts; falls back to cp.
+    (command -v rsync >/dev/null && rsync -a --info=progress2 "$MODELS_LINK_FROM"/ "$MODELS_LINK_TO"/) || cp -an "$MODELS_LINK_FROM"/. "$MODELS_LINK_TO"/
+  else
+    mkdir -p "$(dirname "$MODELS_LINK_TO")"
+    rm -rf "$MODELS_LINK_TO" && ln -s "$MODELS_LINK_FROM" "$MODELS_LINK_TO"
+  fi
 fi
 
 echo "[start] ComfyUI: $COMFY_CMD"

@@ -191,10 +191,15 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填型号名的子串，按优先级排列（默认
    `RTX 5090,RTX PRO 6000,A100 80GB,A100-SXM4-80GB,H100 80GB,H100 PCIe,H200`），起 Pod 前
    会解析成 RunPod 的精确 ID；Settings → GPU pod → GPU types 能看到哪些被匹配上。
-4. **多数据中心**：网络卷只能被同数据中心的 Pod 挂载，所以每个想用的数据中心各建一个放了
-   模型的卷，填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`（密钥）。起 Pod
-   时按顺序遍历数据中心（上次成功的优先），每个数据中心内 RunPod 在白名单 GPU 里按可用性挑，
-   全部失败才显示"暂时没资源"。只有一个卷时用 `RUNPOD_NETWORK_VOLUME_ID` + `RUNPOD_DATACENTER_IDS`。
+4. **数据中心**：
+   - **全局盘（首选）**：一个能被任意数据中心挂载的卷，填 `RUNPOD_NETWORK_VOLUME_ID`，
+     `RUNPOD_DATACENTER_IDS` 留空，`RUNPOD_NETWORK_VOLUMES` 不填。起 Pod 时不限数据中心，
+     RunPod 在白名单 GPU 里按可用性挑。若跨区读取慢，在 Pod 环境变量里设
+     `MODELS_LINK_FROM=/workspace/ComfyUI/models`（卷上的目录）、`MODELS_LINK_TO=/opt/models`、
+     `MODELS_COPY=1`，启动时把模型拷到本地盘再跑（容器盘要 ≥100 GB），并把 ComfyUI 的
+     `--base-directory` 或 extra_model_paths 指到本地目录。
+   - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`
+     （密钥），起 Pod 时按顺序遍历数据中心（上次成功的优先），全部失败才显示"暂时没资源"。
 5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
 
