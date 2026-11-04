@@ -154,6 +154,30 @@ describe("pod mode", () => {
     expect((await repo.getGpuPod(before))!.status).toBe("terminated");
   });
 
+  it("falls back to GraphQL, then the built-in catalog, when the REST listing fails", async () => {
+    const { RunPodPodsClient, KNOWN_GPU_TYPES } = await import("@/studio/backends/runpod-pods");
+    const seen: string[] = [];
+    const client = new RunPodPodsClient("k", {
+      fetch: (async (input: RequestInfo | URL) => {
+        const url = String(input);
+        seen.push(url);
+        if (url.includes("/gputypes")) return new Response(JSON.stringify({ error: "bad request" }), { status: 400 });
+        if (url.includes("graphql")) return new Response(JSON.stringify({ data: { gpuTypes: [{ id: "NVIDIA H200", displayName: "H200", memoryInGb: 141 }] } }), { status: 200 });
+        return new Response("{}", { status: 404 });
+      }) as typeof fetch,
+    });
+    expect((await client.listGpuTypes()).map((t) => t.id)).toEqual(["NVIDIA H200"]);
+    expect(seen.some((u) => u.includes("graphql"))).toBe(true);
+
+    const dead = new RunPodPodsClient("k", { fetch: (async () => new Response("nope", { status: 500 })) as typeof fetch });
+    const types = await dead.listGpuTypes();
+    expect(types.map((t) => t.id)).toEqual(KNOWN_GPU_TYPES);
+    expect(types[0]!.source).toBe("catalog");
+    expect(await gpu.resolveGpuTypeIds(["RTX 5090", "RTX PRO 6000", "H100 80GB"], types)).toEqual([
+      "NVIDIA GeForce RTX 5090", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA H100 80GB HBM3",
+    ]);
+  });
+
   it("lists GPU types flagged by the allow-list", async () => {
     const types = await gpu.listGpuTypes();
     expect(types.find((t) => t.id === "NVIDIA H100 80GB HBM3")?.allowed).toBe(true);

@@ -18,7 +18,7 @@ export type PodRecord = {
   lastStartedAt?: string;
 };
 
-export type GpuType = { id: string; displayName: string; memoryInGb?: number; secureCloud?: boolean; communityCloud?: boolean; securePrice?: number; communityPrice?: number };
+export type GpuType = { id: string; displayName: string; memoryInGb?: number; secureCloud?: boolean; communityCloud?: boolean; securePrice?: number; communityPrice?: number; source?: "catalog" };
 
 export type CreatePodInput = {
   name: string;
@@ -65,10 +65,27 @@ export class RunPodPodsClient {
       payload = text;
     }
     if (!res.ok) {
-      const message = errorMessage(payload) ?? `RunPod ${method} ${path} failed (${res.status})`;
+      const detail = errorMessage(payload);
+      const raw = typeof payload === "string" ? payload : payload ? JSON.stringify(payload) : "";
+      const message = `RunPod ${method} ${path} failed (${res.status})${detail ? `: ${detail}` : raw ? `: ${raw.slice(0, 300)}` : ""}`;
       throw new StudioError("backend_error", message, { status: res.status, body: payload, noResources: isNoResources(message) });
     }
     return payload;
+  }
+
+  /** The GraphQL API (api.runpod.io/graphql) as a fallback for listings the
+      REST API does not expose the way we expected. */
+  private async graphql<T>(query: string): Promise<T> {
+    const res = await this.fetchImpl(`https://api.runpod.io/graphql?api_key=${encodeURIComponent(this.apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
+      body: JSON.stringify({ query }),
+    });
+    const payload = (await res.json().catch(() => null)) as { data?: T; errors?: Array<{ message: string }> } | null;
+    if (!res.ok || !payload?.data) {
+      throw new StudioError("backend_error", `RunPod GraphQL failed (${res.status}): ${payload?.errors?.map((e) => e.message).join("; ") ?? "no data"}`, { status: res.status, body: payload });
+    }
+    return payload.data;
   }
 
   async createPod(input: CreatePodInput): Promise<PodRecord> {
@@ -116,23 +133,63 @@ export class RunPodPodsClient {
     await this.call("DELETE", `/pods/${encodeURIComponent(id)}`);
   }
 
+  /** REST first, GraphQL second, the built-in catalog last — a GPU listing
+      must never stop a pod from being requested. `source` says which answered. */
   async listGpuTypes(): Promise<GpuType[]> {
-    const payload = await this.call("GET", "/gputypes");
-    const list = Array.isArray(payload) ? payload : Array.isArray((payload as { gpuTypes?: unknown })?.gpuTypes) ? (payload as { gpuTypes: unknown[] }).gpuTypes : [];
-    return list.map((raw) => {
-      const r = asRecord(raw);
-      return {
-        id: str(r.id) ?? "",
-        displayName: str(r.displayName) ?? str(r.id) ?? "",
-        memoryInGb: num(r.memoryInGb),
-        secureCloud: typeof r.secureCloud === "boolean" ? r.secureCloud : undefined,
-        communityCloud: typeof r.communityCloud === "boolean" ? r.communityCloud : undefined,
-        securePrice: num(r.securePrice),
-        communityPrice: num(r.communityPrice),
-      };
-    });
+    const errors: string[] = [];
+    try {
+      const payload = await this.call("GET", "/gputypes");
+      const list = Array.isArray(payload) ? payload : Array.isArray((payload as { gpuTypes?: unknown })?.gpuTypes) ? (payload as { gpuTypes: unknown[] }).gpuTypes : [];
+      if (list.length) return list.map(mapGpuType);
+      errors.push("REST /gputypes answered with no types");
+    } catch (caught) {
+      errors.push(caught instanceof Error ? caught.message : String(caught));
+    }
+    try {
+      const data = await this.graphql<{ gpuTypes: unknown[] }>("{ gpuTypes { id displayName memoryInGb secureCloud communityCloud securePrice communityPrice } }");
+      if (data.gpuTypes?.length) return data.gpuTypes.map(mapGpuType);
+      errors.push("GraphQL gpuTypes answered with no types");
+    } catch (caught) {
+      errors.push(caught instanceof Error ? caught.message : String(caught));
+    }
+    console.warn("[runpod] gpu type listing unavailable, using the built-in catalog:", errors.join(" | "));
+    return KNOWN_GPU_TYPES.map((id) => ({ id, displayName: id.replace(/^NVIDIA /, ""), source: "catalog" }));
   }
+
+
 }
+
+function mapGpuType(raw: unknown): GpuType {
+  const r = asRecord(raw);
+  return {
+    id: str(r.id) ?? "",
+    displayName: str(r.displayName) ?? str(r.id) ?? "",
+    memoryInGb: num(r.memoryInGb),
+    secureCloud: typeof r.secureCloud === "boolean" ? r.secureCloud : undefined,
+    communityCloud: typeof r.communityCloud === "boolean" ? r.communityCloud : undefined,
+    securePrice: num(r.securePrice),
+    communityPrice: num(r.communityPrice),
+  };
+}
+
+/* RunPod gpuTypeIds as of 2026 (best knowledge; the live listing is preferred). */
+export const KNOWN_GPU_TYPES = [
+  "NVIDIA GeForce RTX 5090",
+  "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+  "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "NVIDIA A100 80GB PCIe",
+  "NVIDIA A100-SXM4-80GB",
+  "NVIDIA H100 80GB HBM3",
+  "NVIDIA H100 PCIe",
+  "NVIDIA H100 NVL",
+  "NVIDIA H200",
+  "NVIDIA B200",
+  "NVIDIA L40S",
+  "NVIDIA RTX 6000 Ada Generation",
+  "NVIDIA RTX A6000",
+  "NVIDIA GeForce RTX 4090",
+  "NVIDIA A40",
+];
 
 export function mapPod(payload: unknown): PodRecord {
   const r = asRecord(payload);
