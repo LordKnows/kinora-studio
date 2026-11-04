@@ -111,6 +111,12 @@ export class RunPodPodsClient {
       ...(input.dockerStartCmd?.length ? { dockerStartCmd: input.dockerStartCmd } : {}),
       ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
     };
+    /* RUNPOD_POD_BODY_OVERRIDES: a JSON object merged last; null deletes a key.
+       The escape hatch for a field RunPod's schema names differently. */
+    for (const [k, v] of Object.entries(overrides ?? {})) {
+      if (v === null) delete body[k];
+      else body[k] = v;
+    }
     return mapPod(await this.call("POST", "/pods", body));
   }
 
