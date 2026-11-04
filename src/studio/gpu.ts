@@ -31,7 +31,7 @@ export type GpuState = {
 const UNAVAILABLE_PREFIX = "unavailable_";
 
 function pods(): RunPodPodsClient {
-  return new RunPodPodsClient(config.runpod().apiKey);
+  return new RunPodPodsClient(config.runpod().apiKey, { version: config.runpodPod().api });
 }
 
 export function gpuConfigured(): boolean {
@@ -161,8 +161,11 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
   if (actor.via === "mcp") assertConfirmed(confirm, estimatedPodUsdPerHour(pod), "starting the GPU pod (billed per hour while it runs)");
 
   const client = pods();
-  if (pod && pod.status === "stopped") {
+  /* A stopped pod is resumed; an adopted pod that could not get its GPU
+     last time is retried the same way, never replaced by a new one. */
+  if (pod && (pod.status === "stopped" || (pod.adopted && pod.status === "unavailable"))) {
     try {
+      if (pod.adopted && pc.bootstrap) await applyBoot(pod.id, { restart: false });
       const record = await client.startPod(pod.id);
       await repo.updateGpuPod(pod.id, { status: "starting", message: "resuming", startedAt: Date.now(), costPerHr: record.costPerHr, hostUrl: podProxyUrl(pod.id, pc.podPort) });
       return getGpuState();
@@ -192,36 +195,41 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
     return getGpuState();
   }
   const attempts: string[] = [];
+  /* v1 takes the whole allow-list in one call; v2 takes one GPU type per
+     call, so the walk is GPU types × placements, priority order first. */
+  const gpuBatches = client.version === "v2" ? gpuTypeIds.map((id) => [id]) : [gpuTypeIds];
   for (const placement of await podPlacements()) {
-    try {
-      const record = await client.createPod({
-        name: pc.podName,
-        imageName: pc.image,
-        gpuTypeIds,
-        cloudType: pc.cloudType,
-        containerDiskInGb: pc.containerDiskGb,
-        volumeMountPath: pc.volumeMountPath,
-        networkVolumeId: placement.networkVolumeId,
-        dataCenterIds: placement.dataCenterIds,
-        ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
-        env: podEnv(),
-        allowedCudaVersions: pc.cudaVersions,
-        ...(pc.bootstrap ? { dockerStartCmd: bootstrapCommand() } : {}),
-      }, pc.bodyOverrides);
-      await repo.insertGpuPod({
-        id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName,
-        dataCenter: record.dataCenterId ?? placement.dataCenterIds[0],
-        status: "starting", message: "created; pulling the image and loading models", costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
-      });
-      await repo.updateGpuPod(record.id, { startedAt: Date.now() });
-      return getGpuState();
-    } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      const noResources = caught instanceof StudioError && Boolean((caught.details as { noResources?: boolean } | undefined)?.noResources);
-      attempts.push(`${placement.dataCenterIds.join("/") || "any"}: ${message}`);
-      if (!noResources) {
-        await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `pod creation failed: ${message}` });
-        throw caught;
+    for (const batch of gpuBatches) {
+      try {
+        const record = await client.createPod({
+          name: pc.podName,
+          imageName: pc.image,
+          gpuTypeIds: batch,
+          cloudType: pc.cloudType,
+          containerDiskInGb: pc.containerDiskGb,
+          volumeMountPath: pc.volumeMountPath,
+          networkVolumeId: placement.networkVolumeId,
+          dataCenterIds: placement.dataCenterIds,
+          ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
+          env: podEnv(),
+          allowedCudaVersions: pc.cudaVersions,
+          ...(pc.bootstrap ? { dockerStartCmd: bootstrapCommand(), dockerStartLine: bootstrapCommandLine() } : {}),
+        }, pc.bodyOverrides);
+        await repo.insertGpuPod({
+          id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId ?? batch[0], gpuName: record.gpuDisplayName,
+          dataCenter: record.dataCenterId ?? placement.dataCenterIds[0],
+          status: "starting", message: "created; pulling the image and loading models", costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
+        });
+        await repo.updateGpuPod(record.id, { startedAt: Date.now() });
+        return getGpuState();
+      } catch (caught) {
+        const message = caught instanceof Error ? caught.message : String(caught);
+        const noResources = caught instanceof StudioError && Boolean((caught.details as { noResources?: boolean } | undefined)?.noResources);
+        attempts.push(`${placement.dataCenterIds.join("/") || "any"} × ${batch.length === 1 ? batch[0] : "allow-list"}: ${message}`);
+        if (!noResources) {
+          await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `pod creation failed: ${message}` });
+          throw caught;
+        }
       }
     }
   }
@@ -357,8 +365,49 @@ export async function adoptPod(podId: string): Promise<GpuState> {
     hostUrl: podProxyUrl(record.id, pc.podPort), adopted: true,
   });
   if (running) await repo.updateGpuPod(record.id, { startedAt: Date.now() });
+  if (pc.bootstrap) {
+    try {
+      await applyBoot(record.id, { restart: running });
+    } catch (caught) {
+      await repo.updateGpuPod(record.id, { message: `adopted; boot command not applied (${caught instanceof Error ? caught.message : caught}) — set it in the console or use Apply boot` });
+      return getGpuState();
+    }
+  }
   await refreshGpu();
   return getGpuState();
+}
+
+/** Put the studio's start command and env on a pod that was created by
+    hand, so the job server comes up at boot without console edits. Env the
+    pod already has is kept when RunPod returns it; the studio's keys win.
+    With restart, a running pod is restarted so the change takes effect. */
+export async function applyBoot(podId: string, opts: { restart: boolean }): Promise<{ restarted: boolean; envKept: number }> {
+  const client = pods();
+  const raw = await client.getPodRaw(podId);
+  if (!raw) throw new StudioError("not_found", `RunPod has no pod ${podId}`);
+  const existing = raw.env && typeof raw.env === "object" && !Array.isArray(raw.env) ? (raw.env as Record<string, unknown>) : {};
+  const kept: Record<string, string> = {};
+  for (const [k, v] of Object.entries(existing)) if (typeof v === "string") kept[k] = v;
+  await client.updatePod(podId, { args: bootstrapCommandLine(), env: { ...kept, ...podEnv() } });
+  const status = String(raw.status ?? raw.desiredStatus ?? "").toUpperCase();
+  const running = status === "RUNNING" || status === "STARTING";
+  let restarted = false;
+  if (opts.restart && running) {
+    await client.restartPod(podId);
+    restarted = true;
+    await repo.updateGpuPod(podId, { status: "starting", message: "boot command applied; restarting", startedAt: Date.now() });
+  } else {
+    await repo.updateGpuPod(podId, { message: running ? "boot command applied; takes effect on the next restart" : "boot command applied" });
+  }
+  return { restarted, envKept: Object.keys(kept).length };
+}
+
+/** Web action: apply the boot command to the current pod and restart it. */
+export async function repairGpu(): Promise<GpuState & { repair: { restarted: boolean; envKept: number } }> {
+  const pod = await repo.currentGpuPod();
+  if (!pod || pod.id.startsWith(UNAVAILABLE_PREFIX) || pod.status === "terminated") throw new StudioError("not_found", "no pod to repair");
+  const repair = await applyBoot(pod.id, { restart: true });
+  return { ...(await getGpuState()), repair };
 }
 
 /** Everything to paste into the RunPod console when creating the pod by hand. */
@@ -376,7 +425,7 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
       "Attach the global volume (minimax-h3-models) at the mount path.",
       "Expose the HTTP ports; the studio reaches the job server through RunPod's proxy on the first port.",
       "Paste the env vars exactly; STUDIO_BUNDLE_URL carries the worker token.",
-      "Set the container start command (Docker command) to dockerStartCmd so the pod fetches the job server at boot.",
+      "With RUNPOD_API=v2 the start command and env are applied by the studio when you adopt the pod; pasting them is only needed on v1.",
       "After the pod is created, paste its id into Settings → GPU pod → Adopt.",
     ],
   };

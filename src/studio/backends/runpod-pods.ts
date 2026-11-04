@@ -1,9 +1,13 @@
 import { StudioError } from "../errors";
 
-/* RunPod's REST API for pods (https://rest.runpod.io/v1). Kept to the handful
-   of calls the studio needs, with the field names in one place: if RunPod
-   renames one, this is the only file to touch. Not verifiable offline — the
+/* RunPod's REST API for pods. Two generations exist: v1 (rest.runpod.io/v1,
+   gpuTypeIds[] + networkVolumeId) and v2 (api.runpod.io/v2, one gpu per
+   request, volumes through mounts.network, PATCH to edit a pod). v1 cannot
+   see or attach a global network volume, so v2 is the default; RUNPOD_API=v1
+   switches back. Field names live here only. Not verifiable offline — the
    deploy guide says how to check. */
+
+export type ApiVersion = "v1" | "v2";
 
 export type PodRecord = {
   id: string;
@@ -34,7 +38,11 @@ export type CreatePodInput = {
   allowedCudaVersions?: string[];
   /** Replaces the image's start command (RunPod: dockerStartCmd). */
   dockerStartCmd?: string[];
+  /** The same command as one shell-split string (v2 "args", console field). */
+  dockerStartLine?: string;
 };
+
+export type PodPatch = { args?: string; env?: Record<string, string>; image?: string };
 
 const NO_RESOURCE_PATTERNS = [/no longer any instances/i, /no instances available/i, /not enough.*resources/i, /unavailable/i, /no gpu/i, /out of stock/i, /capacity/i];
 
@@ -44,15 +52,23 @@ export function isNoResources(message: string): boolean {
 
 export class RunPodPodsClient {
   private readonly base: string;
+  private readonly baseV2: string;
+  readonly version: ApiVersion;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(private readonly apiKey: string, opts?: { baseUrl?: string; fetch?: typeof fetch }) {
+  constructor(private readonly apiKey: string, opts?: { baseUrl?: string; baseUrlV2?: string; version?: ApiVersion; fetch?: typeof fetch }) {
     this.base = (opts?.baseUrl ?? "https://rest.runpod.io/v1").replace(/\/$/, "");
+    this.baseV2 = (opts?.baseUrlV2 ?? "https://api.runpod.io/v2").replace(/\/$/, "");
+    this.version = opts?.version ?? "v2";
     this.fetchImpl = opts?.fetch ?? fetch;
   }
 
-  private async call(method: string, path: string, body?: unknown): Promise<unknown> {
-    const res = await this.fetchImpl(`${this.base}${path}`, {
+  private v2(): boolean {
+    return this.version === "v2";
+  }
+
+  private async call(method: string, path: string, body?: unknown, base: string = this.base): Promise<unknown> {
+    const res = await this.fetchImpl(`${base}${path}`, {
       method,
       headers: { Authorization: `Bearer ${this.apiKey}`, ...(body ? { "Content-Type": "application/json" } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
@@ -69,10 +85,14 @@ export class RunPodPodsClient {
       const raw = typeof payload === "string" ? payload : payload ? JSON.stringify(payload) : "";
       /* Schema errors list every offending property under "problems": keep them. */
       const problems = Array.isArray(payload) ? payload.flatMap((p) => (asRecord(p).problems as unknown[] | undefined) ?? []) : (asRecord(payload).problems as unknown[] | undefined) ?? [];
-      const message = `RunPod ${method} ${path} failed (${res.status})${detail ? `: ${detail}` : ""}${problems.length ? ` — ${problems.map(String).join(" | ")}` : raw && !detail ? `: ${raw.slice(0, 1500)}` : ""}`;
+      const message = `RunPod ${method} ${base === this.baseV2 ? "v2 " : ""}${path} failed (${res.status})${detail ? `: ${detail}` : ""}${problems.length ? ` — ${problems.map(String).join(" | ")}` : raw && !detail ? `: ${raw.slice(0, 1500)}` : ""}`;
       throw new StudioError("backend_error", message, { status: res.status, body: payload, noResources: isNoResources(message) });
     }
     return payload;
+  }
+
+  private callV2(method: string, path: string, body?: unknown): Promise<unknown> {
+    return this.call(method, path, body, this.baseV2);
   }
 
   /** The GraphQL API (api.runpod.io/graphql) as a fallback for listings the
@@ -91,6 +111,7 @@ export class RunPodPodsClient {
   }
 
   async createPod(input: CreatePodInput, overrides?: Record<string, unknown>): Promise<PodRecord> {
+    if (this.v2()) return this.createPodV2(input, overrides);
     const body: Record<string, unknown> = {
       name: input.name,
       imageName: input.imageName,
@@ -129,9 +150,41 @@ export class RunPodPodsClient {
     }
   }
 
+  /* v2: one GPU type per request (the caller walks the allow-list), the
+     volume as a network mount, the start command as one string. */
+  private async createPodV2(input: CreatePodInput, overrides?: Record<string, unknown>): Promise<PodRecord> {
+    const gpuId = input.gpuTypeIds[0];
+    if (!gpuId) throw new StudioError("backend_error", "no GPU type to request");
+    const body: Record<string, unknown> = {
+      name: input.name,
+      image: input.imageName,
+      cloud: input.cloudType,
+      gpu: { id: gpuId, count: 1, ...(input.allowedCudaVersions?.length ? { allowedCudaVersions: input.allowedCudaVersions } : {}) },
+      disk: input.containerDiskInGb,
+      ports: input.ports,
+      env: input.env,
+      ...(input.dockerStartLine ? { args: input.dockerStartLine } : {}),
+      ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
+      ...(input.networkVolumeId ? { mounts: { network: [{ volumeId: input.networkVolumeId, path: input.volumeMountPath }] } } : {}),
+    };
+    for (const [k, v] of Object.entries(overrides ?? {})) {
+      if (v === null) delete body[k];
+      else body[k] = v;
+    }
+    try {
+      return mapPod(await this.callV2("POST", "/pods", body));
+    } catch (caught) {
+      if (caught instanceof StudioError && caught.code === "backend_error") {
+        const sent = { gpu: body.gpu, dataCenterIds: body.dataCenterIds, mounts: body.mounts, cloud: body.cloud, keys: Object.keys(body) };
+        throw new StudioError("backend_error", `${caught.message} — sent ${JSON.stringify(sent)}`, { ...(caught.details as object), sent });
+      }
+      throw caught;
+    }
+  }
+
   async getPod(id: string): Promise<PodRecord | null> {
     try {
-      return mapPod(await this.call("GET", `/pods/${encodeURIComponent(id)}`));
+      return mapPod(this.v2() ? await this.callV2("GET", `/pods/${encodeURIComponent(id)}`) : await this.call("GET", `/pods/${encodeURIComponent(id)}`));
     } catch (caught) {
       if (caught instanceof StudioError && (caught.details as { status?: number } | undefined)?.status === 404) return null;
       throw caught;
@@ -139,28 +192,77 @@ export class RunPodPodsClient {
   }
 
   async startPod(id: string): Promise<PodRecord> {
+    if (this.v2()) {
+      await this.callV2("POST", `/pods/${encodeURIComponent(id)}/action`, { action: "start" });
+      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "STARTING", portMappings: {} };
+    }
     return mapPod(await this.call("POST", `/pods/${encodeURIComponent(id)}/start`));
   }
 
   async stopPod(id: string): Promise<void> {
-    await this.call("POST", `/pods/${encodeURIComponent(id)}/stop`);
+    if (this.v2()) await this.callV2("POST", `/pods/${encodeURIComponent(id)}/action`, { action: "stop" });
+    else await this.call("POST", `/pods/${encodeURIComponent(id)}/stop`);
+  }
+
+  async restartPod(id: string): Promise<void> {
+    if (this.v2()) await this.callV2("POST", `/pods/${encodeURIComponent(id)}/action`, { action: "restart" });
+    else {
+      await this.call("POST", `/pods/${encodeURIComponent(id)}/stop`);
+      await this.call("POST", `/pods/${encodeURIComponent(id)}/start`);
+    }
   }
 
   async terminatePod(id: string): Promise<void> {
-    await this.call("DELETE", `/pods/${encodeURIComponent(id)}`);
+    if (this.v2()) await this.callV2("DELETE", `/pods/${encodeURIComponent(id)}`);
+    else await this.call("DELETE", `/pods/${encodeURIComponent(id)}`);
+  }
+
+  /** Edit a pod in place: start command, env, image. v2 PATCH is partial
+      (omitted fields stay); v1 has no equivalent we trust, so it refuses. */
+  async updatePod(id: string, patch: PodPatch): Promise<PodRecord> {
+    if (!this.v2()) throw new StudioError("backend_error", "editing a pod needs RUNPOD_API=v2");
+    const body: Record<string, unknown> = {};
+    if (patch.args !== undefined) body.args = patch.args;
+    if (patch.env !== undefined) body.env = patch.env;
+    if (patch.image !== undefined) body.image = patch.image;
+    const answer = await this.callV2("PATCH", `/pods/${encodeURIComponent(id)}`, body);
+    try {
+      return mapPod(answer);
+    } catch {
+      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "UNKNOWN", portMappings: {} };
+    }
+  }
+
+  /** What v2 reports for a pod, raw: env and args when it returns them. */
+  async getPodRaw(id: string): Promise<Record<string, unknown> | null> {
+    try {
+      const payload = this.v2() ? await this.callV2("GET", `/pods/${encodeURIComponent(id)}`) : await this.call("GET", `/pods/${encodeURIComponent(id)}`);
+      return asRecord(payload);
+    } catch (caught) {
+      if (caught instanceof StudioError && (caught.details as { status?: number } | undefined)?.status === 404) return null;
+      throw caught;
+    }
   }
 
   /** REST first, GraphQL second, the built-in catalog last — a GPU listing
       must never stop a pod from being requested. `source` says which answered. */
   /** Network volumes visible to this API key: REST and GraphQL are both
       asked and merged, and the raw answers are returned for diagnosis. */
-  async listNetworkVolumes(): Promise<{ volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string }>; raw: { rest?: unknown; graphql?: unknown; errors: string[] } }> {
+  async listNetworkVolumes(): Promise<{ volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string }>; raw: { rest?: unknown; v2?: unknown; graphql?: unknown; errors: string[] } }> {
     const shape = (raw: unknown) => {
       const r = asRecord(raw);
-      return { id: str(r.id) ?? "", name: str(r.name) ?? "", size: num(r.size), dataCenterId: str(r.dataCenterId) };
+      return { id: str(r.id) ?? "", name: str(r.name) ?? "", size: num(r.size), dataCenterId: str(r.dataCenterId) ?? str(r.dataCenter) };
     };
     const found = new Map<string, ReturnType<typeof shape>>();
-    const raw: { rest?: unknown; graphql?: unknown; errors: string[] } = { errors: [] };
+    const raw: { rest?: unknown; v2?: unknown; graphql?: unknown; errors: string[] } = { errors: [] };
+    try {
+      const payload = await this.callV2("GET", "/network-volumes");
+      raw.v2 = payload;
+      const inner = (payload as Record<string, unknown> | null)?.networkVolumes;
+      for (const v of (Array.isArray(inner) ? inner : Array.isArray(payload) ? payload : []).map(shape)) if (v.id) found.set(v.id, v);
+    } catch (caught) {
+      raw.errors.push(`v2: ${caught instanceof Error ? caught.message : caught}`);
+    }
     try {
       const payload = await this.call("GET", "/networkvolumes");
       raw.rest = payload;
@@ -287,9 +389,9 @@ export function mapPod(payload: unknown): PodRecord {
     id,
     name: str(r.name) ?? "",
     desiredStatus: str(r.desiredStatus) ?? str(r.status) ?? "UNKNOWN",
-    costPerHr: num(r.costPerHr),
+    costPerHr: num(r.costPerHr) ?? num(r.cost) ?? num(asRecord(r.cost).perHour) ?? num(asRecord(r.cost).hourly),
     gpuTypeId: str(machine.gpuTypeId) ?? str(gpu.id) ?? str(r.gpuTypeId),
-    gpuDisplayName: str(machine.gpuDisplayName) ?? str(gpu.displayName) ?? str(r.gpuDisplayName),
+    gpuDisplayName: str(machine.gpuDisplayName) ?? str(gpu.displayName) ?? str(r.gpuDisplayName) ?? (str(gpu.id) ? str(gpu.id)!.replace(/^NVIDIA (GeForce )?/, "") : undefined),
     dataCenterId: str(machine.dataCenterId) ?? str(r.dataCenterId),
     portMappings: mappings,
     publicIp: str(r.publicIp),

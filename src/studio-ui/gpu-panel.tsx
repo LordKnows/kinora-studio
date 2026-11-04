@@ -186,6 +186,11 @@ export function GpuSection() {
     await post("/api/gpu/terminate");
     await reload();
   });
+  const repair = useAction(async () => {
+    if (!window.confirm("Apply the studio's boot command and env to this pod and restart it?")) return;
+    await post("/api/gpu/repair");
+    await reload();
+  });
   const loadTypes = useCallback(async () => {
     try {
       setTypes((await get<{ types: typeof types }>("/api/gpu/types")).types);
@@ -198,7 +203,7 @@ export function GpuSection() {
   const on = state.status === "running" || state.status === "starting" || state.status === "creating";
   return (
     <div className="st-stack">
-      <ErrorBanner error={start.error ?? stop.error ?? terminate.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); }} />
+      <ErrorBanner error={start.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
       <dl className="st-dl">
         <dt>Mode</dt>
         <dd>{state.mode === "pod" ? "RunPod pod (Secure Cloud)" : "RunPod serverless (TODO)"}</dd>
@@ -237,6 +242,9 @@ export function GpuSection() {
           <Button kind="primary" busy={start.busy} disabled={!state.configured} onClick={() => void start.fire()}>
             {state.status === "unavailable" ? "Retry on allowed GPUs" : "Start"}
           </Button>
+        )}
+        {state.pod && state.status !== "terminated" && (
+          <Button busy={repair.busy} onClick={() => void repair.fire()} title="Set the studio's start command and env on the pod, then restart it">Apply boot &amp; restart</Button>
         )}
         {state.pod && state.status !== "terminated" && (
           <Button kind="danger" busy={terminate.busy} onClick={() => void terminate.fire()}>Terminate</Button>

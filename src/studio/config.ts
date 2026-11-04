@@ -53,6 +53,8 @@ export const config = {
     /** Stock image: the pod fetches the job server from /api/pod/bundle at
         boot. Set to "0" when RUNPOD_POD_IMAGE already contains it (Dockerfile.pod). */
     bootstrap: env("RUNPOD_POD_BOOTSTRAP") !== "0",
+    /* v2 (default) attaches volumes through mounts and can edit a pod; v1 is the older REST API. */
+    api: (env("RUNPOD_API") === "v1" ? "v1" : "v2") as "v1" | "v2",
     gpuTypeIds: (env("RUNPOD_GPU_TYPES") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     networkVolumeId: env("RUNPOD_NETWORK_VOLUME_ID"),
     dataCenterIds: (env("RUNPOD_DATACENTER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),

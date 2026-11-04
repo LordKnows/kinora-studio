@@ -205,11 +205,22 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
 
-### 9b. 手动建 Pod，再由 Studio 接管（全局盘走这条路）
+### 9a. RunPod API 版本（`RUNPOD_API`）
 
-RunPod 的 REST API 目前查不到、也挂不上"全局"网络卷（`/networkvolumes` 返回空，
-`POST /pods` 带 `networkVolumeId` 报 `network volume not found`，但控制台里卷确实存在）。
-所以第一次 Pod 在控制台手动建，之后的启停、作业、费用统计都由 Studio 管：
+RunPod 有两代 REST API。旧的 v1（`rest.runpod.io/v1`）查不到也挂不上"全局"网络卷
+（`/networkvolumes` 返回空，`POST /pods` 带 `networkVolumeId` 报 `network volume not found`）。
+新的 v2（`api.runpod.io/v2`）把卷写成 `mounts.network[{volumeId,path}]`，每次请求一个 GPU 型号
+（Studio 自己按 GPU × 数据中心遍历），启动命令是一个字符串 `args`，并且能 `PATCH` 已有 Pod 的
+启动命令和环境变量。`RUNPOD_API=v2` 是默认值；出问题可以在 wrangler 变量里改回 `v1`。
+v2 的字段名来自 RunPod 自己的迁移文档，尚未在真机验证；失败时 Settings 会把请求体和响应
+原样显示。
+
+### 9b. 手动建 Pod，再由 Studio 接管
+
+v2 应该能直接挂全局盘自动建 Pod；如果仍然失败，就在控制台手动建一次，之后的启停、作业、
+费用统计都由 Studio 管。**用 v2 时接管会自动把 Studio 的启动命令和环境变量 PATCH 到这台
+Pod 上（保留它原有的环境变量），正在运行的会重启**，不需要在控制台粘任何东西，只要镜像、
+GPU、卷、端口对。Settings 里的 **Apply boot & restart** 随时可以再做一次。
 
 1. Settings → GPU pod → **Show what to paste into RunPod**。页面会列出镜像、要暴露的 HTTP
    端口（8000、8188）、容器盘大小、卷挂载路径、容器启动命令、按优先级排的 GPU 型号，以及一整块
@@ -219,7 +230,7 @@ RunPod 的 REST API 目前查不到、也挂不上"全局"网络卷（`/networkv
    （Container Image、Container Disk、Volume Mount Path、Expose HTTP Ports、Container Start Command、
    Environment Variables）。Secure Cloud。
 3. 部署后复制 Pod ID，回到 Settings → **Adopt** 粘贴。Studio 会读取这台 Pod 的状态、GPU 型号和时价，
-   健康检查通过后把排队的 take 送过去。
+   （v2）写入启动命令和环境变量并重启，健康检查通过后把排队的 take 送过去。
 4. 被接管的 Pod（卡片上标 *adopted*）**永远不会被 Studio 终止或替换**：Stop 后 Start 拿不到卡时只显示
    "暂时没资源"，稍后再 Retry；真要换型号，到控制台重建一台再 Adopt 一次（旧记录自动标为 terminated，
    卷上的模型不受影响）。Terminate 按钮仍然可用，但那是你明确点的。

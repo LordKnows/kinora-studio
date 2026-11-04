@@ -1179,4 +1179,4 @@ MCP 以 `get_director_guide({section})`、resource 和 `direct_film` prompt 模�
 - **审片只由人做**：`review_take` 从 MCP 工具里移除，agent 只负责到分镜表和生成；评分、选 take 在网页上完成。
 - **粗剪预览在浏览器里做**：Timeline 页按顺序连播各 take 的 R2 文件（含入出点和 repeat），只做硬切；叠化、配乐、字幕要看导出文件。
 - **GPU × 数据中心**：白名单按子串匹配并按优先级排序；每个数据中心一个模型卷，起 Pod 时遍历。
-- **全局卷与接管的 Pod**：模型放在一个全局网络卷上（任意数据中心可挂）。RunPod REST API 目前既列不出也挂不上这种卷，所以第一台 Pod 在控制台手动建、由 Studio **接管**（`adoptPod`）：Studio 负责启停、作业、费用统计，但永远不终止或替换接管的 Pod；API 字段公开后用 `RUNPOD_POD_BODY_OVERRIDES` 即可恢复自动创建。
+- **全局卷与接管的 Pod**：模型放在一个全局网络卷上（任意数据中心可挂）。RunPod REST API 目前既列不出也挂不上这种卷，所以第一台 Pod 在控制台手动建、由 Studio **接管**（`adoptPod`）：Studio 负责启停、作业、费用统计，但永远不终止或替换接管的 Pod；之后发现 RunPod 的 v2 API（`api.runpod.io/v2`）用 `mounts.network` 挂卷并支持 `PATCH` Pod，Studio 改为默认走 v2：接管时自动写入启动命令和环境变量，自动创建也走 v2（GPU × 数据中心逐个请求）。

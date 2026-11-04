@@ -32,6 +32,7 @@ async function memoryDb(): Promise<Db> {
 type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean };
 const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false };
 const calls: Array<{ method: string; url: string; body?: unknown }> = [];
+const podsV2 = new Map<string, { env?: Record<string, string>; args?: string }>();
 let podCounter = 0;
 
 beforeAll(async () => {
@@ -48,6 +49,32 @@ beforeAll(async () => {
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ method, url, body });
     const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
+    /* v2 (api.runpod.io/v2): the default. One gpu per create, mounts.network, /action, PATCH. */
+    if (url === "https://api.runpod.io/v2/pods" && method === "POST") {
+      if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
+      if (!body.gpu?.id || body.gpu.count !== 1) return json(422, { error: "gpu.id and gpu.count are required" });
+      if (!body.mounts?.network?.[0]?.volumeId || !body.mounts.network[0].path) return json(422, { error: "mounts.network[].volumeId and path are required" });
+      if (typeof body.args !== "string") return json(422, { error: "args must be a string" });
+      podCounter++;
+      podsV2.set(`pod${podCounter}`, { env: body.env, args: body.args });
+      return json(201, { id: `pod${podCounter}`, name: body.name, status: "RUNNING", cost: 2.5, gpu: { id: body.gpu.id, count: 1 }, dataCenterId: "EU-RO-1", mounts: body.mounts });
+    }
+    if (/\/v2\/pods\/pod\d+$/.test(url) && method === "GET") {
+      const id = url.split("/").pop()!;
+      return json(200, { id, name: "p", status: scenario.podStatus, cost: 2.5, gpu: { id: "NVIDIA H100 80GB HBM3", count: 1 }, env: podsV2.get(id)?.env ?? { JUPYTER_PASSWORD: "jp" } });
+    }
+    if (/\/v2\/pods\/pod\d+$/.test(url) && method === "PATCH") {
+      const id = url.split("/").pop()!;
+      podsV2.set(id, { env: body.env ?? podsV2.get(id)?.env, args: body.args ?? podsV2.get(id)?.args });
+      return json(200, { id, status: scenario.podStatus });
+    }
+    if (url.endsWith("/action") && method === "POST") {
+      if (body.action === "start") return scenario.startFails ? json(500, { error: "no GPU available for this pod" }) : json(200, { id: url.split("/")[5], status: "RUNNING" });
+      return json(200, { id: url.split("/")[5], status: body.action === "stop" ? "EXITED" : "RUNNING" });
+    }
+    if (url.startsWith("https://api.runpod.io/v2/pods/") && method === "DELETE") return json(200, {});
+    if (url.endsWith("/v2/network-volumes")) return json(200, { networkVolumes: [{ id: "vol1", name: "minimax-h3-models", size: 200 }] });
+    /* v1 (rest.runpod.io/v1), still selectable with RUNPOD_API=v1 */
     if (url.startsWith("https://rest.runpod.io/v1/pods") && method === "POST" && url.endsWith("/pods")) {
       if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
       podCounter++;
@@ -57,6 +84,7 @@ beforeAll(async () => {
     if (url.endsWith("/start")) return scenario.startFails ? json(500, { error: "no GPU available for this pod" }) : json(200, { id: url.split("/")[5], desiredStatus: "RUNNING", costPerHr: 2.5 });
     if (url.endsWith("/stop")) return json(200, { id: "x", desiredStatus: "EXITED" });
     if (method === "DELETE") return json(200, {});
+    if (url.endsWith("/networkvolumes")) return json(200, []);
     if (url.endsWith("/gputypes")) return json(200, [{ id: "NVIDIA H100 80GB HBM3", displayName: "H100 80GB", memoryInGb: 80, securePrice: 2.99 }, { id: "NVIDIA RTX 4090", displayName: "RTX 4090", memoryInGb: 24 }, { id: "NVIDIA RTX PRO 6000 Blackwell Workstation Edition", displayName: "RTX PRO 6000", memoryInGb: 96 }]);
     /* the pod's job server through the proxy */
     if (url.includes(".proxy.runpod.net")) {
@@ -100,22 +128,28 @@ describe("pod mode", () => {
   it("creates the pod on the allow-list and parks takes until it is healthy", async () => {
     scenario.createMode = "ok";
     scenario.healthy = false;
+    const before = calls.length;
     const { takes, gpu: state } = await orch.createTakes(shotId, { n: 1, confirm: true }, mcp);
     expect(state?.status).toBe("starting");
     expect(takes[0]!.status).toBe("queued");
     expect(takes[0]!.requestId).toBeUndefined();
-    const create = calls.find((c) => c.method === "POST" && c.url.endsWith("/pods"))!.body as { gpuTypeIds: string[]; ports: string[]; env: Record<string, string>; networkVolumeId: string };
-    /* substrings resolved to RunPod's exact ids, allow-list order kept */
-    expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
+    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url === "https://api.runpod.io/v2/pods");
+    expect(creates).toHaveLength(1);
+    const create = creates[0]!.body as { gpu: { id: string; count: number }; ports: string[]; env: Record<string, string>; mounts: { network: Array<{ volumeId: string; path: string }> }; args: string; cloud: string; image: string; disk: number };
+    /* v2: one GPU per request; the first substring of the allow-list resolved to RunPod's exact id */
+    expect(create.gpu).toEqual({ id: "NVIDIA H100 80GB HBM3", count: 1 });
+    expect(create.image).toBe("me/comfy:1");
+    expect(create.cloud).toBe("SECURE");
+    expect(create.disk).toBe(50);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");
-    expect(create.networkVolumeId).toBe("vol1");
-    /* stock image: the pod bootstraps the job server from the studio */
-    const cmd = (create as unknown as { dockerStartCmd: string[] }).dockerStartCmd;
-    expect(cmd[0]).toBe("bash");
-    expect(cmd[2]).toContain("$STUDIO_BUNDLE_URL");
-    expect(cmd[2]).toContain("start.sh");
+    /* the model volume as a network mount at the ComfyUI workspace */
+    expect(create.mounts).toEqual({ network: [{ volumeId: "vol1", path: "/workspace" }] });
+    /* stock image: the pod bootstraps the job server from the studio; one shell-split string, single-quoted */
+    expect(create.args.startsWith("bash -lc '")).toBe(true);
+    expect(create.args).toContain("$STUDIO_BUNDLE_URL");
+    expect(create.args).toContain("start.sh");
     expect((await gpu.getGpuState()).pendingTakes).toBe(1);
 
     /* still booting: the sweep submits nothing */
@@ -162,6 +196,12 @@ describe("pod mode", () => {
     expect(adopted.pod!.id).toBe("pod77");
     expect(adopted.pod!.adopted).toBe(true);
     expect(adopted.status).toBe("stopped");
+    /* adoption puts the studio's boot command on the pod, keeping the env the pod already had */
+    const patch = calls.find((c) => c.method === "PATCH" && c.url.endsWith("/v2/pods/pod77"))!.body as { args: string; env: Record<string, string> };
+    expect(patch.args).toContain("$STUDIO_BUNDLE_URL");
+    expect(patch.env.JUPYTER_PASSWORD).toBe("jp");
+    expect(patch.env.STUDIO_WORKER_TOKEN).toBe("tok");
+    expect(calls.some((c) => c.url.endsWith("/v2/pods/pod77/action") && (c.body as { action: string }).action === "restart")).toBe(false);
     const state = await gpu.startGpu(web, true);
     expect(state.pod!.id).toBe("pod77");
     expect(state.status).toBe("unavailable");
@@ -169,7 +209,13 @@ describe("pod mode", () => {
     expect((await repo.getGpuPod("pod77"))!.adopted).toBe(true);
     scenario.startFails = false;
     scenario.podStatus = "RUNNING";
-    expect((await gpu.startGpu(web, true)).status).toBe("starting");
+    const resumed = await gpu.startGpu(web, true);
+    expect(resumed.status).toBe("starting");
+    expect(resumed.pod!.id).toBe("pod77");
+    /* the repair action re-applies the boot command and restarts a running pod */
+    const repaired = await gpu.repairGpu();
+    expect(repaired.repair.restarted).toBe(true);
+    expect(calls.some((c) => c.url.endsWith("/v2/pods/pod77/action") && (c.body as { action: string }).action === "restart")).toBe(true);
     const recipe = gpu.manualPodRecipe();
     expect(recipe.image).toBe("me/comfy:1");
     expect(recipe.ports).toContain("8000/http");
@@ -220,9 +266,13 @@ describe("pod mode", () => {
     const before = calls.length;
     const state = await gpu.startGpu(web, true);
     expect(state.status).toBe("unavailable");
-    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).map((c) => c.body as { dataCenterIds: string[]; networkVolumeId: string });
-    expect(creates.map((c) => c.networkVolumeId)).toEqual(["vol_eu", "vol_us"]);
-    expect(creates.map((c) => c.dataCenterIds)).toEqual([["EU-RO-1"], ["US-TX-3"]]);
+    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).map((c) => c.body as { dataCenterIds: string[]; mounts: { network: Array<{ volumeId: string }> }; gpu: { id: string } });
+    /* placements outermost, every allowed GPU type inside each */
+    expect(creates).toHaveLength(8);
+    expect([...new Set(creates.map((c) => c.mounts.network[0]!.volumeId))]).toEqual(["vol_eu", "vol_us"]);
+    expect(creates.slice(0, 4).every((c) => c.dataCenterIds[0] === "EU-RO-1" && c.mounts.network[0]!.volumeId === "vol_eu")).toBe(true);
+    expect(creates.slice(4).every((c) => c.dataCenterIds[0] === "US-TX-3" && c.mounts.network[0]!.volumeId === "vol_us")).toBe(true);
+    expect(creates.slice(0, 4).map((c) => c.gpu.id)).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     scenario.createMode = "ok";
     delete process.env.RUNPOD_NETWORK_VOLUMES;
   });
