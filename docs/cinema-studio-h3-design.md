@@ -1159,3 +1159,16 @@ Agent 连接
 | §7 接口 | 已实现，含鉴权矩阵与错误模型 | `src/app/api/**` |
 | §4.1 Web Studio | 已实现：项目、Look、剧本、元素、分镜表、时间线、设置（含 MCP 连接说明与评测模式） | `src/app/p/[id]/*`、`src/studio-ui/` |
 | §9 P0 实测 | **未做**：需要真实 RunPod endpoint；成本常量和 prompt 规则仍是占位 | `.env.example` 中的 `RUNPOD_*` |
+
+## 附录 B. 导演三层（Director skills）
+
+| 层 | 输入 | 落点 | 实现 |
+|---|---|---|---|
+| 一层 · Brief | 用户总 prompt + 总时长 + 画幅 + 风格 | `Project.brief`、`targetSeconds`、Look | `start_film` 工具一次返回时长骨架、三层指令、剪辑语法、摄影目录、LoRA 库 |
+| 二层 · 分镜与剪辑 | 一层 | `Shot.link { type, anchor }` | `src/studio/editing.ts`：cut / continuous / bridge / insert_return / reverse / match_cut / jump_cut / montage；编译器按锚点镜头的尾帧决定 I2VA / FL2VA / R2VA 及传图；`plan_durations` 做 5–15 s 的切分算术 |
+| 三层 · 摄影与精修 | 二层 | `Shot.cinematography`（size / angle / lens / dof / lighting / grade / texture / vfx / animation / pace） | `src/studio/cinematography.ts` 目录，schema 校验键，编译器渲染成 CINEMATOGRAPHY 块；动画风格进 LOOK |
+
+指南由目录生成（`pnpm guide:emit` → `agent/editing.md`、`agent/cinematography.md`），
+MCP 以 `get_director_guide({section})`、resource 和 `direct_film` prompt 模板三种方式提供，
+`start_film` 在第一次调用时就把全部技能带入上下文。时间线才能做的事（叠化、J/L cut）在
+`TIMELINE_ONLY` 里列出，J/L cut 与淡入淡出仍是 TODO。

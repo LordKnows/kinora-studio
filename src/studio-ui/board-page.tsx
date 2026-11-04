@@ -10,6 +10,8 @@ import type { Take } from "@/studio/types";
 import { del, get, patch, post, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
 import { useProjectContext } from "./shell";
+import { EDIT_GRAMMAR } from "@/studio/editing";
+
 import { ShotEditor, validateDraft, type ShotDraft } from "./shot-editor";
 
 /* The Board: scenes, shot cards, and the drawer where a shot is edited,
@@ -139,6 +141,13 @@ export function BoardPage() {
   );
 }
 
+/* The link type on the card, when it is anything but a plain cut. */
+function linkLabel(spec: ShotView["spec"]): string | null {
+  const type = spec.link?.type ?? (spec.linkToPrev === "continuous" ? "continuous" : "cut");
+  if (type === "cut") return null;
+  return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
+}
+
 function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
   const latest = shot.takes[0];
   const cost = shot.takes.reduce((n, t) => n + (t.costUsd ?? 0), 0);
@@ -159,6 +168,7 @@ function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView;
         </button>
         <div className="st-shot-facts">
           {shot.spec.durationS}s · {shot.spec.mode} · {shot.spec.camera.move.replace("_", " ")}
+          {linkLabel(shot.spec) && ` · ${linkLabel(shot.spec)}`}
           {shot.takes.length > 0 && ` · ${shot.takes.length} take${shot.takes.length === 1 ? "" : "s"} · ${usd(cost)}`}
         </div>
         <div className="st-row" style={{ gap: 4 }}>
@@ -238,6 +248,7 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
               value={draft}
               elements={elements}
               takes={shot.takes}
+              shotId={shot.id}
               onChange={(next) => {
                 setDraft(next);
                 setDirty(true);

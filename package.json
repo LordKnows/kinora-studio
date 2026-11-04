@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "db:emit": "node scripts/emit-migrations.mjs",
-    "guide:emit": "node scripts/emit-guide.mjs",
+    "guide:emit": "node scripts/emit-guide.mjs && tsx scripts/emit-catalog-docs.ts",
     "brand": "node scripts/build-brand-assets.mjs"
   },
   "dependencies": {

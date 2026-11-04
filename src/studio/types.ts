@@ -8,6 +8,8 @@ export type Project = {
   look: LookSettings;
   budgetCapUsd: number;
   spentUsd: number;
+  brief: string;
+  targetSeconds?: number;
   shotlistApproval: Approval;
   shotlistApprovedAt?: number;
   createdAt: number;

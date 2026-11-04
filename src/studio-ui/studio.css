@@ -1212,3 +1212,23 @@
 .ohf .st-table tr[data-basis="true"] td {
   color: var(--accent);
 }
+
+/* ---- director: edit link + cinematography ---- */
+.ohf .st-edit-when {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--tx2);
+}
+.ohf .st-cine-grid {
+  display: grid;
+  gap: 10px 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.ohf .st-rail-target {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--tx3);
+}
+.ohf .st-rail-target[data-match="true"] {
+  color: var(--accent);
+}

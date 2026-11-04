@@ -2,6 +2,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import directorGuide from "@/mcp/guide";
+import { CINEMA } from "@/studio/cinematography";
+import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
+import { EDIT_GRAMMAR, TIMELINE_ONLY, planDurations } from "@/studio/editing";
 import { StudioError } from "@/studio/errors";
 import * as gpu from "@/studio/gpu";
 import * as orch from "@/studio/orchestrator";
@@ -43,7 +46,27 @@ export function createStudioServer(actor: Actor): McpServer {
 
   const id = z.string().min(1);
 
-  tool("get_director_guide", "The director guide: workflow, H3 prompt rules, mode choice, budget rules. Read it before starting a project.", z.object({}), async () => directorGuide);
+  tool("get_director_guide", "The director guide. section: workflow (default; the three tiers, H3 rules, budget), editing (Tier 2: the edit grammar — link types, anchors, which H3 workflow each needs), cinematography (Tier 3: the vocabulary keys for size, angle, lens, light, grade, texture, vfx, animation, pace). Read workflow before starting a project.", z.object({ section: z.enum(["workflow", "editing", "cinematography", "all"]).default("workflow") }), async ({ section }) => {
+    if (section === "editing") return editingGuide();
+    if (section === "cinematography") return cinematographyGuide();
+    if (section === "all") return [directorGuide, editingGuide(), cinematographyGuide()].join("\n\n---\n\n");
+    return directorGuide;
+  });
+  tool("start_film", "Tier 1 entry point: give the user's brief and target running time. Creates the project (brief, target, Look draft), and returns the duration plan, the three-tier instructions, the editing grammar and the cinematography vocabulary so the director skills are active from the first call.", z.object({
+    name: z.string().min(1).max(120),
+    brief: z.string().min(5).max(8000).describe("The user's own words for the film"),
+    totalSeconds: z.number().int().min(5).max(3600).describe("Target running time in seconds"),
+    shots: z.number().int().min(1).max(120).optional().describe("Preferred shot count; otherwise derived from the length"),
+    look: LookSettings.partial().optional(),
+    budgetCapUsd: z.number().min(0).max(100000).optional(),
+  }), async ({ name, brief, totalSeconds, shots, look, budgetCapUsd }) => {
+    const project = await repo.createProject({ name, brief, targetSeconds: totalSeconds, look, budgetCapUsd });
+    const plan = filmPlan({ brief, totalSeconds, shots });
+    return { project, ...plan, editingGrammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY, cinematography: CINEMA.map((c) => ({ key: c.key, label: c.label, multi: c.multi, terms: c.terms.map((x) => ({ key: x.key, label: x.label, use: x.use })) })), loras: await repo.listLoras(), nextSteps: ["save_script", "create_element for every character/location/prop", "save_shotlist with link + cinematography per shot", "ask the user to approve the script and the shotlist"] };
+  });
+  tool("plan_durations", "Split a running time into 5–15 s shots that tile it exactly (deterministic arithmetic; reshape it as the story needs).", z.object({ totalSeconds: z.number().int().min(5).max(3600), shots: z.number().int().min(1).max(120).optional() }), async ({ totalSeconds, shots }) => planDurations(totalSeconds, shots));
+  tool("editing_grammar", "Tier 2 reference as data: every link type with its mechanism, default anchor, H3 workflow and when to use it.", z.object({}), async () => ({ grammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY }));
+  tool("cinematography_catalog", "Tier 3 reference as data: every category and key with the prose it compiles to and when to use it.", z.object({ category: z.enum(["size", "angle", "lens", "dof", "lighting", "grade", "texture", "vfx", "animation", "pace"]).optional() }), async ({ category }) => ({ categories: CINEMA.filter((c) => !category || c.key === category) }));
 
   tool("list_projects", "List projects.", z.object({}), async () => ({ projects: await repo.listProjects() }));
   tool("create_project", "Create a project with an optional Look draft.", ProjectInput, async (input) => ({ project: await repo.createProject(input) }));
@@ -112,8 +135,39 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("export_project", "Assemble the timeline into a file (costs money; confirm).", z.object({ projectId: id }).extend(ExportRequest.shape), async ({ projectId, ...req }) => orch.createExportJob(projectId, req, actor));
   tool("get_export", "Status and url of an export.", z.object({ exportId: id }), async ({ exportId }) => ({ export: await orch.refreshExport(exportId) }));
 
-  server.registerResource("director-guide", "studio://guide/director", { title: "Director guide", description: "Workflow and H3 prompt rules", mimeType: "text/markdown" }, async (uri) => ({
+  server.registerResource("director-guide", "studio://guide/director", { title: "Director guide", description: "Workflow, the three tiers and H3 prompt rules", mimeType: "text/markdown" }, async (uri) => ({
     contents: [{ uri: uri.href, mimeType: "text/markdown", text: directorGuide }],
+  }));
+  server.registerResource("editing-guide", "studio://guide/editing", { title: "Editing grammar", description: "Tier 2: link types and anchors", mimeType: "text/markdown" }, async (uri) => ({
+    contents: [{ uri: uri.href, mimeType: "text/markdown", text: editingGuide() }],
+  }));
+  server.registerResource("cinematography-guide", "studio://guide/cinematography", { title: "Cinematography vocabulary", description: "Tier 3: keys for framing, light, grade, technique", mimeType: "text/markdown" }, async (uri) => ({
+    contents: [{ uri: uri.href, mimeType: "text/markdown", text: cinematographyGuide() }],
+  }));
+
+  /* A prompt template, for clients that expose MCP prompts: one click puts
+     the director in charge of a brief. */
+  server.registerPrompt("direct_film", {
+    title: "Direct a film from a brief",
+    description: "Run the three-tier director workflow on a brief and a running time.",
+    argsSchema: { brief: z.string().describe("What the film is"), totalSeconds: z.string().describe("Running time in seconds"), name: z.string().optional().describe("Project name") },
+  }, ({ brief, totalSeconds, name }) => ({
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: [
+          `You are the director. Call start_film with name "${name ?? "Untitled film"}", this brief and totalSeconds ${totalSeconds}; read what it returns.`,
+          "Tier 1: write the Look from the brief (update_look) and the script (save_script); ask me to approve the script.",
+          "Tier 2: build the shotlist that tiles the running time; choose a link type for every shot from the editing grammar; create every element first.",
+          "Tier 3: refine every shot with cinematography keys, one camera move, verbatim dialogue and sound; save_shotlist; ask me to approve it.",
+          "Before any spend, show the estimate and wait for my confirm.",
+          "",
+          "Brief:",
+          brief,
+        ].join("\n"),
+      },
+    }],
   }));
 
   return server;

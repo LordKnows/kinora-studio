@@ -28,6 +28,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 |---|---|
 | `migrations/0002_gpu.sql` | Pod 模式：`gpu_pods` 表（幂等，重复执行无害） |
 | `migrations/0003_loras_stats.sql` | LoRA 库 `loras` 表；`takes` 表加 GPU 型号、时价、视频秒数三列（**只能执行一次**，ALTER 重复会报列已存在，报错可忽略） |
+| `migrations/0004_brief.sql` | 导演第一层：`projects` 表加 `brief`、`target_seconds`（同样只执行一次） |
 
 ## 2. 建对象存储（R2）
 

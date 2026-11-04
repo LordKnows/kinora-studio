@@ -1,5 +1,6 @@
 import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } from "./checkpoints";
-import { CompileError, compileShot, type CompiledJob } from "./compiler";
+import { CompileError, compileShot, effectiveLink, type CompiledJob } from "./compiler";
+import { grammarFor } from "./editing";
 import { config } from "./config";
 import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate } from "./cost";
 import { StudioError } from "./errors";
@@ -170,15 +171,24 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
   if (shot.heroAssetId) assetIds.add(shot.heroAssetId);
   if (shot.endAssetId) assetIds.add(shot.endAssetId);
   const assets = await repo.getAssets([...assetIds]);
+  /* Tier 2: resolve the anchor shot's last frame for linked shots. */
   let prevLastFrameUrl: string | undefined;
-  if (shot.spec.linkToPrev === "continuous") {
+  let anchorFrameUrl: string | undefined;
+  let anchorLabel: string | undefined;
+  const link = effectiveLink(shot.spec);
+  const grammar = grammarFor(link.type);
+  if (grammar.mechanism !== "none") {
     const all = await repo.listShots(shot.projectId);
     const idx = all.findIndex((s) => s.id === shot.id);
-    const prev = idx > 0 ? all[idx - 1] : undefined;
-    if (prev) {
-      const takes = await repo.listShotTakes(prev.id);
-      const chosen = (prev.selectedTakeId ? takes.find((t) => t.id === prev.selectedTakeId) : undefined) ?? takes.find((t) => t.status === "completed");
-      prevLastFrameUrl = chosen?.lastFrameUrl;
+    const anchor = link.anchorShotId
+      ? all.find((s) => s.id === link.anchorShotId)
+      : idx >= 0 ? all[idx + (link.anchor ?? grammar.defaultAnchor)] : undefined;
+    if (anchor) {
+      const takes = await repo.listShotTakes(anchor.id);
+      const chosen = (anchor.selectedTakeId ? takes.find((t) => t.id === anchor.selectedTakeId) : undefined) ?? takes.find((t) => t.status === "completed");
+      anchorFrameUrl = chosen?.lastFrameUrl;
+      anchorLabel = `shot ${anchor.index + 1}`;
+      if ((link.anchor ?? grammar.defaultAnchor) === -1) prevLastFrameUrl = anchorFrameUrl;
     }
   }
   const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
@@ -188,7 +198,7 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     const lora = loraRows.get(r.id);
     return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
   });
-  return { shot, project, elements, assets, prevLastFrameUrl, sourceTake, loras, steps: opts?.steps, seed: opts?.seed };
+  return { shot, project, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, steps: opts?.steps, seed: opts?.seed };
 }
 
 export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number }): Promise<CompiledJob & { estimate: Estimate }> {

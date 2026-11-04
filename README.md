@@ -48,6 +48,14 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
 - **LoRAs are a library.** `/loras` holds speed and style LoRAs with their
   HuggingFace links; projects pick defaults in the Look, shots can override,
   and the pod downloads a missing file before rendering.
+- **The director has three tiers.** `start_film` takes the brief and the
+  running time and returns the plan: Tier 2 is an edit grammar (cut,
+  continuous, bridge, insert/return, shot/reverse, match cut, jump cut,
+  montage) the compiler executes by feeding anchor frames to the right H3
+  workflow; Tier 3 is a cinematography vocabulary (framing, lens, light,
+  grade, texture, VFX, animation style, pace) validated by the schema and
+  rendered into the prompt. `agent/editing.md` and `agent/cinematography.md`
+  are generated from the catalogs.
 - **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
   server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
   attach. `agent/director.md` is the director guide, served as a tool and a
@@ -128,6 +136,8 @@ auth (OAuth bearer, HMAC, secret). `AUTH_MODE` fails closed: anything but
 
 ```
 agent/director.md        the director guide (source of truth; emitted to src/mcp/guide.ts)
+agent/editing.md         Tier 2 edit grammar (generated from src/studio/editing.ts)
+agent/cinematography.md  Tier 3 vocabulary (generated from src/studio/cinematography.ts)
 docs/                    design document
 migrations/              SQL emitted for wrangler d1 (pnpm db:emit)
 src/app/                 pages (/, /p/[id]/…, /playground, /oauth/authorize) and /api routes

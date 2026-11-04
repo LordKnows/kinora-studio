@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import { CINEMA_KEYS } from "./cinematography";
+import { LINK_TYPES } from "./editing";
+
 /* The schemas of §7.3. REST and MCP share them; field descriptions double as
    the rules the agent reads, so the H3 prompt grammar lives here and in the
    compiler, not in the agent's memory. */
@@ -85,6 +88,30 @@ export const Sound = z.object({
 });
 export type Sound = z.infer<typeof Sound>;
 
+export const ShotLink = z.object({
+  type: z.enum(LINK_TYPES).describe(
+    "cut: stands alone. continuous: starts from the anchor's last frame (long take). bridge: anchor last frame → this shot's end frame (FL2VA). insert_return / reverse: resume an earlier shot (anchor -2 by default). match_cut: anchor last frame as reference image (R2VA). jump_cut: same setup, time has passed. montage: short standalone beat.",
+  ),
+  anchor: z.number().int().min(-8).max(-1).optional().describe("Which earlier shot feeds this one, as a negative offset (-1 = previous). Defaults per type: insert_return / reverse → -2, others → -1."),
+  anchorShotId: z.string().optional().describe("Explicit anchor shot id (overrides the offset)."),
+});
+export type ShotLink = z.infer<typeof ShotLink>;
+
+const cin = (cat: keyof typeof CINEMA_KEYS) => z.enum(CINEMA_KEYS[cat] as [string, ...string[]]);
+export const Cinematography = z.object({
+  size: cin("size").optional().describe("Shot size: ecu, cu, mcu, ms, mls, ls, els, twoshot, ots, insert"),
+  angle: cin("angle").optional().describe("eye, low, high, overhead, dutch, worm, pov, profile"),
+  lens: cin("lens").optional().describe("ultrawide, wide, normal, portrait, tele, macro, anamorphic, fisheye"),
+  dof: cin("dof").optional().describe("shallow, medium, deep, rack, tiltshift"),
+  lighting: z.array(cin("lighting")).max(4).optional().describe("up to 4 of: threepoint, rembrandt, split, butterfly, highkey, lowkey, chiaroscuro, silhouette, rim, practicals, neon, golden, blue, overcast, harshsun, moonlight, firelight, volumetric, underlight, stage"),
+  grade: cin("grade").optional().describe("tealorange, bleach, mono, pastel, kodachrome, crossprocess, muted, vivid, sepia, cyberpunk"),
+  texture: cin("texture").optional().describe("35mm, 16mm, 8mm, digital, vhs, cctv, polaroid, halftone"),
+  vfx: z.array(cin("vfx")).max(4).optional().describe("up to 4 of: slowmo, speedramp, timelapse, hyperlapse, longexposure, doubleexp, lensflare, fog, particles, rain, glitch, bloom, mirror, splitscreen, freeze, explosion, magic, holo"),
+  animation: cin("animation").optional().describe("anime, ghibli, cgi, claymation, stopmotion, flat2d, watercolor, pixel, inkwash, comic, rotoscope, lowpoly"),
+  pace: cin("pace").optional().describe("still, slow, steady, brisk, frantic"),
+});
+export type Cinematography = z.infer<typeof Cinematography>;
+
 export const ShotBase = z.object({
     durationS: z.number().int().min(5).max(15).describe("5–15 seconds; chain shots for longer takes"),
     mode: z.enum(SHOT_MODES).describe(
@@ -98,7 +125,9 @@ export const ShotBase = z.object({
     characters: z.array(z.string()).max(3).default([]).describe("Element ids"),
     location: z.string().optional().describe("Element id"),
     props: z.array(z.string()).max(3).default([]).describe("Element ids"),
-    linkToPrev: z.enum(["cut", "continuous"]).default("cut").describe("continuous = first frame is the previous shot's last frame"),
+    linkToPrev: z.enum(["cut", "continuous"]).default("cut").describe("Legacy; prefer link. continuous = first frame is the previous shot's last frame"),
+    link: ShotLink.optional().describe("Tier 2: how this shot joins the earlier ones (the edit grammar)"),
+    cinematography: Cinematography.optional().describe("Tier 3: framing, lens, light, grade, texture, technique, animation style, pace"),
     sourceTakeId: z.string().optional().describe("edit mode: the take being revised"),
     editInstruction: z.string().max(600).optional().describe("edit mode: only what changes"),
     promptOverride: z.string().max(7000).optional().describe("Replace the compiled prompt entirely"),
@@ -196,11 +225,15 @@ export const ProjectInput = z.object({
   name: z.string().min(1).max(120),
   look: LookSettings.partial().optional(),
   budgetCapUsd: z.number().min(0).max(100000).optional(),
+  brief: z.string().max(8000).default("").describe("Tier 1: the user's own words for the film"),
+  targetSeconds: z.number().int().min(5).max(3600).optional().describe("Target running time"),
 });
 
 export const ProjectPatch = z.object({
   name: z.string().min(1).max(120).optional(),
   budgetCapUsd: z.number().min(0).max(100000).optional(),
+  brief: z.string().max(8000).optional(),
+  targetSeconds: z.number().int().min(5).max(3600).nullable().optional(),
 });
 
 export const PresignRequest = z.object({

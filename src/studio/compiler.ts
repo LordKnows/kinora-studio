@@ -1,4 +1,6 @@
-import { CAMERA_MOVES, type LookSettings, type ShotInput } from "./schemas";
+import { renderCinematography } from "./cinematography";
+import { grammarFor, type LinkType } from "./editing";
+import { CAMERA_MOVES, type LookSettings, type ShotInput, type ShotLink } from "./schemas";
 import type { Asset, Element, Lora, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
@@ -37,8 +39,11 @@ export type CompileContext = {
   look: LookSettings;
   elements: Map<string, Element>;
   assets: Map<string, Asset>;
-  /** Last frame of the previous shot's selected take, for linkToPrev = continuous. */
+  /** Last frame of the previous shot's selected take (legacy linkToPrev). */
   prevLastFrameUrl?: string;
+  /** Last frame of the shot the link anchors to, resolved by the orchestrator. */
+  anchorFrameUrl?: string;
+  anchorLabel?: string;
   sourceTake?: Take;
   /** Resolved LoRAs (shot override or project default) with final strengths. */
   loras?: ActiveLora[];
@@ -75,21 +80,52 @@ const CAMERA_PHRASE: Record<(typeof CAMERA_MOVES)[number], string> = {
   zoom: "zooms",
 };
 
+/** The effective link: the explicit Tier-2 link, or the legacy linkToPrev. */
+export function effectiveLink(spec: ShotInput): ShotLink {
+  if (spec.link) return spec.link;
+  return { type: spec.linkToPrev === "continuous" ? "continuous" : "cut" };
+}
+
 export function compileShot(ctx: CompileContext): CompiledJob {
   const { shot, look } = ctx;
   const spec = shot.spec;
   const warnings: string[] = [];
   const images: WorkerImage[] = [];
-  let workflow: Workflow;
+  let workflow: Workflow | undefined;
   let video: string | undefined;
 
   const hero = shot.heroAssetId ? ctx.assets.get(shot.heroAssetId) : undefined;
   const end = shot.endAssetId ? ctx.assets.get(shot.endAssetId) : undefined;
+  const link = effectiveLink(spec);
+  const grammar = grammarFor(link.type);
+  const anchorFrame = ctx.anchorFrameUrl ?? (link.type === "continuous" ? ctx.prevLastFrameUrl : undefined);
 
-  if (spec.mode === "keyframe") {
-    const first = spec.linkToPrev === "continuous" && ctx.prevLastFrameUrl ? ctx.prevLastFrameUrl : hero?.url;
-    if (!first) throw new CompileError("keyframe mode needs a hero frame (or a previous shot's last frame when linkToPrev is continuous)");
-    if (spec.linkToPrev === "continuous" && !ctx.prevLastFrameUrl) warnings.push("linkToPrev is continuous but the previous shot has no finished take; using the hero frame");
+  if (spec.mode === "edit") {
+    /* handled below */
+  } else if (grammar.mechanism === "anchor_first_frame") {
+    /* Tier 2 decides the inputs: the anchor's last frame is the first frame. */
+    const first = anchorFrame ?? hero?.url;
+    if (!first) throw new CompileError(`${grammar.label} needs the anchor shot's finished take (its last frame) or a hero frame as fallback`);
+    if (!anchorFrame) warnings.push(`${grammar.label}: the anchor shot has no finished take yet; using this shot's hero frame instead`);
+    if (spec.mode === "reference") warnings.push(`${grammar.label} drives the first frame; reference images are not used (H3 cannot combine them)`);
+    images.push({ url: first, role: "first_frame" });
+    if (link.type === "bridge" && !end) throw new CompileError("bridge needs an end frame on this shot (select-end-frame)");
+    if (end) {
+      images.push({ url: end.url, role: "last_frame" });
+      workflow = "FL2VA";
+    } else {
+      workflow = "I2VA";
+    }
+  } else if (grammar.mechanism === "anchor_reference") {
+    if (anchorFrame) images.push({ url: anchorFrame, role: "reference", label: "match frame" });
+    else warnings.push(`${grammar.label}: the anchor shot has no finished take yet; compiling without the match frame`);
+    const refs = pickReferences(ctx, warnings, MAX_REFERENCE_IMAGES - images.length);
+    images.push(...refs);
+    if (images.length === 0) throw new CompileError("match cut needs the anchor's last frame or at least one reference image");
+    workflow = "R2VA";
+  } else if (spec.mode === "keyframe") {
+    const first = hero?.url;
+    if (!first) throw new CompileError("keyframe mode needs a hero frame");
     images.push({ url: first, role: "first_frame" });
     if (end) {
       images.push({ url: end.url, role: "last_frame" });
@@ -102,19 +138,19 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     if (refs.length === 0) throw new CompileError("reference mode needs at least one reference image (hero frame or element refs)");
     images.push(...refs);
     workflow = "R2VA";
-  } else if (spec.mode === "edit") {
+  }
+  if (spec.mode === "edit") {
     if (!ctx.sourceTake?.resultUrl) throw new CompileError("edit mode needs a completed source take");
     video = ctx.sourceTake.resultUrl;
     workflow = "R2VA";
     const refs = pickReferences(ctx, warnings, MAX_REFERENCE_IMAGES - 1);
     images.push(...refs);
-  } else {
-    workflow = "T2VA";
   }
+  workflow ??= "T2VA";
 
   const loras = (ctx.loras ?? []).filter((l) => l.workflows.length === 0 || l.workflows.includes(workflow));
   const speed = loras.find((l) => l.kind === "speed");
-  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras);
+  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
   if (ctx.steps !== undefined && speed?.stepsHint && ctx.steps !== speed.stepsHint) warnings.push(`${speed.name} is tuned for ${speed.stepsHint} steps; you asked for ${ctx.steps}`);
 
@@ -176,10 +212,20 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
   return out;
 }
 
-function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = []): string {
+const LINK_LINES: Partial<Record<LinkType, string>> = {
+  continuous: "Continue the previous shot's action and camera from the first frame without a cut.",
+  bridge: "One continuous camera move carries the first frame into the final frame.",
+  insert_return: "Resume the action exactly where the first frame leaves it, as if no time has passed.",
+  reverse: "The reverse angle of the conversation; keep screen direction and eyelines consistent with the first frame.",
+  jump_cut: "Jump cut: time has passed since the first frame. Same place and framing; what changed is stated in the beats.",
+  match_cut: "Match cut: keep the composition, shapes and motion of Image 1 while the subject and place become what the beats describe.",
+};
+
+function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = [], linkType: LinkType = "cut"): string {
   const { shot, look } = ctx;
   const spec = shot.spec;
   const blocks: string[] = [];
+  const cinema = renderCinematography(spec.cinematography);
   const name = (id: string) => ctx.elements.get(id)?.name ?? id;
   const describe = (id: string) => {
     const el = ctx.elements.get(id);
@@ -190,7 +236,9 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
   const refLines: string[] = [];
   images.filter((i) => i.role === "reference").forEach((img, i) => {
     const el = [...ctx.elements.values()].find((e) => e.name === img.label);
-    const purpose = img.label === "hero frame"
+    const purpose = img.label === "match frame"
+      ? "the previous shot's last frame: match its composition and motion, then transform the subject"
+      : img.label === "hero frame"
       ? "the look of this shot: composition, light and wardrobe"
       : el?.kind === "character"
         ? `${el.name}, the character. Keep face, hair and wardrobe exactly.`
@@ -205,7 +253,8 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
   /* LOOK — always; style LoRAs contribute their trigger words here. */
   const lookParts = [look.genre, look.palette, [look.camera, look.lens].filter(Boolean).join(", "), look.lighting].filter((s) => s && s.trim());
   const triggers = loras.map((l) => l.triggerWords.trim()).filter(Boolean);
-  if (lookParts.length || triggers.length) blocks.push(`LOOK\n${[...lookParts, ...triggers].join(". ")}.`);
+  const lookLines = [...lookParts, ...(cinema.lookLine ? [cinema.lookLine] : []), ...triggers];
+  if (lookLines.length) blocks.push(`LOOK\n${lookLines.join(". ")}.`);
 
   if (spec.mode === "edit") {
     blocks.push(`EDIT\n${spec.editInstruction ?? ""}`);
@@ -224,6 +273,8 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
 
     const beatLines = spec.beats.map((b) => `${fmt(b.from)}–${fmt(b.to)}s: ${b.cut ? "Hard cut. " : ""}${b.action}`);
+    const linkLine = LINK_LINES[linkType];
+    if (linkLine && images.some((i) => i.role === "first_frame" || i.label === "match frame")) beatLines.unshift(linkLine);
     if (workflow === "FL2VA") beatLines.push(`The shot ends on the final frame provided.`);
     blocks.push(`TIMELINE (${spec.durationS}s)\n${beatLines.join("\n")}`);
   }
@@ -234,6 +285,9 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
     ? `The camera ${CAMERA_PHRASE.static}.`
     : `The camera ${CAMERA_PHRASE[cam.move]} — ${cam.amplitude} amplitude, ${cam.speed} speed. One continuous move, no other camera motion.`;
   blocks.push(`CAMERA\n${camLine}${cam.note ? ` ${cam.note}` : ""}`);
+
+  /* CINEMATOGRAPHY — Tier 3 keys rendered as prose. */
+  if (cinema.block) blocks.push(cinema.block);
 
   /* DIALOGUE */
   if (spec.dialogue.length) {

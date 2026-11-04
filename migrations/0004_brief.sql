@@ -1,0 +1,2 @@
+ALTER TABLE projects ADD COLUMN brief TEXT NOT NULL DEFAULT '';
+ALTER TABLE projects ADD COLUMN target_seconds INTEGER;

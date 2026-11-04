@@ -1,11 +1,14 @@
 "use client";
 
 import { CloseIcon } from "@/openhiggsfield/icons";
+import { CINEMA, type CinemaCategoryKey } from "@/studio/cinematography";
+import { EDIT_GRAMMAR, type LinkType } from "@/studio/editing";
 import { CAMERA_MOVES, SHOT_MODES, type ShotInput } from "@/studio/schemas";
 import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field } from "./common";
 import { LoraPicker } from "./lora-picker";
+import { useProjectContext } from "./shell";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
    obvious mistakes (beats not tiling the duration) are caught before the
@@ -42,16 +45,51 @@ export function ShotEditor({
   onChange,
   elements,
   takes,
+  shotId,
 }: {
   value: ShotDraft;
   onChange: (next: ShotDraft) => void;
   elements: Element[];
   takes: Take[];
+  /** The shot being edited, so the anchor picker lists only earlier shots. */
+  shotId?: string;
 }) {
+  const { view } = useProjectContext();
   const set = <K extends keyof ShotDraft>(key: K, v: ShotDraft[K]) => onChange({ ...value, [key]: v });
   const characters = elements.filter((e) => e.kind === "character");
   const locations = elements.filter((e) => e.kind === "location");
   const props = elements.filter((e) => e.kind === "prop");
+
+  /* Tier 2: the link. `linkToPrev` is mirrored for older readers. */
+  const linkType: LinkType = value.link?.type ?? (value.linkToPrev === "continuous" ? "continuous" : "cut");
+  const grammar = EDIT_GRAMMAR.find((g) => g.type === linkType)!;
+  const setLink = (next: Partial<NonNullable<ShotDraft["link"]>> & { type?: LinkType }) => {
+    const type = next.type ?? linkType;
+    const g = EDIT_GRAMMAR.find((x) => x.type === type)!;
+    const link = { ...(value.link ?? {}), type, ...next };
+    if (next.type && next.type !== linkType) {
+      delete link.anchorShotId;
+      link.anchor = g.mechanism === "none" ? undefined : g.defaultAnchor;
+    }
+    if (g.mechanism === "none") {
+      delete link.anchor;
+      delete link.anchorShotId;
+    }
+    onChange({ ...value, link, linkToPrev: type === "continuous" ? "continuous" : "cut" });
+  };
+  const earlier = (() => {
+    const all = (view?.scenes ?? []).flatMap((sc) => sc.shots.map((sh) => ({ id: sh.id, scene: sc.slug, index: sh.index, intent: sh.spec.intent })));
+    const at = shotId ? all.findIndex((x) => x.id === shotId) : -1;
+    return at >= 0 ? all.slice(0, at) : all;
+  })();
+
+  /* Tier 3: cinematography keys. */
+  const cine = value.cinematography ?? {};
+  const setCine = (key: CinemaCategoryKey, v: string | string[] | undefined) => {
+    const next = { ...cine, [key]: v && (Array.isArray(v) ? v.length : v) ? v : undefined };
+    const clean = Object.fromEntries(Object.entries(next).filter(([, x]) => x !== undefined));
+    set("cinematography", Object.keys(clean).length ? (clean as ShotDraft["cinematography"]) : undefined);
+  };
 
   return (
     <div className="st-stack">
@@ -68,12 +106,93 @@ export function ShotEditor({
             ))}
           </select>
         </Field>
-        <Field label="Link to previous">
-          <select className="st-select" value={value.linkToPrev} onChange={(e) => set("linkToPrev", e.target.value as ShotDraft["linkToPrev"])}>
-            <option value="cut">cut</option>
-            <option value="continuous">continuous (starts on previous last frame)</option>
-          </select>
-        </Field>
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Edit</span>
+        <div className="st-fields">
+          <Field label="Link to earlier shots">
+            <select className="st-select" value={linkType} onChange={(e) => setLink({ type: e.target.value as LinkType })}>
+              {EDIT_GRAMMAR.map((g) => (
+                <option key={g.type} value={g.type} title={g.when}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {grammar.mechanism !== "none" && (
+            <Field label="Anchor (offset)" hint="-1 = previous shot, -2 = the one before it.">
+              <input
+                className="st-input"
+                type="number"
+                min={-8}
+                max={-1}
+                step={1}
+                value={value.link?.anchor ?? grammar.defaultAnchor}
+                disabled={Boolean(value.link?.anchorShotId)}
+                onChange={(e) => setLink({ anchor: Math.max(-8, Math.min(-1, Math.round(Number(e.target.value) || grammar.defaultAnchor))) })}
+              />
+            </Field>
+          )}
+          {grammar.mechanism !== "none" && (
+            <Field label="Or a specific shot">
+              <select className="st-select" value={value.link?.anchorShotId ?? ""} onChange={(e) => setLink({ anchorShotId: e.target.value || undefined })}>
+                <option value="">— by offset —</option>
+                {earlier.map((sh) => (
+                  <option key={sh.id} value={sh.id}>
+                    {sh.scene} · {sh.index + 1} · {sh.intent.slice(0, 40)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+        </div>
+        <div className="st-edit-when">
+          <strong>{grammar.label}:</strong> {grammar.when}. <span className="st-muted">{grammar.how} Workflow: {grammar.workflow}.</span>
+        </div>
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Cinematography</span>
+        <div className="st-cine-grid">
+          {CINEMA.filter((c) => !c.multi).map((c) => (
+            <Field key={c.key} label={c.label}>
+              <select className="st-select st-input--sm" value={(cine[c.key] as string | undefined) ?? ""} onChange={(e) => setCine(c.key, e.target.value || undefined)}>
+                <option value="">—</option>
+                {c.terms.map((t) => (
+                  <option key={t.key} value={t.key} title={t.use}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          ))}
+        </div>
+        {CINEMA.filter((c) => c.multi).map((c) => {
+          const chosen = (cine[c.key] as string[] | undefined) ?? [];
+          return (
+            <Field key={c.key} label={`${c.label} (max 4)`}>
+              <div className="st-chips">
+                {c.terms.map((t) => {
+                  const on = chosen.includes(t.key);
+                  return (
+                    <button
+                      key={t.key}
+                      type="button"
+                      className="st-chip st-chip--btn"
+                      aria-pressed={on}
+                      title={t.use}
+                      disabled={!on && chosen.length >= 4}
+                      onClick={() => setCine(c.key, on ? chosen.filter((k) => k !== t.key) : [...chosen, t.key])}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+          );
+        })}
       </div>
 
       <Field label="Intent" hint="One sentence: what this shot is for.">

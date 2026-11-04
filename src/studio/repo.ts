@@ -37,6 +37,8 @@ function mapProject(r: Row): Project {
     look: LookSettings.catch(DEFAULT_LOOK).parse(json(r.look_json, {})),
     budgetCapUsd: num(r.budget_cap_usd),
     spentUsd: num(r.spent_usd),
+    brief: str(r.brief ?? ""),
+    targetSeconds: opt(r.target_seconds, num),
     shotlistApproval: str(r.shotlist_approval) as Approval,
     shotlistApprovedAt: opt(r.shotlist_approved_at, num),
     createdAt: num(r.created_at),
@@ -55,22 +57,24 @@ export async function getProject(id: string): Promise<Project> {
   return mapProject(row);
 }
 
-export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number }): Promise<Project> {
+export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number; brief?: string; targetSeconds?: number }): Promise<Project> {
   const now = Date.now();
   const id = newId("prj");
   const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}) });
   await (await db()).run(
-    "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?)",
-    [id, input.name, JSON.stringify(look), input.budgetCapUsd ?? 50, now, now],
+    "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, brief, target_seconds, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?)",
+    [id, input.name, JSON.stringify(look), input.budgetCapUsd ?? 50, input.brief ?? "", input.targetSeconds ?? null, now, now],
   );
   return getProject(id);
 }
 
-export async function updateProject(id: string, patch: { name?: string; budgetCapUsd?: number }): Promise<Project> {
+export async function updateProject(id: string, patch: { name?: string; budgetCapUsd?: number; brief?: string; targetSeconds?: number | null }): Promise<Project> {
   const current = await getProject(id);
-  await (await db()).run("UPDATE projects SET name = ?, budget_cap_usd = ?, updated_at = ? WHERE id = ?", [
+  await (await db()).run("UPDATE projects SET name = ?, budget_cap_usd = ?, brief = ?, target_seconds = ?, updated_at = ? WHERE id = ?", [
     patch.name ?? current.name,
     patch.budgetCapUsd ?? current.budgetCapUsd,
+    patch.brief ?? current.brief,
+    patch.targetSeconds === undefined ? (current.targetSeconds ?? null) : patch.targetSeconds,
     Date.now(),
     id,
   ]);

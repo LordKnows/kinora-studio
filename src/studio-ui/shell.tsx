@@ -40,6 +40,8 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   const spent = view?.project.spentUsd ?? 0;
   const cap = view?.project.budgetCapUsd ?? 0;
   const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
+  const target = view?.project.targetSeconds;
+  const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
   return (
     <ProjectContext.Provider value={{ projectId, view, error, loading, reload }}>
       <div className="st-shell">
@@ -57,6 +59,11 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
             <div className="st-rail-bar" data-over={spent > cap ? "true" : "false"}>
               <span style={{ width: `${pct}%` }} />
             </div>
+            {target !== undefined && (
+              <div className="st-rail-target st-num" data-match={boardSeconds === target ? "true" : "false"}>
+                target {target} s · board {boardSeconds} s
+              </div>
+            )}
           </div>
           <div className="st-rail-nav">
             {NAV.map((item) => {
