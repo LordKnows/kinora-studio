@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { GpuState } from "@/studio/gpu";
+import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
 import { Button, ErrorBanner, Lamp, useAction } from "./common";
@@ -55,6 +56,71 @@ function clock(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   return h ? `${h}h ${String(m).padStart(2, "0")}m` : `${m}m`;
+}
+
+function mmss(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+type StatsResponse = { stats: GpuTypeStats[]; estimateBasis: { secondsPerOutputSecond?: number; usdPerHr?: number; gpuTypeId?: string } };
+
+/* The per-GPU ledger: which card bought how many seconds of video for how
+   much. The allow-list can be ranked by its last column. */
+export function GpuStatsTable() {
+  const [data, setData] = useState<StatsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    get<StatsResponse>("/api/gpu/stats")
+      .then((r) => live && setData(r))
+      .catch((caught) => live && setError(describe(caught)));
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (error) return <p className="st-danger">{error}</p>;
+  if (!data) return <p className="st-muted">Loading stats…</p>;
+  const rows = [...data.stats].sort((a, b) => (a.usdPerVideoSecond ?? Infinity) - (b.usdPerVideoSecond ?? Infinity));
+  return (
+    <div className="st-stack">
+      {rows.length === 0 ? (
+        <p className="st-muted">No completed takes yet.</p>
+      ) : (
+        <table className="st-table">
+          <thead>
+            <tr>
+              <th>GPU type</th>
+              <th>Takes</th>
+              <th>Generation</th>
+              <th>Video s</th>
+              <th>GPU-s / video-s</th>
+              <th>USD/h</th>
+              <th>USD / video-s</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.gpuTypeId} data-basis={data.estimateBasis.gpuTypeId === r.gpuTypeId ? "true" : undefined}>
+                <td>
+                  {r.gpuTypeId}
+                  {data.estimateBasis.gpuTypeId === r.gpuTypeId && <span className="st-muted"> · estimate basis</span>}
+                </td>
+                <td className="st-num">{r.takes}</td>
+                <td className="st-num">{mmss(r.genSeconds)}</td>
+                <td className="st-num">{r.videoSeconds}</td>
+                <td className="st-num">{r.secondsPerOutputSecond}</td>
+                <td className="st-num">{r.usdPerHr !== undefined ? usd(r.usdPerHr) : "—"}</td>
+                <td className="st-num">{r.usdPerVideoSecond !== undefined ? usd(r.usdPerVideoSecond) : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <span className="st-muted">Sorted by USD per second of video. Set RUNPOD_GPU_PRIORITY=cost to order the allow-list by this column when a pod is created.</span>
+    </div>
+  );
 }
 
 export function GpuRailCard() {
@@ -175,6 +241,10 @@ export function GpuSection() {
           <Button kind="danger" busy={terminate.busy} onClick={() => void terminate.fire()}>Terminate</Button>
         )}
         <Button kind="quiet" onClick={() => void loadTypes()}>GPU types</Button>
+      </div>
+      <div className="st-stack">
+        <span className="st-label">Generation stats by GPU</span>
+        <GpuStatsTable />
       </div>
       {typesError && <p className="st-danger">{typesError}</p>}
       {types && (

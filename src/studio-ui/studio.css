@@ -1143,3 +1143,72 @@
 .ohf .st-table tr[data-allowed="true"] td {
   color: var(--accent);
 }
+
+/* ---- LoRAs ---- */
+.ohf .st-lora-list {
+  display: grid;
+  gap: 6px;
+}
+.ohf .st-lora-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--s1);
+}
+.ohf .st-lora-row[data-on="true"] {
+  border-color: var(--accent-32);
+  background: var(--accent-08);
+}
+.ohf .st-lora-list[data-compact="true"] .st-lora-row {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.ohf .st-lora-name {
+  color: var(--tx);
+}
+.ohf .st-lora-kind {
+  margin-left: 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tx4);
+}
+.ohf .st-lora-strength {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ohf .st-lora-strength .st-input {
+  width: 76px;
+}
+.ohf .st-lora-file,
+.ohf .st-lora-trigger {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ohf .st-lora-notes {
+  font-size: 12px;
+  margin-top: 2px;
+}
+.ohf .st-link--btn {
+  font: inherit;
+  color: var(--tx);
+}
+.ohf .st-link--ext {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ohf .st-range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.ohf .st-table tr[data-basis="true"] td {
+  color: var(--accent);
+}

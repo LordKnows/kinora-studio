@@ -257,11 +257,13 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
   const { projectId } = useProjectContext();
   const [steps, setSteps] = useState(8);
   const [data, setData] = useState<Compiled | null>(null);
+  const [basisGpu, setBasisGpu] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const load = useCallback(async () => {
     setError(null);
     try {
       setData(await get<Compiled>(`/api/shots/${shotId}/compile?steps=${steps}`));
+      get<{ estimateBasis?: { gpuTypeId?: string } }>("/api/gpu/stats").then((r) => setBasisGpu(r.estimateBasis?.gpuTypeId ?? null)).catch(() => setBasisGpu(null));
     } catch (caught) {
       setError(caught);
       setData(null);
@@ -288,7 +290,7 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
             <dt>Estimate</dt>
             <dd>
               {usd(data.estimate.usd)} · {Math.round(data.estimate.gpuSeconds)} GPU s
-              <span className="st-muted"> · {data.estimate.source === "measured" ? "measured" : "placeholder constants"}</span>
+              <span className="st-muted"> · {data.estimate.source === "measured" ? `measured on ${basisGpu ?? "your GPU"}` : "placeholder constants"}</span>
             </dd>
             <dt>Steps</dt>
             <dd className="st-num">{data.estimate.steps}</dd>
