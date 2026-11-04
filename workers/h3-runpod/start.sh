@@ -36,5 +36,5 @@ COMFY_PID=$!
 cleanup() { kill "$COMFY_PID" 2>/dev/null || true; }
 trap cleanup EXIT
 
-cd /app
+cd "$(dirname "$0")"
 exec python3 -u server.py

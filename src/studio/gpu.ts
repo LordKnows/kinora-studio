@@ -56,7 +56,23 @@ function podEnv(): Record<string, string> {
     STUDIO_WORKER_TOKEN: pod.workerToken,
     STUDIO_PORT: String(pod.podPort),
     COMFY_URL: `http://127.0.0.1:${pod.comfyPort}`,
+    STUDIO_BUNDLE_URL: `${config.publicUrl()}/api/pod/bundle?token=${encodeURIComponent(pod.workerToken)}`,
   };
+}
+
+/* On a stock ComfyUI image the pod boots the image's own entrypoint (ComfyUI,
+   Jupyter) and then pulls the studio job server from the Studio and runs it.
+   Idempotent across restarts; everything lands under /app/h3-runpod. */
+export function bootstrapCommand(): string[] {
+  const script = [
+    "set -e",
+    "mkdir -p /app && cd /app",
+    'curl -fsSL -A "Mozilla/5.0 CinemaStudio" "$STUDIO_BUNDLE_URL" | tar xz',
+    "python3 -m pip install -q requests boto3 >/dev/null 2>&1 || true",
+    "command -v ffmpeg >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq ffmpeg >/dev/null 2>&1) || true",
+    "exec bash /app/h3-runpod/start.sh",
+  ].join(" && ");
+  return ["bash", "-lc", script];
 }
 
 export async function getGpuState(): Promise<GpuState> {
@@ -170,6 +186,7 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
         ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
         env: podEnv(),
         allowedCudaVersions: pc.cudaVersions,
+        ...(pc.bootstrap ? { dockerStartCmd: bootstrapCommand() } : {}),
       });
       await repo.insertGpuPod({
         id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName,

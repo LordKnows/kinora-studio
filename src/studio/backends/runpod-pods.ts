@@ -32,6 +32,8 @@ export type CreatePodInput = {
   ports: string[];
   env: Record<string, string>;
   allowedCudaVersions?: string[];
+  /** Replaces the image's start command (RunPod: dockerStartCmd). */
+  dockerStartCmd?: string[];
 };
 
 const NO_RESOURCE_PATTERNS = [/no longer any instances/i, /no instances available/i, /not enough.*resources/i, /unavailable/i, /no gpu/i, /out of stock/i, /capacity/i];
@@ -87,6 +89,7 @@ export class RunPodPodsClient {
       interruptible: false,
       ...(input.networkVolumeId ? { networkVolumeId: input.networkVolumeId } : {}),
       ...(input.allowedCudaVersions?.length ? { allowedCudaVersions: input.allowedCudaVersions } : {}),
+      ...(input.dockerStartCmd?.length ? { dockerStartCmd: input.dockerStartCmd } : {}),
       ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
     };
     return mapPod(await this.call("POST", "/pods", body));

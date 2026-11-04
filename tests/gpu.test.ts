@@ -109,7 +109,13 @@ describe("pod mode", () => {
     expect(create.gpuTypeIds).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
+    expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");
     expect(create.networkVolumeId).toBe("vol1");
+    /* stock image: the pod bootstraps the job server from the studio */
+    const cmd = (create as unknown as { dockerStartCmd: string[] }).dockerStartCmd;
+    expect(cmd[0]).toBe("bash");
+    expect(cmd[2]).toContain("$STUDIO_BUNDLE_URL");
+    expect(cmd[2]).toContain("start.sh");
     expect((await gpu.getGpuState()).pendingTakes).toBe(1);
 
     /* still booting: the sweep submits nothing */

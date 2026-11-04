@@ -50,6 +50,9 @@ export const config = {
       the models live. The pod runs workers/h3-runpod/server.py on podPort. */
   runpodPod: () => ({
     image: env("RUNPOD_POD_IMAGE") ?? "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
+    /** Stock image: the pod fetches the job server from /api/pod/bundle at
+        boot. Set to "0" when RUNPOD_POD_IMAGE already contains it (Dockerfile.pod). */
+    bootstrap: env("RUNPOD_POD_BOOTSTRAP") !== "0",
     gpuTypeIds: (env("RUNPOD_GPU_TYPES") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     networkVolumeId: env("RUNPOD_NETWORK_VOLUME_ID"),
     dataCenterIds: (env("RUNPOD_DATACENTER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),

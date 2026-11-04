@@ -181,11 +181,12 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 
 准备工作：
 
-1. **镜像**：以你的 ComfyUI 镜像为基础构建 `workers/h3-runpod/Dockerfile.pod`
-   （构建上下文是 `workers/` 目录：`docker build -f workers/h3-runpod/Dockerfile.pod
-   --build-arg BASE_IMAGE=<你的镜像> -t <registry>/studio-h3:pod workers/`），推到
-   Docker Hub 或 GHCR，把镜像名填进 `RUNPOD_POD_IMAGE`。镜像的 ComfyUI 启动命令若
-   不是默认的 `/workspace/ComfyUI/main.py`，在 Pod 环境变量里设 `COMFY_CMD`。
+1. **镜像**：默认不需要自己构建。`RUNPOD_POD_IMAGE` 用 RunPod 官方的
+   `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`，`RUNPOD_POD_BOOTSTRAP=1` 时 Pod 启动会
+   先跑镜像自己的入口（ComfyUI），再从 `https://studio.zyhu.dev/api/pod/bundle` 拉取作业
+   服务（handler、server、工作流 JSON，约 22 KB）并在 8000 端口启动。代码永远和仓库同步。
+   想要自带作业服务的镜像，用 `workers/h3-runpod/Dockerfile.pod` 构建后把
+   `RUNPOD_POD_BOOTSTRAP` 设为 `0`。
 2. **网络卷**：放 H3 权重，ID 填 `RUNPOD_NETWORK_VOLUME_ID`；`RUNPOD_DATACENTER_IDS`
    填卷所在的数据中心。
 3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填型号名的子串，按优先级排列（默认
@@ -245,3 +246,18 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   两张时 handler 会克隆 LoadImage 节点并接到 `ref_images.ref_image_N`（最多 9 张）。
 - Studio 经 RunPod 代理访问 Pod 时带浏览器 User-Agent（否则 Cloudflare 403）。
 - 交接原文和验证脚本存档在 `docs/handoff/`。
+
+## 12. 第一次真机：验证顺序
+
+1. Settings → GPU pod：Allowed GPUs 不再是红字，Status 为 off。点 **GPU types**，确认白名单里
+   至少有几条标了 allowed（型号名按子串匹配）。
+2. 点 **Start**。状态应依次为 starting → running；"starting" 期间 Pod 在拉镜像、跑入口、拉作业服务。
+   卡住超过 10 分钟：到 RunPod 控制台看该 Pod 的日志，常见是作业服务没起来（`/api/pod/bundle`
+   没放进 Access bypass，或 `STUDIO_WORKER_TOKEN` 没设）。
+3. running 之后，RunPod 控制台 → 该 Pod → Connect → HTTP 8000 端口，访问 `/health`（需要
+   `X-Studio-Token` 头，用浏览器看会是 401，正常）。
+4. Studio 里：建项目 → Script 批准 → 一个 5 秒 `text` 镜头的分镜表并批准 → Board 里对它点
+   Generate take。侧栏显示 take 在排队，首个任务要加载 21 GB 底模和文本编码器，交接实测冷跑
+   约 3–6 分钟，热跑 5 秒片段约 3 分钟（A100）。
+5. take 完成后卡片出现缩略图，Settings 的 GPU 统计表出现第一行；预估开始用实测速度。
+6. 15 分钟没有任务 Pod 自动停机；再点 Start 时若拿不到卡会自动换型号或数据中心重建。
