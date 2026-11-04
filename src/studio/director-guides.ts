@@ -66,7 +66,7 @@ export function filmPlan(args: { brief: string; totalSeconds: number; shots?: nu
     plan,
     tiers: {
       tier1: "Brief: the user's words plus the target running time, aspect ratio and style. Save it as the project brief; write the Look (genre, palette, camera, lens, lighting, LoRAs) from it.",
-      tier2: `Shotlist: split the brief into scenes and ${plan.shots} shots that tile ${plan.totalSeconds} s (durations: ${plan.durations.join(", ")}). For each shot choose the link type from the editing grammar (cut, continuous, bridge, insert_return, reverse, match_cut, jump_cut, montage) and the mode it implies; write intent and beats as start → action → end.`,
+      tier2: `Shotlist: first split the brief into 3–6 narrative sequences with a share of the ${plan.totalSeconds} s each; then cut every sequence into 5–15 s shots (the arithmetic skeleton: ${plan.shots} shots, durations ${plan.durations.join(", ")} — reshape it per sequence, prefer 8–12 s). Open each sequence with a reference-mode (R2VA) shot that carries the character references, then pass identity by frame with continuous / reverse / insert_return / bridge. For each shot choose the link type from the editing grammar and the mode it implies; write intent and beats as start → action → end. Render order: all R2VA shots of a batch first (one base model), then the I2VA / FL2VA shots that anchor to them.`,
       tier3: "Refine every shot with cinematography keys (size, angle, lens, dof, lighting, grade, texture, vfx, animation, pace), one camera move with amplitude and speed, verbatim dialogue with delivery, and sound as events. Then save_shotlist and ask for approval.",
     },
     checklist: [

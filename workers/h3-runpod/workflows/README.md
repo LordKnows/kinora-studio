@@ -16,11 +16,9 @@ ComfyUI graph you put here.
 4. `python3 handler.py --local '{"action":"health"}'` lists the templates the
    handler sees; run a tiny T2VA job to confirm the mapping.
 
-`T2VA.json` here is a placeholder whose node ids match the handoff's graphs
-(`mapping.json` is already filled from HANDOFF.md §1), so the unit tests can
-exercise the fill logic. It will not run on a real ComfyUI: copy the four real
-files (`T2VA.json`, `I2VA.json`, `FL2VA.json`, `R2VA.json`) from the handoff
-folder over it.
+The four JSONs here are the handoff's graphs as they rendered on an A100
+(`docs/handoff/HANDOFF.md`, verified by `docs/handoff/verify_handoff.py`);
+`mapping.json` is checked against every node they contain.
 
 Facts from the handoff that the handler relies on:
 

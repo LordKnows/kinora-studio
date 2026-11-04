@@ -149,7 +149,7 @@ describe("edit grammar through the compiler", () => {
 });
 
 describe("lightx2v structured prompt and loops", () => {
-  it("serialises the sections into lightx2v fields with picture / subject tokens", async () => {
+  it("serialises the sections the way the handoff prompts are written", async () => {
     const { compileShot } = await import("@/studio/compiler");
     const base = { id: "s", projectId: "p", sceneId: "c", index: 0, createdAt: 0, updatedAt: 0 };
     const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["no logos"], loras: [] };
@@ -162,26 +162,37 @@ describe("lightx2v structured prompt and loops", () => {
 
     const fl = compileShot({
       shot: { ...base, spec: shot({ mode: "keyframe", dialogue: [{ speaker: "mara", text: "Not tonight.", language: "en", delivery: "breathless" }], sound: { sfx: ["rain"], ambience: "wet street", music: "N/A" } }), heroAssetId: "h", endAssetId: "e" },
-      look, elements, assets, format: "lightx2v-json",
+      look, elements, assets, format: "lightx2v-lines",
     });
     expect(fl.workflow).toBe("FL2VA");
-    const json = JSON.parse(fl.prompt) as Record<string, string>;
-    expect(Object.keys(json)).toEqual(["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]);
-    expect(json.integrated_multimodal_description).toMatch(/^<Picture 1> is the first frame of the shot\. <Picture 2> is the last frame of the shot\. neo-noir\. teal and amber\. Mara crosses the lobby\./);
-    expect(json.integrated_multimodal_description).toContain('Dialogue — Mara (en, breathless): "Not tonight."');
-    expect(json.integrated_multimodal_description).toContain("no logos");
-    expect(json.overall_soundscape).toBe("Sound effects: rain. Ambience: wet street.");
-    expect(json.non_diegetic_music).toBe("None");
+    const paragraphs = fl.prompt.split("\n\n");
+    expect(paragraphs[0]).toBe("integrated_multimodal_description: For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced, and the target video ends on <Picture 2>.");
+    expect(paragraphs[1]).toMatch(/^\[Shot 1\] neo-noir\. teal and amber\. One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>\. Mara crosses the lobby\./);
+    expect(paragraphs[1]).toContain('Dialogue — Mara (en, breathless): "Not tonight."');
+    expect(paragraphs[1]).toContain("no logos");
+    expect(paragraphs[2]).toBe("overall_soundscape: rain. wet street.");
+    expect(paragraphs[3]).toBe("non_diegetic_music: N/A");
+
+    /* two hard cuts inside one shot become [Shot 1] / [Shot 2] / [Shot 3] */
+    const cuts = compileShot({
+      shot: { ...base, spec: shot({ durationS: 9, beats: [{ from: 0, to: 3, action: "An empty bar" }, { from: 3, to: 6, action: "Boots cross the floor", cut: true }, { from: 6, to: 9, action: "Mara looks up", cut: true }] }) },
+      look, elements, assets, format: "lightx2v-lines",
+    });
+    expect(cuts.prompt).toContain("For the target video, 3 shots with clean hard cuts.");
+    expect(cuts.prompt).toContain("[Shot 2] 3–6s: Boots cross the floor.");
+    expect(cuts.prompt).toContain("[Shot 3] 6–9s: Mara looks up.");
 
     const r2 = compileShot({
       shot: { ...base, spec: shot({ mode: "reference", characters: ["mara"], intent: "Mara looks back", sound: { sfx: [], ambience: "", music: "slow synth pad" } }) },
       look, elements, assets, format: "lightx2v-lines",
     });
     expect(r2.workflow).toBe("R2VA");
-    expect(r2.prompt.split("\n")[0]).toBe("subject_definitions: <Subject 1>: Mara, the character. Keep face, hair and wardrobe exactly.");
-    expect(r2.prompt).toContain("summary: Mara looks back");
-    expect(r2.prompt).toContain("retention_analysis: <Subject 1> keeps face, hair and wardrobe exactly.");
-    expect(r2.prompt).toContain("non_diegetic_music: slow synth pad");
+    const p2 = r2.prompt.split("\n\n");
+    expect(p2[0]).toBe("subject_definitions:\n<Subject 1> is Mara in the first reference image, the character. Keep face, hair and wardrobe exactly.");
+    expect(p2[1]).toBe("summary:\n[reference generation] Mara looks back. <Subject 1> guide character identity and wardrobe throughout.");
+    expect(p2[2]).toBe("retention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - face, hair and wardrobe exactly are retained.");
+    expect(p2[3]).toMatch(/^detailed_description:\nThe target video uses this look: neo-noir\. teal and amber\.\n\[Shot 1\] /);
+    expect(p2[5]).toBe("non_diegetic_music: slow synth pad");
   });
 
   it("loop renders one period as FL2VA with the hero frame at both ends", async () => {

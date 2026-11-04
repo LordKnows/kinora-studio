@@ -61,7 +61,7 @@ export type PromptFormat = "lightx2v-json" | "lightx2v-lines" | "blocks";
 
 export function promptFormat(): PromptFormat {
   const v = process.env.H3_PROMPT_FORMAT;
-  return v === "blocks" || v === "lightx2v-lines" ? v : "lightx2v-json";
+  return v === "blocks" || v === "lightx2v-json" ? v : "lightx2v-lines";
 }
 
 export const MAX_REFERENCE_IMAGES = 3;
@@ -362,55 +362,65 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
 
 /* ---------- serialisation ---------- */
 
+/* Mirrors the prompts that rendered in the handoff (workflows/*.json and
+   verify_handoff.py): "field: value" paragraphs separated by blank lines,
+   [Shot k] segment markers, <Picture 1>/<Picture 2> for the first/last frame,
+   <Subject N> for reference image N, and "N/A" for no music. */
 function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[], format: PromptFormat): string {
   if (format === "blocks") return (sec as Sections & { blocks?: string }).blocks ?? "";
   const refs = images.filter((i) => i.role === "reference");
   const hasFirst = images.some((i) => i.role === "first_frame");
   const hasLast = images.some((i) => i.role === "last_frame");
   const sentence = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).map((p) => (/[.!?"]$/.test(p) ? p : `${p}.`)).join(" ");
-  const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "None";
-  const soundscape = sentence([`Sound effects: ${sec.sound.sfx}`, `Ambience: ${sec.sound.ambience}`]);
-  const visual = sentence([
-    ...sec.look.map((l) => l),
-    sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : sec.intent,
-    ...sec.who,
-    ...sec.timeline,
-    `Camera: ${sec.camera}`,
-    ...sec.cinematography,
-    ...(sec.dialogue.length ? [`Dialogue — ${sec.dialogue.join(" ")}`] : []),
-    ...sec.constraints,
-  ]);
+  const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "N/A";
+  const soundscape = sentence([sec.sound.sfx !== "only what the action makes" ? sec.sound.sfx : "", sec.sound.ambience]) || "Natural room tone.";
 
-  let fields: Array<[string, string]>;
+  /* Beats become [Shot k] segments: a new segment opens at every hard cut. */
+  const segments: string[][] = [[]];
+  for (const line of sec.timeline) {
+    if (/^Hard cut\. /.test(line) || /: Hard cut\. /.test(line)) segments.push([]);
+    segments[segments.length - 1]!.push(line.replace(": Hard cut. ", ": "));
+  }
+  const look = sentence(sec.look);
+  const camera = `Camera: ${sec.camera}`;
+  const tail = sentence([...sec.cinematography, ...(sec.dialogue.length ? [`Dialogue — ${sec.dialogue.join(" ")}`] : []), ...sec.constraints]);
+  const shotBlocks = segments.map((lines, k) => {
+    const first = k === 0 ? (hasFirst && hasLast ? "One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>." : hasFirst ? "One single continuous take with no cuts, continuing directly from <Picture 1>." : "") : "";
+    return `[Shot ${k + 1}] ${sentence([k === 0 ? look : "", first, sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : k === 0 ? sec.intent : "", ...(k === 0 ? sec.who : []), ...lines, camera, k === segments.length - 1 ? tail : ""])}`;
+  });
+
+  let fields: Array<[string, string, "inline" | "block"]>;
   if (workflow === "R2VA") {
-    /* <Subject N> = reference image N, in the order the images were sent. */
-    const subjects = refs.map((img, i) => `<Subject ${i + 1}>: ${sec.references[i]?.replace(/^Image \d+: /, "") ?? img.label ?? "reference"}`);
+    const ordinal = ["first", "second", "third", "fourth", "fifth", "sixth", "seventh", "eighth", "ninth"];
+    const subjects = refs.map((img, i) => {
+      const line = sec.references[i]?.replace(/^Image \d+: /, "") ?? img.label ?? "reference";
+      return `<Subject ${i + 1}> is ${line.replace(/, the character\. /, " in the " + ordinal[i] + " reference image, the character. ")}`;
+    });
     const retention = refs.map((_img, i) => {
       const line = sec.references[i] ?? "";
-      const keep = /Keep ([^.]+)\./.exec(line)?.[1] ?? "its identity, proportions and materials";
-      return `<Subject ${i + 1}> keeps ${keep}`;
+      const keep = /Keep ([^.]+)\./.exec(line)?.[1] ?? "identity, proportions and materials";
+      return `<Subject ${i + 1}> (appears in [Shot 1]): fully_preserved - ${keep} are retained.`;
     });
     fields = [
-      ["subject_definitions", sentence(subjects)],
-      ["summary", sec.intent],
-      ["retention_analysis", sentence(retention)],
-      ["detailed_description", visual],
-      ["overall_soundscape", soundscape],
-      ["non_diegetic_music", music],
+      ["subject_definitions", subjects.join("\n"), "block"],
+      ["summary", `[reference generation] ${sentence([sec.intent, `${refs.map((_r, i) => `<Subject ${i + 1}>`).join(" and ")} guide character identity and wardrobe throughout`])}`, "block"],
+      ["retention_analysis", retention.join("\n"), "block"],
+      ["detailed_description", `${look ? `The target video uses this look: ${look}\n` : ""}${shotBlocks.join("\n")}`, "block"],
+      ["overall_soundscape", soundscape, "block"],
+      ["non_diegetic_music", music, "inline"],
     ];
   } else {
-    const frames = [
-      ...(hasFirst ? ["<Picture 1> is the first frame of the shot"] : []),
-      ...(hasLast ? ["<Picture 2> is the last frame of the shot"] : []),
-    ];
+    const header = hasFirst
+      ? `For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced${hasLast ? ", and the target video ends on <Picture 2>" : ""}.`
+      : `For the target video, ${segments.length} shot${segments.length > 1 ? "s with clean hard cuts" : ""}.`;
     fields = [
-      ["integrated_multimodal_description", sentence([...frames, visual])],
-      ["overall_soundscape", soundscape],
-      ["non_diegetic_music", music],
+      ["integrated_multimodal_description", `${header}\n\n${shotBlocks.join("\n\n")}`, "inline"],
+      ["overall_soundscape", soundscape, "inline"],
+      ["non_diegetic_music", music, "inline"],
     ];
   }
-  if (format === "lightx2v-lines") return fields.map(([k, v]) => `${k}: ${v}`).join("\n");
-  return JSON.stringify(Object.fromEntries(fields));
+  if (format === "lightx2v-json") return JSON.stringify(Object.fromEntries(fields.map(([k, v]) => [k, v])));
+  return fields.map(([k, v, mode]) => (mode === "block" ? `${k}:\n${v}` : `${k}: ${v}`)).join("\n\n");
 }
 
 function fmt(n: number): string {

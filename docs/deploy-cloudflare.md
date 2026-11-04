@@ -219,17 +219,19 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   `length` 是帧数（17k+5，24 fps），handler 把秒数换算成 124–362 帧；H3 没有负向提示词。
 - LoRA 库预置 fl2v / ref2v 两个 turbo LoRA（8 步，强度 1.0），分别只作用于 T2VA/I2VA/FL2VA 和 R2VA；
   新项目默认带上它们。
-- prompt 改为 lightx2v 的结构化字段（`H3_PROMPT_FORMAT=lightx2v-json`）：I2VA/FL2VA/T2VA 用
-  `integrated_multimodal_description / overall_soundscape / non_diegetic_music`，首尾帧写作
-  `<Picture 1>` / `<Picture 2>`；R2VA 用 `subject_definitions / summary / retention_analysis /
-  detailed_description / overall_soundscape / non_diegetic_music`，参考图写作 `<Subject N>`。
-  **字段的序列化方式（JSON 还是逐行）要用 `verify/verify_handoff.py` 里的实际 prompt 核对**，
-  不一致就把变量改成 `lightx2v-lines`。
+- prompt 按交接工作流里实际跑通的写法生成（`H3_PROMPT_FORMAT=lightx2v-lines`）：`字段: 内容`
+  段落、段落间空行、`[Shot k]` 段标记；I2VA/FL2VA 用 `<Picture 1> (from [Shot 1]) is fully
+  referenced`（FL2VA 加 `ends on <Picture 2>`）；R2VA 用 `subject_definitions / summary（[reference
+  generation]）/ retention_analysis（<Subject N> (appears in [Shot 1]): fully_preserved - …）/
+  detailed_description / overall_soundscape / non_diegetic_music`；没有音乐写 `N/A`。镜头内的硬切
+  变成 `[Shot 2]`、`[Shot 3]` 段。
 - 镜像用交接的 `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`（宿主 CUDA ≥ 13），模型目录
   `/workspace/ComfyUI/models`，卷挂在 `/workspace`。`workers/h3-runpod/download_models.sh`
   按 `models.txt` 下载约 68 GB 的底模、文本编码器、VAE 和 LoRA。
 - 成本常量：每秒视频约 32 秒 GPU（A100 ≈ 35，RTX PRO 6000 ≈ 27），冷启动约 3 分钟。
   有真实 take 后统计表会覆盖它。
 
-**还缺四个工作流 JSON**：把交接文件夹里的 `T2VA.json`、`I2VA.json`、`FL2VA.json`、`R2VA.json`
-放进 `workers/h3-runpod/workflows/`（覆盖占位的 `T2VA.json`）即可，映射已经对上。
+- 四个工作流 JSON 已放进 `workers/h3-runpod/workflows/`，映射逐节点核对过；R2VA 的参考图超过
+  两张时 handler 会克隆 LoadImage 节点并接到 `ref_images.ref_image_N`（最多 9 张）。
+- Studio 经 RunPod 代理访问 Pod 时带浏览器 User-Agent（否则 Cloudflare 403）。
+- 交接原文和验证脚本存档在 `docs/handoff/`。

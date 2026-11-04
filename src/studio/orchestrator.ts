@@ -508,8 +508,21 @@ export async function sweep(): Promise<{ takes: number; exports: number; gpu?: s
       return 3 * 60 * 60_000;
     }
   })();
+  /* Submission order: takes already running first (status refresh), then
+     pending takes grouped by base model — R2VA (ref2va) and the rest (fl2va)
+     load different 21 GB checkpoints, so alternating would reload every job.
+     The group of whatever is running (or the larger pending group) goes first. */
+  const family = (w: string) => (w === "R2VA" ? "ref2va" : "fl2va");
+  const running = takes.filter((x) => x.requestId);
+  const pending = takes.filter((x) => !x.requestId);
+  const activeFamily = running.length ? family(running[running.length - 1]!.workflow) : undefined;
+  const counts = { ref2va: pending.filter((x) => family(x.workflow) === "ref2va").length, fl2va: pending.filter((x) => family(x.workflow) === "fl2va").length };
+  const firstFamily = activeFamily ?? (counts.ref2va > counts.fl2va ? "ref2va" : "fl2va");
+  pending.sort((a, b) => Number(family(b.workflow) === firstFamily) - Number(family(a.workflow) === firstFamily) || a.createdAt - b.createdAt);
+  const ordered = [...running, ...pending];
+
   let t = 0;
-  for (const take of takes.slice(0, 50)) {
+  for (const take of ordered.slice(0, 50)) {
     if (Date.now() - take.createdAt > timeoutMs) {
       await repo.updateTake(take.id, { status: "timeout", error: "no answer from the worker within the deadline", finishedAt: Date.now() });
       t++;

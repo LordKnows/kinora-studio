@@ -23,7 +23,13 @@ export class PodBackend implements GenerationBackend {
     try {
       res = await this.fetchImpl(`${this.opts.hostUrl.replace(/\/$/, "")}${path}`, {
         method,
-        headers: { "X-Studio-Token": this.opts.token, ...(body ? { "Content-Type": "application/json" } : {}) },
+        headers: {
+          "X-Studio-Token": this.opts.token,
+          /* RunPod's proxy sits behind Cloudflare, which answers 403 to clients
+             without a browser-like User-Agent (handoff verify script). */
+          "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 CinemaStudio/1.0",
+          ...(body ? { "Content-Type": "application/json" } : {}),
+        },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
     } catch (caught) {

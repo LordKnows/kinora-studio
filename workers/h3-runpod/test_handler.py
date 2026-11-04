@@ -70,7 +70,7 @@ def test_fill_graph_writes_every_mapped_field_into_the_placeholder():
     assert filled["104"]["inputs"] == {**graph["104"]["inputs"], "prompt": "a lighthouse in rain", "length": 124, "width": 1344, "height": 768}
     assert filled["9"]["inputs"]["steps"] == 8
     assert filled["15"]["inputs"]["noise_seed"] == 42
-    assert graph["104"]["inputs"]["prompt"] == ""  # the template is not mutated
+    assert graph["104"]["inputs"]["prompt"] == h.load_workflow("T2VA", HERE / "workflows")["104"]["inputs"]["prompt"]  # the template is not mutated
     assert h.seconds_to_frames(10) == 243 and h.seconds_to_frames(15) == 362 and h.seconds_to_frames(1) == 124
 
 
@@ -273,3 +273,18 @@ def test_ensure_loras_downloads_missing_from_hf(tmp_path):
     assert len(Session.calls) == 1
     with pytest.raises(h.JobError):
         h.ensure_loras([{"file": "missing.safetensors", "strength": 1, "hf_url": None}], lora_dir=tmp_path, session=Session())
+
+
+def test_r2va_grows_reference_slots_beyond_the_template(tmp_path):
+    mapping = h.load_mapping()["R2VA"]
+    graph = h.load_workflow("R2VA")
+    params = {"prompt": "p", "negative": "", "seconds": 5, "width": 1344, "height": 768, "steps": 8, "seed": 1, "enhance": False,
+              "files": {"reference": ["a.png", "b.png", "c.png", "d.png"]}}
+    filled = h.fill_graph(graph, mapping, params)
+    assert filled["201"]["inputs"]["image"] == "a.png" and filled["202"]["inputs"]["image"] == "b.png"
+    assert filled["201_ref2"]["inputs"]["image"] == "c.png" and filled["201_ref2"]["class_type"] == "LoadImage"
+    assert filled["104"]["inputs"]["ref_images.ref_image_2"] == ["201_ref2", 0]
+    assert filled["104"]["inputs"]["ref_images.ref_image_3"] == ["201_ref3", 0]
+    assert "201_ref2" not in graph  # template untouched
+    with pytest.raises(h.JobError):
+        h.fill_graph(graph, mapping, {**params, "files": {"reference": [f"{i}.png" for i in range(10)]}})

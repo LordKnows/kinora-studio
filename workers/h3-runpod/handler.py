@@ -208,9 +208,25 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
     if "last_frame" in files:
         put(mapping.get("last_frame"), files["last_frame"], True, "last_frame")
     refs = files.get("reference", [])
-    targets = mapping.get("reference_images", [])
+    targets = list(mapping.get("reference_images", []))
+    extra = mapping.get("reference_extra")
     if len(refs) > len(targets):
-        raise JobError(f"workflow accepts {len(targets)} reference images, got {len(refs)}")
+        # Grow the graph: clone the first LoadImage slot for every reference
+        # beyond the template's and wire it into the H3 node's next ref slot
+        # (inputs are flat keys like "ref_images.ref_image_2"; the node takes 0–8).
+        if not extra:
+            raise JobError(f"workflow accepts {len(targets)} reference images, got {len(refs)}")
+        if len(refs) > int(extra.get("max", 9)):
+            raise JobError(f"H3 takes at most {extra.get('max', 9)} reference images, got {len(refs)}")
+        proto = graph.get(str(extra["clone_node"]))
+        if proto is None:
+            raise JobError("reference_extra.clone_node is not in the graph")
+        for i in range(len(targets), len(refs)):
+            node_id = f"{extra['clone_node']}_ref{i}"
+            graph[node_id] = json.loads(json.dumps(proto))
+            graph[node_id].setdefault("_meta", {})["title"] = f"Reference Image {i}"
+            graph[str(extra["target_node"])]["inputs"][extra["input_pattern"].format(i=i)] = [node_id, 0]
+            targets.append([node_id, "image"])
     for target, name in zip(targets, refs):
         put(target, name, True, "reference_images")
     if files.get("video"):

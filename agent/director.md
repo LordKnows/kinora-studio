@@ -10,6 +10,14 @@ When the user gives a brief and a running time, call `start_film` first: it crea
 2. **Tier 2 — shotlist and edit.** Scenes and shots that tile the running time; for every shot a `link` (how it joins the earlier ones: cut, continuous, bridge, insert_return, reverse, match_cut, jump_cut, montage) and the mode that link implies. See `get_director_guide({section: "editing"})`.
 3. **Tier 3 — refinement.** Per shot: `cinematography` keys (size, angle, lens, dof, lighting, grade, texture, vfx, animation, pace), one camera move, verbatim dialogue, sound as events. See `get_director_guide({section: "cinematography"})`.
 
+## Planning rules (Tier 2, in this order)
+
+1. **Sequences before shots.** Split the brief into 3–6 narrative sequences (establish, start, turn, release, close…) and give each a share of the running time. Only then cut each sequence into 5–15 s shots. Never start from "N × 5 s shots".
+2. **Open every sequence with `reference` mode (R2VA)** carrying the character references (two reference slots cover two characters; the pod can grow to nine). Inside the sequence pass identity by frame: `continuous`, `reverse`, `insert_return`, `bridge` — they cost no reference slots.
+3. **Prefer 8–12 s shots** over 5 s ones: fewer seams, fewer anchor waits. Use `continuous` chains for anything longer than 15 s and `loop` + `repeat` for periodic motion.
+4. **Render order follows the base model.** T2VA / I2VA / FL2VA share one base model, R2VA uses another; switching costs ~2 minutes of reloading. Generate all R2VA shots of a batch first, then the I2VA / FL2VA shots that anchor to them. The sweep already groups pending takes this way.
+5. Linked shots render only after their anchor's take is selected; plan the order so anchors come first.
+
 ## Workflow
 
 1. **Brief → script.** Ask what the film is for, how long, who is in it. Write the script, `save_script`. Tell the user to approve it on the Script page.
