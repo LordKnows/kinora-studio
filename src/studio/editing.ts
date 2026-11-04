@@ -3,10 +3,10 @@
    earlier shot feeds which H3 workflow); the timeline handles what the model
    cannot (dissolves, audio overlaps). */
 
-export const LINK_TYPES = ["cut", "continuous", "bridge", "insert_return", "reverse", "match_cut", "jump_cut", "montage"] as const;
+export const LINK_TYPES = ["cut", "continuous", "bridge", "insert_return", "reverse", "match_cut", "jump_cut", "montage", "loop"] as const;
 export type LinkType = (typeof LINK_TYPES)[number];
 
-export type LinkMechanism = "none" | "anchor_first_frame" | "anchor_reference";
+export type LinkMechanism = "none" | "anchor_first_frame" | "anchor_reference" | "self_loop";
 
 export const EDIT_GRAMMAR: Array<{
   type: LinkType;
@@ -25,6 +25,7 @@ export const EDIT_GRAMMAR: Array<{
   { type: "match_cut", label: "Match cut", mechanism: "anchor_reference", defaultAnchor: -1, workflow: "R2VA", when: "a new place or time that rhymes with the previous image: a spinning wheel to a spinning galaxy, a closing door to a closing eye", how: "The previous last frame goes in as reference image 1 (composition and motion), the new scene is described in text; the LOOK keeps the match readable." },
   { type: "jump_cut", label: "Jump cut", mechanism: "anchor_first_frame", defaultAnchor: -1, workflow: "I2VA", when: "same setup, time has passed: waiting, a montage of attempts", how: "First frame = previous last frame; the beats say what changed (light, props, posture). Written as 'time has passed' so the model moves on instead of continuing." },
   { type: "montage", label: "Montage beat", mechanism: "none", defaultAnchor: -1, workflow: "T2VA / I2VA / R2VA, 5 s", when: "a run of short shots carrying one idea (training, a journey, a day passing)", how: "Keep each at the minimum length, one strong image per shot, consistent grade and pace; let the timeline cut on rhythm." },
+  { type: "loop", label: "Loop (periodic motion)", mechanism: "self_loop", defaultAnchor: -1, workflow: "FL2VA (hero frame as both first and last frame)", when: "periodic motion that should run much longer than one shot: a turning wheel, a dancer spinning, rain on a window, a character pacing", how: "Render one period T (5–15 s) as FL2VA with the hero frame as first AND last frame so it closes on itself, then set `repeat` on the timeline clip (N × T) instead of rendering N shots. The beats describe exactly one period; nothing may be left in a different state at the end." },
 ];
 
 export const TIMELINE_ONLY = [

@@ -60,7 +60,10 @@ export async function getProject(id: string): Promise<Project> {
 export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number; brief?: string; targetSeconds?: number }): Promise<Project> {
   const now = Date.now();
   const id = newId("prj");
-  const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}) });
+  /* A new project renders with every speed LoRA in the library unless the
+     caller chose its own set; the compiler scopes them per workflow. */
+  const speed = input.look?.loras === undefined ? (await listLoras()).filter((l) => l.kind === "speed").map((l) => ({ id: l.id })) : undefined;
+  const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}), ...(speed ? { loras: speed } : {}) });
   await (await db()).run(
     "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, brief, target_seconds, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?)",
     [id, input.name, JSON.stringify(look), input.budgetCapUsd ?? 50, input.brief ?? "", input.targetSeconds ?? null, now, now],

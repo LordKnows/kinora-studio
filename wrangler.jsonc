@@ -20,18 +20,21 @@
     "R2_PUBLIC_BASE_URL": "https://studio.zyhu.dev/media",
     "R2_BUCKET": "studio",
     "RUNPOD_GPU_USD_PER_SECOND": "0.0012",
-    "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "12",
+    "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "32",
     "RUNPOD_MODE": "pod",
     "RUNPOD_GPU_TYPES": "",
     "RUNPOD_CLOUD_TYPE": "SECURE",
     "RUNPOD_CONTAINER_DISK_GB": "50",
-    "RUNPOD_VOLUME_MOUNT_PATH": "/runpod-volume",
+    "RUNPOD_VOLUME_MOUNT_PATH": "/workspace",
+    "RUNPOD_POD_IMAGE": "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
+    "RUNPOD_CUDA_VERSIONS": "13.0,13.1,13.2",
+    "H3_PROMPT_FORMAT": "lightx2v-json",
     "RUNPOD_POD_PORT": "8000",
     "RUNPOD_COMFY_PORT": "8188",
     "RUNPOD_IDLE_STOP_MINUTES": "15"
   }
   // Secrets (dashboard, type Secret — plain vars are overwritten by this file
-  // on every deploy): RUNPOD_API_KEY, RUNPOD_POD_IMAGE, RUNPOD_NETWORK_VOLUME_ID,
+  // on every deploy): RUNPOD_API_KEY, RUNPOD_NETWORK_VOLUME_ID,
   // STUDIO_WORKER_TOKEN, RUNPOD_ENDPOINT_ID, RUNPOD_ASSEMBLER_ENDPOINT_ID,
   // RUNPOD_WEBHOOK_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
   // HF_API_BASE_URL, HF_API_KEY, CRON_SECRET, MCP_STATIC_TOKEN (optional)

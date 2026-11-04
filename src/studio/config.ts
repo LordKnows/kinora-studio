@@ -31,9 +31,12 @@ export const config = {
     webhookSecret: need("RUNPOD_WEBHOOK_SECRET"),
     /** USD per GPU-second of the H3 endpoint, used for estimates and ledgers. */
     gpuUsdPerSecond: Number(env("RUNPOD_GPU_USD_PER_SECOND") ?? "0.0012"),
-    /** Measured seconds of GPU time per second of output, until P0 fills it in. */
-    secondsPerOutputSecond: Number(env("RUNPOD_SECONDS_PER_OUTPUT_SECOND") ?? "12"),
-    coldStartSeconds: Number(env("RUNPOD_COLD_START_SECONDS") ?? "90"),
+    /** Seconds of GPU time per second of output. Handoff measurements, turbo
+        8 steps at 1344×768: A100 hot T2VA 180 s / 5.2 s ≈ 35; RTX PRO 6000
+        I2VA 270 s / 10.1 s ≈ 27. The per-GPU stats replace this once takes exist. */
+    secondsPerOutputSecond: Number(env("RUNPOD_SECONDS_PER_OUTPUT_SECOND") ?? "32"),
+    /** First job after boot also loads a 21 GB base model and the text encoder (~2–3 min). */
+    coldStartSeconds: Number(env("RUNPOD_COLD_START_SECONDS") ?? "180"),
     executionTimeoutMs: Number(env("RUNPOD_EXECUTION_TIMEOUT_MS") ?? "900000"),
   }),
 
@@ -46,13 +49,15 @@ export const config = {
   /** The pod the studio manages: what image, which GPUs it may land on, where
       the models live. The pod runs workers/h3-runpod/server.py on podPort. */
   runpodPod: () => ({
-    image: need("RUNPOD_POD_IMAGE"),
+    image: env("RUNPOD_POD_IMAGE") ?? "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
     gpuTypeIds: (env("RUNPOD_GPU_TYPES") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     networkVolumeId: env("RUNPOD_NETWORK_VOLUME_ID"),
     dataCenterIds: (env("RUNPOD_DATACENTER_IDS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
     containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "50"),
-    volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/runpod-volume",
+    volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/workspace",
+    /** Host CUDA the image needs (the handoff image is CUDA 13). */
+    cudaVersions: (env("RUNPOD_CUDA_VERSIONS") ?? "13.0,13.1,13.2").split(",").map((s) => s.trim()).filter(Boolean),
     podPort: Number(env("RUNPOD_POD_PORT") ?? "8000"),
     comfyPort: Number(env("RUNPOD_COMFY_PORT") ?? "8188"),
     idleStopMinutes: Number(env("RUNPOD_IDLE_STOP_MINUTES") ?? "15"),

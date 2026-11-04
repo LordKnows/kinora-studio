@@ -5,7 +5,12 @@
 set -euo pipefail
 
 : "${COMFY_PORT:=8188}"
-: "${COMFY_CMD:=python3 /workspace/ComfyUI/main.py --listen 127.0.0.1 --port ${COMFY_PORT}}"
+: "${COMFY_CMD:=}"
+if [ -z "$COMFY_CMD" ]; then
+  # runpod/comfyui images bring their own entrypoint that starts ComfyUI (and Jupyter); use it when present.
+  if [ -x /start.sh ]; then COMFY_CMD="/start.sh"; else COMFY_CMD="python3 /workspace/ComfyUI/main.py --listen 127.0.0.1 --port ${COMFY_PORT}"; fi
+fi
+if [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then bash /app/download_models.sh "${MODELS_DIR:-/workspace/ComfyUI/models}"; fi
 : "${STUDIO_PORT:=8000}"
 
 if [ -n "${MODELS_LINK_FROM:-}" ] && [ -n "${MODELS_LINK_TO:-}" ]; then

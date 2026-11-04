@@ -54,6 +54,7 @@ class Clip:
     out_s: float
     transition_in: str
     transition_s: float
+    repeat: int = 1
 
 
 @dataclass
@@ -98,7 +99,10 @@ def validate_input(raw: Any) -> Params:
         transition = c.get("transition_in", "cut")
         if transition not in ("cut", "dissolve"):
             raise JobError(f"clip {i}: transition_in must be cut or dissolve")
-        clips.append(Clip(c["url"], in_s, out_s, transition, float(c.get("transition_s", 0.4))))
+        repeat = c.get("repeat", 1)
+        if not isinstance(repeat, int) or not 1 <= repeat <= 120:
+            raise JobError("clip repeat must be an integer between 1 and 120")
+        clips.append(Clip(c["url"], in_s, out_s, transition, float(c.get("transition_s", 0.4)), repeat))
     clips[0].transition_in = "cut"  # nothing to dissolve from
     audio = raw.get("audio") or {}
     mix = {"dialogue": 0.0, "sfx": -3.0, "music": -12.0}
@@ -268,13 +272,19 @@ Downloader = Callable[[str, Path], Path]
 def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloader = download) -> dict[str, Any]:
     started = time.monotonic()
     parts: list[tuple[Path, float]] = []
+    joined_clips: list[Clip] = []
     for i, clip in enumerate(p.clips):
         src = downloader(clip.url, workdir / f"src{i}.mp4")
         dst = workdir / f"norm{i}.mp4"
-        parts.append((dst, normalize_clip(src, dst, p, clip)))
+        length = normalize_clip(src, dst, p, clip)
+        # A looped clip is the same normalised file placed `repeat` times; only
+        # the first copy carries the incoming transition, the rest are cuts.
+        for n in range(clip.repeat):
+            parts.append((dst, length))
+            joined_clips.append(clip if n == 0 else Clip(clip.url, clip.in_s, clip.out_s, "cut", clip.transition_s, 1))
 
     cut = workdir / "cut.mp4"
-    join_clips(parts, p.clips, cut, p)
+    join_clips(parts, joined_clips, cut, p)
     current = cut
 
     if p.music_url:

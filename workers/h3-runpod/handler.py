@@ -38,6 +38,11 @@ FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE", "ffprobe")
 THUMB_COUNT = 4
 THUMB_WIDTH = 320
+FPS = 24
+# The H3 node takes a frame count of the form 17k+5; the pruned turbo graphs
+# were validated at 124 (≈5.2 s) and 243 (≈10.1 s); the node documents 124–362.
+FRAME_MIN = 124
+FRAME_MAX = 362
 LORA_DIR = Path(os.environ.get("LORA_DIR", "/workspace/ComfyUI/models/loras"))
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
@@ -124,6 +129,14 @@ def validate_input(raw: Any) -> dict[str, Any]:
     }
 
 
+def seconds_to_frames(seconds: float) -> int:
+    """Nearest valid H3 length (17k+5 frames at 24 fps), clamped to the model's range."""
+    target = seconds * FPS
+    k = max(0, round((target - 5) / 17))
+    frames = 17 * k + 5
+    return max(FRAME_MIN, min(FRAME_MAX, frames))
+
+
 def parse_video_size(value: Any) -> tuple[int, int]:
     if not isinstance(value, str) or "x" not in value:
         raise JobError('video_size must look like "1344x768"')
@@ -179,7 +192,10 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
 
     put(mapping.get("prompt"), params["prompt"], True, "prompt")
     put(mapping.get("negative"), params["negative"], False, "negative")
-    put(mapping.get("seconds"), params["seconds"], True, "seconds")
+    if mapping.get("length"):
+        put(mapping.get("length"), seconds_to_frames(params["seconds"]), True, "length")
+    else:
+        put(mapping.get("seconds"), params["seconds"], True, "seconds")
     put(mapping.get("width"), params["width"], False, "width")
     put(mapping.get("height"), params["height"], False, "height")
     put(mapping.get("steps"), params["steps"], False, "steps")
@@ -207,18 +223,19 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
         if not slots:
             raise JobError("this workflow has no LoRA slots in mapping.json but the job asks for LoRAs")
         raise JobError(f"workflow has {len(slots)} LoRA slot(s), got {len(loras)}")
-    for i, slot in enumerate(slots):
-        node_id = slot.get("node")
-        if i < len(loras):
-            put((node_id, slot.get("name", "lora_name")), loras[i]["file"], True, "loras")
-            put((node_id, slot.get("strength", "strength_model")), loras[i]["strength"], True, "loras")
-            if slot.get("strength_clip"):
-                put((node_id, slot["strength_clip"]), loras[i]["strength"], False, "loras")
-        else:
-            # unused slot: neutralise it rather than leaving the template's default LoRA on
-            put((node_id, slot.get("strength", "strength_model")), 0.0, False, "loras")
-            if slot.get("strength_clip"):
-                put((node_id, slot["strength_clip"]), 0.0, False, "loras")
+    if "loras" in params:
+        for i, slot in enumerate(slots):
+            node_id = slot.get("node")
+            if i < len(loras):
+                put((node_id, slot.get("name", "lora_name")), loras[i]["file"], True, "loras")
+                put((node_id, slot.get("strength", "strength_model")), loras[i]["strength"], True, "loras")
+                if slot.get("strength_clip"):
+                    put((node_id, slot["strength_clip"]), loras[i]["strength"], False, "loras")
+            else:
+                # unused slot: neutralise it rather than leaving the template's default LoRA on
+                put((node_id, slot.get("strength", "strength_model")), 0.0, False, "loras")
+                if slot.get("strength_clip"):
+                    put((node_id, slot["strength_clip"]), 0.0, False, "loras")
     return graph
 
 
@@ -303,7 +320,8 @@ class ComfyClient:
     def fetch_output(self, history: dict[str, Any], output_node: str, dest_dir: Path) -> Path:
         outputs = history.get("outputs", {})
         node_out = outputs.get(str(output_node)) or next(iter(outputs.values()), {})
-        files = node_out.get("videos") or node_out.get("gifs") or node_out.get("files") or []
+        # SaveVideo reports its mp4 under "images" in this ComfyUI build; older nodes use videos/gifs/files.
+        files = node_out.get("videos") or node_out.get("gifs") or node_out.get("files") or node_out.get("images") or []
         if not files:
             raise JobError(f"ComfyUI produced no video on node {output_node}")
         meta = files[0]

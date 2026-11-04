@@ -96,3 +96,18 @@ def test_dissolve_shortens_by_transition_and_music_mixes(tmp_path):
 def test_handler_reports_errors_and_health():
     assert "error" in h.handler({"input": {"clips": []}})
     assert h.handler({"input": {"action": "health"}})["ffmpeg"] is True
+
+
+def test_repeat_plays_a_loop_clip_n_times(tmp_path):
+    """A 2 s loop with repeat 3 becomes 6 s of picture and sound."""
+    a = make_clip(tmp_path / "loop.mp4", seconds=2.0)
+    uploader = FakeUploader()
+    params = h.validate_input({
+        "export_job_id": "exp_loop", "preset": "preview-480p", "video_size": "854x480",
+        "clips": [{"url": a.as_uri(), "in_s": 0, "out_s": 2.0, "transition_in": "cut", "repeat": 3}],
+        "audio": {"keep_clip_audio": True, "mix_db": {"dialogue": 0, "sfx": 0, "music": -12}, "music_duck_under_dialogue": False},
+        "subtitles": {"srt": "", "burn_in": False},
+        "output": {"key": "exports/loop.mp4"},
+    })
+    out = h.assemble(params, tmp_path / "work", uploader)
+    assert abs(out["duration_s"] - 6.0) < 0.3

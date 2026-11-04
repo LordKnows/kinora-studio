@@ -1,7 +1,8 @@
 # Pod-mode image: YOUR ComfyUI image (custom nodes + LoRAs baked in, big
 # weights on the network volume) plus the studio job server. The Studio
 # creates pods from this image (RUNPOD_POD_IMAGE) and exposes STUDIO_PORT.
-ARG BASE_IMAGE=your-registry/comfyui-h3:latest
+# The handoff ran on RunPod's official ComfyUI image (CUDA 13; host driver ≥ 13.0).
+ARG BASE_IMAGE=runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0
 FROM ${BASE_IMAGE}
 
 RUN (apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*) || true
@@ -13,10 +14,13 @@ COPY h3-runpod/handler.py /app/handler.py
 COPY h3-runpod/server.py /app/server.py
 COPY h3-runpod/start.sh /app/start.sh
 COPY h3-runpod/workflows /app/workflows
+COPY h3-runpod/models.txt /app/models.txt
+COPY h3-runpod/download_models.sh /app/download_models.sh
 COPY assembler/handler.py /app/assembler_handler.py
 
 ENV COMFY_URL=http://127.0.0.1:8188 \
     WORKFLOW_DIR=/app/workflows \
+    LORA_DIR=/workspace/ComfyUI/models/loras \
     STUDIO_PORT=8000 \
     PYTHONUNBUFFERED=1
 

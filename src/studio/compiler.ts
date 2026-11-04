@@ -49,7 +49,20 @@ export type CompileContext = {
   loras?: ActiveLora[];
   steps?: number;
   seed?: number;
+  /** How the sections are serialised for the model; defaults to H3_PROMPT_FORMAT. */
+  format?: PromptFormat;
 };
+
+/* lightx2v trained the turbo LoRAs on a structured caption: fixed field names,
+   <Picture 1> / <Picture 2> for the first / last frame and <Subject N> for
+   reference images (handoff §1). "blocks" is the plain sectioned text used
+   before the handoff; keep it for A/B tests. */
+export type PromptFormat = "lightx2v-json" | "lightx2v-lines" | "blocks";
+
+export function promptFormat(): PromptFormat {
+  const v = process.env.H3_PROMPT_FORMAT;
+  return v === "blocks" || v === "lightx2v-lines" ? v : "lightx2v-json";
+}
 
 export const MAX_REFERENCE_IMAGES = 3;
 export const MAX_PROMPT_CHARS = 7000;
@@ -116,6 +129,11 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     } else {
       workflow = "I2VA";
     }
+  } else if (grammar.mechanism === "self_loop") {
+    /* One period that closes on itself: the hero frame opens and ends the shot. */
+    if (!hero) throw new CompileError("loop needs a hero frame: it is both the first and the last frame");
+    images.push({ url: hero.url, role: "first_frame" }, { url: hero.url, role: "last_frame" });
+    workflow = "FL2VA";
   } else if (grammar.mechanism === "anchor_reference") {
     if (anchorFrame) images.push({ url: anchorFrame, role: "reference", label: "match frame" });
     else warnings.push(`${grammar.label}: the anchor shot has no finished take yet; compiling without the match frame`);
@@ -213,6 +231,7 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
 }
 
 const LINK_LINES: Partial<Record<LinkType, string>> = {
+  loop: "Seamless loop: exactly one period of the motion; the last frame is identical to the first so the clip can repeat without a visible seam.",
   continuous: "Continue the previous shot's action and camera from the first frame without a cut.",
   bridge: "One continuous camera move carries the first frame into the final frame.",
   insert_return: "Resume the action exactly where the first frame leaves it, as if no time has passed.",
@@ -221,7 +240,26 @@ const LINK_LINES: Partial<Record<LinkType, string>> = {
   match_cut: "Match cut: keep the composition, shapes and motion of Image 1 while the subject and place become what the beats describe.",
 };
 
+type Sections = {
+  references: string[];
+  look: string[];
+  intent: string;
+  who: string[];
+  timeline: string[];
+  camera: string;
+  cinematography: string[];
+  dialogue: string[];
+  sound: { sfx: string; ambience: string; music: string };
+  constraints: string[];
+  edit?: string;
+};
+
 function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = [], linkType: LinkType = "cut"): string {
+  const sections = buildSections(ctx, images, workflow, loras, linkType);
+  return serializePrompt(sections, workflow, images, ctx.format ?? promptFormat());
+}
+
+function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[], linkType: LinkType): Sections {
   const { shot, look } = ctx;
   const spec = shot.spec;
   const blocks: string[] = [];
@@ -249,15 +287,18 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
   });
   if (spec.mode === "edit") refLines.unshift("Video 1: the source take. Keep its framing, camera motion, timing and everything not listed under EDIT.");
   if (refLines.length) blocks.push(`REFERENCES\n${refLines.join("\n")}`);
+  const out: Sections = { references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [] };
 
   /* LOOK — always; style LoRAs contribute their trigger words here. */
   const lookParts = [look.genre, look.palette, [look.camera, look.lens].filter(Boolean).join(", "), look.lighting].filter((s) => s && s.trim());
   const triggers = loras.map((l) => l.triggerWords.trim()).filter(Boolean);
   const lookLines = [...lookParts, ...(cinema.lookLine ? [cinema.lookLine] : []), ...triggers];
   if (lookLines.length) blocks.push(`LOOK\n${lookLines.join(". ")}.`);
+  out.look = lookLines;
 
   if (spec.mode === "edit") {
     blocks.push(`EDIT\n${spec.editInstruction ?? ""}`);
+    out.edit = spec.editInstruction ?? "";
   } else {
     /* SHOT INTENT + who/where, trimmed by mode. */
     const who: string[] = [];
@@ -271,12 +312,14 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
     }
     /* keyframe: the frame already shows who and where — say nothing. */
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
+    out.who = who;
 
     const beatLines = spec.beats.map((b) => `${fmt(b.from)}–${fmt(b.to)}s: ${b.cut ? "Hard cut. " : ""}${b.action}`);
     const linkLine = LINK_LINES[linkType];
     if (linkLine && images.some((i) => i.role === "first_frame" || i.label === "match frame")) beatLines.unshift(linkLine);
     if (workflow === "FL2VA") beatLines.push(`The shot ends on the final frame provided.`);
     blocks.push(`TIMELINE (${spec.durationS}s)\n${beatLines.join("\n")}`);
+    out.timeline = beatLines;
   }
 
   /* CAMERA */
@@ -285,18 +328,22 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
     ? `The camera ${CAMERA_PHRASE.static}.`
     : `The camera ${CAMERA_PHRASE[cam.move]} — ${cam.amplitude} amplitude, ${cam.speed} speed. One continuous move, no other camera motion.`;
   blocks.push(`CAMERA\n${camLine}${cam.note ? ` ${cam.note}` : ""}`);
+  out.camera = `${camLine}${cam.note ? ` ${cam.note}` : ""}`;
 
   /* CINEMATOGRAPHY — Tier 3 keys rendered as prose. */
   if (cinema.block) blocks.push(cinema.block);
+  out.cinematography = cinema.block ? cinema.block.split("\n").slice(1) : [];
 
   /* DIALOGUE */
   if (spec.dialogue.length) {
-    blocks.push(`DIALOGUE\n${spec.dialogue.map((l) => `${name(l.speaker)} (${l.language}, ${l.delivery}): "${l.text}"`).join("\n")}`);
+    out.dialogue = spec.dialogue.map((l) => `${name(l.speaker)} (${l.language}, ${l.delivery}): "${l.text}"`);
+    blocks.push(`DIALOGUE\n${out.dialogue.join("\n")}`);
   }
 
   /* SOUND */
   const sfx = spec.sound.sfx.length ? spec.sound.sfx.join("; ") : "only what the action makes";
   blocks.push(`SOUND\nSFX: ${sfx}\nAmbience: ${spec.sound.ambience || "natural room tone"}\nMusic: ${spec.sound.music || "N/A"}`);
+  out.sound = { sfx, ambience: spec.sound.ambience || "natural room tone", music: spec.sound.music || "N/A" };
 
   /* CONSTRAINTS */
   const seen = new Set<string>();
@@ -307,8 +354,63 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
     return true;
   });
   blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
+  out.constraints = constraints;
+  out.references = refLines;
+  (out as Sections & { blocks: string }).blocks = blocks.join("\n\n");
+  return out;
+}
 
-  return blocks.join("\n\n");
+/* ---------- serialisation ---------- */
+
+function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[], format: PromptFormat): string {
+  if (format === "blocks") return (sec as Sections & { blocks?: string }).blocks ?? "";
+  const refs = images.filter((i) => i.role === "reference");
+  const hasFirst = images.some((i) => i.role === "first_frame");
+  const hasLast = images.some((i) => i.role === "last_frame");
+  const sentence = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).map((p) => (/[.!?"]$/.test(p) ? p : `${p}.`)).join(" ");
+  const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "None";
+  const soundscape = sentence([`Sound effects: ${sec.sound.sfx}`, `Ambience: ${sec.sound.ambience}`]);
+  const visual = sentence([
+    ...sec.look.map((l) => l),
+    sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : sec.intent,
+    ...sec.who,
+    ...sec.timeline,
+    `Camera: ${sec.camera}`,
+    ...sec.cinematography,
+    ...(sec.dialogue.length ? [`Dialogue — ${sec.dialogue.join(" ")}`] : []),
+    ...sec.constraints,
+  ]);
+
+  let fields: Array<[string, string]>;
+  if (workflow === "R2VA") {
+    /* <Subject N> = reference image N, in the order the images were sent. */
+    const subjects = refs.map((img, i) => `<Subject ${i + 1}>: ${sec.references[i]?.replace(/^Image \d+: /, "") ?? img.label ?? "reference"}`);
+    const retention = refs.map((_img, i) => {
+      const line = sec.references[i] ?? "";
+      const keep = /Keep ([^.]+)\./.exec(line)?.[1] ?? "its identity, proportions and materials";
+      return `<Subject ${i + 1}> keeps ${keep}`;
+    });
+    fields = [
+      ["subject_definitions", sentence(subjects)],
+      ["summary", sec.intent],
+      ["retention_analysis", sentence(retention)],
+      ["detailed_description", visual],
+      ["overall_soundscape", soundscape],
+      ["non_diegetic_music", music],
+    ];
+  } else {
+    const frames = [
+      ...(hasFirst ? ["<Picture 1> is the first frame of the shot"] : []),
+      ...(hasLast ? ["<Picture 2> is the last frame of the shot"] : []),
+    ];
+    fields = [
+      ["integrated_multimodal_description", sentence([...frames, visual])],
+      ["overall_soundscape", soundscape],
+      ["non_diegetic_music", music],
+    ];
+  }
+  if (format === "lightx2v-lines") return fields.map(([k, v]) => `${k}: ${v}`).join("\n");
+  return JSON.stringify(Object.fromEntries(fields));
 }
 
 function fmt(n: number): string {

@@ -26,6 +26,7 @@ async function memoryDb(): Promise<Db> {
 }
 
 beforeAll(async () => {
+  process.env.H3_PROMPT_FORMAT = "blocks";
   setDb(await memoryDb());
   process.env.RUNPOD_MODE = "serverless";
 });
@@ -144,5 +145,57 @@ describe("edit grammar through the compiler", () => {
     const cl = await orch.compileForShot(legacy.id);
     expect(cl.input.images[0]!.url).toBe("https://r2/jump.last.png");
     expect(cl.prompt).toContain("Continue the previous shot's action");
+  });
+});
+
+describe("lightx2v structured prompt and loops", () => {
+  it("serialises the sections into lightx2v fields with picture / subject tokens", async () => {
+    const { compileShot } = await import("@/studio/compiler");
+    const base = { id: "s", projectId: "p", sceneId: "c", index: 0, createdAt: 0, updatedAt: 0 };
+    const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["no logos"], loras: [] };
+    const assets = new Map([
+      ["h", { id: "h", projectId: "p", url: "https://r2/h.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
+      ["e", { id: "e", projectId: "p", url: "https://r2/e.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
+      ["m", { id: "m", projectId: "p", url: "https://r2/mara.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
+    ]);
+    const elements = new Map([["mara", { id: "mara", projectId: "p", kind: "character" as const, name: "Mara", description: "silver crop, charcoal coat", refAssetIds: ["m"], createdAt: 0, updatedAt: 0 }]]);
+
+    const fl = compileShot({
+      shot: { ...base, spec: shot({ mode: "keyframe", dialogue: [{ speaker: "mara", text: "Not tonight.", language: "en", delivery: "breathless" }], sound: { sfx: ["rain"], ambience: "wet street", music: "N/A" } }), heroAssetId: "h", endAssetId: "e" },
+      look, elements, assets, format: "lightx2v-json",
+    });
+    expect(fl.workflow).toBe("FL2VA");
+    const json = JSON.parse(fl.prompt) as Record<string, string>;
+    expect(Object.keys(json)).toEqual(["integrated_multimodal_description", "overall_soundscape", "non_diegetic_music"]);
+    expect(json.integrated_multimodal_description).toMatch(/^<Picture 1> is the first frame of the shot\. <Picture 2> is the last frame of the shot\. neo-noir\. teal and amber\. Mara crosses the lobby\./);
+    expect(json.integrated_multimodal_description).toContain('Dialogue — Mara (en, breathless): "Not tonight."');
+    expect(json.integrated_multimodal_description).toContain("no logos");
+    expect(json.overall_soundscape).toBe("Sound effects: rain. Ambience: wet street.");
+    expect(json.non_diegetic_music).toBe("None");
+
+    const r2 = compileShot({
+      shot: { ...base, spec: shot({ mode: "reference", characters: ["mara"], intent: "Mara looks back", sound: { sfx: [], ambience: "", music: "slow synth pad" } }) },
+      look, elements, assets, format: "lightx2v-lines",
+    });
+    expect(r2.workflow).toBe("R2VA");
+    expect(r2.prompt.split("\n")[0]).toBe("subject_definitions: <Subject 1>: Mara, the character. Keep face, hair and wardrobe exactly.");
+    expect(r2.prompt).toContain("summary: Mara looks back");
+    expect(r2.prompt).toContain("retention_analysis: <Subject 1> keeps face, hair and wardrobe exactly.");
+    expect(r2.prompt).toContain("non_diegetic_music: slow synth pad");
+  });
+
+  it("loop renders one period as FL2VA with the hero frame at both ends", async () => {
+    const project = await repo.createProject({ name: "Loop" });
+    const hero = await repo.createAsset({ projectId: project.id, url: "https://r2/wheel.png", kind: "image", source: "upload" });
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "wheel", shots: [shot({ intent: "A ferris wheel turns once", link: { type: "loop" }, mode: "keyframe", durationS: 8, beats: [{ from: 0, to: 8, action: "The wheel completes exactly one revolution and returns to its starting pose" }] })] }] }));
+    const id = view.scenes[0]!.shots[0]!.id;
+    await expect(orch.compileForShot(id)).rejects.toMatchObject({ code: "validation" });
+    await repo.updateShot(id, { heroAssetId: hero.id });
+    const c = await orch.compileForShot(id);
+    expect(c.workflow).toBe("FL2VA");
+    expect(c.input.images).toEqual([{ url: "https://r2/wheel.png", role: "first_frame" }, { url: "https://r2/wheel.png", role: "last_frame" }]);
+    expect(c.prompt).toContain("Seamless loop");
+    const { TimelineInput } = await import("@/studio/schemas");
+    expect(TimelineInput.parse({ clips: [{ shotId: id, takeId: "t", outS: 8, repeat: 12 }] }).clips[0]!.repeat).toBe(12);
   });
 });

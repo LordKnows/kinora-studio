@@ -90,7 +90,7 @@ export type Sound = z.infer<typeof Sound>;
 
 export const ShotLink = z.object({
   type: z.enum(LINK_TYPES).describe(
-    "cut: stands alone. continuous: starts from the anchor's last frame (long take). bridge: anchor last frame → this shot's end frame (FL2VA). insert_return / reverse: resume an earlier shot (anchor -2 by default). match_cut: anchor last frame as reference image (R2VA). jump_cut: same setup, time has passed. montage: short standalone beat.",
+    "cut: stands alone. continuous: starts from the anchor's last frame (long take). bridge: anchor last frame → this shot's end frame (FL2VA). insert_return / reverse: resume an earlier shot (anchor -2 by default). match_cut: anchor last frame as reference image (R2VA). jump_cut: same setup, time has passed. montage: short standalone beat. loop: one period of a periodic motion, hero frame as first and last frame, repeated on the timeline.",
   ),
   anchor: z.number().int().min(-8).max(-1).optional().describe("Which earlier shot feeds this one, as a negative offset (-1 = previous). Defaults per type: insert_return / reverse → -2, others → -1."),
   anchorShotId: z.string().optional().describe("Explicit anchor shot id (overrides the offset)."),
@@ -206,6 +206,7 @@ export const TimelineClip = z.object({
   outS: z.number().max(15),
   transition: z.enum(["cut", "dissolve"]).default("cut"),
   transitionS: z.number().min(0.2).max(1).optional(),
+  repeat: z.number().int().min(1).max(120).default(1).describe("Play the clip this many times back to back (loops)"),
 });
 export const TimelineInput = z.object({
   clips: z.array(TimelineClip).default([]),

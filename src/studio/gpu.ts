@@ -160,6 +160,7 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
       dataCenterIds: pc.dataCenterIds,
       ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
       env: podEnv(),
+      allowedCudaVersions: pc.cudaVersions,
     });
     await repo.insertGpuPod({
       id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName, dataCenter: record.dataCenterId,

@@ -67,11 +67,11 @@ def test_fill_graph_writes_every_mapped_field_into_the_placeholder():
     graph = h.load_workflow("T2VA", HERE / "workflows")
     params = h.validate_input(good_input(enhance=True))
     filled = h.fill_graph(graph, mapping, {**params, "files": {"reference": []}})
-    assert filled["6"]["inputs"]["text"] == "a lighthouse in rain"
-    assert filled["7"]["inputs"]["text"] == "no text"
-    assert filled["3"]["inputs"] == {**graph["3"]["inputs"], "seconds": 5.0, "width": 1344, "height": 768, "steps": 8, "seed": 42}
-    assert filled["9"]["inputs"]["enabled"] is True
-    assert graph["6"]["inputs"]["text"] == ""  # the template is not mutated
+    assert filled["104"]["inputs"] == {**graph["104"]["inputs"], "prompt": "a lighthouse in rain", "length": 124, "width": 1344, "height": 768}
+    assert filled["9"]["inputs"]["steps"] == 8
+    assert filled["15"]["inputs"]["noise_seed"] == 42
+    assert graph["104"]["inputs"]["prompt"] == ""  # the template is not mutated
+    assert h.seconds_to_frames(10) == 243 and h.seconds_to_frames(15) == 362 and h.seconds_to_frames(1) == 124
 
 
 def test_fill_graph_places_frames_and_references():
@@ -153,7 +153,7 @@ class FakeSession:
             self.polls += 1
             if self.polls < 2:
                 return FakeResponse({})
-            return FakeResponse({"pid-1": {"status": {"status_str": "success"}, "outputs": {"8": {"videos": [{"filename": "out.mp4", "subfolder": "", "type": "output"}]}}}})
+            return FakeResponse({"pid-1": {"status": {"status_str": "success"}, "outputs": {"92": {"images": [{"filename": "out.mp4", "subfolder": "", "type": "output"}]}}}})
         if "/view" in url:
             return FakeResponse(content=self.video)
         if url.startswith("https://assets/"):
@@ -166,8 +166,8 @@ class FakeSession:
             return FakeResponse({"name": kw["files"]["image"][0]})
         if url.endswith("/prompt"):
             graph = kw["json"]["prompt"]
-            assert graph["6"]["inputs"]["text"] == "a lighthouse in rain"
-            assert graph["10"]["inputs"]["image"].startswith("first_frame")
+            assert graph["104"]["inputs"]["prompt"] == "a lighthouse in rain"
+            assert graph["200"]["inputs"]["image"].startswith("first_frame")
             return FakeResponse({"prompt_id": "pid-1"})
         raise AssertionError(url)
 
@@ -185,11 +185,11 @@ def test_run_job_end_to_end(tmp_path, monkeypatch):
     video = make_clip(tmp_path / "src.mp4").read_bytes()
     session = FakeSession(video)
     comfy = h.ComfyClient("http://comfy", session=session)
-    mapping = {"I2VA": {"template": "T2VA", "prompt": ["6", "text"], "seconds": ["3", "seconds"], "first_frame": ["10", "image"], "output_node": "8"}}
+    mapping = {"I2VA": {"template": "T2VA", "prompt": ["104", "prompt"], "length": ["104", "length"], "first_frame": ["200", "image"], "output_node": "92"}}
     template_dir = tmp_path / "wf"
     template_dir.mkdir()
     graph = h.load_workflow("T2VA", HERE / "workflows")
-    graph["10"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
+    graph["200"] = {"class_type": "LoadImage", "inputs": {"image": ""}}
     (template_dir / "T2VA.json").write_text(json.dumps(graph))
     monkeypatch.setattr(h, "WORKFLOW_DIR", template_dir)
     monkeypatch.setattr(h.time, "sleep", lambda _s: None)
@@ -236,11 +236,12 @@ def test_fill_graph_sets_lora_slots_and_neutralises_unused():
     params = {"prompt": "p", "negative": "", "seconds": 5, "width": 1344, "height": 768, "steps": 8, "seed": 1, "enhance": False, "files": {},
               "loras": [{"file": "speed.safetensors", "strength": 0.9}]}
     filled = h.fill_graph(graph, mapping, params)
-    assert filled["12"]["inputs"]["lora_name"] == "speed.safetensors"
-    assert filled["12"]["inputs"]["strength_model"] == 0.9
-    assert filled["12"]["inputs"]["strength_clip"] == 0.9
+    assert filled["7"]["inputs"]["lora_name"] == "speed.safetensors"
+    assert filled["7"]["inputs"]["strength_model"] == 0.9
     empty = h.fill_graph(graph, mapping, {**params, "loras": []})
-    assert empty["12"]["inputs"]["strength_model"] == 0.0
+    assert empty["7"]["inputs"]["strength_model"] == 0.0
+    untouched = h.fill_graph(graph, mapping, {k: v for k, v in params.items() if k != "loras"})
+    assert untouched["7"]["inputs"]["lora_name"] == graph["7"]["inputs"]["lora_name"]
 
 
 def test_ensure_loras_downloads_missing_from_hf(tmp_path):

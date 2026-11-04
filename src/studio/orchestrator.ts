@@ -389,7 +389,7 @@ export async function autoTimeline(projectId: string): Promise<Timeline> {
     for (const shot of scene.shots) {
       const take = shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
       if (!take) continue;
-      clips.push({ shotId: shot.id, takeId: take.id, inS: 0, outS: shot.spec.durationS, transition: shot.spec.linkToPrev === "continuous" ? "dissolve" : "cut", transitionS: 0.3 });
+      clips.push({ shotId: shot.id, takeId: take.id, inS: 0, outS: shot.spec.durationS, transition: shot.spec.linkToPrev === "continuous" ? "dissolve" : "cut", transitionS: 0.3, repeat: 1 });
     }
   }
   return repo.setTimeline(projectId, { ...view.timeline, clips });
@@ -410,7 +410,7 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
       throw new StudioError("not_approved", `clip for shot ${clip.shotId} points at a take that is not completed`, { checkpoint: "timeline", takeId: clip.takeId });
     }
   }
-  const total = view.timeline.clips.reduce((n, c) => n + Math.max(0, c.outS - c.inS), 0);
+  const total = view.timeline.clips.reduce((n, c) => n + Math.max(0, c.outS - c.inS) * (c.repeat ?? 1), 0);
   const estimateUsd = estimateExport(total, req.preset === "master-upscaled");
   assertBudget(view.project, estimateUsd);
   if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `exporting ${req.preset}`);

@@ -35,6 +35,7 @@ const calls: Array<{ method: string; url: string; body?: unknown }> = [];
 let podCounter = 0;
 
 beforeAll(async () => {
+  process.env.H3_PROMPT_FORMAT = "blocks";
   setDb(await memoryDb());
   Object.assign(process.env, {
     RUNPOD_MODE: "pod", RUNPOD_API_KEY: "k", RUNPOD_WEBHOOK_SECRET: "s", RUNPOD_POD_IMAGE: "me/comfy:1", RUNPOD_GPU_TYPES: "NVIDIA H100 80GB HBM3,NVIDIA RTX PRO 6000",

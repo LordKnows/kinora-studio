@@ -16,9 +16,29 @@ ComfyUI graph you put here.
 4. `python3 handler.py --local '{"action":"health"}'` lists the templates the
    handler sees; run a tiny T2VA job to confirm the mapping.
 
-`T2VA.json` here is a placeholder whose node ids match the example
-`mapping.json`, so the unit tests can exercise the fill logic. It will not run
-on a real ComfyUI.
+`T2VA.json` here is a placeholder whose node ids match the handoff's graphs
+(`mapping.json` is already filled from HANDOFF.md §1), so the unit tests can
+exercise the fill logic. It will not run on a real ComfyUI: copy the four real
+files (`T2VA.json`, `I2VA.json`, `FL2VA.json`, `R2VA.json`) from the handoff
+folder over it.
+
+Facts from the handoff that the handler relies on:
+
+- `104.length` is a **frame count** of the form 17k+5 at 24 fps (124 ≈ 5.2 s,
+  243 ≈ 10.1 s, documented range 124–362); the handler converts `seconds`.
+- There is no negative prompt input (BasicGuider, no CFG); constraints go into
+  the prompt text.
+- Steps live on `9.steps` and must match the turbo LoRA (8); seed on
+  `15.noise_seed`; width/height on `104` must be multiples of 32.
+- One LoRA slot: `7` (LoraLoaderModelOnly, `lora_name` + `strength_model`).
+  T2VA/I2VA/FL2VA use the fl2v turbo LoRA and the fl2va base model; R2VA uses
+  the ref2v turbo LoRA and the ref2va base model (node `6.unet_name`).
+- R2VA ships with two LoadImage slots (`201`, `202` → `104.ref_images.ref_image_0/1`);
+  the node accepts up to `ref_image_8` — add LoadImage nodes and list them under
+  `reference_images` to allow more. `104.ref_image_size` stays `match`.
+- `92` (SaveVideo) reports its mp4 under `images` in `/history`.
+- The prompt is lightx2v's structured format (the Studio compiles it): see
+  `src/studio/compiler.ts` `H3_PROMPT_FORMAT`.
 
 Field semantics:
 

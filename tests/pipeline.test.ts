@@ -33,6 +33,7 @@ const runpodCalls: Array<{ url: string; body: unknown }> = [];
 let nextStatus: Record<string, unknown> = { id: "job-1", status: "IN_QUEUE" };
 
 beforeAll(async () => {
+  process.env.H3_PROMPT_FORMAT = "blocks";
   setDb(await memoryDb());
   process.env.RUNPOD_MODE = "serverless";
   process.env.RUNPOD_API_KEY = "k";

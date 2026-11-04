@@ -29,6 +29,7 @@ ${how}
 - \`match_cut\` is a reference, not a first frame: the new scene may be anywhere; describe it fully in the beats.
 - Do not describe what the anchor frame already shows; describe what happens next.
 - When a shot is linked, its \`mode\` is implied by the link; set it to \`keyframe\` for first-frame links and \`reference\` for match cuts to keep the editor honest.
+- \`loop\` is for periodic motion: render one period (5–15 s) that ends on its first frame, then put the clip on the timeline with \`repeat: N\`. One render instead of N; the beats must describe exactly one cycle (no drift in light, props or position).
 
 ## Only in the timeline
 

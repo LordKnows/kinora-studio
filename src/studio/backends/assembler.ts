@@ -4,7 +4,7 @@ import type { Shot, Take } from "../types";
 /* §4.4 — the input the assembler worker takes. Built here so the UI, the
    export endpoint and the tests agree on one shape. */
 
-export type AssemblerClip = { url: string; in_s: number; out_s: number; transition_in: "cut" | "dissolve"; transition_s?: number };
+export type AssemblerClip = { url: string; in_s: number; out_s: number; transition_in: "cut" | "dissolve"; transition_s?: number; repeat?: number };
 
 export type AssemblerInput = {
   export_job_id: string;
@@ -43,12 +43,14 @@ export function buildAssemblerInput(args: {
     if (!take?.resultUrl || !shot) continue;
     const outS = Math.min(clip.outS, shot.spec.durationS);
     const len = Math.max(0, outS - clip.inS);
+    const repeat = clip.repeat ?? 1;
     clips.push({
       url: take.resultUrl,
       in_s: clip.inS,
       out_s: outS,
       transition_in: clip.transition,
       ...(clip.transition === "dissolve" ? { transition_s: clip.transitionS ?? 0.4 } : {}),
+      ...(repeat > 1 ? { repeat } : {}),
     });
     /* Dialogue lines are spread evenly across the clip; good enough for a
        first SRT the editor can nudge. */
@@ -63,7 +65,7 @@ export function buildAssemblerInput(args: {
         });
       });
     }
-    cursor += len;
+    cursor += len * repeat;
   }
   return {
     export_job_id: args.exportId,

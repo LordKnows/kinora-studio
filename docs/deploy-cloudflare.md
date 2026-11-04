@@ -29,6 +29,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0002_gpu.sql` | Pod 模式：`gpu_pods` 表（幂等，重复执行无害） |
 | `migrations/0003_loras_stats.sql` | LoRA 库 `loras` 表；`takes` 表加 GPU 型号、时价、视频秒数三列（**只能执行一次**，ALTER 重复会报列已存在，报错可忽略） |
 | `migrations/0004_brief.sql` | 导演第一层：`projects` 表加 `brief`、`target_seconds`（同样只执行一次） |
+| `migrations/0005_seed_loras.sql` | 预置两个 lightx2v turbo LoRA（幂等） |
 
 ## 2. 建对象存储（R2）
 
@@ -208,3 +209,27 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   `LORA_DIR`（默认 `/workspace/ComfyUI/models/loras`；受限仓库在 Pod 环境变量里设
   `HF_TOKEN`）。图里的 LoraLoader 节点要在 `workers/h3-runpod/workflows/mapping.json`
   的 `loras` 槽位里登记，见那里的 README。
+
+## 11. 交接文档落地（HANDOFF.md）
+
+已按交接文档接入：
+
+- 节点映射 `workers/h3-runpod/workflows/mapping.json`：prompt / 宽高 / 帧数在 `104`，步数 `9.steps`，
+  seed `15.noise_seed`，首帧 `200`，末帧 `203`，参考图 `201`、`202`，LoRA 槽 `7`，输出 `92`。
+  `length` 是帧数（17k+5，24 fps），handler 把秒数换算成 124–362 帧；H3 没有负向提示词。
+- LoRA 库预置 fl2v / ref2v 两个 turbo LoRA（8 步，强度 1.0），分别只作用于 T2VA/I2VA/FL2VA 和 R2VA；
+  新项目默认带上它们。
+- prompt 改为 lightx2v 的结构化字段（`H3_PROMPT_FORMAT=lightx2v-json`）：I2VA/FL2VA/T2VA 用
+  `integrated_multimodal_description / overall_soundscape / non_diegetic_music`，首尾帧写作
+  `<Picture 1>` / `<Picture 2>`；R2VA 用 `subject_definitions / summary / retention_analysis /
+  detailed_description / overall_soundscape / non_diegetic_music`，参考图写作 `<Subject N>`。
+  **字段的序列化方式（JSON 还是逐行）要用 `verify/verify_handoff.py` 里的实际 prompt 核对**，
+  不一致就把变量改成 `lightx2v-lines`。
+- 镜像用交接的 `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`（宿主 CUDA ≥ 13），模型目录
+  `/workspace/ComfyUI/models`，卷挂在 `/workspace`。`workers/h3-runpod/download_models.sh`
+  按 `models.txt` 下载约 68 GB 的底模、文本编码器、VAE 和 LoRA。
+- 成本常量：每秒视频约 32 秒 GPU（A100 ≈ 35，RTX PRO 6000 ≈ 27），冷启动约 3 分钟。
+  有真实 take 后统计表会覆盖它。
+
+**还缺四个工作流 JSON**：把交接文件夹里的 `T2VA.json`、`I2VA.json`、`FL2VA.json`、`R2VA.json`
+放进 `workers/h3-runpod/workflows/`（覆盖占位的 `T2VA.json`）即可，映射已经对上。

@@ -9,12 +9,14 @@ import init from "./migrations/0001_init";
 import gpu from "./migrations/0002_gpu";
 import lorasStats from "./migrations/0003_loras_stats";
 import brief from "./migrations/0004_brief";
+import seedLoras from "./migrations/0005_seed_loras";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
   { name: "0002_gpu", sql: gpu },
   { name: "0003_loras_stats", sql: lorasStats },
   { name: "0004_brief", sql: brief },
+  { name: "0005_seed_loras", sql: seedLoras },
 ];
 
 export async function migrate(db: Db): Promise<void> {
