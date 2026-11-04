@@ -7,7 +7,9 @@
 > 编排 agent 使用订阅版 Grok 与 Claude（不走 API）。
 >
 > 状态：设计稿 v3（v1 以 Higgsfield 托管 H3 为后端；v2 改为 RunPod 自托管；
-> v3 确定部署目标为 Cloudflare Workers + R2，并补充前端分工、MCP 指南投递、服务器加固）。
+> v3 确定部署目标为 Cloudflare Workers + R2，并补充前端分工、MCP 指南投递、服务器加固；
+> v4 补齐接口清单与鉴权矩阵、检查点状态机、Assembler 契约、按模式分化的 Compiler 模板、
+> prompt 评测方案、`edit` 模式，并确定网页登录方式）。
 > 标注「待验证」的条目来自二手资料，实施前需对照官方文档或实测确认。
 
 ---
@@ -75,7 +77,7 @@
 | 每镜头独立选模型、显式镜头运动 | `Shot.engine` + `Shot.camera` |
 | 多镜头：一次生成内含多个 cut，自动 / 手动模式 | H3 分时间段 prompt（§5.3） |
 | 关键帧动画（首帧 / 末帧） | H3 image-to-video 首尾帧 |
-| 时间线 + 导出预设 | Assembler（§7） |
+| 时间线 + 导出预设 | Assembler（§4.4）+ 时间线端点（§7） |
 | Supercomputer：自然语言 → 计划 → 派发 → 组装 | MCP 工具链 + Orchestrator |
 
 ### 1.2 硬约束
@@ -193,7 +195,8 @@
 Project
  ├─ look: LookSettings        # 项目级风格，所有镜头继承
  ├─ budget: { capUsd, spentUsd }
- ├─ script: Script            # 版本化
+ ├─ script: Script            # 版本化，带 approval
+ ├─ shotlistApproval          # 分镜表的检查点状态（§3.2）
  ├─ elements[]: Element       # 角色 / 场景 / 道具（可从库导入）
  ├─ scenes[]: Scene
  │    └─ shots[]: Shot
@@ -230,10 +233,18 @@ type Element = {
 
 type Scene = { id: string; index: number; slug: string; location?: ElementId; summary: string };
 
+type Script = {
+  id: string; projectId: string; version: number; text: string;
+  approval: "draft" | "approved";          // 检查点 1，见 §3.2
+  createdAt: number; approvedAt?: number;
+};
+
 type Shot = {
   id: string; sceneId: string; index: number;
   durationS: number;                       // 5–15
-  mode: "keyframe" | "reference" | "text"; // H3 三个端点，互斥
+  mode: "keyframe" | "reference" | "text" | "edit"; // 对应 worker 的 FL2VA / I2VA、R2VA、T2VA、R2VA+video
+  sourceTakeId?: AssetId;                  // edit 模式：被编辑的源视频（上一 take 或任意 R2 视频）
+  editInstruction?: string;                // edit 模式：只写"改什么"，不重述整个镜头
   intent: string;                          // 核心意图一句话
   beats: Beat[];                           // 分时间段视觉时间线
   camera: { move: CameraMove; amplitude: "subtle"|"moderate"|"strong"; speed: "slow"|"medium"|"fast"; note?: string };
@@ -247,7 +258,10 @@ type Shot = {
   promptOverride?: string;
 };
 
-type Beat = { from: number; to: number; action: string };  // 秒，段和 = durationS
+type Beat = { from: number; to: number; action: string; cut?: boolean };  // 秒，段和 = durationS；cut=true 表示此段开头硬切
+
+type CameraMove = "static" | "push_in" | "pull_out" | "pan" | "tilt" | "truck" | "pedestal"
+  | "arc" | "tracking" | "handheld" | "pov" | "roll" | "zoom";
 
 type Take = {
   id: string; shotId: string; n: number;
@@ -255,9 +269,16 @@ type Take = {
   request: { workflow: string; input: unknown }; // 实际发给后端的东西，可追溯
   requestId?: string;                            // RunPod job id 或平台 request_id
   status: "queued"|"running"|"completed"|"failed"|"canceled"|"timeout";
-  resultUrl?: string; costUsd?: number; error?: string;
-  review?: { score: number; notes: string; by: "human"|"agent" };
+  resultUrl?: string; lastFrameUrl?: string; thumbUrls?: string[];  // 均由 worker 产出并直传 R2
+  executionMs?: number; costUsd?: number; error?: string; seed?: number;
+  review?: { score: 1|2|3|4|5; notes: string; by: "human"|"agent"; at: number };
   createdAt: number; finishedAt?: number;
+};
+
+type ExportJob = {
+  id: string; projectId: string; preset: "master-768p" | "master-upscaled" | "social-9x16" | "preview-480p";
+  status: "queued"|"running"|"completed"|"failed";
+  resultUrl?: string; srtUrl?: string; error?: string; createdAt: number; finishedAt?: number;
 };
 
 type Asset = { id: string; url: string; kind: "image"|"video"|"audio"; width?: number; height?: number; durationS?: number; source: "upload"|"generated"|"frame-extract"; meta: Record<string, unknown> };
@@ -265,7 +286,32 @@ type Asset = { id: string; url: string; kind: "image"|"video"|"audio"; width?: n
 type Timeline = { clips: { shotId: string; takeId: string; inS: number; outS: number; transition: "cut"|"dissolve" }[]; music?: AssetId; mix: { dialogueDb: number; sfxDb: number; musicDb: number } };
 ```
 
-### 3.2 存储选择
+### 3.2 检查点状态机（人工确认在哪里卡住 agent）
+
+Cinema Studio 的流程里，改一个字的剧本或分镜会让下游几十个镜头全部重做，所以这两处必须
+由人确认后 agent 才能往下花钱。规则写死在服务端，不靠 agent 自觉：
+
+```
+Script.approval:      draft ──(approve_script)──► approved
+                        ▲                            │
+                        └──── 任何 save_script ───────┘   # 新版本回到 draft
+
+Project.shotlistApproval: draft ──(approve_shotlist)──► approved
+                            ▲                              │
+                            └── save_shotlist / revise_shot（结构字段）──┘
+                                 # 只改 promptOverride / camera.note 不回退
+
+Take 创建前置条件：  shotlistApproval == approved  且  Script.approval == approved
+                    否则 generate_take / POST /takes 返回 409 { reason: "shotlist_not_approved" }
+Export 前置条件：    每个 timeline clip 都指向 status=completed 的 take
+```
+
+- `approve_*` 只能由网页上的登录用户触发，MCP 不暴露这两个工具。agent 的工作是把草案做好，
+  然后告诉用户"去分镜表页面确认"。
+- hero frame 选择和 take 选择不设审批门，因为它们本身就是用户在网页上的点击动作。
+- 单镜头的 `promptOverride` 调整不回退审批，否则微调一句 prompt 都要重新审一遍分镜表。
+
+### 3.3 存储选择
 
 - **Postgres**（Neon，经 Cloudflare Hyperdrive 连接；或改用 D1）：以上全部实体。现有的
   IndexedDB 历史只保留为"个人画廊"的兼容路径，项目数据不进浏览器。
@@ -314,7 +360,17 @@ Cinema Studio 的界面，只是把每一步派发到对应工作区。
 **不需要智能的那一半**：把结构化字段按 §2.2 的格式拼成文本，保证每次生成都带上项目 Look、
 参考角色声明和约束块，避免 agent 每次都要重写这些。
 
-模板（reference 模式示例）：
+**模板按模式分化。** 四种模式给模型的信息不同，prompt 的重点也必须不同，用一套模板会把
+已经由图片承载的信息重复写进文字里，反而干扰模型：
+
+| 模式 | worker 工作流 | prompt 里写什么 | prompt 里**不**写什么 |
+|---|---|---|---|
+| `text` | T2VA | 完整：Look、场景外观、人物外观、时间线、镜头、对白、声音、约束 | 无 |
+| `keyframe` | I2VA / FL2VA | **动作与变化**：从首帧出发发生了什么、镜头怎么动、对白、声音；末帧存在时写"结束于末帧所示状态" | 不重述首帧里已有的人物长相、服装、场景布置、光线 |
+| `reference` | R2VA | **参考角色声明** + 完整场景时间线、镜头、对白、声音；人物外观只写"与 Image N 一致" | 不逐项描述参考图里已有的外观 |
+| `edit` | R2VA + 源视频 | 源视频角色声明 + **只写改动**（换什么、加什么、去什么、保留什么）| 不重述源视频里不变的内容 |
+
+通用骨架（各模式按上表裁剪）：
 
 ```
 REFERENCES
@@ -381,9 +437,26 @@ worker 输入示例（字段名以社区 worker 为准，fork 后固定成我们
 }
 ```
 
+`edit` 模式的 worker 输入在 R2VA 基础上加 `video: "<源视频 R2 URL>"`，prompt 只含
+REFERENCES（"Video 1 = 源视频，保留其构图、运动和时长"）、EDIT（改动清单）、SOUND（如需改）、CONSTRAINTS。
+
 Compiler 做的校验：beats 时长之和 = durationS（5–15）；参考数不超过 worker 上限；
-keyframe 与 reference 互斥；prompt 长度 ≤7000；`continuous` 镜头必须有上一镜头的末帧；
-`seed` 固定记录，便于重跑对比。
+keyframe / reference / edit 互斥；prompt 长度 ≤7000；`continuous` 镜头必须有上一镜头的末帧；
+`edit` 必须有 `sourceTakeId`；`seed` 固定记录，便于重跑对比。
+
+**P0 prompt 评测方案**（"完美"不是写出来的，是测出来的）：
+
+1. **固定测试集**：10 个镜头，覆盖 4 种模式、有无对白、静态与运动镜头、单 cut 与多 cut、中英文各半。
+2. **每条规则做 A/B**：方括号镜头指令 vs 纯自然语言；有无 "holds a static shot"；对白有无说话人前缀；
+   声音分块 vs 混写；REFERENCES 角色声明有无；中文 vs 英文 prompt；keyframe 模式写不写首帧外观。
+   每组固定 seed，各出 2 个 take。
+3. **盲评**：网页上提供"评测模式"，随机顺序展示两个 take，评审只看镜头意图打 1–5 分（对象一致性、
+   动作完成度、镜头运动正确性、音频匹配度四项）。评分落库。
+4. **输出**：每条规则的胜率表；胜率 < 60% 的规则从 Compiler 模板里删掉或改成可选。
+5. **结果固化**：写回 `agent/director.md` 和 Compiler 模板，并记录测试日期和 worker 版本，
+   worker 或权重升级后重跑一遍。
+
+这套流程也是 §2.2 里所有"社区共识"在自托管 H3-Base 上的验证手段。
 
 ### 4.3 Orchestrator（服务端任务编排）
 
@@ -422,11 +495,42 @@ Take 创建 ──► 队列(Postgres) ──► 预算检查 ──► backend.
 
 ### 4.4 Assembler
 
-- `ffmpeg concat`（同编码直接拼；不同分辨率先统一到项目分辨率）
-- 混音：H3 自带音轨为主；可选叠加项目配乐，按 `Timeline.mix` 调电平
-- 字幕：从 `Shot.dialogue` 自动生成 SRT，可烧录
-- 导出预设：`master-2k`、`social-9x16`、`preview-720p`
-- 运行位置：Vercel 函数跑 ffmpeg 有体积和时限问题，建议 Assembler 作为独立 worker（Fly.io / Railway / 自托管容器）
+**运行位置**：RunPod **CPU serverless** endpoint（和 H3 worker 同一套 `/run` + webhook 调用方式，
+不引入第三家云）。镜像只含 ffmpeg 和一个 Python handler。Cloudflare Containers 作为备选。
+
+**契约**（Studio → Assembler，经 RunPod `/run`）：
+
+```json
+{
+  "input": {
+    "export_job_id": "exp_…",
+    "preset": "master-768p",                     // master-768p | master-upscaled | social-9x16 | preview-480p
+    "clips": [
+      { "url": "https://r2/.../take1.mp4", "in_s": 0, "out_s": 8.0, "transition_in": "cut" },
+      { "url": "https://r2/.../take7.mp4", "in_s": 0.5, "out_s": 6.0, "transition_in": "dissolve", "transition_s": 0.4 }
+    ],
+    "audio": {
+      "keep_clip_audio": true,
+      "music_url": "https://r2/.../music.mp3",   // 可选
+      "mix_db": { "dialogue": 0, "sfx": -3, "music": -12 },
+      "music_duck_under_dialogue": true
+    },
+    "subtitles": { "srt": "1\n00:00:00,000 --> …", "burn_in": false },
+    "output": { "bucket": "studio", "key": "projects/p1/exports/exp_….mp4" }
+  },
+  "webhook": "https://<studio>/api/assembler/hook?sig=…",
+  "executionTimeout": 1800000
+}
+```
+
+**返回**（经 webhook）：`{ export_job_id, status, url, srt_url?, duration_s, size_bytes, error? }`。
+
+**内部步骤**：拉取 clips → 统一到预设分辨率与 24 fps → 按 in/out 裁剪 → 转场（cut 直接 concat，
+dissolve 用 xfade）→ 音轨：各 clip 自带音轨拼接，叠加配乐并在对白段自动压低 → 字幕生成或烧录 →
+上传 R2 → webhook。`master-upscaled` 预设在 concat 前先调用 H3 worker 的上采样 + RIFE 工作流，
+耗时和质量在 P0 实测后决定是否保留。
+
+**不做的事**：不做智能剪辑、不做调色，这些由 Look 在生成阶段控制。
 
 ### 4.5 MCP Server（agent 的接口）
 
@@ -450,8 +554,8 @@ Take 创建 ──► 队列(Postgres) ──► 预算检查 ──► backend.
 
 1. **fork 社区 worker**（`venkteshmaram/runpod-minimax-h3` 或同类），锁定版本，
    把输入 schema 固定成 §4.2 的样子，加三件事：
-   - 产物上传到我们的 S3 桶（R2 / B2），返回 `{ url, executionTime, seed, frames }`；
-   - 可选抽末帧并一并上传（省 Studio 一次下载）；
+   - 产物上传到 R2，返回 `{ url, last_frame_url, thumb_urls[4], execution_ms, seed }`；
+   - **末帧和 4 张缩略帧由 worker 抽取并一并上传**（定稿：不交给 Assembler，Studio 不下载视频）；
    - `studio_take_id` 原样回传。
 2. **网络卷**：创建 ≥160 GB 卷，首次启动让 worker 自动下载约 100 GB 权重到 `/runpod-volume`，
    之后关掉自动填充（`VOLUME_AUTOPOPULATE=false`）防止意外重下。
@@ -512,7 +616,11 @@ OAuth 2.1 授权服务器（元数据端点、动态客户端注册、授权码 
 
 **服务器部署相对本地必须补的加固**（本地可以偷懒、公网不能）：
 
-1. **网页登录。** 现有 `/api/blob` 是公开上传（README 自认）。至少单用户密码，或在前面套 Cloudflare Access。MCP 的 OAuth 只保护 agent 入口，不保护网页。
+1. **网页登录（定稿：Cloudflare Access）。** 整个 Studio 域名套 Cloudflare Access，登录方式用
+   GitHub 或 Google 的 one-time PIN，允许名单只放你自己的邮箱。应用侧只读 `Cf-Access-Jwt-Assertion`
+   头并校验签名，不自己存密码。例外路径：`/mcp`、`/.well-known/*`（走 MCP 的 OAuth）、
+   `/api/runpod/hook`、`/api/assembler/hook`（走 HMAC 签名）要在 Access 里设 bypass。
+   现有 `/api/blob` 公开上传路由删除。
 2. **凭证只在服务端。** 现有仓库把 Higgsfield key 存用户 cookie，单人自用的服务器直接放 Workers secrets；RunPod key 和 R2 key 绝不进浏览器。
 3. **预算与限流从"建议"变"必须"。** 项目预算上限、每小时生成次数上限、花钱工具二次确认。
 4. **上传改为预签名直传 R2。** 浏览器拿短期签名 URL 直接传桶，Worker 不中转文件。
@@ -588,7 +696,8 @@ Higgsfield 图像模型的产物由 Worker 拿到 CDN URL 后立即回拉写入 
    ├─ agent 写剧本 → 调 save_script(projectId, text)
    ├─ agent 调 list_elements → 发现没有角色 → 调 create_element(kind=character, description)
    ├─ agent 拆镜头 → 调 save_shotlist(projectId, shots[])   ← 严格 JSON schema
-   └─ 用户在 Web Studio 的 /board 看到分镜表（人工检查点 1）
+   └─ 用户在 Web Studio 的 /script 点 approve，再到 /board 看分镜表并点 approve
+      （检查点 1 和 2，见 §3.2；未 approve 之前 generate_take 一律 409）
 ```
 
 ### 5.2 元素与 Hero Frame（Asset / Continuity 阶段）
@@ -612,6 +721,7 @@ Higgsfield 图像模型的产物由 Worker 拿到 CDN URL 后立即回拉写入 
 | 角色 / 产品必须高度一致 | `reference`，角色主参考图 + 场景图 + hero frame（自托管约 3 图上限，**待验证**） | 身份锁定 |
 | 镜头内有对白、要音色稳定 | 任一模式 + 对白文本里固定该角色的"声线描述"；自托管是否支持参考音频未确认 | 开源包没有 Context-IR / 参考音频保证 |
 | 空镜、氛围镜头 | `text` | 最便宜 |
+| 已有一个基本满意的 take，只想换道具 / 改表情 / 去掉穿帮 | `edit`，源视频 = 该 take，只写改动 | 比重跑便宜且保住已满意的部分（自托管编辑质量**待验证**） |
 
 **一次生成内多镜头**（对应 Cinema Studio 的 multi-shot）：当一个 Shot 的 beats 带
 `cut: true` 标记时，Compiler 在时间线里写成 "hard cut at 6s to …"。建议每段 ≤3 个 cut，
@@ -628,7 +738,8 @@ Higgsfield 图像模型的产物由 Worker 拿到 CDN URL 后立即回拉写入 
 
 ### 5.5 组装与导出
 
-Timeline 页面选 take、排序、转场 → `export(preset)` → Assembler worker → 成片存 Blob → 下载。
+Timeline 页面选 take、排序、转场、配乐 → `export(preset)` → Assembler worker（§4.4）→ 成片存 R2 → 下载。
+导出前置条件：每个 clip 指向 completed 的 take。
 
 ---
 
@@ -667,6 +778,13 @@ OAuth 由 Cloudflare 的 `workers-oauth-provider` 提供（§4.7）。
 | `get_budget` | projectId | 已花 / 上限 |
 | `export` | projectId, preset | 触发组装 |
 | `get_director_guide` | 无 | 返回 `agent/director.md` 全文；Skill 要求开始项目时先调一次 |
+| `cancel_take` / `retry_take` | takeId | 转调 RunPod |
+| `review_take` | takeId, score, notes | agent 审核结果落库，`by = "agent"` |
+| `auto_timeline` / `save_timeline` | projectId, TimelineInput | 时间线 |
+| `import_element` | projectId, elementId | 从全局库复制 |
+
+**不暴露给 agent 的操作**：`approve_script`、`approve_shotlist`、删除类、上传预签名、评测投票。
+这些只能在网页上由登录用户完成（§3.2、§7.1）。
 
 **边界**：任何花钱的工具（`generate_*`、`export`）在 MCP 层返回"预估费用 + 需要确认"，
 由用户在聊天里确认后 agent 再调一次带 `confirm: true`。防止 agent 一轮对话烧掉预算。
@@ -718,27 +836,173 @@ Web Studio 的每个阶段提供"复制给 AI"按钮，生成一段自包含的 
 
 ## 7. API 设计（REST，供 Web UI 和 MCP 共用）
 
+### 7.1 鉴权矩阵
+
+| 调用方 | 凭证 | 覆盖路径 |
+|---|---|---|
+| 网页（浏览器） | Cloudflare Access JWT（`Cf-Access-Jwt-Assertion`） | `/`、`/p/*`、`/api/*`（下表所有端点） |
+| agent（Grok / Claude） | MCP OAuth bearer token（`workers-oauth-provider` 签发） | `/mcp` 内部转调下表端点，权限列标 `A` 的才可用 |
+| RunPod H3 worker / Assembler | URL 上的 HMAC 签名 + 时间戳 | `/api/runpod/hook`、`/api/assembler/hook` |
+| 浏览器直传 R2 | 预签名 URL（15 分钟） | R2，不经 Studio |
+
+权限列：`W` = 仅网页，`A` = 网页和 agent 都可，`$` = 花钱、agent 调用需 `confirm: true`。
+
+### 7.2 端点清单
+
 ```
-POST   /api/projects                        创建
-GET    /api/projects/:id                    聚合视图
-PATCH  /api/projects/:id/look
-POST   /api/projects/:id/script             新版本
-GET    /api/projects/:id/elements
-POST   /api/projects/:id/elements
-POST   /api/elements/:id/generate-refs      → jobId
-PUT    /api/projects/:id/shotlist           整表覆盖（schema 校验）
-PATCH  /api/shots/:id
-GET    /api/shots/:id/compile               Compiler 预览
-POST   /api/shots/:id/hero-frames           → jobId
-POST   /api/shots/:id/takes                 → takeId（含预估费用；需 confirm）
-GET    /api/takes/:id
-POST   /api/projects/:id/export             → jobId
-GET    /api/jobs/:id
-POST   /mcp                                 MCP 传输端点（Streamable HTTP）
-GET    /.well-known/oauth-authorization-server   MCP OAuth 元数据
+# 项目
+GET    /api/projects                               A   列表
+POST   /api/projects                               A   { name, look? }
+GET    /api/projects/:id                           A   聚合视图：look、budget、approval、elements、scenes、shots 摘要
+PATCH  /api/projects/:id                           A   { name?, budget.capUsd? }
+DELETE /api/projects/:id                           W   连同 R2 前缀一起删（二次确认）
+PATCH  /api/projects/:id/look                      A   LookSettings 部分字段
+GET    /api/projects/:id/budget                    A   { capUsd, spentUsd, estimatePerTakeUsd }
+
+# 剧本
+GET    /api/projects/:id/scripts                   A   版本列表
+POST   /api/projects/:id/scripts                   A   { text } → 新版本，approval=draft
+GET    /api/scripts/:id                            A
+POST   /api/scripts/:id/approve                    W   检查点 1
+
+# 元素
+GET    /api/projects/:id/elements                  A   含 ?includeLibrary=1 时附带全局库
+POST   /api/projects/:id/elements                  A   { kind, name, description }
+PATCH  /api/elements/:id                           A
+DELETE /api/elements/:id                           W
+POST   /api/elements/:id/generate-refs             A$  { n } → jobId；图像模型出候选图
+POST   /api/elements/:id/refs                      A   { assetIds[] } 选定参考图（替换整组）
+POST   /api/elements/:id/promote                   W   复制到全局库（projectId=null）
+POST   /api/projects/:id/elements/import           A   { elementId } 从全局库复制进项目
+
+# 分镜表与镜头
+GET    /api/projects/:id/shotlist                  A   scenes + shots 全量
+PUT    /api/projects/:id/shotlist                  A   整表覆盖（schema 校验）；approval 回到 draft
+POST   /api/projects/:id/shotlist/approve          W   检查点 2
+POST   /api/projects/:id/scenes                    A
+PATCH  /api/scenes/:id                             A
+DELETE /api/scenes/:id                             W
+POST   /api/scenes/:id/shots                       A
+PATCH  /api/shots/:id                              A   结构字段回退审批；promptOverride / camera.note 不回退
+DELETE /api/shots/:id                              W
+POST   /api/shots/reorder                          A   { sceneId, shotIds[] }
+GET    /api/shots/:id/compile                      A   Compiler 预览：{ workflow, prompt, input, warnings[] }
+POST   /api/shots/:id/hero-frames                  A$  { n } → jobId
+POST   /api/shots/:id/hero-frame                   A   { assetId } 选定
+POST   /api/shots/:id/end-frame                    A   { assetId } 选定（可选）
+
+# take
+POST   /api/shots/:id/takes                        A$  { n?, steps?, seed? } → { takeIds[], estimateUsd }；未审批 409
+GET    /api/shots/:id/takes                        A
+GET    /api/takes/:id                              A   状态、url、lastFrameUrl、thumbUrls、executionMs、costUsd、review
+POST   /api/takes/:id/cancel                       A   转调 RunPod /cancel
+POST   /api/takes/:id/retry                        A$  转调 RunPod /retry（timeout / failed 时）
+POST   /api/takes/:id/review                       A   { score, notes }；by 按调用方自动填
+POST   /api/shots/:id/select-take                  A   { takeId }
+
+# 素材上传
+POST   /api/uploads/presign                        W   { filename, contentType, size } → { url, key, expiresAt }
+POST   /api/uploads/commit                         W   { key, kind } → Asset（HEAD 校验对象存在）
+
+# 时间线与导出
+GET    /api/projects/:id/timeline                  A
+PUT    /api/projects/:id/timeline                  A   { clips[], music?, mix }
+POST   /api/projects/:id/timeline/auto             A   按分镜顺序用 selectedTake 生成初版
+POST   /api/projects/:id/exports                   A$  { preset } → exportJobId；clip 未完成 409
+GET    /api/projects/:id/exports                   A
+GET    /api/exports/:id                            A   状态、url、srtUrl
+
+# 任务与进度
+GET    /api/jobs/:id                               A   通用任务（generate-refs / hero-frames）
+GET    /api/projects/:id/events                    W   SSE：take / job / export 状态变更推送（定稿：SSE，不轮询）
+
+# 评测模式（§4.2）
+GET    /api/projects/:id/eval/pairs                W   随机配对的两个 take
+POST   /api/eval/votes                             W   { takeA, takeB, winner, scores }
+
+# 回调
+POST   /api/runpod/hook                            HMAC  H3 worker 完成 / 失败
+POST   /api/assembler/hook                         HMAC  Assembler 完成 / 失败
+
+# MCP
+POST   /mcp                                        OAuth Streamable HTTP
+GET    /.well-known/oauth-authorization-server     公开
+GET    /.well-known/oauth-protected-resource       公开
 ```
 
-MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
+### 7.3 核心 schema（zod，REST 与 MCP 共用）
+
+```ts
+const LookSettings = z.object({
+  genre: z.string().max(200), palette: z.string().max(200), camera: z.string().max(200),
+  lens: z.string().max(200), lighting: z.string().max(200),
+  aspectRatio: z.enum(["21:9","16:9","4:3","1:1","3:4","9:16"]),
+  resolution: z.literal("768p"), upscale: z.boolean(),
+  negative: z.array(z.string().max(80)).max(10),
+});
+
+const Beat = z.object({ from: z.number().min(0), to: z.number().max(15), action: z.string().min(5).max(400), cut: z.boolean().optional() });
+const Line = z.object({ speaker: z.string(), text: z.string().min(1).max(300), language: z.string().max(10), delivery: z.string().max(80) });
+
+const ShotInput = z.object({
+  sceneId: z.string(), durationS: z.number().int().min(5).max(15),
+  mode: z.enum(["text","keyframe","reference","edit"]),
+  intent: z.string().min(5).max(300),
+  beats: z.array(Beat).min(1).max(6),
+  camera: z.object({
+    move: z.enum(["static","push_in","pull_out","pan","tilt","truck","pedestal","arc","tracking","handheld","pov","roll","zoom"])
+      .describe("自然语言镜头运动的枚举；一个镜头只有一个主运动；static 会被编译成 'holds a static, locked-off shot'"),
+    amplitude: z.enum(["subtle","moderate","strong"]), speed: z.enum(["slow","medium","fast"]),
+    note: z.string().max(200).optional(),
+  }),
+  dialogue: z.array(Line).max(8),
+  sound: z.object({ sfx: z.array(z.string().max(80)).max(8), ambience: z.string().max(200), music: z.string().max(200) }),
+  characters: z.array(z.string()).max(3), location: z.string().optional(), props: z.array(z.string()).max(3),
+  linkToPrev: z.enum(["cut","continuous"]),
+  sourceTakeId: z.string().optional(), editInstruction: z.string().max(600).optional(),
+  promptOverride: z.string().max(7000).optional(),
+}).superRefine((shot, ctx) => {
+  const total = shot.beats.reduce((n, b) => n + (b.to - b.from), 0);
+  if (Math.abs(total - shot.durationS) > 0.01) ctx.addIssue({ code: "custom", message: "beats 总时长必须等于 durationS" });
+  if (shot.mode === "edit" && !shot.sourceTakeId) ctx.addIssue({ code: "custom", message: "edit 模式需要 sourceTakeId" });
+  if (shot.beats.filter((b) => b.cut).length > 3) ctx.addIssue({ code: "custom", message: "一个镜头最多 3 个 cut，再多请拆镜头" });
+});
+
+const ShotlistInput = z.object({
+  scenes: z.array(z.object({ slug: z.string(), summary: z.string(), location: z.string().optional(),
+    shots: z.array(ShotInput).min(1) })).min(1),
+});
+
+const TakeRequest = z.object({ n: z.number().int().min(1).max(4).default(1), steps: z.number().int().min(4).max(30).optional(),
+  seed: z.number().int().optional(), confirm: z.boolean().default(false) });
+
+const ReviewInput = z.object({ score: z.number().int().min(1).max(5), notes: z.string().max(500) });
+
+const TimelineInput = z.object({
+  clips: z.array(z.object({ shotId: z.string(), takeId: z.string(), inS: z.number().min(0), outS: z.number().max(15),
+    transition: z.enum(["cut","dissolve"]), transitionS: z.number().min(0.2).max(1).optional() })),
+  music: z.string().optional(),
+  mix: z.object({ dialogueDb: z.number(), sfxDb: z.number(), musicDb: z.number() }),
+});
+```
+
+### 7.4 错误模型
+
+所有非 2xx 返回 `{ error: { code, message, details? } }`。固定 code：
+
+| code | HTTP | 含义 |
+|---|---|---|
+| `validation` | 400 | schema 校验失败，`details` 是 zod issues，原样回给 agent |
+| `unauthorized` | 401 | 无凭证 |
+| `forbidden` | 403 | 该端点不开放给 agent（权限列 `W`） |
+| `not_found` | 404 | |
+| `not_approved` | 409 | 检查点未通过，`details.checkpoint` 是 `script` 或 `shotlist` |
+| `needs_confirm` | 409 | 花钱操作未带 `confirm: true`，`details.estimateUsd` 给出预估 |
+| `budget_exceeded` | 409 | 项目预算不足 |
+| `backend_error` | 502 | RunPod / Higgsfield 返回错误，`details` 含原始 body |
+
+MCP 工具是上面端点的薄封装：工具名 = 端点动作，输入输出共用同一套 zod schema，
+`validation` 和 `needs_confirm` 的 details 原样放进工具返回，让 agent 自己修正后重试。
 
 ---
 
@@ -759,7 +1023,7 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 | `@vercel/blob` 依赖 | 移除；换 `@aws-sdk/client-s3` 或 Workers 的 R2 binding |
 | 构建与部署 | 新增 `@opennextjs/cloudflare`、`wrangler.toml`（R2 binding、Hyperdrive、Cron Triggers、secrets） |
 | 图像模型（Soul / Flux / Qwen 等） | 作为 hero frame 和角色设定图引擎直接复用 |
-| 新增 | `src/studio/`（领域模型、Compiler、Orchestrator）、`src/app/mcp/`、`src/app/p/[id]/*`、`workers/assembler/`、`agent/director.md` |
+| 新增 | `src/studio/`（领域模型、Compiler、Orchestrator、检查点）、`src/app/mcp/`、`src/app/p/[id]/*`、`src/app/api/assembler/hook/route.ts`、`workers/assembler/`（RunPod CPU worker：Dockerfile + ffmpeg handler）、`agent/director.md` |
 
 ---
 
@@ -768,10 +1032,11 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | P0 部署与实测（1–2 周） | 在 RunPod 部署社区 H3 worker（先不改代码）；用 `/playground` 加一个临时 RunPod 后端跑通 T2VA / I2VA / FL2VA / R2VA；实测每种模式 5 s / 10 s / 15 s 的生成时长、冷启动时长、单 take 成本、参考图上限、参考音频是否可用；确认 endpoint 地域与许可证 | §2.3 / §2.4 中"待验证"全部清零，拿到成本表 |
-| P1 领域 + Compiler（1–2 周） | Postgres schema、Shot 编辑器、Compiler、单镜头生成走服务端 Orchestrator | 能手工建一个 5 镜头项目并逐个生成 |
+| P0.5 prompt 评测（与 P0 并行，1 周） | 按 §4.2 的评测方案跑 10 镜头测试集和 A/B，产出规则胜率表，固化到 Compiler 模板和 `agent/director.md` | 每条 prompt 规则都有实测依据 |
+| P1 领域 + Compiler（1–2 周） | Postgres schema、检查点状态机、Shot 编辑器、四模式 Compiler、单镜头生成走服务端 Orchestrator、Cloudflare Access 接入 | 能手工建一个 5 镜头项目并逐个生成；未审批时生成被 409 拦下 |
 | P2 Elements + Hero Frame（1 周） | 元素库、角色三视图生成、hero frame 四选一、keyframe / reference 两种模式 | 同一角色跨 5 个镜头脸不漂 |
 | P3 MCP + Director Skill（1 周） | MCP 服务器 + OAuth、工具清单、Skill 文档、Prompt Pack 兜底 | Grok 和 Claude 各自从一句话需求跑到分镜表 |
-| P4 Assembler（1 周） | ffmpeg worker、时间线、导出预设、字幕 | 导出一支 60 s 成片 |
+| P4 Assembler（1 周） | RunPod CPU worker（§4.4 契约）、时间线页面与端点、导出预设、字幕、SSE 进度 | 导出一支 60 s 成片 |
 | P5 审核回路 + 预算 | 缩略帧、agent 评分、重跑、预算上限 | 全流程无人值守跑完一个项目 |
 
 ---
@@ -810,6 +1075,8 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 5. prompt 7000 字符上限在开源权重上是否同样适用。
 6. Grok 自定义连接器对 OAuth 的具体要求（有用户报告 OAuth 流程启动失败）。
 7. worker 内置上采样 / RIFE 的质量与耗时，决定成片是否值得开。
+8. `edit` 模式（R2VA + 源视频）在自托管权重上的局部编辑质量。
+9. Cloudflare Access 对 `/mcp` 和 webhook 路径 bypass 后，OAuth 与 HMAC 各自能否独立成立。
 
 ---
 
