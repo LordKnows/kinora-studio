@@ -8,7 +8,7 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: "*",
       allow: "/",
       /* API, MCP and OAuth endpoints are not pages. */
-      disallow: ["/api/", "/mcp", "/oauth/", "/p/"],
+      disallow: ["/api/", "/mcp", "/oauth/", "/p/", "/media/"],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
     host: SITE_URL,

@@ -7,15 +7,15 @@
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
-  "d1_databases": [{ "binding": "DB", "database_name": "studio", "database_id": "<d1-database-id>", "migrations_dir": "migrations" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "studio", "database_id": "a665a208-4aad-4b1c-98a6-23c52c9fb737", "migrations_dir": "migrations" }],
   "r2_buckets": [{ "binding": "TAKES", "bucket_name": "studio" }],
   // The minute-by-minute sweep lives in workers/cron (Cron Triggers call a
   // `scheduled` handler, not a URL).
   "vars": {
     "STUDIO_DB": "d1",
     "AUTH_MODE": "access",
-    "STUDIO_PUBLIC_URL": "https://studio.example.com",
-    "R2_PUBLIC_BASE_URL": "https://takes.example.com",
+    "STUDIO_PUBLIC_URL": "https://studio.zyhu.dev",
+    "R2_PUBLIC_BASE_URL": "https://studio.zyhu.dev/media",
     "R2_BUCKET": "studio",
     "RUNPOD_GPU_USD_PER_SECOND": "0.0012",
     "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "12"

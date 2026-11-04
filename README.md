@@ -85,7 +85,7 @@ claude mcp add --transport http studio http://localhost:3000/mcp --header "Autho
 
 ```bash
 wrangler d1 create studio            # put the id into wrangler.jsonc
-wrangler r2 bucket create studio     # bind a public custom domain → R2_PUBLIC_BASE_URL
+wrangler r2 bucket create studio     # served by the app at /media/* (R2_PUBLIC_BASE_URL=https://<studio>/media)
 pnpm db:emit                         # writes migrations/*.sql from src/db/migrations
 wrangler d1 migrations apply studio --remote
 wrangler secret put RUNPOD_API_KEY   # and the rest listed in wrangler.jsonc
@@ -95,8 +95,9 @@ cd workers/cron && wrangler deploy   # minute-by-minute sweep → /api/cron/swee
 
 Put the studio hostname behind **Cloudflare Access** (set `AUTH_MODE=access`,
 `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`) and add bypass rules for `/mcp`,
-`/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`
-and `/api/cron/sweep`, which carry their own auth (OAuth bearer, HMAC, secret).
+`/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`,
+`/api/cron/sweep` and `/media/*` (unguessable keys), which carry their own
+auth (OAuth bearer, HMAC, secret).
 
 ### 3. Connect the director
 

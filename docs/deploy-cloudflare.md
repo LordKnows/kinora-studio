@@ -1,8 +1,8 @@
 # 用 Cloudflare 网页端部署 Cinema Studio
 
-目标：把 Studio 跑在你自己的子域名上（下文用 `studio.example.com`，R2 公开域用
-`media.example.com`），全部在 Cloudflare 仪表盘里点出来，只有一步需要改仓库里的
-`wrangler.jsonc`（填 D1 的 ID）。
+目标：把 Studio 跑在 `studio.zyhu.dev` 上，媒体文件走同一个域名下的 `/media/*`
+（Studio 通过 R2 binding 直接读桶，不需要给 R2 单独配域名）。全部在 Cloudflare
+仪表盘里点出来；`wrangler.jsonc` 里的 D1 ID 和域名已经填好。
 
 前提：你的域名已经托管在这个 Cloudflare 账号里（DNS 在 Cloudflare）。
 
@@ -12,9 +12,7 @@
 
 Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 
-- 名称：`studio`
-- 建好后进入数据库页面，复制 **Database ID**，填到仓库 `wrangler.jsonc` 的
-  `d1_databases[0].database_id`（把 `<d1-database-id>` 换掉）并提交。
+- 名称：`studio`（已建，ID 已写入 `wrangler.jsonc`）。
 - 初始化表结构：数据库页面 → **Console** 标签 → 把仓库里
   `migrations/0001_init.sql` 的全文粘进去 → Execute。看到 `schema_migrations`
   之外的 14 张表出现就行。
@@ -27,9 +25,9 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 **R2 Object Storage → Create bucket**
 
 - 名称：`studio`，位置提示（Location hint）选你希望数据所在的区域。
-- 进入桶 → **Settings → Public access → Custom Domains → Connect Domain**，填
-  `media.example.com`。连上后这个域就是 `R2_PUBLIC_BASE_URL`，值填
-  `https://media.example.com`。
+- **不需要**给桶连自定义域：Studio 的 `/media/*` 路由通过 `wrangler.jsonc` 里的
+  `TAKES` binding 读桶，公开地址就是 `https://studio.zyhu.dev/media/<key>`，
+  `R2_PUBLIC_BASE_URL` 已设为 `https://studio.zyhu.dev/media`。
 - **R2 → Manage API tokens → Create API token**：权限 **Object Read & Write**，
   范围只勾 `studio` 这个桶。记下 **Access Key ID**、**Secret Access Key**，以及
   页面上的 **Account ID**（也可以在仪表盘右侧 Account ID 看到）。
@@ -52,7 +50,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 ## 4. 绑定你的子域名
 
 Worker 页面 → **Settings → Domains & Routes → Add → Custom Domain**，填
-`studio.example.com`。Cloudflare 自动建 DNS 和证书。
+`studio.zyhu.dev`。Cloudflare 自动建 DNS 和证书。
 
 ## 5. 填变量和密钥
 
@@ -62,8 +60,8 @@ Worker 页面 → **Settings → Variables and Secrets**。
 
 | 变量 | 值 |
 |---|---|
-| `STUDIO_PUBLIC_URL` | `https://studio.example.com` |
-| `R2_PUBLIC_BASE_URL` | `https://media.example.com` |
+| `STUDIO_PUBLIC_URL` | `https://studio.zyhu.dev` |
+| `R2_PUBLIC_BASE_URL` | `https://studio.zyhu.dev/media`（已在配置里） |
 | `STUDIO_DB` | `d1`（已在配置里） |
 | `AUTH_MODE` | 先 `access`（第 6 步配好后）；想先看页面可暂时 `dev` |
 
@@ -87,7 +85,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 **Zero Trust（左侧菜单）→ Access → Applications → Add an application → Self-hosted**
 
 - Application name：`Cinema Studio`
-- Application domain：`studio.example.com`
+- Application domain：`studio.zyhu.dev`
 - Policy：Action **Allow**，Include → **Emails** → 填你的邮箱。保存。
 - 保存后在应用的 **Overview** 复制 **Application Audience (AUD) Tag** → 就是
   `CF_ACCESS_AUD`。
@@ -108,7 +106,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 - 注意 `/oauth/authorize`（同意页）**不要**加进 bypass，它必须登录。
 
 然后把 Worker 的 `AUTH_MODE` 设成 `access`，重新部署。打开
-`https://studio.example.com` 会先看到 Access 的邮箱验证码登录。
+`https://studio.zyhu.dev` 会先看到 Access 的邮箱验证码登录。
 
 ## 7. 定时轮询（可选，但建议）
 
@@ -117,18 +115,18 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 **Workers & Pages → Create → Workers → Create Worker**（名称 `cinema-studio-cron`）
 → 用在线编辑器把 `workers/cron/worker.js` 的内容粘进去 → Deploy。然后：
 
-- Settings → Variables：`STUDIO_PUBLIC_URL` = `https://studio.example.com`，
+- Settings → Variables：`STUDIO_PUBLIC_URL` = `https://studio.zyhu.dev`，
   `CRON_SECRET` = 第 5 步同一个值（Secret 类型）。
 - Settings → Triggers → **Cron Triggers → Add**：`* * * * *`。
 
 ## 8. 验证
 
-1. `https://studio.example.com/api/me` → 登录后返回你的邮箱、`authMode: "access"`、
+1. `https://studio.zyhu.dev/api/me` → 登录后返回你的邮箱、`authMode: "access"`、
    `r2Configured: true`。
 2. 首页建一个项目，Settings 页看三盏后端灯。
-3. `https://studio.example.com/.well-known/oauth-authorization-server` 不登录也能打开。
+3. `https://studio.zyhu.dev/.well-known/oauth-authorization-server` 不登录也能打开。
 4. 在 Claude 的 Settings → Connectors → Add custom connector 填
-   `https://studio.example.com/mcp`，会跳到 Studio 的同意页；Grok 在
+   `https://studio.zyhu.dev/mcp`，会跳到 Studio 的同意页；Grok 在
    grok.com → Connectors → New → Custom 同样操作。
 
 ## 常见问题
@@ -136,6 +134,7 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 - **构建失败说找不到 `database_id`**：第 1 步的 ID 没填进 `wrangler.jsonc`。
 - **页面能开但建项目报 `no DB binding`**：Worker 没绑定 D1，检查 `wrangler.jsonc`
   的 `d1_databases` 在部署时是否生效（Settings → Bindings 应能看到 `DB`）。
-- **上传失败**：R2 自定义域没连通，或 `R2_PUBLIC_BASE_URL` 和桶的域不一致。
+- **上传失败**：R2 的 API token 不对，或 `R2_ACCOUNT_ID` / `R2_BUCKET` 没填。
+- **媒体 404**：Worker 的 Settings → Bindings 里没有 `TAKES`，或对象不在 `uploads/` / `projects/` 前缀下。
 - **MCP 连接器登录后 401**：`STUDIO_PUBLIC_URL` 和实际域名不一致，OAuth 元数据里
   的地址会指向错的主机。
