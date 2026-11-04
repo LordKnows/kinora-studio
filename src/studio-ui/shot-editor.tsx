@@ -1,0 +1,253 @@
+"use client";
+
+import { CloseIcon } from "@/openhiggsfield/icons";
+import { CAMERA_MOVES, SHOT_MODES, type ShotInput } from "@/studio/schemas";
+import type { Element, Take } from "@/studio/types";
+
+import { Button, Chips, Field } from "./common";
+
+/* The structured shot form. Validation mirrors ShotInput's refinements so the
+   obvious mistakes (beats not tiling the duration) are caught before the
+   request leaves the browser. */
+
+export type ShotDraft = ShotInput;
+
+export function validateDraft(d: ShotDraft): string[] {
+  const problems: string[] = [];
+  const sorted = [...d.beats].sort((a, b) => a.from - b.from);
+  let cursor = 0;
+  for (const b of sorted) {
+    if (Math.abs(b.from - cursor) > 0.01) {
+      problems.push(`Beats must tile the shot: expected a beat starting at ${cursor}s.`);
+      break;
+    }
+    if (b.to <= b.from) {
+      problems.push("Each beat must end after it starts.");
+      break;
+    }
+    cursor = b.to;
+  }
+  if (Math.abs(cursor - d.durationS) > 0.01) problems.push(`Beats end at ${cursor}s but the shot is ${d.durationS}s.`);
+  if (d.beats.filter((b) => b.cut).length > 3) problems.push("At most 3 cuts per shot.");
+  if (d.beats.some((b) => b.action.trim().length < 5)) problems.push("Every beat needs an action.");
+  if (d.intent.trim().length < 5) problems.push("Intent is required.");
+  if (d.mode === "edit" && !d.sourceTakeId) problems.push("Edit mode needs a source take.");
+  if (d.mode === "edit" && !d.editInstruction?.trim()) problems.push("Edit mode needs an edit instruction.");
+  return problems;
+}
+
+export function ShotEditor({
+  value,
+  onChange,
+  elements,
+  takes,
+}: {
+  value: ShotDraft;
+  onChange: (next: ShotDraft) => void;
+  elements: Element[];
+  takes: Take[];
+}) {
+  const set = <K extends keyof ShotDraft>(key: K, v: ShotDraft[K]) => onChange({ ...value, [key]: v });
+  const characters = elements.filter((e) => e.kind === "character");
+  const locations = elements.filter((e) => e.kind === "location");
+  const props = elements.filter((e) => e.kind === "prop");
+
+  return (
+    <div className="st-stack">
+      <div className="st-fields">
+        <Field label="Duration (s)">
+          <input className="st-input" type="number" min={5} max={15} step={1} value={value.durationS} onChange={(e) => set("durationS", Math.max(5, Math.min(15, Math.round(Number(e.target.value) || 5))))} />
+        </Field>
+        <Field label="Mode">
+          <select className="st-select" value={value.mode} onChange={(e) => set("mode", e.target.value as ShotDraft["mode"])}>
+            {SHOT_MODES.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Link to previous">
+          <select className="st-select" value={value.linkToPrev} onChange={(e) => set("linkToPrev", e.target.value as ShotDraft["linkToPrev"])}>
+            <option value="cut">cut</option>
+            <option value="continuous">continuous (starts on previous last frame)</option>
+          </select>
+        </Field>
+      </div>
+
+      <Field label="Intent" hint="One sentence: what this shot is for.">
+        <input className="st-input" value={value.intent} onChange={(e) => set("intent", e.target.value)} />
+      </Field>
+
+      {value.mode === "edit" && (
+        <div className="st-card st-stack">
+          <Field label="Source take">
+            <select className="st-select" value={value.sourceTakeId ?? ""} onChange={(e) => set("sourceTakeId", e.target.value || undefined)}>
+              <option value="">Choose a completed take…</option>
+              {takes.filter((t) => t.status === "completed").map((t) => (
+                <option key={t.id} value={t.id}>
+                  Take {t.n} · {t.id}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Edit instruction" hint="Only what changes. Everything else is kept.">
+            <textarea className="st-textarea" rows={3} value={value.editInstruction ?? ""} onChange={(e) => set("editInstruction", e.target.value)} />
+          </Field>
+        </div>
+      )}
+
+      <div className="st-card st-stack">
+        <div className="st-row st-row--between">
+          <span className="st-label" style={{ marginBottom: 0 }}>Beats</span>
+          <Button
+            size="sm"
+            disabled={value.beats.length >= 6}
+            onClick={() => {
+              const last = value.beats[value.beats.length - 1];
+              const from = last ? last.to : 0;
+              set("beats", [...value.beats, { from, to: Math.min(value.durationS, from + Math.max(1, value.durationS - from)), action: "" }]);
+            }}
+          >
+            Add beat
+          </Button>
+        </div>
+        {value.beats.map((b, i) => (
+          <div key={i} className="st-beat">
+            <input className="st-input st-input--sm" type="number" step={0.5} value={b.from} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, from: Number(e.target.value) } : x)))} aria-label="From" />
+            <input className="st-input st-input--sm" type="number" step={0.5} value={b.to} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, to: Number(e.target.value) } : x)))} aria-label="To" />
+            <input className="st-input st-input--sm" placeholder="Start state → one action → end state" value={b.action} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, action: e.target.value } : x)))} />
+            <label className="st-toggle" title="Hard cut opens this beat">
+              <input type="checkbox" checked={Boolean(b.cut)} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, cut: e.target.checked || undefined } : x)))} />
+              cut
+            </label>
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove beat" disabled={value.beats.length <= 1} onClick={() => set("beats", value.beats.filter((_, j) => j !== i))}>
+              <CloseIcon size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Camera</span>
+        <div className="st-fields">
+          <Field label="Move">
+            <select className="st-select" value={value.camera.move} onChange={(e) => set("camera", { ...value.camera, move: e.target.value as ShotDraft["camera"]["move"] })}>
+              {CAMERA_MOVES.map((m) => (
+                <option key={m} value={m}>
+                  {m.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Amplitude">
+            <select className="st-select" value={value.camera.amplitude} onChange={(e) => set("camera", { ...value.camera, amplitude: e.target.value as ShotDraft["camera"]["amplitude"] })}>
+              <option>subtle</option>
+              <option>moderate</option>
+              <option>strong</option>
+            </select>
+          </Field>
+          <Field label="Speed">
+            <select className="st-select" value={value.camera.speed} onChange={(e) => set("camera", { ...value.camera, speed: e.target.value as ShotDraft["camera"]["speed"] })}>
+              <option>slow</option>
+              <option>medium</option>
+              <option>fast</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Note" hint="Free text; does not reset the approval.">
+          <input className="st-input" value={value.camera.note ?? ""} onChange={(e) => set("camera", { ...value.camera, note: e.target.value || undefined })} />
+        </Field>
+      </div>
+
+      <div className="st-card st-stack">
+        <div className="st-row st-row--between">
+          <span className="st-label" style={{ marginBottom: 0 }}>Dialogue</span>
+          <Button size="sm" disabled={value.dialogue.length >= 8 || characters.length === 0} onClick={() => set("dialogue", [...value.dialogue, { speaker: characters[0]!.id, text: "", language: "en", delivery: "neutral" }])}>
+            Add line
+          </Button>
+        </div>
+        {characters.length === 0 && <span className="st-muted">Create a character element to add dialogue.</span>}
+        {value.dialogue.map((l, i) => (
+          <div key={i} className="st-line">
+            <select className="st-select st-input--sm" value={l.speaker} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, speaker: e.target.value } : x)))}>
+              {characters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+            <input className="st-input st-input--sm" placeholder="The exact line" value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
+            <input className="st-input st-input--sm" placeholder="en" value={l.language} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value } : x)))} aria-label="Language" />
+            <input className="st-input st-input--sm" placeholder="delivery" value={l.delivery} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, delivery: e.target.value } : x)))} aria-label="Delivery" />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove line" onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
+              <CloseIcon size={11} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Sound</span>
+        <Field label="SFX (events)">
+          <Chips values={value.sound.sfx} onRemove={(i) => set("sound", { ...value.sound, sfx: value.sound.sfx.filter((_, j) => j !== i) })} onAdd={(v) => value.sound.sfx.length < 8 && set("sound", { ...value.sound, sfx: [...value.sound.sfx, v] })} placeholder="rain on tin roof" />
+        </Field>
+        <div className="st-fields">
+          <Field label="Ambience">
+            <input className="st-input" value={value.sound.ambience} onChange={(e) => set("sound", { ...value.sound, ambience: e.target.value })} placeholder="distant traffic, wet street" />
+          </Field>
+          <Field label="Music" hint="N/A suppresses score.">
+            <input className="st-input" value={value.sound.music} onChange={(e) => set("sound", { ...value.sound, music: e.target.value })} />
+          </Field>
+        </div>
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Who and where</span>
+        <Field label="Characters (max 3)">
+          <ElementPick options={characters} value={value.characters} max={3} onChange={(v) => set("characters", v)} />
+        </Field>
+        <Field label="Location">
+          <select className="st-select" value={value.location ?? ""} onChange={(e) => set("location", e.target.value || undefined)}>
+            <option value="">—</option>
+            {locations.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Props (max 3)">
+          <ElementPick options={props} value={value.props} max={3} onChange={(v) => set("props", v)} />
+        </Field>
+      </div>
+
+      <Field label="Prompt override" hint="Replaces the compiled prompt entirely. Leave empty to let the compiler write it.">
+        <textarea className="st-textarea" rows={4} value={value.promptOverride ?? ""} onChange={(e) => set("promptOverride", e.target.value || undefined)} />
+      </Field>
+    </div>
+  );
+}
+
+function ElementPick({ options, value, max, onChange }: { options: Element[]; value: string[]; max: number; onChange: (v: string[]) => void }) {
+  if (options.length === 0) return <span className="st-muted">None available</span>;
+  return (
+    <div className="st-chips">
+      {options.map((o) => {
+        const on = value.includes(o.id);
+        return (
+          <button
+            key={o.id}
+            type="button"
+            className="st-chip st-chip--btn"
+            aria-pressed={on}
+            disabled={!on && value.length >= max}
+            onClick={() => onChange(on ? value.filter((id) => id !== o.id) : [...value, o.id])}
+          >
+            {o.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}

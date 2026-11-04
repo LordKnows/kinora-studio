@@ -15,3 +15,5 @@ tsconfig.tsbuildinfo
 .data
 .open-next
 .wrangler
+__pycache__/
+.pytest_cache/

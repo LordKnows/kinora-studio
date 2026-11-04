@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-import handler as h
+import handler_h3_runpod as h
 
 HERE = Path(__file__).resolve().parent
 
