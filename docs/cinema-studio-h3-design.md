@@ -1,11 +1,13 @@
-# Cinema Studio 复刻方案（MiniMax H3 导向）
+# Cinema Studio 复刻方案（MiniMax H3 导向，RunPod 自托管）
 
 > 目标：在本仓库基础上，复刻 Higgsfield Cinema Studio 的完整结构
 > （Project → Scene → Shot、项目级 Look、Hero Frame First、Cast / Elements、
 > 每镜头生成、多镜头、时间线导出、自然语言编排 agent），
-> 生成引擎统一换成 MiniMax H3 系列，编排 agent 使用订阅版 Grok 与 Claude（不走 API）。
+> 生成引擎统一换成 **自托管在 RunPod 上的 MiniMax H3 开源权重**，
+> 编排 agent 使用订阅版 Grok 与 Claude（不走 API）。
 >
-> 状态：设计稿 v1。标注「待验证」的条目来自二手资料，实施前需对照官方文档确认。
+> 状态：设计稿 v2（v1 以 Higgsfield 托管 H3 为后端，v2 改为 RunPod 自托管）。
+> 标注「待验证」的条目来自二手资料，实施前需对照官方文档或实测确认。
 
 ---
 
@@ -28,18 +30,24 @@
 │   Orchestrator（任务队列 + 服务端轮询 + 重试 + 预算）                     │
 │   Assembler（ffmpeg 拼接 / 混音 / 字幕 / 导出预设）                      │
 │   ──────────────────────────────────────────────────────────────────  │
-│   Postgres（项目 / 元素 / 镜头 / 任务）   Vercel Blob（素材 / 成片）      │
-└───────────────────────┬───────────────────────────────────────────────┘
-                        │ 复用现有 catalog / to-platform / platform client
-                        ▼
-      Higgsfield Platform API ── minimax/h3/{text,image,reference}-to-video
-                               └─ 图像模型（Soul 2 / Flux 等）用于 hero frame
+│   Postgres（项目 / 元素 / 镜头 / 任务）   Vercel Blob / S3（素材 / 成片）  │
+└──────────┬───────────────────────────────────────┬────────────────────┘
+           │ GenerationBackend 接口                 │
+           ▼                                       ▼
+┌──────────────────────────────┐     ┌──────────────────────────────────┐
+│ RunPod Serverless Endpoint   │     │ Higgsfield Platform API（可选）    │
+│  ComfyUI worker + H3-Base    │     │  图像模型（Soul 2 / Flux 等）       │
+│  T2VA / I2VA / FL2VA / R2VA  │     │  用于 hero frame 与角色设定图       │
+│  网络卷 /runpod-volume 存权重 │     └──────────────────────────────────┘
+│  webhook → /api/runpod/hook  │
+└──────────────────────────────┘
 ```
 
 三个关键决策：
 
 1. **以"镜头"为原子单位，每个镜头 = 一次 H3 请求。** 这与本仓库现有的
-   `{model, prompt, media, settings}` 一一对应，生成层可直接复用。
+   `{model, prompt, media, settings}` 一一对应，生成层通过一个
+   `GenerationBackend` 接口对接 RunPod（视频）和 Higgsfield（图像）。
 2. **Hero Frame First + Elements。** 一致性由图决定，不由文字决定。
    角色 / 场景 / 道具先用图像模型做成参考图，再通过 H3 的 omni-reference
    或首尾帧喂进去。
@@ -70,7 +78,9 @@
 
 ### 1.2 硬约束
 
-- 生成模型：**只用 MiniMax H3 系列**（通过 Higgsfield Platform API）。
+- 生成模型：**只用 MiniMax H3 系列，且必须部署在 RunPod 上调用**，不走 Higgsfield
+  托管的 H3，也不在本地跑。推论：可用的是开源的 **H3-Base**（768p + 原生音频），
+  托管版独有的 2K 上采样和 Context-IR 不可用；模型的地域许可（§2.4）由部署者负责。
 - 编排 agent：**订阅版 Grok 和 Claude，并列，不走 API**。
   推论：服务端不能主动调用 LLM；任何"AI 写剧本 / 拆镜头"都必须由用户在
   聊天客户端里触发。禁止做浏览器自动化去操控聊天界面（违反服务条款、不稳定）。
@@ -87,7 +97,10 @@
 
 ## 2. MiniMax H3 调研结论
 
-### 2.1 模型事实（用于约束设计）
+### 2.1 托管版 H3 的事实（作为能力上限的参照）
+
+> 下表描述的是 MiniMax / Higgsfield 托管的 H3。本方案用的是自托管的 H3-Base，
+> 实际能力以 §2.4 为准；保留本表是为了说明自托管缺了什么。
 
 | 项目 | 结论 | 来源可靠度 |
 |---|---|---|
@@ -123,6 +136,37 @@
 7. **约束块**：no text / no logos / no extra dialogue 等。
 8. **一次生成内多镜头**：用时间段 + "hard cut at 6s" 之类的措辞，在一个 15 秒 clip 里切 2–3 个 cut。
 
+### 2.4 自托管 H3-Base 的事实（本方案真正的能力边界）
+
+| 项目 | 结论 | 可靠度 |
+|---|---|---|
+| 开源内容 | **H3-Base**：联合生成 768p 视频 + 同步立体声。不含 H3-Context-IR（托管版的 prompt 处理 / 长上下文参考系统）和 H3-Regenerate-2K（2K 上采样） | MiniMax 官方文档 |
+| 许可证 | MiniMax Community License，非 OSI。**适用地域为全球除美国、欧盟、英国、韩国**；限制覆盖模型和产物的使用、分发、展示；被排除地区可向 MiniMax 申请单独授权；禁止用产物训练其他模型 | 许可证原文 + 多源 |
+| 官方推荐的两条自托管路径 | (a) **ComfyUI ≥ 0.30.0 原生节点 + 模板**（T2V / I2V / 参考驱动），用 Comfy-Org 的裁剪 + 量化权重（INT8 / NVFP4），官方注明与 BF16/FP32 基线**不是同一数值基准**；(b) **SGLang 服务器**跑官方完整检查点，参考配置 8×B200 | MiniMax 官方文档 |
+| 其他推理栈 | vLLM-Omni 社区 recipe（4 卡：`--num-gpus 4 --usp 4`，支持 4 步 turbo LoRA）、diffusers、DiffSynth-Studio、SD.Next | 社区 |
+| 权重体积 | 完整 BF16 约 134 GiB；裁剪 INT8 + NVFP4 约 42.5 GB | 第三方实测 |
+| 显存 | 4×H100（TP2 + Ulysses2）每卡峰值约 66 GB，5 s 1344×768 约 13 s；单张 80–96 GB 卡跑 INT8 + 分层 offload 可行但慢；消费卡靠 offload 能跑但分钟级 | 第三方实测，**待复测** |
+| 模式 | 社区 RunPod worker 提供 **T2VA、I2VA、FL2VA（首尾帧）、R2VA（参考图）**，另有 "Singularity R2VA"（最多 3 张参考图 + 1 段参考视频）和多场景 Director 工作流 | 社区 worker README |
+| 参考上限 | 自托管的参考模式约 **3 图 + 1 视频**（社区 worker），远小于托管版的 9 / 3 / 3；是否支持参考音频**未确认** | 社区，**待验证** |
+| 分辨率预设 | `1344x768 (16:9)`、`1184x864 (4:3)`、`auto`；可选 TensorRT 上采样 + RIFE 插帧后处理 | 社区 worker |
+| 速度 | 8 步 lightx2v turbo LoRA（fl2v / ref2v）；单卡生成时长未公布，**P0 必须实测** | 社区 worker |
+| 提示词增强 | 托管版的 Context-IR 不在开源包里；社区 worker 内置一个 Qwen3.5-9B GGUF 做 `enhance`，可关 | 社区 worker |
+
+### 2.5 RunPod 的事实
+
+| 项目 | 结论 |
+|---|---|
+| 产品形态 | **Serverless**（按秒计费的 Flex worker，可缩到零）和 **Pod**（按小时的整机）。社区 H3 worker 是 Serverless 形态，RunPod Hub 可一键部署 |
+| 作业 API | `POST /v2/{endpoint}/run` 异步返回 job id；`GET /v2/{endpoint}/status/{id}` 返回 `IN_QUEUE / IN_PROGRESS / COMPLETED / FAILED / CANCELLED / TIMED_OUT`；`/cancel`、`/retry`；`/runsync` 仅适合短任务 |
+| Webhook | 请求体里与 `input` 并列放 `webhook` URL，完成后 POST 结果；失败重试 2 次、间隔 10 s |
+| 超时 | `executionTimeout` 默认 600 000 ms（仅计 worker 执行时间，范围 5 s–7 天）；`ttl` 默认 24 h 含排队；**结果在完成后只保留 30 分钟**，必须及时取走 |
+| 幂等 | 网络错误后重发 `/run` 会产生第二个计费作业；必须记下 job id 用 `/status` 跟踪 |
+| 权重存储 | 网络卷挂载在 `/runpod-volume`，不放卷上的文件在 worker 回收后消失；H3 worker 要求 **≥160 GB** 卷，首次启动自动下载约 100 GB |
+| 冷启动 | 大模型冷启动很重；社区建议 **max workers = 1、保持 1 个 warm worker 排队跑**，而不是多个冷 worker；可用 FlashBoot、active workers > 0 |
+| GPU 档位 | 社区 worker 要求 **96 GB 级 Blackwell**（`BLACKWELL_96` 池，即 RTX PRO 6000 96 GB 一类）；32B 文本编码器 + 两个 DiT + TensorRT 引擎需要这个余量 |
+| 大文件输出 | worker 自己负责把产物上传到 S3 兼容存储（MinIO / B2 / Spaces 等），不要走 base64 回传 |
+| 价格（2026 年中，多源不一致，**待核对**） | Serverless Flex：H100 约 $4.79/h、H200 约 $5.93/h、B200 约 $8.64/h；Pod：H100 SXM 约 $3.49/h、H200 约 $4.59/h、B200 约 $6.79/h；Serverless 比 Pod 贵 26–71%，换来缩零和自动扩缩 |
+
 ### 2.3 "H3 导向"对架构的具体影响
 
 | Cinema Studio 的 Seedance 导向 | 换成 H3 后 |
@@ -130,8 +174,11 @@
 | 音频往往后期加 | H3 原生出声，**对白 / 音效 / 音乐在 Director 阶段就写进镜头**；后期只做混音平衡和配乐替换 |
 | 参考图 + 首尾帧可同时用 | 互斥 → 每个镜头必须二选一：**Keyframe 模式**（首尾帧，适合连续动作和转场）或 **Reference 模式**（omni，适合角色 / 产品一致性） |
 | 单段最长 30 s–1 min | 单段 ≤15 s → 镜头切分更细，长镜头靠**末帧接下一镜头首帧**链式衔接 |
-| 多模型按镜头切换 | 引擎固定 H3；仅在 Higgsfield 开放 H3-Max 后，为 previz 提供"快速 / 低清"档 |
-| Soul Cast 出三视图 | 用本仓库已有的图像模型（Soul 2 / Flux 2 / Qwen Image 3 等）做角色设定图，H3 本身不出静帧 |
+| 多模型按镜头切换 | 引擎固定为自托管 H3-Base；"快速 / 低清"档改为 worker 的 turbo LoRA 步数（8 步 previz，更多步数出成片） |
+| 原生 2K | **自托管只有 768p**（1344×768）。成片分辨率定为 768p；需要更高分辨率时在 Assembler 阶段做可选上采样（worker 内置 TensorRT 上采样，或独立上采样模型） |
+| 参考 9 图 + 3 视频 + 3 音频 | 自托管约 3 图 + 1 视频 → **参考预算紧张**：角色一张正面图 + 场景一张 + hero frame 一张就满了。角色三视图改为"主参考一张 + 其余由 hero frame 承载"；音色一致性无法靠参考音频，改为对白文本里固定"声线描述" |
+| Context-IR 做 prompt 处理 | 不可用 → **Prompt Compiler 的格式化变得更重要**；worker 内置的 Qwen 增强器只在 text 模式打开 |
+| Soul Cast 出三视图 | 用本仓库已有的图像模型（Soul 2 / Flux 2 / Qwen Image 3 等，经 Higgsfield）做角色设定图，H3 本身不出静帧。若将来图像模型也要自托管，再加一个 RunPod endpoint 即可，接口不变 |
 
 ---
 
@@ -161,7 +208,8 @@ type LookSettings = {
   lens: string;             // "35mm, shallow DOF"
   lighting: string;         // "practical sources, hard key"
   aspectRatio: "21:9" | "16:9" | "4:3" | "1:1" | "3:4" | "9:16";
-  resolution: "768p" | "2k";
+  resolution: "768p";       // 自托管 H3-Base 只有 768p
+  upscale: boolean;         // 导出时是否做后处理上采样
   negative: string[];       // ["no on-screen text", "no logos"]
 };
 
@@ -198,8 +246,10 @@ type Beat = { from: number; to: number; action: string };  // 秒，段和 = dur
 
 type Take = {
   id: string; shotId: string; n: number;
-  request: { path: string; body: unknown };   // 实际发给平台的东西，可追溯
-  requestId?: string; status: "queued"|"running"|"completed"|"failed"|"nsfw"|"canceled"|"timeout";
+  backend: "runpod" | "higgsfield";
+  request: { workflow: string; input: unknown }; // 实际发给后端的东西，可追溯
+  requestId?: string;                            // RunPod job id 或平台 request_id
+  status: "queued"|"running"|"completed"|"failed"|"canceled"|"timeout";
   resultUrl?: string; costUsd?: number; error?: string;
   review?: { score: number; notes: string; by: "human"|"agent" };
   createdAt: number; finishedAt?: number;
@@ -214,9 +264,10 @@ type Timeline = { clips: { shotId: string; takeId: string; inS: number; outS: nu
 
 - **Postgres**（Vercel Postgres / Neon / 自托管均可）：以上全部实体。现有的
   IndexedDB 历史只保留为"个人画廊"的兼容路径，项目数据不进浏览器。
-- **Vercel Blob**（沿用）：上传素材、hero frame、take 产物的镜像副本。
-  平台返回的 CDN URL 会过期，**每个 completed take 必须在服务端回拉一份存入 Blob**，
-  这是现有仓库明确踩过的坑（README 里的"历史记录会出现空洞"）。
+- **Vercel Blob**（沿用）：上传素材、hero frame、Higgsfield 图像模型产物的镜像副本。
+- **S3 兼容桶**（新增，如 Cloudflare R2 / Backblaze B2）：RunPod worker 直接把生成的
+  视频写进这个桶，Studio 只拿 URL。原因：RunPod 的结果只保留 30 分钟，base64 回传又太大。
+  R2 / B2 与 RunPod 之间的出口流量费也比 Vercel Blob 便宜。
 - 任务队列：起步用 Postgres 表 + 一个 worker 轮询（Vercel Cron 或常驻进程）；
   规模上去再换 Redis / Upstash QStash。
 
@@ -279,35 +330,75 @@ CONSTRAINTS
 {look.negative.join(". ")}. No extra dialogue. No subtitles.
 ```
 
-请求体映射（新增到 `src/generation/to-platform.ts`）：
+请求体映射（新增 `src/generation/backends/runpod.ts`，目标是 worker 的输入 schema）：
 
-| Shot.mode | 端点 | 媒体 |
+| Shot.mode | worker 工作流 | 媒体 |
 |---|---|---|
-| `text` | `minimax/h3/text-to-video` | 无 |
-| `keyframe` | `minimax/h3/image-to-video` | `image_url` = heroFrame；末帧字段名**待验证**（Higgsfield 博客称支持 Start/End Frame） |
-| `reference` | `minimax/h3/reference-to-video` | `image_urls` ≤9（角色三视图 + 场景 + 道具 + hero frame）、`video_urls` ≤3、`audio_urls` ≤3 |
+| `text` | `T2VA` | 无；可开 `enhance` |
+| `keyframe` | `I2VA`（只有首帧）或 `FL2VA`（首帧 + 末帧） | `images[0]` = heroFrame 或上一镜头末帧；`images[1]` = 末帧 |
+| `reference` | `R2VA` / `Singularity R2VA` | 最多 3 张参考图 + 1 段参考视频（**上限待验证**） |
 
-Compiler 做的校验：beats 时长之和 = durationS；参考总数 ≤12；音频必须有图或视频陪同；
-keyframe 与 reference 互斥；prompt 长度 ≤7000；`continuous` 镜头必须有上一镜头的末帧。
+worker 输入示例（字段名以社区 worker 为准，fork 后固定成我们自己的 schema）：
+
+```json
+{
+  "input": {
+    "workflow": "FL2VA",
+    "prompt": "<Compiler 输出>",
+    "seconds": 8,
+    "video_size": "1344x768",
+    "images": ["https://.../hero.png", "https://.../end.png"],
+    "enhance": false,
+    "upscale": false,
+    "rife": false,
+    "steps": 8,
+    "seed": 1234,
+    "output": { "bucket": "studio-takes", "key": "p1/s3/take2.mp4" },
+    "studio_take_id": "take_…"
+  },
+  "webhook": "https://<studio>/api/runpod/hook?sig=…",
+  "executionTimeout": 900000
+}
+```
+
+Compiler 做的校验：beats 时长之和 = durationS（5–15）；参考数不超过 worker 上限；
+keyframe 与 reference 互斥；prompt 长度 ≤7000；`continuous` 镜头必须有上一镜头的末帧；
+`seed` 固定记录，便于重跑对比。
 
 ### 4.3 Orchestrator（服务端任务编排）
 
-把现有浏览器侧的 `poll.ts` 逻辑搬到服务端：
+把现有浏览器侧的 `poll.ts` 逻辑搬到服务端，并抽象出后端接口：
+
+```ts
+interface GenerationBackend {
+  submit(job: CompiledJob): Promise<{ requestId: string }>;
+  status(requestId: string): Promise<BackendStatus>;   // queued | running | completed(url) | failed(reason) | canceled | timeout
+  cancel(requestId: string): Promise<void>;
+}
+// 实现：RunPodBackend（视频，H3）、HiggsfieldBackend（图像，现有 platform.ts 包一层）
+```
 
 ```
-Take 创建 ──► 队列 ──► worker: submit ──► requestId ──► 轮询 (4 s, 10 min deadline)
-                                   │                          │
-                                   │ 429/5xx: 指数退避重试 ≤3   ├─ completed: 回拉到 Blob, 抽末帧, 记账
-                                   │                          ├─ failed/nsfw/canceled: 记录原因
-                                   ▼                          └─ timeout: 标记, 允许重试
-                               预算检查（预估 = durationS × 单价）
+Take 创建 ──► 队列(Postgres) ──► 预算检查 ──► backend.submit ──► requestId
+                                                                 │
+          ┌──────────────────────────────────────────────────────┘
+          ▼
+   主路径：RunPod webhook → /api/runpod/hook（验签）→ 标记 completed/failed
+   兜底：  worker 每 15 s 对 running 的 take 调 backend.status（webhook 丢了也能收口）
+          │
+          ├─ completed: 校验 S3 对象存在 → 抽末帧 → 记账（GPU 秒 × 单价）
+          ├─ failed / canceled: 记录 worker 返回的错误
+          └─ timeout（executionTimeout 触发）: 标记，允许 /retry
 ```
 
-- **幂等**：Take 以 `(shotId, n)` 唯一；重复提交返回同一 take。
-- **并发**：项目级并发上限（默认 3），避免一次把 40 个镜头全砸给平台。
-- **末帧抽取**：completed 后用 ffmpeg 抽最后一帧存为 Asset，供下一个 `continuous` 镜头作首帧。
-- **预算**：`Project.budget.capUsd`，超限拒绝入队；每个 take 记录实际秒数 × 单价。
-- 现有 `createPlatformClient` / `PlatformError` / 状态映射直接复用。
+- **幂等**：Take 以 `(shotId, n)` 唯一；`studio_take_id` 随 input 下发，webhook 回来按它对账；
+  提交阶段网络错误**不重发 `/run`**，先查队列里有没有同 take 的 job id。
+- **并发**：项目级并发上限默认 1–2。RunPod 侧 max workers = 1 时，多余的 job 在 RunPod 队列里排队，
+  Studio 侧的并发上限主要用来控制预算，不是吞吐。
+- **末帧抽取**：completed 后 ffmpeg 抽最后一帧存为 Asset，供下一个 `continuous` 镜头作首帧。
+- **预算**：`Project.budget.capUsd`，超限拒绝入队；每个 take 记录 `executionTime` × 单价。
+  RunPod 的状态响应带 `executionTime`（毫秒），这是精确记账的依据。
+- **冷启动感知**：webhook 迟迟不来且 status 一直 `IN_QUEUE` 时，UI 显示"GPU 正在启动"而不是"生成中"。
 
 ### 4.4 Assembler
 
@@ -320,6 +411,61 @@ Take 创建 ──► 队列 ──► worker: submit ──► requestId ──
 ### 4.5 MCP Server（agent 的接口）
 
 见 §6。
+
+### 4.6 RunPod 推理服务（H3 的部署）
+
+**两种部署形态，建议从 A 起步：**
+
+| | A. Serverless endpoint（ComfyUI worker） | B. 专用 Pod（vLLM-Omni / SGLang 多卡） |
+|---|---|---|
+| 适合 | 每天 GPU 忙碌 < 6–8 小时、单人或小团队、间歇出片 | 每天持续出片、需要最低延迟和官方数值基线 |
+| 权重 | Comfy-Org 裁剪 + INT8 / NVFP4 | 官方 BF16 检查点（约 134 GiB） |
+| 硬件 | 1 × 96 GB Blackwell（RTX PRO 6000 一类），网络卷 ≥160 GB | 4 × H100 / H200 或 8 × B200 |
+| 速度 | 8 步 turbo，单卡时长待实测 | 4×H100 约 13 s 出 5 s 片段 |
+| 质量 | 量化 + 裁剪，略低于托管 | 接近托管版 768p 基线 |
+| 成本 | 按秒计费 + 冷启动损耗 | 按小时，空闲也计费 |
+| 运维 | RunPod Hub 一键部署，一个 warm worker | 自己维护容器、模型加载、健康检查 |
+
+**方案 A 的具体做法：**
+
+1. **fork 社区 worker**（`venkteshmaram/runpod-minimax-h3` 或同类），锁定版本，
+   把输入 schema 固定成 §4.2 的样子，加三件事：
+   - 产物上传到我们的 S3 桶（R2 / B2），返回 `{ url, executionTime, seed, frames }`；
+   - 可选抽末帧并一并上传（省 Studio 一次下载）；
+   - `studio_take_id` 原样回传。
+2. **网络卷**：创建 ≥160 GB 卷，首次启动让 worker 自动下载约 100 GB 权重到 `/runpod-volume`，
+   之后关掉自动填充（`VOLUME_AUTOPOPULATE=false`）防止意外重下。
+3. **endpoint 配置**：GPU 池选 96 GB 级；`max workers = 1`；出片高峰期把 `active workers`
+   设为 1 消灭冷启动，闲时设 0；开 FlashBoot；`executionTimeout` 默认 900 s；
+   `ttl` 默认 2 h（覆盖排队 + 执行）。
+4. **地域**：endpoint 的数据中心必须选在许可证允许的地域（见 §2.4、§10），这是部署者的责任，
+   Studio 在配置页里显式提示。
+5. **健康检查**：worker 支持 `{"action":"health"}`，Studio 的配置页提供"测试连接"按钮，
+   并在每天第一次生成前预热（发一个 2 秒的 T2VA 小任务）。
+
+**环境变量**（新增到 `.env.example`）：
+
+```
+RUNPOD_API_KEY=
+RUNPOD_ENDPOINT_ID=
+RUNPOD_WEBHOOK_SECRET=        # 签 webhook URL 的 HMAC 密钥
+TAKES_S3_ENDPOINT=            # R2 / B2 的 S3 端点
+TAKES_S3_BUCKET=
+TAKES_S3_ACCESS_KEY=
+TAKES_S3_SECRET_KEY=
+TAKES_PUBLIC_BASE_URL=        # 桶的公开读地址或 CDN
+```
+
+**成本模型**（P0 实测后填数）：
+
+```
+单个 take 成本 ≈ (冷启动秒数 / 该 worker 生命周期内的 take 数 + 生成秒数) × GPU 单价/秒
+```
+
+示例：若 96 GB 卡 Flex 价约 $X/h，8 步 turbo 出一个 10 s 片段耗时 T 秒，
+则热 worker 下一个 take ≈ X/3600 × T 美元。一个 30 镜头、每镜头 2 个 take 的项目 = 60 × 该值。
+与托管版（$0.065–0.13/s × 10 s = $0.65–1.3/take）对比，自托管的盈亏平衡取决于 T 和冷启动摊销，
+**在没有实测 T 之前不要下结论**。
 
 ---
 
@@ -355,7 +501,8 @@ Take 创建 ──► 队列 ──► worker: submit ──► requestId ──
 | 情况 | 模式 | 理由 |
 |---|---|---|
 | 有 hero frame，且需要和上一镜头连续 | `keyframe`，首帧 = 上一镜头末帧或 hero frame，末帧 = 本镜头 hero frame（可选） | 连续性最好 |
-| 角色 / 产品必须高度一致，镜头内有对白 | `reference`，角色三视图 + 声音样本 + hero frame 作为 image 之一 | 身份锁定 + 音色一致 |
+| 角色 / 产品必须高度一致 | `reference`，角色主参考图 + 场景图 + hero frame（自托管约 3 图上限，**待验证**） | 身份锁定 |
+| 镜头内有对白、要音色稳定 | 任一模式 + 对白文本里固定该角色的"声线描述"；自托管是否支持参考音频未确认 | 开源包没有 Context-IR / 参考音频保证 |
 | 空镜、氛围镜头 | `text` | 最便宜 |
 
 **一次生成内多镜头**（对应 Cinema Studio 的 multi-shot）：当一个 Shot 的 beats 带
@@ -424,7 +571,9 @@ Timeline 页面选 take、排序、转场 → `export(preset)` → Assembler wor
 3. `save_shotlist` 的 JSON schema 和一个完整示例。
 4. 决策规则：镜头模式选择表（§5.3）、每镜头 ≤15 s、≤3 个 cut、一个主运动、对白写原文、
    `continuous` 必须接末帧、音频参考必须配图。
-5. 预算规则：先 previz（768p，每镜头 1 take），用户满意后再 2K。
+5. 预算规则：先 previz（8 步 turbo，每镜头 1 take），用户满意后再加步数或开上采样出成片。
+6. 后端事实：自托管 H3-Base 只有 768p、参考上限约 3 图 + 1 视频、没有 Context-IR，
+   所以 prompt 必须自带完整结构，不能指望模型侧增强。
 
 Grok 和 Claude 用**同一份** Skill 和同一套工具，差别只在客户端。
 
@@ -472,11 +621,14 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 
 | 现有模块 | 处理 |
 |---|---|
-| `src/generation/catalog/` | 保留。`minimax-h3.ts` 从 `t2v()` 简写改为完整条目：`roles: { start:1, end:1, reference:9, video:3, audio:3 }`，settings 加 `aspectRatio` 6 值、`resolution: 768p/2k`、`duration 5–15`，`paths` 加 `reference: "minimax/h3/reference-to-video"` |
-| `src/generation/to-platform.ts` | 新增 `mapH3`：实现 keyframe / reference 互斥、末帧字段、参考数组；`mapByPaths` 现有的"无媒体也发 image-to-video"问题顺手修掉 |
-| `src/generation/platform.ts` | 原样复用 |
+| `src/generation/catalog/` | 保留给图像模型。新增 `minimax-h3-runpod.ts` 条目：`backend: "runpod"`，`roles: { start:1, end:1, reference:3, video:1 }`，settings：`aspectRatio`（16:9 / 4:3 / auto）、`duration 5–15`、`steps`、`enhance`、`upscale`；`ModelEntry` 类型加可选 `backend` 字段 |
+| `src/generation/to-platform.ts` | 保留给 Higgsfield 图像模型；`mapByPaths` 现有的"无媒体也发 image-to-video"问题顺手修掉 |
+| `src/generation/backends/runpod.ts`（新增） | `RunPodBackend`：`/run`、`/status`、`/cancel`，webhook 验签，输入 schema 由 Compiler 产出 |
+| `src/generation/platform.ts` | 包成 `HiggsfieldBackend`，只用于图像模型 |
 | `src/generation/poll.ts` | 逻辑搬到服务端 worker；浏览器侧改为订阅 `/api/jobs/:id`（SSE 或轮询） |
-| `src/generation/actions.ts` | `submitGeneration` 改为内部函数，由 Orchestrator 调用；凭证从 cookie 改为项目级配置（自托管时存环境变量） |
+| `src/generation/actions.ts` | `submitGeneration` 改为内部函数，由 Orchestrator 调用；Higgsfield key 仍可走 cookie，RunPod 凭证只在服务端环境变量 |
+| `src/app/api/runpod/hook/route.ts`（新增） | 接 RunPod webhook，HMAC 验签，更新 Take |
+| `workers/h3-runpod/`（新增） | fork 的 ComfyUI worker：Dockerfile、固定的工作流 JSON、S3 上传、末帧抽取 |
 | `src/openhiggsfield/history.ts`、`idb.ts` | 仅保留给 `/playground` |
 | `src/app/api/blob/route.ts` | 保留；加鉴权（现在是公开上传） |
 | 图像模型（Soul / Flux / Qwen 等） | 作为 hero frame 和角色设定图引擎直接复用 |
@@ -488,7 +640,7 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| P0 验证（1 周） | 用 `/playground` 手工跑通 H3 三个端点；确认末帧参数名、2K 可用性、参考数上限、prompt 上限 | §2 表中"待验证"全部清零 |
+| P0 部署与实测（1–2 周） | 在 RunPod 部署社区 H3 worker（先不改代码）；用 `/playground` 加一个临时 RunPod 后端跑通 T2VA / I2VA / FL2VA / R2VA；实测每种模式 5 s / 10 s / 15 s 的生成时长、冷启动时长、单 take 成本、参考图上限、参考音频是否可用；确认 endpoint 地域与许可证 | §2.4 / §2.5 中"待验证"全部清零，拿到成本表 |
 | P1 领域 + Compiler（1–2 周） | Postgres schema、Shot 编辑器、Compiler、单镜头生成走服务端 Orchestrator | 能手工建一个 5 镜头项目并逐个生成 |
 | P2 Elements + Hero Frame（1 周） | 元素库、角色三视图生成、hero frame 四选一、keyframe / reference 两种模式 | 同一角色跨 5 个镜头脸不漂 |
 | P3 MCP + Director Skill（1 周） | MCP 服务器 + OAuth、工具清单、Skill 文档、Prompt Pack 兜底 | Grok 和 Claude 各自从一句话需求跑到分镜表 |
@@ -501,21 +653,35 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 
 | 决策 | 取舍 |
 |---|---|
+| RunPod 自托管而不是托管 H3 | 单价可能更低、不受平台限流、可改工作流（turbo LoRA、上采样、抽末帧）；代价是**只有 768p、参考上限小、没有 Context-IR、量化权重质量略低、要背许可证地域责任、冷启动和运维** |
+| Serverless 起步而不是 Pod | 零闲置费用、Hub 一键部署；代价是冷启动损耗和 Flex 溢价，日出片量上去后要换 Pod |
 | MCP 而不是 API | 零 LLM 费用、两家并列；代价是必须有公网 HTTPS + OAuth，且 agent 的行为取决于用户客户端版本 |
 | 确定性 Compiler 而不是让 agent 直接写 prompt | 稳定、可审计、Look 永不遗漏；代价是表达力受 schema 限制，所以保留 `promptOverride` |
 | 镜头 ≤15 s、靠末帧链接 | 符合 H3 限制；长镜头衔接处可能有跳变，需要 Assembler 加短 dissolve |
 | Postgres + 单 worker | 简单、自托管友好；并发上百镜头时需要换队列 |
 | 回拉所有产物到 Blob | 存储费用上升；换来历史不丢 |
 
+**最高优先级风险：许可证地域。** MiniMax Community License 把美国、欧盟、英国、韩国排除在
+适用地域之外，且措辞覆盖模型和产物的使用、分发、展示。RunPod 的数据中心很多在美国和欧洲。
+部署前必须：(1) 读许可证原文确认限制边界；(2) 选择允许地域的 RunPod 数据中心；
+(3) 考虑成片的展示地域；(4) 必要时向 MiniMax 申请单独授权。这不是技术问题，是部署者的法律责任。
+
+其他风险：
+
+- **质量落差**：自托管是裁剪 + 量化的 H3-Base，768p，无 Context-IR；与托管版的差距要在 P0 用同一组 prompt 对比。
+- **GPU 可得性**：96 GB 级 Blackwell 在 RunPod 上可能缺货；备选是 H100 80 GB + 更激进的 offload（更慢）或 2 卡方案。
+- **冷启动**：100 GB 权重加载，首个 take 可能等几分钟；用 active worker 和预热缓解。
+- **社区 worker 的维护**：它不是官方项目，fork 后要锁版本并自己维护。
+
 待验证清单（实施 P0 时逐条确认）：
 
-1. Higgsfield `minimax/h3/image-to-video` 的末帧参数名及是否真的支持。
-2. Higgsfield 上 H3 的 2K 是否可用、`resolution` 枚举值。
-3. `reference-to-video` 的参数名是否就是 `image_urls / video_urls / audio_urls`，及上限。
-4. prompt 7000 字符上限。
-5. Grok 自定义连接器对 OAuth 的具体要求（有用户报告 OAuth 流程启动失败）。
-6. Higgsfield 是否会开放 H3-Max（用于 previz 低清档）。
-7. 实际单价（$0.065 vs $0.13 /s）。
+1. 自托管 R2VA 的参考上限（3 图 + 1 视频？）以及是否支持参考音频。
+2. FL2VA 的末帧控制在量化权重上的效果。
+3. 单卡 96 GB 下 5 / 10 / 15 s 片段的生成时长与冷启动时长。
+4. RunPod 该 GPU 档位的 Flex 与 Active 单价，以及数据中心地域列表。
+5. prompt 7000 字符上限在开源权重上是否同样适用。
+6. Grok 自定义连接器对 OAuth 的具体要求（有用户报告 OAuth 流程启动失败）。
+7. worker 内置上采样 / RIFE 的质量与耗时，决定成片是否值得开。
 
 ---
 
@@ -537,6 +703,28 @@ MiniMax H3
 - https://www.atlascloud.ai/blog/tips/minimax-h3-prompt-guide
 - https://github.com/ecomimagelab/awesome-minimax-h3-prompts/blob/main/docs/FAL_PROMPTING_GUIDE.md
 - https://docs.comfy.org/tutorials/partner-nodes/minimax/minimax-h3
+
+MiniMax H3 自托管与许可证
+- https://platform.minimax.io/docs/guides/local-deploy-h3
+- https://huggingface.co/MiniMaxAI/MiniMax-H3/raw/main/LICENSE
+- https://huggingface.co/Comfy-Org/MiniMax-H3
+- https://huggingface.co/MiniMaxAI/MiniMax-H3/discussions/36
+- https://recipes.vllm.ai/MiniMaxAI/MiniMax-H3
+- https://github.com/MiniMax-AI/awesome-minimax-h3-integration
+- https://www.spheron.network/blog/deploy-minimax-h3-gpu-cloud/
+- https://we0.ai/articles/why-minimax-h3-s-open-weight
+- https://superpowerdaily.com/posts/minimax-h3-opens-its-video-weights-but-not-where-many-developers-work
+- https://kingy.ai/news/minimax-h3-benchmarks-specs-hardware-review/
+
+RunPod
+- https://github.com/venkteshmaram/runpod-minimax-h3
+- https://docs.runpod.io/serverless/endpoints/send-requests
+- https://docs.runpod.io/serverless/references/operations
+- https://docs.runpod.io/serverless
+- https://github.com/huchukato/runpod-ltx-25
+- https://www.runpod.io/articles/guides/comfyui-wan-2-2
+- https://northflank.com/blog/runpod-gpu-pricing
+- https://www.spheron.network/blog/runpod-h100-pricing-2026/
 
 Cinema Studio
 - https://higgsfield.ai/creator-hub/help-center/tools/how-do-i-use-cinema-studio
