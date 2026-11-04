@@ -15,11 +15,10 @@
     "brand": "node scripts/build-brand-assets.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1161.0",
-    "@aws-sdk/s3-request-presigner": "^3.1161.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@tanstack/react-virtual": "^3.14.10",
     "@vercel/blob": "^2.8.0",
+    "aws4fetch": "^1.0.20",
     "better-sqlite3": "^13.0.3",
     "jose": "^6.2.15",
     "next": "^16.0.0",

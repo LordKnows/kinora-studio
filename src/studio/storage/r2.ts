@@ -1,24 +1,26 @@
-import { HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { AwsClient } from "aws4fetch";
 
 import { config } from "../config";
 import { newId } from "../ids";
 
-/* R2 through its S3 API. The browser uploads with a short-lived presigned PUT;
-   the RunPod workers write with their own scoped key; the app only ever reads
-   public URLs and HEADs objects to confirm a commit. */
+/* R2 through its S3 API, signed with aws4fetch: pure fetch + WebCrypto, so the
+   same code runs on Workers and Node (the AWS SDK reads ~/.aws files and
+   breaks on Workers). The browser uploads with a short-lived presigned PUT;
+   the RunPod workers write with their own scoped key; the app reads public
+   URLs and HEADs objects to confirm a commit. */
 
-let client: S3Client | null = null;
+let client: AwsClient | null = null;
 
-function s3(): S3Client {
+function s3(): AwsClient {
   if (client) return client;
   const r2 = config.r2();
-  client = new S3Client({
-    region: "auto",
-    endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
-    credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
-  });
+  client = new AwsClient({ accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey, service: "s3", region: "auto" });
   return client;
+}
+
+export function objectUrl(key: string): string {
+  const r2 = config.r2();
+  return `https://${r2.accountId}.r2.cloudflarestorage.com/${r2.bucket}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 export function publicUrl(key: string): string {
@@ -31,30 +33,33 @@ export function uploadKey(user: string, filename: string): string {
   return `uploads/${who}/${newId("up")}-${safe}`;
 }
 
-export async function presignPut(key: string, contentType: string, size: number): Promise<{ url: string; expiresAt: number }> {
-  const expiresIn = 15 * 60;
-  const url = await getSignedUrl(
-    s3(),
-    new PutObjectCommand({ Bucket: config.r2().bucket, Key: key, ContentType: contentType, ContentLength: size }),
-    { expiresIn },
-  );
-  return { url, expiresAt: Date.now() + expiresIn * 1000 };
+const PRESIGN_SECONDS = 15 * 60;
+
+/** A presigned PUT. Only the host is signed, so the browser is free to send
+    its own Content-Type; the key itself is unguessable. */
+export async function presignPut(key: string, _contentType: string, _size: number): Promise<{ url: string; expiresAt: number }> {
+  const url = new URL(objectUrl(key));
+  url.searchParams.set("X-Amz-Expires", String(PRESIGN_SECONDS));
+  const signed = await s3().sign(new Request(url, { method: "PUT" }), { aws: { signQuery: true } });
+  return { url: signed.url, expiresAt: Date.now() + PRESIGN_SECONDS * 1000 };
 }
 
 export async function objectExists(key: string): Promise<boolean> {
-  try {
-    await s3().send(new HeadObjectCommand({ Bucket: config.r2().bucket, Key: key }));
-    return true;
-  } catch {
-    return false;
-  }
+  const res = await s3().fetch(objectUrl(key), { method: "HEAD" });
+  return res.ok;
+}
+
+/** Signed GET for the Node side of /media (Workers use the binding). */
+export async function getObject(key: string, range?: string | null): Promise<Response> {
+  return s3().fetch(objectUrl(key), { method: "GET", headers: range ? { range } : {} });
 }
 
 /** Mirror a platform CDN result into R2 so history outlives the CDN. */
 export async function mirrorUrl(sourceUrl: string, key: string, contentType: string): Promise<string> {
   const res = await fetch(sourceUrl);
   if (!res.ok) throw new Error(`mirror fetch failed (${res.status})`);
-  const body = new Uint8Array(await res.arrayBuffer());
-  await s3().send(new PutObjectCommand({ Bucket: config.r2().bucket, Key: key, Body: body, ContentType: contentType }));
+  const body = await res.arrayBuffer();
+  const put = await s3().fetch(objectUrl(key), { method: "PUT", body, headers: { "content-type": contentType } });
+  if (!put.ok) throw new Error(`mirror upload failed (${put.status})`);
   return publicUrl(key);
 }

@@ -1,7 +1,7 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { NextResponse } from "next/server";
 
 import { config } from "@/studio/config";
+import { getObject } from "@/studio/storage/r2";
 
 /* Serves bucket objects under the studio's own hostname, so one subdomain
    carries both the app and the media. On Workers it reads through the R2
@@ -43,30 +43,15 @@ async function fromBinding(key: string, headers: Headers): Promise<Response> {
   return new Response(object.body, { status: 200, headers: out });
 }
 
-let s3: S3Client | null = null;
-
 async function fromS3(key: string, range: string | null): Promise<Response> {
   if (!config.r2Configured()) return NextResponse.json({ error: { code: "backend_error", message: "R2 is not configured" } }, { status: 500 });
-  const r2 = config.r2();
-  s3 ??= new S3Client({
-    region: "auto",
-    endpoint: `https://${r2.accountId}.r2.cloudflarestorage.com`,
-    credentials: { accessKeyId: r2.accessKeyId, secretAccessKey: r2.secretAccessKey },
-  });
-  try {
-    const obj = await s3.send(new GetObjectCommand({ Bucket: r2.bucket, Key: key, ...(range ? { Range: range } : {}) }));
-    const headers = new Headers({ "accept-ranges": "bytes", "cache-control": "public, max-age=31536000, immutable" });
-    if (obj.ContentType) headers.set("content-type", obj.ContentType);
-    if (obj.ContentLength !== undefined) headers.set("content-length", String(obj.ContentLength));
-    if (obj.ContentRange) headers.set("content-range", obj.ContentRange);
-    if (obj.ETag) headers.set("etag", obj.ETag);
-    const body = obj.Body ? (obj.Body as { transformToWebStream(): ReadableStream<Uint8Array> }).transformToWebStream() : null;
-    return new Response(body, { status: obj.ContentRange ? 206 : 200, headers });
-  } catch (caught) {
-    const status = (caught as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-    if (status === 404 || (caught as { name?: string }).name === "NoSuchKey") {
-      return NextResponse.json({ error: { code: "not_found", message: "no such object" } }, { status: 404 });
-    }
-    throw caught;
+  const res = await getObject(key, range);
+  if (res.status === 404) return NextResponse.json({ error: { code: "not_found", message: "no such object" } }, { status: 404 });
+  if (!res.ok && res.status !== 206) return NextResponse.json({ error: { code: "backend_error", message: `storage answered ${res.status}` } }, { status: 502 });
+  const headers = new Headers({ "accept-ranges": "bytes", "cache-control": "public, max-age=31536000, immutable" });
+  for (const name of ["content-type", "content-length", "content-range", "etag"]) {
+    const v = res.headers.get(name);
+    if (v) headers.set(name, v);
   }
+  return new Response(res.body, { status: res.status, headers });
 }

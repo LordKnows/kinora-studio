@@ -28,6 +28,20 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 - **不需要**给桶连自定义域：Studio 的 `/media/*` 路由通过 `wrangler.jsonc` 里的
   `TAKES` binding 读桶，公开地址就是 `https://studio.zyhu.dev/media/<key>`，
   `R2_PUBLIC_BASE_URL` 已设为 `https://studio.zyhu.dev/media`。
+- **CORS**（浏览器直传需要）：进入桶 → **Settings → CORS policy → Add CORS policy**，
+  粘贴：
+
+  ```json
+  [
+    {
+      "AllowedOrigins": ["https://studio.zyhu.dev"],
+      "AllowedMethods": ["PUT", "GET", "HEAD"],
+      "AllowedHeaders": ["content-type"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+  ```
+
 - **R2 → Manage API tokens → Create API token**：权限 **Object Read & Write**，
   范围只勾 `studio` 这个桶。记下 **Access Key ID**、**Secret Access Key**，以及
   页面上的 **Account ID**（也可以在仪表盘右侧 Account ID 看到）。
@@ -134,7 +148,7 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 - **构建失败说找不到 `database_id`**：第 1 步的 ID 没填进 `wrangler.jsonc`。
 - **页面能开但建项目报 `no DB binding`**：Worker 没绑定 D1，检查 `wrangler.jsonc`
   的 `d1_databases` 在部署时是否生效（Settings → Bindings 应能看到 `DB`）。
-- **上传失败**：R2 的 API token 不对，或 `R2_ACCOUNT_ID` / `R2_BUCKET` 没填。
+- **上传失败**：R2 的 API token 不对，或 `R2_ACCOUNT_ID` / `R2_BUCKET` 没填；浏览器控制台报 CORS，则是桶的 CORS policy 没加（第 2 步）。
 - **媒体 404**：Worker 的 Settings → Bindings 里没有 `TAKES`，或对象不在 `uploads/` / `projects/` 前缀下。
 - **MCP 连接器登录后 401**：`STUDIO_PUBLIC_URL` 和实际域名不一致，OAuth 元数据里
   的地址会指向错的主机。
