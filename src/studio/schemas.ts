@@ -187,7 +187,7 @@ export type ElementInput = z.infer<typeof ElementInput>;
 
 export const TakeRequest = z.object({
   n: z.number().int().min(1).max(4).default(1),
-  steps: z.number().int().min(4).max(30).optional().describe("Sampling steps; 8 = turbo previz, more = final"),
+  steps: z.number().int().min(4).max(50).optional().describe("Sampling steps. Omit for the default: the speed LoRA's step count (8 for the lightx2v turbo LoRAs), or 20 with the base chain when no speed LoRA is active."),
   seed: z.number().int().optional(),
   confirm: z.boolean().default(false).describe("Must be true to spend budget"),
 });

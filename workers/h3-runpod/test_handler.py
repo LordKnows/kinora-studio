@@ -301,3 +301,18 @@ def test_models_status_reports_missing_and_accepts_unet_alias(tmp_path):
     assert status["ready"] is False
     assert "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" not in status["missing"]
     assert "vae/minimax_h3_video_vae_fp16.safetensors" in status["missing"]
+
+
+def test_sampling_profile_patches_sampler_scheduler_and_shift():
+    mapping = h.load_mapping()["T2VA"]
+    graph = h.load_workflow("T2VA")
+    params = h.validate_input(good_input(steps=20, loras=[], sampling={"sampler": "res_multistep", "scheduler": "simple", "shift_video": 1.0, "shift_audio": 1.0}))
+    patched = h.fill_graph(graph, mapping, {**params, "files": {}})
+    assert patched["17"]["inputs"]["sampler_name"] == "res_multistep"
+    assert patched["9"]["inputs"]["scheduler"] == "simple"
+    assert patched["9"]["inputs"]["steps"] == 20
+    assert patched["8"]["inputs"]["shift_video"] == 1.0
+    assert patched["8"]["inputs"]["shift_audio"] == 1.0
+    assert patched["7"]["inputs"]["strength_model"] == 0.0
+    with pytest.raises(h.JobError):
+        h.validate_input(good_input(sampling={"sampler": "rm -rf"}))

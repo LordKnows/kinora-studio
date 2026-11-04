@@ -352,12 +352,20 @@ describe("gpu stats and loras", () => {
       { name: "Neon noir", file: "neon_noir.safetensors", strength: 0.5, kind: "style" },
     ]);
     expect(ca.input.steps).toBe(8);
+    expect(ca.input.sampling).toBeUndefined();
     expect(ca.prompt).toContain("neon noir, wet asphalt");
 
+    /* no speed LoRA: the base chain and 20 steps, unless the caller sets steps */
     await orch.patchShot(b!.id, { loras: [] });
     const cb = await orch.compileForShot(b!.id);
     expect(cb.input.loras).toEqual([]);
     expect(cb.prompt).not.toContain("neon noir");
+    expect(cb.input.steps).toBe(20);
+    expect(cb.input.sampling).toEqual({ sampler: "res_multistep", scheduler: "simple", shift_video: 1, shift_audio: 1 });
+    expect(cb.warnings.some((w) => w.includes("base sampling chain"))).toBe(true);
+    const cb8 = await orch.compileForShot(b!.id, { steps: 8 });
+    expect(cb8.input.steps).toBe(8);
+    expect(cb8.warnings.some((w) => w.includes("wants about 20 steps"))).toBe(true);
 
     /* a style LoRA scoped to T2VA is dropped on other workflows */
     const hero = await repo.createAsset({ projectId: project.id, url: "https://r2/h.png", kind: "image", source: "upload" });

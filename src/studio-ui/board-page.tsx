@@ -270,14 +270,14 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
 
 function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
   const { projectId } = useProjectContext();
-  const [steps, setSteps] = useState(8);
+  const [steps, setSteps] = useState<number | null>(null);
   const [data, setData] = useState<Compiled | null>(null);
   const [basisGpu, setBasisGpu] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const load = useCallback(async () => {
     setError(null);
     try {
-      setData(await get<Compiled>(`/api/shots/${shotId}/compile?steps=${steps}`));
+      setData(await get<Compiled>(`/api/shots/${shotId}/compile${steps ? `?steps=${steps}` : ""}`));
       get<{ estimateBasis?: { gpuTypeId?: string } }>("/api/gpu/stats").then((r) => setBasisGpu(r.estimateBasis?.gpuTypeId ?? null)).catch(() => setBasisGpu(null));
     } catch (caught) {
       setError(caught);
@@ -295,8 +295,8 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
         </div>
       )}
       <div className="st-row st-row--between">
-        <Field label="Steps">
-          <input className="st-input st-input--sm" type="number" min={4} max={30} value={steps} onChange={(e) => setSteps(Number(e.target.value) || 8)} style={{ width: 90 }} />
+        <Field label="Steps" hint="empty = auto: the speed LoRA's count, or 20 on the base chain">
+          <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder="auto" value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Number(e.target.value) : null)} style={{ width: 90 }} />
         </Field>
         {data && (
           <dl className="st-kv">
@@ -385,9 +385,9 @@ function FramesPanel({ shot }: { shot: ShotView }) {
 function TakesPanel({ shot }: { shot: ShotView }) {
   const { projectId, reload } = useProjectContext();
   const [n, setN] = useState(1);
-  const [steps, setSteps] = useState(8);
+  const [steps, setSteps] = useState<number | null>(null);
   const generate = useAction(async (confirm) => {
-    await post(`/api/shots/${shot.id}/takes`, { n, steps, confirm });
+    await post(`/api/shots/${shot.id}/takes`, { n, ...(steps ? { steps } : {}), confirm });
     await reload();
   });
   return (
@@ -399,7 +399,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
             <input className="st-input st-input--sm" type="number" min={1} max={4} value={n} onChange={(e) => setN(Math.max(1, Math.min(4, Number(e.target.value) || 1)))} style={{ width: 70 }} />
           </Field>
           <Field label="Steps">
-            <input className="st-input st-input--sm" type="number" min={4} max={30} value={steps} onChange={(e) => setSteps(Math.max(4, Math.min(30, Number(e.target.value) || 8)))} style={{ width: 70 }} />
+            <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder="auto" value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Math.max(4, Math.min(50, Number(e.target.value))) : null)} style={{ width: 70 }} />
           </Field>
         </div>
         <Button kind="primary" busy={generate.busy} onClick={() => void generate.fire()}>
@@ -407,7 +407,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
         </Button>
       </div>
       {shot.takes.length === 0 ? (
-        <Empty title="No takes yet" hint="Render at 8 steps first; raise steps once the shot works." />
+        <Empty title="No takes yet" hint="Steps follow the LoRA: 8 with a turbo LoRA, 20 on the base chain. Leave it empty unless you want to override." />
       ) : (
         shot.takes.map((take) => <TakeRow key={take.id} take={take} shot={shot} />)
       )}

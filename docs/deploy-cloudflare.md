@@ -265,7 +265,10 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
 - **LoRA**：`/loras` 页面是全局库，每条记录文件名、HuggingFace 链接、类型（speed /
   style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Look 页选默认 LoRA
   （加速 LoRA 放这里），镜头编辑器可覆盖或关闭。编译时把 LoRA 写进 worker 输入，触发词
-  进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。Pod 上缺文件时 handler 按 HF 链接下载到
+  进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。**不用加速 LoRA 时**（项目和镜头都没选 speed
+  LoRA），编译器自动切到交接文档 §3 的原版采样链：`res_multistep`，调度 `simple`（R2VA 用 `beta`），
+  Sigma shift 关掉（1.0），步数默认 `H3_BASE_STEPS=20`，耗时约为 turbo 的 2.5 倍。Board 的 Steps
+  留空就是自动；填了数字才覆盖。Pod 上缺文件时 handler 按 HF 链接下载到
   `LORA_DIR`（默认是镜像 ComfyUI 的 `models/loras`；受限仓库在 Pod 环境变量里设
   `HF_TOKEN`）。图里的 LoraLoader 节点要在 `workers/h3-runpod/workflows/mapping.json`
   的 `loras` 槽位里登记，见那里的 README。

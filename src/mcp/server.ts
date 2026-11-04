@@ -132,7 +132,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return { shot: saved, warnings: shotWarnings(saved.id, saved.spec) };
   });
   tool("revise_shot", "Patch a shot. Structural changes (beats, camera move, dialogue, mode…) reset the shotlist approval; promptOverride and camera.note do not.", z.object({ shotId: id, patch: ShotPatch }), async ({ shotId, patch }) => ({ shot: await orch.patchShot(shotId, patch) }));
-  tool("compile_prompt", "Preview the compiled H3 prompt, worker input, warnings and cost estimate for a shot.", z.object({ shotId: id, steps: z.number().int().min(4).max(30).optional() }), async ({ shotId, steps }) => orch.compileForShot(shotId, { steps }));
+  tool("compile_prompt", "Preview the compiled H3 prompt, worker input, warnings and cost estimate for a shot.", z.object({ shotId: id, steps: z.number().int().min(4).max(50).optional() }), async ({ shotId, steps }) => orch.compileForShot(shotId, { steps }));
 
   tool("select_hero_frame", "Choose the hero frame (asset id) for a shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { heroAssetId: assetId }) }));
   tool("select_end_frame", "Choose an end frame (asset id) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: assetId }) }));

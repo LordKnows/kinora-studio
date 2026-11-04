@@ -1,5 +1,5 @@
 {
-  "_comment": "Node ids follow the handoff (HANDOFF.md §1): every value lives on the same id in all four graphs. length is in frames (17k+5 at 24 fps); the handler converts seconds. H3 has no negative input. LoRA slot = node 7 (LoraLoaderModelOnly). reference_images lists the LoadImage nodes wired to 104.ref_images.ref_image_N. reference_extra lets the handler clone a LoadImage slot for references beyond the template's two.",
+  "_comment": "Node ids follow the handoff (HANDOFF.md §1): every value lives on the same id in all four graphs. length is in frames (17k+5 at 24 fps); the handler converts seconds. H3 has no negative input. LoRA slot = node 7 (LoraLoaderModelOnly). reference_images lists the LoadImage nodes wired to 104.ref_images.ref_image_N. reference_extra lets the handler clone a LoadImage slot for references beyond the template's two. sampling (sampler/scheduler/shift) lets a job swap the turbo chain (euler/simple, shift 6/3, 8 steps) for the base chain (res_multistep, simple or beta, no shift, 20 steps) when no speed LoRA is used.",
   "T2VA": {
     "template": "T2VA",
     "prompt": [
@@ -36,7 +36,20 @@
       }
     ],
     "output_node": "92",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "sampler": [
+      "17",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "9",
+      "scheduler"
+    ],
+    "shift": {
+      "node": "8",
+      "video": "shift_video",
+      "audio": "shift_audio"
+    }
   },
   "I2VA": {
     "template": "I2VA",
@@ -77,7 +90,20 @@
       }
     ],
     "output_node": "92",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "sampler": [
+      "17",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "9",
+      "scheduler"
+    ],
+    "shift": {
+      "node": "8",
+      "video": "shift_video",
+      "audio": "shift_audio"
+    }
   },
   "FL2VA": {
     "template": "FL2VA",
@@ -122,7 +148,20 @@
       }
     ],
     "output_node": "92",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "sampler": [
+      "17",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "9",
+      "scheduler"
+    ],
+    "shift": {
+      "node": "8",
+      "video": "shift_video",
+      "audio": "shift_audio"
+    }
   },
   "R2VA": {
     "template": "R2VA",
@@ -175,6 +214,19 @@
       "target_node": "104",
       "input_pattern": "ref_images.ref_image_{i}",
       "max": 9
+    },
+    "sampler": [
+      "17",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "9",
+      "scheduler"
+    ],
+    "shift": {
+      "node": "8",
+      "video": "shift_video",
+      "audio": "shift_audio"
     }
   }
 }

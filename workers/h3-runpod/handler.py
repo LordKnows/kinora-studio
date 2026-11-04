@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,16 @@ def validate_input(raw: Any) -> dict[str, Any]:
     steps = raw.get("steps", 8)
     if not isinstance(steps, int) or not 1 <= steps <= 60:
         raise JobError("steps must be an integer between 1 and 60")
+    sampling = raw.get("sampling")
+    if sampling is not None:
+        if not isinstance(sampling, dict):
+            raise JobError("sampling must be an object {sampler?, scheduler?, shift_video?, shift_audio?}")
+        for key in ("sampler", "scheduler"):
+            if key in sampling and (not isinstance(sampling[key], str) or not re.fullmatch(r"[a-z0-9_]+", sampling[key])):
+                raise JobError(f"sampling.{key} must be a ComfyUI sampler/scheduler name")
+        for key in ("shift_video", "shift_audio"):
+            if key in sampling and (not isinstance(sampling[key], (int, float)) or not 0.1 <= float(sampling[key]) <= 20):
+                raise JobError(f"sampling.{key} must be a number between 0.1 and 20")
     seed = raw.get("seed")
     if seed is None:
         seed = int.from_bytes(os.urandom(4), "big")
@@ -119,6 +130,7 @@ def validate_input(raw: Any) -> dict[str, Any]:
         "width": width,
         "height": height,
         "steps": steps,
+        "sampling": sampling,
         "seed": seed,
         "enhance": bool(raw.get("enhance", False)),
         "images": images,
@@ -200,6 +212,20 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
     put(mapping.get("height"), params["height"], False, "height")
     put(mapping.get("steps"), params["steps"], False, "steps")
     put(mapping.get("seed"), params["seed"], False, "seed")
+    sampling = params.get("sampling") or {}
+    if sampling:
+        if "sampler" in sampling:
+            put(mapping.get("sampler"), sampling["sampler"], True, "sampler")
+        if "scheduler" in sampling:
+            put(mapping.get("scheduler"), sampling["scheduler"], True, "scheduler")
+        shift = mapping.get("shift")
+        if ("shift_video" in sampling or "shift_audio" in sampling):
+            if not shift:
+                raise JobError("mapping.json has no shift node for this workflow")
+            if "shift_video" in sampling:
+                put((shift["node"], shift["video"]), float(sampling["shift_video"]), True, "shift")
+            if "shift_audio" in sampling:
+                put((shift["node"], shift["audio"]), float(sampling["shift_audio"]), True, "shift")
     put(mapping.get("enhance"), params["enhance"], False, "enhance")
 
     files = params.get("files", {})

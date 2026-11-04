@@ -23,6 +23,10 @@ export type WorkerInput = {
   video?: string;
   enhance: boolean;
   steps: number;
+  /** Set when no speed LoRA is active: the base chain the handoff measured
+      (res_multistep, simple or beta, no sigma shift) instead of the turbo
+      chain baked into the graphs (euler/simple, shift 6/3). */
+  sampling?: { sampler: string; scheduler: string; shift_video: number; shift_audio: number };
   seed?: number;
   negative: string;
   loras: WorkerLora[];
@@ -187,6 +191,13 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
   if (ctx.steps !== undefined && speed?.stepsHint && ctx.steps !== speed.stepsHint) warnings.push(`${speed.name} is tuned for ${speed.stepsHint} steps; you asked for ${ctx.steps}`);
+  /* Without a speed LoRA the graphs' turbo sampling chain is wrong: switch
+     to the base chain and the base step count (HANDOFF §3). */
+  const baseSteps = Number(process.env.H3_BASE_STEPS ?? "20");
+  const steps = ctx.steps ?? speed?.stepsHint ?? (speed ? 8 : baseSteps);
+  const sampling = speed ? undefined : { sampler: "res_multistep", scheduler: workflow === "R2VA" ? "beta" : "simple", shift_video: 1.0, shift_audio: 1.0 };
+  if (!speed && steps < 12) warnings.push(`no speed LoRA: the base model wants about ${baseSteps} steps, not ${steps}`);
+  if (!speed) warnings.push(`no speed LoRA: base sampling chain (${sampling!.sampler}/${sampling!.scheduler}, no sigma shift), ${steps} steps — about ${Math.round((steps / 8) * 10) / 10}× the turbo render time`);
 
   const input: WorkerInput = {
     workflow,
@@ -196,7 +207,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     images,
     ...(video ? { video } : {}),
     enhance: spec.mode === "text",
-    steps: ctx.steps ?? speed?.stepsHint ?? 8,
+    steps,
+    ...(sampling ? { sampling } : {}),
     ...(ctx.seed !== undefined ? { seed: ctx.seed } : {}),
     negative: look.negative.join(", "),
     loras: loras.map((l) => ({ name: l.name, file: l.filename, strength: l.strength, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}), kind: l.kind })),
