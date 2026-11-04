@@ -1,22 +1,21 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 
-import { OpenHiggsfieldApp } from "@/openhiggsfield/openhiggsfield-app";
+import { ProjectsPage } from "@/studio-ui/projects-page";
+import { inter } from "@/studio-ui/font";
 
 import "@/openhiggsfield/openhiggsfield.css";
+import "@/studio-ui/studio.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-ohf-inter",
-  display: "swap",
-});
-
-/* Title, description and the Open Graph block all come from the root, which
-   already describes this surface. Only the canonical link is route-specific. */
+/* Title, description and the Open Graph block all come from the root. Only the
+   canonical link is route-specific. */
 export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-export default function OpenHiggsfieldPage() {
-  return <OpenHiggsfieldApp fontClassName={inter.variable} />;
+export default function HomePage() {
+  return (
+    <div className={`ohf ${inter.variable}`} style={{ minHeight: "100dvh" }}>
+      <ProjectsPage />
+    </div>
+  );
 }

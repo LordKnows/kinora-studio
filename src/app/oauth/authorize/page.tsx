@@ -5,6 +5,7 @@ import { parseAuthorize } from "@/oauth/server";
 import { StudioError } from "@/studio/errors";
 
 import "@/openhiggsfield/openhiggsfield.css";
+import "@/studio-ui/studio.css";
 
 /* The OAuth consent page: the only place an agent's connector gets a token,
    and it needs a signed-in web user. Behind Cloudflare Access in production. */

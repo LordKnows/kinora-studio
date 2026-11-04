@@ -233,7 +233,13 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
   blocks.push(`SOUND\nSFX: ${sfx}\nAmbience: ${spec.sound.ambience || "natural room tone"}\nMusic: ${spec.sound.music || "N/A"}`);
 
   /* CONSTRAINTS */
-  const constraints = [...look.negative, spec.dialogue.length ? "No extra dialogue beyond the lines above" : "No dialogue", "No subtitles"];
+  const seen = new Set<string>();
+  const constraints = [...look.negative, spec.dialogue.length ? "No extra dialogue beyond the lines above" : "No dialogue", "No subtitles"].filter((c) => {
+    const key = c.trim().toLowerCase().replace(/[.\s]+$/, "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
 
   return blocks.join("\n\n");
