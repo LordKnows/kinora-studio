@@ -127,7 +127,7 @@ export const ShotBase = z.object({
     props: z.array(z.string()).max(3).default([]).describe("Element ids"),
     linkToPrev: z.enum(["cut", "continuous"]).default("cut").describe("Legacy; prefer link. continuous = first frame is the previous shot's last frame"),
     link: ShotLink.optional().describe("Tier 2: how this shot joins the earlier ones (the edit grammar)"),
-    cinematography: Cinematography.optional().describe("Tier 3: framing, lens, light, grade, texture, technique, animation style, pace"),
+    cinematography: Cinematography.optional().describe("Tier 3, expected on every shot: at least size, angle, lens, one or two lighting terms and a grade (keys from cinematography_catalog); dof, texture, vfx, animation, pace when the moment needs them. Shots saved without it are returned in warnings."),
     sourceTakeId: z.string().optional().describe("edit mode: the take being revised"),
     editInstruction: z.string().max(600).optional().describe("edit mode: only what changes"),
     promptOverride: z.string().max(7000).optional().describe("Replace the compiled prompt entirely"),

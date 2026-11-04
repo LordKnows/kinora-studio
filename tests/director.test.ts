@@ -210,3 +210,18 @@ describe("lightx2v structured prompt and loops", () => {
     expect(TimelineInput.parse({ clips: [{ shotId: id, takeId: "t", outS: 8, repeat: 12 }] }).clips[0]!.repeat).toBe(12);
   });
 });
+
+describe("tier 3 is expected on every shot", () => {
+  it("save_shotlist warnings name shots without a link or the core cinematography keys", async () => {
+    const { shotWarnings } = await import("@/mcp/server");
+    const bare = ShotInput.parse({ durationS: 5, mode: "text", intent: "A bare shot with nothing set", beats: [{ from: 0, to: 5, action: "Wind moves the curtains" }], camera: { move: "static" } });
+    const warnings = shotWarnings("opening #1", bare);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain("no link");
+    expect(warnings[1]).toContain("size, angle, lens, lighting, grade");
+    const dressed = ShotInput.parse({ ...bare, link: { type: "cut" }, cinematography: { size: "ms", angle: "eye", lens: "normal", lighting: ["golden"], grade: "muted" } });
+    expect(shotWarnings("opening #1", dressed)).toEqual([]);
+    const partial = ShotInput.parse({ ...bare, link: { type: "cut" }, cinematography: { size: "ms", lighting: [] } });
+    expect(shotWarnings("opening #1", partial)[0]).toContain("missing angle, lens, lighting, grade");
+  });
+});
