@@ -201,7 +201,10 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
      "Unsupported volume type"）。所以 `RUNPOD_VOLUME_MOUNT_PATH` 默认是 `/runpod-volume`：
      卷只出借模型，ComfyUI 和 venv 装在容器盘上，作业服务启动时把容器盘上的
      `/workspace/runpod-slim/ComfyUI/models` 软链到卷里的模型目录（在卷上依次找
-     `runpod-slim/ComfyUI/models`、`ComfyUI/models`、`models`）。每次开机镜像重装 ComfyUI
+     `runpod-slim/ComfyUI/models`、`ComfyUI/models`、`models`，只认真有权重文件的那个，再不行就
+     全卷搜 `unet`/`diffusion_models`）。**卷上一个权重都没有时，Pod 会自动按 `models.txt` 下载
+     约 68 GB 到卷上（只此一次）**，期间 Pod 卡片显示 "H3 models not all present"，下载完自动变 running；
+     不想自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。每次开机镜像重装 ComfyUI
      约一分钟，模型零下载。若跨区读取慢，Pod 环境变量里设 `MODELS_LINK_FROM=<卷上的模型目录>`、
      `MODELS_LINK_TO=/opt/models`、`MODELS_COPY=1`，启动时拷到本地盘（容器盘要 ≥100 GB）。
    - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`

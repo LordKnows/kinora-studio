@@ -53,10 +53,15 @@ export class PodBackend implements GenerationBackend {
       says which half is still missing so the pod card can show it. */
   async health(): Promise<{ ok: boolean; why?: string; detail?: unknown }> {
     try {
-      const payload = (await this.call("GET", "/health")) as { ok?: unknown; comfy?: { reachable?: unknown; status?: unknown; error?: unknown } };
+      const payload = (await this.call("GET", "/health")) as { ok?: unknown; comfy?: { reachable?: unknown; status?: unknown; error?: unknown }; models?: { ready?: unknown; missing?: unknown; dir?: unknown } };
       if (payload?.ok !== true) return { ok: false, why: "job server answered without ok", detail: payload };
       const comfy = payload.comfy;
       if (comfy && comfy.reachable === false) return { ok: false, why: `job server up; ComfyUI not answering yet${comfy.error ? ` (${String(comfy.error).slice(0, 120)})` : comfy.status ? ` (HTTP ${comfy.status})` : ""}`, detail: payload };
+      const models = payload.models;
+      if (models && models.ready === false) {
+        const missing = Array.isArray(models.missing) ? models.missing.map(String) : [];
+        return { ok: false, why: `ComfyUI up; H3 models not all present in ${String(models.dir ?? "the models dir")} (${missing.length} missing: ${missing.slice(0, 3).join(", ")}${missing.length > 3 ? ", …" : ""}) — the pod downloads them once if the volume is empty, see the container log`, detail: payload };
+      }
       return { ok: true, detail: payload };
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : String(caught);

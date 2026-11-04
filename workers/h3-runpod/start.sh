@@ -21,13 +21,32 @@ SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
 # runs because its sync skips /models and /extra_model_paths.yaml.
 VOLUME_PATH="${STUDIO_VOLUME_PATH:-/workspace}"
 if [ "$VOLUME_PATH" != "/workspace" ] && [ -d "$VOLUME_PATH" ]; then
+  # A models directory counts only if it holds weights: an earlier pod may
+  # have left an empty ComfyUI tree on the volume.
+  has_weights() { [ -n "$(find "$1" -maxdepth 2 -name '*.safetensors' -size +100M -print -quit 2>/dev/null)" ]; }
   MODELS_SRC=""
   for cand in "$VOLUME_PATH/runpod-slim/ComfyUI/models" "$VOLUME_PATH/ComfyUI/models" "$VOLUME_PATH/models"; do
-    if [ -d "$cand" ]; then MODELS_SRC="$cand"; break; fi
+    if [ -d "$cand" ] && has_weights "$cand"; then MODELS_SRC="$cand"; break; fi
   done
-  if [ -z "$MODELS_SRC" ] && [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then
-    MODELS_SRC="$VOLUME_PATH/models"
-    mkdir -p "$MODELS_SRC"
+  if [ -z "$MODELS_SRC" ]; then
+    # Anywhere else on the volume: a directory that has a unet/diffusion_models child with weights.
+    for d in $(find "$VOLUME_PATH" -maxdepth 6 -type d \( -name unet -o -name diffusion_models \) 2>/dev/null); do
+      if has_weights "$d"; then MODELS_SRC="$(dirname "$d")"; break; fi
+    done
+  fi
+  if [ -z "$MODELS_SRC" ]; then
+    echo "[start] no H3 weights found on the volume at $VOLUME_PATH; large files there:"
+    find "$VOLUME_PATH" -type f -size +500M -printf '  %s\t%p\n' 2>/dev/null | head -20
+    if [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ]; then
+      for cand in "$VOLUME_PATH/runpod-slim/ComfyUI/models" "$VOLUME_PATH/models"; do
+        if [ -d "$cand" ]; then MODELS_SRC="$cand"; break; fi
+      done
+      MODELS_SRC="${MODELS_SRC:-$VOLUME_PATH/models}"
+      mkdir -p "$MODELS_SRC"
+      echo "[start] downloading the H3 models (~68 GB, once) into $MODELS_SRC in the background; the pod reports models.ready=false until they are all there"
+      (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" > /app/download_models.log 2>&1; echo "[start] model download finished: $(tail -1 /app/download_models.log)") &
+      DOWNLOAD_MODELS=0
+    fi
   fi
   if [ -n "$MODELS_SRC" ]; then
     echo "[start] models come from the volume: $MODELS_SRC"

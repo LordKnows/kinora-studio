@@ -465,9 +465,29 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     }
 
 
+def models_status(models_dir: Path | None = None) -> dict[str, Any]:
+    """Which of the files in models.txt are present under the models dir
+    (diffusion_models and unet are the same folder on the runpod image)."""
+    base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
+    listing = Path(__file__).resolve().parent / "models.txt"
+    missing: list[str] = []
+    expected = 0
+    if listing.exists():
+        for line in listing.read_text().splitlines():
+            if not line.strip() or line.startswith("#"):
+                continue
+            subdir, _, url = line.partition("\t")
+            name = url.strip().rsplit("/", 1)[-1]
+            expected += 1
+            dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
+            if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
+                missing.append(f"{subdir}/{name}")
+    return {"ready": expected > 0 and not missing, "dir": str(base), "expected": expected, "missing": missing}
+
+
 def health(comfy: ComfyClient) -> dict[str, Any]:
     loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem != "mapping")
-    return {"ok": True, "comfy": comfy.health(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
+    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
 def handler(event: dict[str, Any]) -> dict[str, Any]:

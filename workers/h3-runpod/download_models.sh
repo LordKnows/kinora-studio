@@ -12,7 +12,11 @@ while IFS=$'\t' read -r subdir url; do
   file="$dir/$(basename "$url")"
   if [ -s "$file" ]; then echo "have $file"; continue; fi
   echo "fetching $url"
-  wget -c --user-agent="Mozilla/5.0" "${AUTH[@]}" -O "$file.part" "$url" && mv "$file.part" "$file"
+  if command -v wget >/dev/null 2>&1; then
+    wget -c --user-agent="Mozilla/5.0" "${AUTH[@]}" -O "$file.part" "$url" && mv "$file.part" "$file"
+  else
+    curl -fL -C - -A "Mozilla/5.0" "${AUTH[@]/#--header/-H}" -o "$file.part" "$url" && mv "$file.part" "$file"
+  fi
 done < "$HERE/models.txt"
 # the runpod/comfyui image reads diffusion models from models/unet
 if [ -d "$MODELS_DIR/diffusion_models" ] && [ ! -e "$MODELS_DIR/unet" ]; then ln -s "$MODELS_DIR/diffusion_models" "$MODELS_DIR/unet"; fi

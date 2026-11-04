@@ -288,3 +288,16 @@ def test_r2va_grows_reference_slots_beyond_the_template(tmp_path):
     assert "201_ref2" not in graph  # template untouched
     with pytest.raises(h.JobError):
         h.fill_graph(graph, mapping, {**params, "files": {"reference": [f"{i}.png" for i in range(10)]}})
+
+
+def test_models_status_reports_missing_and_accepts_unet_alias(tmp_path):
+    import handler
+    base = tmp_path / "models"
+    (base / "unet").mkdir(parents=True)
+    (base / "vae").mkdir()
+    (base / "unet" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors").write_bytes(b"x" * 2_000_000)
+    status = handler.models_status(base)
+    assert status["expected"] == 7
+    assert status["ready"] is False
+    assert "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" not in status["missing"]
+    assert "vae/minimax_h3_video_vae_fp16.safetensors" in status["missing"]
