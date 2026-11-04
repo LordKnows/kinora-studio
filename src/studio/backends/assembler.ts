@@ -41,7 +41,9 @@ export function buildAssemblerInput(args: {
     const take = args.takes.get(clip.takeId);
     const shot = args.shots.get(clip.shotId);
     if (!take?.resultUrl || !shot) continue;
-    const outS = Math.min(clip.outS, shot.spec.durationS);
+    /* The rendered file is the truth: H3 snaps to a frame grid, so the spec's
+       duration can overshoot the take by a few frames. */
+    const outS = Math.min(clip.outS, take.outputSeconds ?? shot.spec.durationS);
     const len = Math.max(0, outS - clip.inS);
     const repeat = clip.repeat ?? 1;
     clips.push({

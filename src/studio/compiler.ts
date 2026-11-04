@@ -32,7 +32,23 @@ export type WorkerInput = {
 
 export type ActiveLora = Lora & { strength: number };
 
-export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[] };
+export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[]; effectiveSeconds: number };
+
+/* H3 renders 17k+5 frames at 24 fps (handoff): 5 s → 124 frames (5.17 s),
+   10 s → 243 (10.1 s), 15 s → 362 (15.1 s). The worker does the same rounding. */
+export function h3Frames(seconds: number): number {
+  const k = Math.max(0, Math.round((seconds * 24 - 5) / 17));
+  return Math.max(124, Math.min(362, 17 * k + 5));
+}
+export function h3EffectiveSeconds(seconds: number): number {
+  return Math.round((h3Frames(seconds) / 24) * 100) / 100;
+}
+
+/** The handoff graphs have no video input wired (ref_videos is unused), so
+    edit mode is off until a graph with it is verified. */
+export function editModeSupported(): boolean {
+  return process.env.H3_EDIT_MODE === "on";
+}
 
 export type CompileContext = {
   shot: Shot;
@@ -114,7 +130,7 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   const anchorFrame = ctx.anchorFrameUrl ?? (link.type === "continuous" ? ctx.prevLastFrameUrl : undefined);
 
   if (spec.mode === "edit") {
-    /* handled below */
+    if (!editModeSupported()) throw new CompileError("edit mode is not available with the current H3 graphs (no video input wired); re-render the shot instead, or set H3_EDIT_MODE=on once a graph with ref_videos is verified");
   } else if (grammar.mechanism === "anchor_first_frame") {
     /* Tier 2 decides the inputs: the anchor's last frame is the first frame. */
     const first = anchorFrame ?? hero?.url;
@@ -185,7 +201,9 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     negative: look.negative.join(", "),
     loras: loras.map((l) => ({ name: l.name, file: l.filename, strength: l.strength, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}), kind: l.kind })),
   };
-  return { workflow, prompt, input, warnings };
+  const effectiveSeconds = h3EffectiveSeconds(spec.durationS);
+  if (Math.abs(effectiveSeconds - spec.durationS) > 0.5) warnings.push(`H3 renders ${effectiveSeconds} s for a ${spec.durationS} s shot (frame grid of 17k+5)`);
+  return { workflow, prompt, input, warnings, effectiveSeconds };
 }
 
 export class CompileError extends Error {

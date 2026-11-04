@@ -227,8 +227,13 @@ describe("pipeline", () => {
     expect(compiled.input.images[0]).toEqual({ url: "https://r2/take.last.png", role: "first_frame" });
   });
 
-  it("edit mode compiles against the source take", async () => {
+  it("edit mode is gated until a graph with a video input is verified", async () => {
     const take = (await repo.listShotTakes(shotId)).find((t) => t.status === "completed")!;
+    const scene0 = (await repo.listScenes(projectId))[0]!;
+    const gated = await orch.addShot(scene0.id, shot({ mode: "edit", sourceTakeId: take.id, editInstruction: "Remove the parked car." }));
+    await expect(orch.compileForShot(gated.id)).rejects.toMatchObject({ code: "validation" });
+    await repo.deleteShot(gated.id);
+    process.env.H3_EDIT_MODE = "on";
     const scene = (await repo.listScenes(projectId))[0]!;
     const edit = await orch.addShot(scene.id, shot({ mode: "edit", sourceTakeId: take.id, editInstruction: "Remove the parked car on the left; keep everything else." }));
     const compiled = await orch.compileForShot(edit.id);
@@ -236,6 +241,7 @@ describe("pipeline", () => {
     expect(compiled.prompt).toContain("EDIT\nRemove the parked car");
     expect(compiled.prompt).toContain("Video 1: the source take");
     expect(compiled.prompt).not.toContain("TIMELINE");
+    delete process.env.H3_EDIT_MODE;
   });
 
   it("sweep marks stale takes as timed out", async () => {

@@ -29,12 +29,15 @@ When the user gives a brief and a running time, call `start_film` first: it crea
 
 Every tool that spends money returns `needs_confirm` with an estimate first. Tell the user the estimate, then call again with `confirm: true`.
 
-## The self-hosted H3 you are writing for
+## The self-hosted H3 you are writing for (the verified graphs)
 
-- 768p, 24 fps, 5–15 seconds per shot, native stereo audio generated with the picture.
-- Three input modes, mutually exclusive per shot: `text`, `keyframe` (hero frame, optional end frame), `reference` (at most 3 reference images). `edit` revises an existing take.
-- No prompt enhancer on the model side. What you put in the fields is what the model sees.
-- Longer moments are chains: shot B with `linkToPrev: "continuous"` starts from shot A's last frame.
+- 1344×768 at 24 fps is the verified resolution (the turbo LoRAs are 768p models; other aspect ratios are untested). Native stereo audio is generated with the picture from the soundscape fields.
+- Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.1 s, 15 s → 15.1 s (`compile_prompt` reports `effectiveSeconds`). Stay on 5–15.
+- Modes, mutually exclusive per shot: `text` (T2VA), `keyframe` (I2VA; FL2VA with an end frame), `reference` (R2VA: character sheets as `<Subject N>`, two slots by default, up to nine). **`edit` is not available** with the current graphs — re-render instead.
+- The Studio writes the prompt in the format the turbo LoRAs were trained on; you fill structured fields, never the prompt itself (unless `promptOverride`).
+- Dialogue: the verified clips used whispers and laughter, "no clear spoken words". Treat spoken lines as unverified: keep them short, or describe the vocal sound in `sound` instead of writing lines.
+- `match_cut` feeds the anchor's last frame as a reference image; the model keeps subjects more reliably than composition. Prefer `continuous` / `bridge` when the join must be exact.
+- Two base models: T2VA/I2VA/FL2VA share one, R2VA another; switching reloads ~2 minutes, so batches are rendered per base model.
 
 ## Writing shots
 

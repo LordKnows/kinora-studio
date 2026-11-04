@@ -154,7 +154,11 @@ function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView;
   return (
     <div className="st-shot" aria-pressed={open}>
       <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
-        {shot.selectedTake?.thumbUrls[0] ? <img src={shot.selectedTake.thumbUrls[0]} alt="" /> : shot.hero ? <img src={shot.hero.url} alt="" /> : <div className="st-placeholder" />}
+        {(() => {
+          /* Poster order: the selected take, else the newest completed take, else the hero frame. */
+          const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
+          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder" />;
+        })()}
         <span className="st-shot-index">{index + 1}</span>
         {latest && (
           <span className="st-shot-status">
