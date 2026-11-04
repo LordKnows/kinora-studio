@@ -20,6 +20,22 @@ SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
 # into the volume. The directory is created before the image's start.sh
 # runs because its sync skips /models and /extra_model_paths.yaml.
 VOLUME_PATH="${STUDIO_VOLUME_PATH:-/workspace}"
+# No volume mounted (local-disk mode): the models live on the container disk
+# under the image's own models/ and are downloaded at every boot (aria2, 16
+# connections). The job server reports models.ready=false until the set is
+# complete, so the studio holds the pod in "starting" meanwhile.
+if [ "$VOLUME_PATH" != "/workspace" ] && ! mountpoint -q "$VOLUME_PATH" 2>/dev/null && [ -z "$(ls -A "$VOLUME_PATH" 2>/dev/null)" ]; then
+  echo "[start] no volume at $VOLUME_PATH: local-disk mode, models go to $SLIM_DIR/models"
+  export MODELS_DIR="$SLIM_DIR/models"
+  export LORA_DIR="${LORA_DIR:-$SLIM_DIR/models/loras}"
+  mkdir -p "$MODELS_DIR"
+  if [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ]; then
+    echo "[start] downloading the H3 models (~68 GB) in the background; see /app/download_models.log"
+    (bash /app/h3-runpod/download_models.sh "$MODELS_DIR" > /app/download_models.log 2>&1; echo "[start] model download finished: $(tail -1 /app/download_models.log)") &
+  fi
+  DOWNLOAD_MODELS=0
+  VOLUME_PATH=/workspace
+fi
 if [ "$VOLUME_PATH" != "/workspace" ] && [ -d "$VOLUME_PATH" ]; then
   # A models directory counts only if it holds weights: an earlier pod may
   # have left an empty ComfyUI tree on the volume.

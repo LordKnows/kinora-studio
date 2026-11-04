@@ -193,7 +193,14 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填型号名的子串，按优先级排列（默认
    `RTX 5090,RTX PRO 6000,A100 80GB,A100-SXM4-80GB,H100 80GB,H100 PCIe,H200`），起 Pod 前
    会解析成 RunPod 的精确 ID；Settings → GPU pod → GPU types 能看到哪些被匹配上。
-4. **数据中心**：
+4. **模型放哪**（默认：**本地盘，每次开机下载**）：`RUNPOD_NETWORK_VOLUME_ID` 留空、
+   `RUNPOD_NETWORK_VOLUMES` 不填时，Pod 不挂任何卷，启动脚本用 aria2 十六线程把 `models.txt`
+   里的 68 GB 下到容器盘（RunPod 机房到 HuggingFace 通常 300 MB/s 以上，几分钟），`/health` 报告
+   `models.ready`，齐了 Studio 才显示 running。容器盘默认 120 GB。Stop 会清空容器盘，所以
+   空闲自动关机默认 45 分钟。好处：不依赖任何卷，数据中心随便挑，没有全局盘的 venv 和读取
+   速度问题。想不自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。
+   用卷的两种方式如下。
+5. **数据中心**（用卷时）：
    - **全局盘（首选）**：一个能被任意数据中心挂载的卷，填 `RUNPOD_NETWORK_VOLUME_ID`，
      `RUNPOD_DATACENTER_IDS` 留空，`RUNPOD_NETWORK_VOLUMES` 不填。起 Pod 时不限数据中心，
      RunPod 在白名单 GPU 里按可用性挑。**全局盘不能挂在 `/workspace`**：官方 ComfyUI 镜像会把
@@ -209,7 +216,7 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
      `MODELS_LINK_TO=/opt/models`、`MODELS_COPY=1`，启动时拷到本地盘（容器盘要 ≥100 GB）。
    - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`
      （密钥），起 Pod 时按顺序遍历数据中心（上次成功的优先），全部失败才显示"暂时没资源"。
-5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
+6. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
 
 ### 9a. RunPod API 版本（`RUNPOD_API`）

@@ -65,7 +65,7 @@ export const config = {
       return i > 0 ? { dataCenterId: pair.slice(0, i).trim(), volumeId: pair.slice(i + 1).trim() } : { dataCenterId: "", volumeId: pair };
     }),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
-    containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "50"),
+    containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "120"),
     /* Away from /workspace by default: a global volume only lends models (see workers/h3-runpod/start.sh). */
     volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/runpod-volume",
     /** Host CUDA versions to allow (RunPod enum, e.g. "13.0"). Empty = no
@@ -85,7 +85,7 @@ export const config = {
     })(),
     podPort: Number(env("RUNPOD_POD_PORT") ?? "8000"),
     comfyPort: Number(env("RUNPOD_COMFY_PORT") ?? "8188"),
-    idleStopMinutes: Number(env("RUNPOD_IDLE_STOP_MINUTES") ?? "15"),
+    idleStopMinutes: Number(env("RUNPOD_IDLE_STOP_MINUTES") ?? "45"),
     workerToken: need("STUDIO_WORKER_TOKEN"),
     podName: env("RUNPOD_POD_NAME") ?? "cinema-studio-h3",
   }),

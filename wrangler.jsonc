@@ -23,19 +23,19 @@
     "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "32",
     "RUNPOD_MODE": "pod",
     "RUNPOD_API": "v2",
-    "RUNPOD_NETWORK_VOLUME_ID": "cmw28a1om000007ld7lzu56it",
+    "RUNPOD_NETWORK_VOLUME_ID": "",
     "RUNPOD_DATACENTER_IDS": "",
     "RUNPOD_POD_BOOTSTRAP": "1",
     "RUNPOD_GPU_TYPES": "RTX 5090,RTX PRO 6000,A100 80GB,A100-SXM4-80GB,H100 80GB,H100 PCIe,H200",
     "RUNPOD_CLOUD_TYPE": "SECURE",
-    "RUNPOD_CONTAINER_DISK_GB": "50",
+    "RUNPOD_CONTAINER_DISK_GB": "120",
     "RUNPOD_VOLUME_MOUNT_PATH": "/runpod-volume",
     "RUNPOD_POD_IMAGE": "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
     "RUNPOD_CUDA_VERSIONS": "",
     "H3_PROMPT_FORMAT": "lightx2v-lines",
     "RUNPOD_POD_PORT": "8000",
     "RUNPOD_COMFY_PORT": "8188",
-    "RUNPOD_IDLE_STOP_MINUTES": "15"
+    "RUNPOD_IDLE_STOP_MINUTES": "45"
   }
   // Secrets (dashboard, type Secret — plain vars are overwritten by this file
   // on every deploy): RUNPOD_API_KEY, RUNPOD_NETWORK_VOLUMES ("DC:volumeId,DC:volumeId"),
