@@ -83,7 +83,11 @@ export function setDb(db: Db | null): void {
 
 export async function getDb(): Promise<Db> {
   if (override) return override;
-  const cf = (globalThis as { __STUDIO_D1__?: D1Like }).__STUDIO_D1__;
-  if (cf) return d1Db(cf);
+  if (process.env.STUDIO_DB === "d1") {
+    const { bindD1 } = await import("@/cloudflare");
+    const d1 = (await bindD1()) as D1Like | null;
+    if (!d1) throw new Error("STUDIO_DB=d1 but no DB binding is attached");
+    return d1Db(d1);
+  }
   return openNodeDb();
 }

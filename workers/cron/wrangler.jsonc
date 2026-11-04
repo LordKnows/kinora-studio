@@ -1,0 +1,8 @@
+{
+  "name": "cinema-studio-cron",
+  "main": "worker.js",
+  "compatibility_date": "2025-09-01",
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": { "STUDIO_PUBLIC_URL": "https://studio.example.com" }
+  // wrangler secret put CRON_SECRET
+}

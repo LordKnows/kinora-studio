@@ -1,0 +1,27 @@
+{
+  // Cloudflare Workers deployment via OpenNext. Fill in the ids after
+  // `wrangler d1 create studio` and `wrangler r2 bucket create studio`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cinema-studio",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "d1_databases": [{ "binding": "DB", "database_name": "studio", "database_id": "<d1-database-id>", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "TAKES", "bucket_name": "studio" }],
+  // The minute-by-minute sweep lives in workers/cron (Cron Triggers call a
+  // `scheduled` handler, not a URL).
+  "vars": {
+    "STUDIO_DB": "d1",
+    "AUTH_MODE": "access",
+    "STUDIO_PUBLIC_URL": "https://studio.example.com",
+    "R2_PUBLIC_BASE_URL": "https://takes.example.com",
+    "R2_BUCKET": "studio",
+    "RUNPOD_GPU_USD_PER_SECOND": "0.0012",
+    "RUNPOD_SECONDS_PER_OUTPUT_SECOND": "12"
+  }
+  // Secrets (wrangler secret put …): CF_ACCESS_TEAM_DOMAIN, CF_ACCESS_AUD,
+  // RUNPOD_API_KEY, RUNPOD_ENDPOINT_ID, RUNPOD_ASSEMBLER_ENDPOINT_ID,
+  // RUNPOD_WEBHOOK_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
+  // HF_API_BASE_URL, HF_API_KEY, CRON_SECRET, MCP_STATIC_TOKEN (optional)
+}

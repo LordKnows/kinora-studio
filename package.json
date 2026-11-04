@@ -29,12 +29,14 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.20.16",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "wrangler": "^4.157.0"
   }
 }

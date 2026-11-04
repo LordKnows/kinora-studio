@@ -1,0 +1,8 @@
+{
+  "_comment": "PLACEHOLDER. Not a real MiniMax H3 graph. It only shows the API-format shape (node id -> {class_type, inputs}) that mapping.json addresses. Replace with the graph exported from ComfyUI's H3 T2VA template.",
+  "3": { "class_type": "H3Sampler_PLACEHOLDER", "inputs": { "seconds": 5, "width": 1344, "height": 768, "steps": 8, "seed": 0, "positive": ["6", 0], "negative": ["7", 0] } },
+  "6": { "class_type": "CLIPTextEncode_PLACEHOLDER", "inputs": { "text": "" } },
+  "7": { "class_type": "CLIPTextEncode_PLACEHOLDER", "inputs": { "text": "" } },
+  "8": { "class_type": "SaveVideo_PLACEHOLDER", "inputs": { "video": ["3", 0], "filename_prefix": "h3/take" } },
+  "9": { "class_type": "PromptEnhance_PLACEHOLDER", "inputs": { "enabled": false } }
+}

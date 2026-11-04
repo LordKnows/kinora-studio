@@ -1,164 +1,143 @@
-# OpenHiggsfield AI — Open-Source Alternative to Higgsfield AI
+# Cinema Studio — an open Cinema Studio on self-hosted MiniMax H3
 
-> **The free, open-source alternative to Higgsfield AI.** Generate images and
-> videos with 38 models from one prompt bar — no closed ecosystem, no studio
-> subscription.
+A film-crew workflow in the browser: **script → elements → shotlist → hero
+frames → takes → timeline → export**. The director is your own subscription
+Claude or Grok, connected over MCP. Video renders on **MiniMax H3-Base** running
+on your RunPod endpoint. Stills for hero frames and character sheets come from
+the image models of the Higgsfield platform. Everything is stored in R2 and a
+small SQLite/D1 database. Deploys to Cloudflare Workers.
 
-## 🌐 Try it Online — No Install Required
+The original single-shot studio is still here at `/playground`.
 
-**Hosted version:** [openhiggsfield.ai](https://openhiggsfield.ai)
-
-Image and Video in one studio, in the browser — no Node.js, no setup. Add your
-platform key (`id:secret`) to start generating. The studio itself is free.
-
----
-
-**Why OpenHiggsfield AI instead of Higgsfield AI?**
-
-- **Free & open-source** — no studio subscription, no vendor lock-in
-- **Self-hosted** — clone it, run it, change it
-- **Your key** — generate with your own platform key
-- **38 models** — 8 image, 30 video, one catalog, one composer
+Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
 
 ---
 
-Next.js 16 App Router on Vercel · React 19 · plain CSS · Zustand · pnpm
+## How it fits together
 
----
+```
+ Claude / Grok (your subscription) ──MCP + OAuth──►  /mcp
+                                                       │
+ Browser (Cloudflare Access) ─────────REST───────────►  Studio (Next.js on Workers)
+                                                       │  compiler · checkpoints · budget · orchestrator
+                           ┌───────────────────────────┼───────────────────────────┐
+                           ▼                           ▼                           ▼
+                 RunPod H3 worker              RunPod assembler            Higgsfield images
+                 (ComfyUI, 768p + audio)       (ffmpeg, CPU)               (hero frames, refs)
+                           └──────────── writes to R2 ◄────────────────────────────┘
+```
 
-## Features
+- **One shot = one H3 request.** A shot is structured data (beats, camera,
+  dialogue, sound, references); the compiler turns it into an H3 prompt in the
+  community-documented format, with the project Look on every shot. Four modes:
+  `text`, `keyframe` (hero frame, optional end frame), `reference` (≤3 refs),
+  `edit` (revise a take).
+- **Two human checkpoints.** The latest script and the shotlist must be
+  approved on the web before anything renders. Approval is web-only; the agent
+  gets `not_approved` and tells you which page to open.
+- **Money asks first.** Every paid tool returns an estimate and `needs_confirm`
+  until called with `confirm: true`; projects have a budget cap.
+- **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
+  server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
+  attach. `agent/director.md` is the director guide, served as a tool and a
+  resource and pasteable into your chat client.
 
-### Generate
-
-- **One composer for Image and Video.** A single prompt bar drives both; the
-  model you pick decides image or video. `⌘/Ctrl + Enter` submits.
-- **38 models in the catalog** — 8 image, 30 video: Soul 2, Soul Cinema, Seedance
-  2.5 (Edit / Extend), Seedance 2.0 (Fast / Mini), Kling 3 (Turbo / Std / Pro / 4K / Motion), Wan, Flux,
-  Ideogram, Recraft, LTX, MiniMax, PixVerse, Grok, Qwen and more. Searchable
-  picker.
-- **Per-model settings.** Aspect ratio, resolution, duration, output format,
-  audio, batch size, prompt enhancement — each model declares its own allow-list
-  and the studio renders exactly that. No parallel hardcoded list.
-- **Media inputs by role.** Start frame, end frame, references, video and audio,
-  each with the per-role cap the model declares. Files upload to Vercel Blob and
-  become public URLs the generate request can carry.
-- **Asset picker.** Attach from your uploads library or from any finished run in
-  history — two tabs over one library, filtered to the role's kind.
-- **Batch.** Up to 4 results per press. Models with a native count setting use it;
-  the rest are submitted once per result, each clearing its own tile.
-- **Live run lifecycle.** Skeletons open in the grid on submit, the request is
-  polled every 4s until a terminal status (10-minute deadline), and each finished
-  result blooms into place on its own clock.
-
-### Gallery
-
-- **Four scopes** — Image, Video, Assets (every finished run) and Favorites —
-  as an arrow-key-navigable tab rail.
-- **Masonry grid** of real runs at their true aspect ratio, newest first, with a
-  gradient placeholder while media loads.
-- **Per-tile actions**: reuse, favorite, delete, select.
-- **Reuse restores model, settings and prompt**, so the same run can be
-  re-rendered, not just re-typed.
-- **Viewer.** Full-size media with prompt (copy in one click), model, resolved
-  settings, timestamp, download, favorite and Recreate.
-- **Selection mode.** Click a tile's checkbox to enter; shift-click extends a
-  range. Bulk download (sequential, with progress and a report of any files the
-  CDN refused), bulk favorite/unfavorite, bulk delete. `Esc` exits.
-- **Undo.** Deletion is reversible for 6 seconds via a bar with a draining
-  hairline, in the strip the composer already reserves.
-- **Empty states** that hand you a starter prompt instead of a blank grid.
-
-### State and errors
-
-- **History persists** in IndexedDB in this browser (60 records). Favorites are
-  a deliberate keep and never age out of the cap. Result URLs belong to the
-  generation platform, so old history can outlive its CDN lifetime and show gaps.
-- **Failed, NSFW and canceled runs** are recorded as failed tiles carrying the
-  reason and a retry that restores the prompt and model.
-- **Your own platform key.** Entered in a modal, stored by a server action in an
-  httpOnly cookie. A missing key opens the modal — it never fails silently. The
-  topbar lamp states whether a key is held and whether a run is in flight.
-
----
-
-## Architecture
-
-Each generate is one object: `{ model, prompt, media, settings }`.
-
-- **The UI builds that object** and hands it to a server action. The action
-  resolves it against the catalog and maps it to the generation API's own
-  fields (`image_urls`, `aspect_ratio`, …).
-- **Server actions are the only caller.** The browser never talks to the
-  generation API. Submit is `POST /{model}`; status is
-  `GET /requests/{id}/status`. Auth is `Authorization: Key <api_key>`.
-- **The catalog is the source of truth** (`src/generation/catalog/`). A new entry
-  appears in the picker, brings its own settings rail and media roles, and needs
-  no studio changes.
-- **Five small Zustand stores** — shared image/video prompt, shared image/video
-  media, `settings[modelId]`, and a tiny `active` store. No store per model.
-- **Uploads** go client-direct to Vercel Blob through `/api/blob`, which issues
-  scoped tokens. `blob:` URLs are preview-only.
-
----
-
-## Getting started
+## Run it locally
 
 ```bash
 pnpm install
-pnpm dev            # http://localhost:3000
+cp .env.example .env.local   # AUTH_MODE=dev is enough to click around
+pnpm dev                     # http://localhost:3000
 ```
 
-Open the studio, press **Add key**, and paste your platform key as `id:secret`.
-
-### Environment
+Without RunPod / R2 / image keys the studio still lets you build a project,
+script, elements, shotlist and compile prompts; generation buttons report what
+is missing. Tests:
 
 ```bash
-HF_API_BASE_URL=                      # generation API origin, server only
-OPEN_HIGGSFIELD_READ_WRITE_TOKEN=     # Vercel Blob read-write token
+pnpm test        # vitest: pipeline, compiler, checkpoints, OAuth, assembler input
+pnpm typecheck
 ```
 
-### Commands
+Connect Claude Code during development with a static token:
 
-| Command | What it does |
-| --- | --- |
-| `pnpm dev` | Dev server on port 3000 |
-| `pnpm build` | Production build |
-| `pnpm start` | Serve the production build |
-| `pnpm brand` | Rebuild the icons and OG card in `public/` |
+```bash
+MCP_STATIC_TOKEN=devtoken pnpm dev
+claude mcp add --transport http studio http://localhost:3000/mcp --header "Authorization: Bearer devtoken"
+```
 
----
+## Deploy
+
+### 1. RunPod
+
+- **H3 worker** (`workers/h3-runpod`): a ComfyUI serverless worker with the
+  H3-Base graphs. Network volume ≥160 GB, 96 GB-class GPU, max workers 1. Drop
+  the T2VA / I2VA / FL2VA / R2VA API-format workflows into
+  `workers/h3-runpod/workflows/` and fill `mapping.json`. The worker uploads
+  the mp4, last frame and thumbnails to R2 and answers the webhook.
+- **Assembler** (`workers/assembler`): a CPU serverless worker with ffmpeg that
+  concatenates takes, mixes audio, writes subtitles and exports presets.
+- Pick a data-center region that the MiniMax Community License allows (it
+  excludes the US, EU, UK and South Korea). That is the deployer's
+  responsibility; see the design doc §2.3 and §10.
+
+### 2. Cloudflare
+
+```bash
+wrangler d1 create studio            # put the id into wrangler.jsonc
+wrangler r2 bucket create studio     # bind a public custom domain → R2_PUBLIC_BASE_URL
+pnpm db:emit                         # writes migrations/*.sql from src/db/migrations
+wrangler d1 migrations apply studio --remote
+wrangler secret put RUNPOD_API_KEY   # and the rest listed in wrangler.jsonc
+npx opennextjs-cloudflare build && npx opennextjs-cloudflare deploy
+cd workers/cron && wrangler deploy   # minute-by-minute sweep → /api/cron/sweep
+```
+
+Put the studio hostname behind **Cloudflare Access** (set `AUTH_MODE=access`,
+`CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`) and add bypass rules for `/mcp`,
+`/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`
+and `/api/cron/sweep`, which carry their own auth (OAuth bearer, HMAC, secret).
+
+### 3. Connect the director
+
+- **Claude**: Settings → Connectors → Add custom connector →
+  `https://<studio>/mcp`. The OAuth consent page is the studio itself.
+- **Grok**: grok.com → Connectors → New → Custom → same URL.
+- Paste `agent/director.md` into the project instructions, or let the agent
+  call `get_director_guide` first.
 
 ## Layout
 
 ```
-src/
-  app/          /  is the full-viewport studio and the only page
-                /api/blob issues upload tokens
-                base.css owns the document canvas
-  generation/   generate requests, server actions, API mapping, catalog, stores
-  openhiggsfield/
-                the studio surface: composer, gallery, viewer, model picker,
-                settings, asset picker, selection bar — and openhiggsfield.css
+agent/director.md        the director guide (source of truth; emitted to src/mcp/guide.ts)
+docs/                    design document
+migrations/              SQL emitted for wrangler d1 (pnpm db:emit)
+src/app/                 pages (/, /p/[id]/…, /playground, /oauth/authorize) and /api routes
+src/studio/              schemas · types · repo · compiler · checkpoints · cost · orchestrator · backends · storage
+src/mcp/                 MCP server (tools + resource)
+src/oauth/               OAuth 2.1 authorization server for connectors
+src/auth/                Cloudflare Access JWT, bearer tokens, HMAC
+src/db/                  SQLite (Node) / D1 (Workers) and migrations
+src/studio-ui/           the studio pages' components and styles
+src/generation/          the original catalog + platform client (image models, /playground)
+src/openhiggsfield/      the original single-shot studio (/playground)
+workers/h3-runpod/       ComfyUI serverless handler for H3
+workers/assembler/       ffmpeg serverless handler
+workers/cron/            scheduled Worker that triggers the sweep
+tests/                   vitest
 ```
 
----
+## API
 
-## Design principles
+`src/app/api/**` implements the endpoint list of the design doc §7.2. Every
+error is `{ error: { code, message, details } }` with the codes `validation`,
+`unauthorized`, `forbidden`, `not_found`, `not_approved`, `needs_confirm`,
+`budget_exceeded`, `backend_error`. MCP tools are the same operations with the
+same zod schemas (`src/studio/schemas.ts`).
 
-Dark studio ground, a single lime accent `#d1fe17`, Inter throughout. The chrome
-stays neutral so the generated work is the only color on the surface.
+## What is measured, not assumed
 
-1. **The tool disappears into the task** — expression never obscures state or
-   affordance.
-2. **Accent is state, not decoration** — selection, primary action, liveness only.
-3. **Data is data** — settings, counts and durations read in tabular numerals.
-   One typeface throughout; no monospace anywhere.
-4. **Motion conveys state** — the generation lifecycle, the arrival of a run.
-   Nothing loops decoratively.
-5. **Every control ships all its states** — hover, focus, active, disabled,
-   loading, error, empty.
-6. **The catalog is the source of truth** — the studio renders what the model
-   declares, never a parallel hardcoded list.
-
-Built for people who work in long sessions, iterating on prompts, inputs and
-settings.
+The cost model (`RUNPOD_SECONDS_PER_OUTPUT_SECOND`, `RUNPOD_GPU_USD_PER_SECOND`)
+and the prompt rules in `agent/director.md` carry placeholders until the P0
+measurements in the design doc §9 are done on your endpoint. The settings page
+has an eval mode for blind A/B scoring of takes.

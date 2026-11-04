@@ -1140,3 +1140,21 @@ Agent 连接
 - https://docs.x.ai/grok/connectors
 - https://skillsplayground.com/integrations/grok/
 - https://forum.cursor.com/t/grok-bot-custom-remote-mcp-oauth-never-starts-fetch-failed-same-url-works-in-cursor-ide/168188
+
+---
+
+## 附录 A. 实现状态（v4 之后的首个实现）
+
+| 设计章节 | 状态 | 实现位置 |
+|---|---|---|
+| §3 领域模型、§3.2 检查点 | 已实现 | `src/studio/types.ts`、`schemas.ts`、`repo.ts`、`checkpoints.ts` |
+| §3.3 存储 | 已实现，数据库选了 **SQLite / D1**（设计里的备选），R2 为唯一文件存储 | `src/db/`、`src/studio/storage/r2.ts` |
+| §4.2 Compiler（四模式模板、校验、成本估算） | 已实现；评测模式的端点和页面已实现，评测本身待 P0 | `src/studio/compiler.ts`、`cost.ts` |
+| §4.3 Orchestrator（webhook 主路径 + 轮询兜底、幂等、预算、记账） | 已实现 | `src/studio/orchestrator.ts`、`src/app/api/runpod/hook`、`src/app/api/cron/sweep`、`workers/cron` |
+| §4.4 Assembler 契约 | 已实现（输入构造 + ffmpeg worker） | `src/studio/backends/assembler.ts`、`workers/assembler/` |
+| §4.5 / §6 MCP + Director Skill | 已实现（36 个工具、resource、`get_director_guide`） | `src/mcp/`、`agent/director.md` |
+| §4.6 RunPod H3 worker | handler 已实现；**ComfyUI 工作流 JSON 由部署者放入** | `workers/h3-runpod/` |
+| §4.7 Cloudflare 部署、Access、OAuth | 已实现：OpenNext 配置、Access JWT 校验、自带 OAuth 2.1 授权服务器（未用 `workers-oauth-provider`，因为它与 OpenNext 的 fetch 包装不兼容） | `wrangler.jsonc`、`src/auth/`、`src/oauth/` |
+| §7 接口 | 已实现，含鉴权矩阵与错误模型 | `src/app/api/**` |
+| §4.1 Web Studio | 已实现：项目、Look、剧本、元素、分镜表、时间线、设置（含 MCP 连接说明与评测模式） | `src/app/p/[id]/*`、`src/studio-ui/` |
+| §9 P0 实测 | **未做**：需要真实 RunPod endpoint；成本常量和 prompt 规则仍是占位 | `.env.example` 中的 `RUNPOD_*` |
