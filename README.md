@@ -99,6 +99,10 @@ claude mcp add --transport http studio http://localhost:3000/mcp --header "Autho
   studio's signed webhook.
 - Drop the T2VA / I2VA / FL2VA / R2VA API-format workflows into
   `workers/h3-runpod/workflows/` and fill `mapping.json`.
+- If the model volume is a *global* network volume, the REST API cannot
+  attach it yet. Create the first pod in the RunPod console with the values
+  from Settings → GPU pod → "Show what to paste into RunPod", then adopt
+  it by id; the studio runs it but never terminates or replaces it.
 - Serverless endpoints (`RUNPOD_MODE=serverless`) are still supported in
   code but are a TODO, not the default.
 - Pick a data-center region that the MiniMax Community License allows (it

@@ -809,6 +809,7 @@ export type GpuPod = {
   stoppedAt?: number;
   accumulatedSeconds: number;
   lastActivityAt?: number;
+  adopted: boolean;
   updatedAt: number;
 };
 
@@ -817,7 +818,7 @@ function mapGpuPod(r: Row): GpuPod {
     id: str(r.id), name: str(r.name), image: str(r.image), gpuTypeId: opt(r.gpu_type_id, str), gpuName: opt(r.gpu_name, str),
     dataCenter: opt(r.data_center, str), status: str(r.status) as GpuPodStatus, message: opt(r.message, str), costPerHr: opt(r.cost_per_hr, num),
     hostUrl: opt(r.host_url, str), createdAt: num(r.created_at), startedAt: opt(r.started_at, num), stoppedAt: opt(r.stopped_at, num),
-    accumulatedSeconds: num(r.accumulated_seconds), lastActivityAt: opt(r.last_activity_at, num), updatedAt: num(r.updated_at),
+    accumulatedSeconds: num(r.accumulated_seconds), lastActivityAt: opt(r.last_activity_at, num), adopted: num(r.adopted) === 1, updatedAt: num(r.updated_at),
   };
 }
 
@@ -833,11 +834,11 @@ export async function listGpuPods(limit = 20): Promise<GpuPod[]> {
   return rows.map(mapGpuPod);
 }
 
-export async function insertGpuPod(input: { id: string; name: string; image: string; gpuTypeId?: string; gpuName?: string; dataCenter?: string; status: GpuPodStatus; message?: string; costPerHr?: number; hostUrl?: string }): Promise<GpuPod> {
+export async function insertGpuPod(input: { id: string; name: string; image: string; gpuTypeId?: string; gpuName?: string; dataCenter?: string; status: GpuPodStatus; message?: string; costPerHr?: number; hostUrl?: string; adopted?: boolean }): Promise<GpuPod> {
   const now = Date.now();
   await (await db()).run(
-    "INSERT INTO gpu_pods (id, name, image, gpu_type_id, gpu_name, data_center, status, message, cost_per_hr, host_url, created_at, accumulated_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
-    [input.id, input.name, input.image, input.gpuTypeId ?? null, input.gpuName ?? null, input.dataCenter ?? null, input.status, input.message ?? null, input.costPerHr ?? null, input.hostUrl ?? null, now, now],
+    "INSERT OR REPLACE INTO gpu_pods (id, name, image, gpu_type_id, gpu_name, data_center, status, message, cost_per_hr, host_url, created_at, accumulated_seconds, adopted, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+    [input.id, input.name, input.image, input.gpuTypeId ?? null, input.gpuName ?? null, input.dataCenter ?? null, input.status, input.message ?? null, input.costPerHr ?? null, input.hostUrl ?? null, now, input.adopted ? 1 : 0, now],
   );
   return (await getGpuPod(input.id))!;
 }

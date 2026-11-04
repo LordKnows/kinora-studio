@@ -6,7 +6,7 @@ import type { GpuState } from "@/studio/gpu";
 import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
-import { Button, ErrorBanner, Lamp, useAction } from "./common";
+import { Button, CopyRow, ErrorBanner, Lamp, useAction } from "./common";
 
 /* The GPU pod, as a compact card in the project rail and as a full section on
    the settings page. One fetch on mount, then a poll whose pace follows the
@@ -213,6 +213,7 @@ export function GpuSection() {
             <dd className="st-num">
               {state.pod.name} · {state.pod.id}
               {state.pod.dataCenter ? ` · ${state.pod.dataCenter}` : ""}
+              {state.pod.adopted ? " · adopted (created by hand; never replaced)" : ""}
             </dd>
             <dt>GPU</dt>
             <dd>{state.pod.gpuName ?? state.pod.gpuTypeId ?? "—"}</dd>
@@ -242,6 +243,7 @@ export function GpuSection() {
         )}
         <Button kind="quiet" onClick={() => void loadTypes()}>GPU types</Button>
       </div>
+      <AdoptPod onAdopted={reload} />
       <div className="st-stack">
         <span className="st-label">Generation stats by GPU</span>
         <GpuStatsTable />
@@ -268,6 +270,70 @@ export function GpuSection() {
             ))}
           </tbody>
         </table>
+      )}
+    </div>
+  );
+}
+
+type ManualRecipe = { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; gpuTypes: string[]; notes: string[] };
+
+/* The way around a volume the REST API cannot attach: create the pod in the
+   RunPod console with these values, then hand its id to the studio. */
+function AdoptPod({ onAdopted }: { onAdopted: () => Promise<void> }) {
+  const [podId, setPodId] = useState("");
+  const [recipe, setRecipe] = useState<ManualRecipe | null>(null);
+  const [recipeError, setRecipeError] = useState<string | null>(null);
+  const adopt = useAction(async () => {
+    await post("/api/gpu/adopt", { podId: podId.trim() });
+    setPodId("");
+    await onAdopted();
+  });
+  const loadRecipe = useCallback(async () => {
+    try {
+      setRecipe(await get<ManualRecipe>("/api/gpu/manual"));
+      setRecipeError(null);
+    } catch (caught) {
+      setRecipeError(describe(caught));
+    }
+  }, []);
+  const envLines = recipe ? Object.entries(recipe.env).map(([k, v]) => `${k}=${v}`).join("\n") : "";
+  return (
+    <div className="st-stack">
+      <span className="st-label">Adopt a pod created by hand</span>
+      <p className="st-muted">
+        If the studio cannot create the pod itself (for example the model volume is not attachable through the API), create it in the RunPod console
+        and paste its id here. The studio then starts, stops and runs jobs on it, but never terminates or replaces it.
+      </p>
+      <ErrorBanner error={adopt.error} onDismiss={adopt.dismiss} />
+      <div className="st-row">
+        <input
+          className="st-input"
+          placeholder="RunPod pod id"
+          value={podId}
+          onChange={(e) => setPodId(e.target.value)}
+          style={{ maxWidth: 320 }}
+        />
+        <Button kind="primary" busy={adopt.busy} disabled={podId.trim().length < 6} onClick={() => void adopt.fire()}>Adopt</Button>
+        <Button kind="quiet" onClick={() => (recipe ? setRecipe(null) : void loadRecipe())}>{recipe ? "Hide recipe" : "Show what to paste into RunPod"}</Button>
+      </div>
+      {recipeError && <p className="st-danger">{recipeError}</p>}
+      {recipe && (
+        <div className="st-stack st-stack--tight">
+          <p className="st-muted">The env block contains the worker token and R2 keys. Paste it only into the pod&apos;s environment variables.</p>
+          <CopyRow label="Container image" value={recipe.image} />
+          <CopyRow label="Expose HTTP ports" value={recipe.ports.join(", ")} />
+          <CopyRow label="Container disk (GB)" value={String(recipe.containerDiskGb)} />
+          <CopyRow label="Volume mount path" value={recipe.volumeMountPath} />
+          <CopyRow label="Container start command" value={recipe.dockerStartCmd} />
+          <CopyRow label="GPU types (in priority order)" value={recipe.gpuTypes.join(", ")} />
+          <div className="st-field">
+            <span className="st-label">Environment variables</span>
+            <textarea className="st-input" readOnly rows={Object.keys(recipe.env).length + 1} value={envLines} onFocus={(e) => e.currentTarget.select()} />
+          </div>
+          <ul className="st-muted">
+            {recipe.notes.map((n) => <li key={n}>{n}</li>)}
+          </ul>
+        </div>
       )}
     </div>
   );

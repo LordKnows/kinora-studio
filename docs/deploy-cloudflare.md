@@ -30,6 +30,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0003_loras_stats.sql` | LoRA 库 `loras` 表；`takes` 表加 GPU 型号、时价、视频秒数三列（**只能执行一次**，ALTER 重复会报列已存在，报错可忽略） |
 | `migrations/0004_brief.sql` | 导演第一层：`projects` 表加 `brief`、`target_seconds`（同样只执行一次） |
 | `migrations/0005_seed_loras.sql` | 预置两个 lightx2v turbo LoRA（幂等） |
+| `migrations/0006_adopted.sql` | `gpu_pods` 表加 `adopted` 列（手动建的 Pod 由 Studio 接管；只执行一次） |
 
 ## 2. 建对象存储（R2）
 
@@ -204,6 +205,28 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
 
+### 9b. 手动建 Pod，再由 Studio 接管（全局盘走这条路）
+
+RunPod 的 REST API 目前查不到、也挂不上"全局"网络卷（`/networkvolumes` 返回空，
+`POST /pods` 带 `networkVolumeId` 报 `network volume not found`，但控制台里卷确实存在）。
+所以第一次 Pod 在控制台手动建，之后的启停、作业、费用统计都由 Studio 管：
+
+1. Settings → GPU pod → **Show what to paste into RunPod**。页面会列出镜像、要暴露的 HTTP
+   端口（8000、8188）、容器盘大小、卷挂载路径、容器启动命令、按优先级排的 GPU 型号，以及一整块
+   环境变量（含 worker token 和 R2 密钥，只粘到 Pod 的环境变量里）。
+2. RunPod 控制台 → Pods → Deploy：选白名单里的 GPU（5090 / PRO 6000 优先），
+   **Network Volume 选 `minimax-h3-models`**，Pod Template 用 Edit / Customize 把上面的值逐项填进去
+   （Container Image、Container Disk、Volume Mount Path、Expose HTTP Ports、Container Start Command、
+   Environment Variables）。Secure Cloud。
+3. 部署后复制 Pod ID，回到 Settings → **Adopt** 粘贴。Studio 会读取这台 Pod 的状态、GPU 型号和时价，
+   健康检查通过后把排队的 take 送过去。
+4. 被接管的 Pod（卡片上标 *adopted*）**永远不会被 Studio 终止或替换**：Stop 后 Start 拿不到卡时只显示
+   "暂时没资源"，稍后再 Retry；真要换型号，到控制台重建一台再 Adopt 一次（旧记录自动标为 terminated，
+   卷上的模型不受影响）。Terminate 按钮仍然可用，但那是你明确点的。
+
+一旦 RunPod 公布全局卷对应的 API 字段，把它放进 `RUNPOD_POD_BODY_OVERRIDES`（JSON，合并进
+创建请求）就能恢复 Studio 自动建 Pod，不需要改代码。
+
 Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，列为 TODO。
 
 ## 10. GPU 统计与 LoRA
@@ -251,7 +274,8 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
 
 1. Settings → GPU pod：Allowed GPUs 不再是红字，Status 为 off。点 **GPU types**，确认白名单里
    至少有几条标了 allowed（型号名按子串匹配）。
-2. 点 **Start**。状态应依次为 starting → running；"starting" 期间 Pod 在拉镜像、跑入口、拉作业服务。
+2. 全局盘的情况按 §9b 先在控制台建好 Pod 并 **Adopt**；否则点 **Start**。状态应依次为
+   starting → running；"starting" 期间 Pod 在拉镜像、跑入口、拉作业服务。
    卡住超过 10 分钟：到 RunPod 控制台看该 Pod 的日志，常见是作业服务没起来（`/api/pod/bundle`
    没放进 Access bypass，或 `STUDIO_WORKER_TOKEN` 没设）。
 3. running 之后，RunPod 控制台 → 该 Pod → Connect → HTTP 8000 端口，访问 `/health`（需要
@@ -260,4 +284,5 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
    Generate take。侧栏显示 take 在排队，首个任务要加载 21 GB 底模和文本编码器，交接实测冷跑
    约 3–6 分钟，热跑 5 秒片段约 3 分钟（A100）。
 5. take 完成后卡片出现缩略图，Settings 的 GPU 统计表出现第一行；预估开始用实测速度。
-6. 15 分钟没有任务 Pod 自动停机；再点 Start 时若拿不到卡会自动换型号或数据中心重建。
+6. 15 分钟没有任务 Pod 自动停机；再点 Start 时若拿不到卡，Studio 自建的 Pod 会自动换型号或
+   数据中心重建，接管的 Pod 只提示"暂时没资源"。

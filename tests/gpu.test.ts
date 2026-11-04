@@ -154,6 +154,29 @@ describe("pod mode", () => {
     expect((await repo.getGpuPod(before))!.status).toBe("terminated");
   });
 
+  it("adopts a pod created by hand and never replaces it when its GPU is gone", async () => {
+    scenario.startFails = true;
+    scenario.podStatus = "EXITED";
+    const deletesBefore = calls.filter((c) => c.method === "DELETE").length;
+    const adopted = await gpu.adoptPod("pod77");
+    expect(adopted.pod!.id).toBe("pod77");
+    expect(adopted.pod!.adopted).toBe(true);
+    expect(adopted.status).toBe("stopped");
+    const state = await gpu.startGpu(web, true);
+    expect(state.pod!.id).toBe("pod77");
+    expect(state.status).toBe("unavailable");
+    expect(calls.filter((c) => c.method === "DELETE").length).toBe(deletesBefore);
+    expect((await repo.getGpuPod("pod77"))!.adopted).toBe(true);
+    scenario.startFails = false;
+    scenario.podStatus = "RUNNING";
+    expect((await gpu.startGpu(web, true)).status).toBe("starting");
+    const recipe = gpu.manualPodRecipe();
+    expect(recipe.image).toBe("me/comfy:1");
+    expect(recipe.ports).toContain("8000/http");
+    expect(recipe.env.STUDIO_WORKER_TOKEN).toBe("tok");
+    expect(recipe.env.STUDIO_BUNDLE_URL).toContain("/api/pod/bundle?token=tok");
+  });
+
   it("falls back to GraphQL, then the built-in catalog, when the REST listing fails", async () => {
     const { RunPodPodsClient, KNOWN_GPU_TYPES } = await import("@/studio/backends/runpod-pods");
     const seen: string[] = [];

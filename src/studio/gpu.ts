@@ -19,7 +19,7 @@ export type GpuState = {
   configured: boolean;
   status: GpuStatus;
   message?: string;
-  pod?: { id: string; name: string; gpuName?: string; gpuTypeId?: string; dataCenter?: string; costPerHr?: number; hostUrl?: string; createdAt: number; startedAt?: number; lastActivityAt?: number };
+  pod?: { id: string; name: string; gpuName?: string; gpuTypeId?: string; dataCenter?: string; costPerHr?: number; hostUrl?: string; createdAt: number; startedAt?: number; lastActivityAt?: number; adopted?: boolean };
   uptimeSeconds: number;
   sessionUsd: number;
   lifetimeUsd: number;
@@ -92,7 +92,7 @@ export async function getGpuState(): Promise<GpuState> {
   const rate = (pod.costPerHr ?? 0) / 3600;
   return {
     mode, configured, status: pod.status, message: pod.message,
-    pod: { id: pod.id, name: pod.name, gpuName: pod.gpuName, gpuTypeId: pod.gpuTypeId, dataCenter: pod.dataCenter, costPerHr: pod.costPerHr, hostUrl: pod.hostUrl, createdAt: pod.createdAt, startedAt: pod.startedAt, lastActivityAt: pod.lastActivityAt },
+    pod: { id: pod.id, name: pod.name, gpuName: pod.gpuName, gpuTypeId: pod.gpuTypeId, dataCenter: pod.dataCenter, costPerHr: pod.costPerHr, hostUrl: pod.hostUrl, createdAt: pod.createdAt, startedAt: pod.startedAt, lastActivityAt: pod.lastActivityAt, adopted: pod.adopted },
     uptimeSeconds: uptime,
     sessionUsd: round(uptime * rate),
     lifetimeUsd: round((pod.accumulatedSeconds + uptime) * rate),
@@ -152,8 +152,13 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
       await repo.updateGpuPod(pod.id, { status: "starting", message: "resuming", startedAt: Date.now(), costPerHr: record.costPerHr, hostUrl: podProxyUrl(pod.id, pc.podPort) });
       return getGpuState();
     } catch (caught) {
-      /* The stopped pod lost its GPU: let it go and start over on the allow-list. */
       const why = caught instanceof Error ? caught.message : String(caught);
+      if (pod.adopted) {
+        /* A hand-made pod is never replaced: say so and let the user resume it in the console. */
+        await repo.updateGpuPod(pod.id, { status: "unavailable", message: `暂时没资源 — resume failed (${why}). This pod was created by hand; start it in the RunPod console or adopt another.` });
+        return getGpuState();
+      }
+      /* The stopped pod lost its GPU: let it go and start over on the allow-list. */
       try {
         await client.terminatePod(pod.id);
       } catch {
@@ -317,6 +322,49 @@ export async function podPlacements(): Promise<Array<{ dataCenterIds: string[]; 
   const last = (await repo.listGpuPods(5)).find((p) => p.dataCenter)?.dataCenter;
   if (last) list.sort((a, b) => Number(b.dataCenterIds.includes(last)) - Number(a.dataCenterIds.includes(last)));
   return list;
+}
+
+/** Take over a pod created in the RunPod console (the way around volume
+    types the API cannot attach yet). The studio then starts, stops and uses
+    it like its own, but never terminates and replaces it. */
+export async function adoptPod(podId: string): Promise<GpuState> {
+  const pc = config.runpodPod();
+  const record = await pods().getPod(podId);
+  if (!record) throw new StudioError("not_found", `RunPod has no pod ${podId} for this API key`);
+  const current = await repo.currentGpuPod();
+  if (current && current.id !== podId && !current.id.startsWith(UNAVAILABLE_PREFIX)) {
+    await repo.updateGpuPod(current.id, { status: "terminated", message: `replaced by adopted pod ${podId}` });
+  }
+  const running = record.desiredStatus.toUpperCase() === "RUNNING";
+  await repo.insertGpuPod({
+    id: record.id, name: record.name || podId, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName, dataCenter: record.dataCenterId,
+    status: running ? "starting" : "stopped", message: running ? "adopted; checking the job server" : "adopted (stopped)", costPerHr: record.costPerHr,
+    hostUrl: podProxyUrl(record.id, pc.podPort), adopted: true,
+  });
+  if (running) await repo.updateGpuPod(record.id, { startedAt: Date.now() });
+  await refreshGpu();
+  return getGpuState();
+}
+
+/** Everything to paste into the RunPod console when creating the pod by hand. */
+export function manualPodRecipe(): { image: string; ports: string[]; containerDiskGb: number; volumeMountPath: string; env: Record<string, string>; dockerStartCmd: string; gpuTypes: string[]; notes: string[] } {
+  const pc = config.runpodPod();
+  return {
+    image: pc.image,
+    ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
+    containerDiskGb: pc.containerDiskGb,
+    volumeMountPath: pc.volumeMountPath,
+    env: podEnv(),
+    dockerStartCmd: pc.bootstrap ? bootstrapCommand().map((p) => (p.includes(" ") ? JSON.stringify(p) : p)).join(" ") : "(image default)",
+    gpuTypes: pc.gpuTypeIds,
+    notes: [
+      "Attach the global volume (minimax-h3-models) at the mount path.",
+      "Expose the HTTP ports; the studio reaches the job server through RunPod's proxy on the first port.",
+      "Paste the env vars exactly; STUDIO_BUNDLE_URL carries the worker token.",
+      "Set the container start command (Docker command) to dockerStartCmd so the pod fetches the job server at boot.",
+      "After the pod is created, paste its id into Settings → GPU pod → Adopt.",
+    ],
+  };
 }
 
 /** What RunPod shows this key: the volumes it can attach, with the one the
