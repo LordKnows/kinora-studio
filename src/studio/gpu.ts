@@ -319,6 +319,15 @@ export async function podPlacements(): Promise<Array<{ dataCenterIds: string[]; 
   return list;
 }
 
+/** What RunPod shows this key: the volumes it can attach, with the one the
+    studio is configured to use flagged. */
+export async function listVolumes(): Promise<{ configured: string | undefined; volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string; isConfigured: boolean }> }> {
+  const pc = config.runpodPod();
+  const configured = pc.volumes[0]?.volumeId ?? pc.networkVolumeId;
+  const volumes = (await pods().listNetworkVolumes()).map((v) => ({ id: v.id, name: v.name, size: v.size, dataCenterId: v.dataCenterId, isConfigured: v.id === configured }));
+  return { configured, volumes };
+}
+
 export function estimatedPodUsdPerHour(pod?: repo.GpuPod): number {
   return pod?.costPerHr ?? Number(process.env.RUNPOD_POD_USD_PER_HOUR ?? "3");
 }
