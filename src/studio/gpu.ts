@@ -135,7 +135,8 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
   if (desired === "RUNNING") {
     const health = await new PodBackend({ hostUrl: patch.hostUrl!, token: config.runpodPod().workerToken }).health();
     patch.status = health.ok ? "running" : "starting";
-    patch.message = health.ok ? null : `booting: ${health.why ?? "not answering yet"}`;
+    const ports = record.exposedPorts.length ? ` RunPod reports exposed ports: ${record.exposedPorts.join(", ")}.` : " RunPod reports no exposed ports yet.";
+    patch.message = health.ok ? null : `booting: ${health.why ?? "not answering yet"}${/\(404\)|404/.test(health.why ?? "") ? ports : ""}`;
     if (pod.status !== "running" && pod.status !== "starting") patch.startedAt = Date.now();
     else if (!pod.startedAt) patch.startedAt = Date.now();
   } else if (desired === "EXITED" || desired === "STOPPED" || desired === "TERMINATED") {

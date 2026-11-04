@@ -62,6 +62,7 @@ export class PodBackend implements GenerationBackend {
       const message = caught instanceof Error ? caught.message : String(caught);
       const status = /\((\d{3})\)/.exec(message)?.[1];
       const why = status === "401" ? "job server up but it rejects STUDIO_WORKER_TOKEN: the pod's token differs from the Worker secret"
+        : status === "404" ? "proxy 404: nothing is published on the job-server port — either the pod does not expose it as http, or the job server never started (see the container log)"
         : status === "502" || status === "503" || status === "504" ? `nothing listening on the job-server port yet (proxy ${status}); the boot script is still running or failed — see the container log`
         : message;
       return { ok: false, why, detail: message };

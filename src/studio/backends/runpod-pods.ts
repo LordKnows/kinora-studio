@@ -18,6 +18,8 @@ export type PodRecord = {
   gpuDisplayName?: string;
   dataCenterId?: string;
   portMappings: Record<string, number>;
+  /** Ports RunPod reports as exposed ("8000/http"), when it reports any. */
+  exposedPorts: string[];
   publicIp?: string;
   lastStartedAt?: string;
 };
@@ -194,7 +196,7 @@ export class RunPodPodsClient {
   async startPod(id: string): Promise<PodRecord> {
     if (this.v2()) {
       await this.callV2("POST", `/pods/${encodeURIComponent(id)}/action`, { action: "start" });
-      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "STARTING", portMappings: {} };
+      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "STARTING", portMappings: {}, exposedPorts: [] };
     }
     return mapPod(await this.call("POST", `/pods/${encodeURIComponent(id)}/start`));
   }
@@ -229,7 +231,7 @@ export class RunPodPodsClient {
     try {
       return mapPod(answer);
     } catch {
-      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "UNKNOWN", portMappings: {} };
+      return (await this.getPod(id)) ?? { id, name: "", desiredStatus: "UNKNOWN", portMappings: {}, exposedPorts: [] };
     }
   }
 
@@ -385,9 +387,21 @@ export function mapPod(payload: unknown): PodRecord {
   if (pm && typeof pm === "object" && !Array.isArray(pm)) {
     for (const [k, v] of Object.entries(pm as Record<string, unknown>)) if (typeof v === "number") mappings[k] = v;
   }
+  const exposed: string[] = [];
+  const runtimePorts = asRecord(r.runtime).ports;
+  if (Array.isArray(runtimePorts)) {
+    for (const p of runtimePorts) {
+      const pr = asRecord(p);
+      const priv = num(pr.privatePort) ?? num(pr.private) ?? num(pr.port);
+      if (priv !== undefined) exposed.push(`${priv}/${str(pr.type) ?? "?"}`);
+    }
+  }
+  if (Array.isArray(r.ports)) for (const p of r.ports) if (typeof p === "string") exposed.push(p);
+  for (const k of Object.keys(mappings)) if (!exposed.some((e) => e.startsWith(`${k}/`))) exposed.push(`${k}/?`);
   return {
     id,
     name: str(r.name) ?? "",
+    exposedPorts: [...new Set(exposed)],
     desiredStatus: str(r.desiredStatus) ?? str(r.status) ?? "UNKNOWN",
     costPerHr: num(r.costPerHr) ?? num(r.cost) ?? num(asRecord(r.cost).perHour) ?? num(asRecord(r.cost).hourly),
     gpuTypeId: str(machine.gpuTypeId) ?? str(gpu.id) ?? str(r.gpuTypeId),
