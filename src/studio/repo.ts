@@ -4,8 +4,8 @@ import { newId } from "./ids";
 import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
-  Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus,
-  Job, JobKind, JobStatus, Project, Review, Scene, Script, Shot, Take, TakeStatus, Timeline,
+  Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
+  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeStatus, Timeline,
 } from "./types";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
@@ -466,6 +466,7 @@ function mapTake(r: Row): Take {
     input: json(r.input_json, {}), requestId: opt(r.request_id, str), status: str(r.status) as TakeStatus,
     resultUrl: opt(r.result_url, str), lastFrameUrl: opt(r.last_frame_url, str), thumbUrls: json<string[]>(r.thumb_urls_json, []),
     executionMs: opt(r.execution_ms, num), costUsd: opt(r.cost_usd, num), seed: opt(r.seed, num), error: opt(r.error, str),
+    gpuTypeId: opt(r.gpu_type_id, str), gpuCostPerHr: opt(r.gpu_cost_per_hr, num), outputSeconds: opt(r.output_seconds, num),
     review: opt(r.review_json, (v) => json<Review | undefined>(v, undefined)),
     createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
   };
@@ -513,20 +514,102 @@ export async function findTakeByRequest(requestId: string): Promise<Take | undef
 export async function updateTake(id: string, patch: Partial<{
   requestId: string; status: TakeStatus; resultUrl: string; lastFrameUrl: string; thumbUrls: string[];
   executionMs: number; costUsd: number; error: string | null; review: Review; finishedAt: number; input: Record<string, unknown>;
+  gpuTypeId: string; gpuCostPerHr: number; outputSeconds: number;
 }>): Promise<Take> {
   const cur = await getTake(id);
   const v = <T>(n: T | undefined, c: T | undefined): T | null => (n === undefined ? (c ?? null) : n);
   await (await db()).run(
-    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ? WHERE id = ?`,
+    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ?, gpu_type_id = ?, gpu_cost_per_hr = ?, output_seconds = ? WHERE id = ?`,
     [
       v(patch.requestId, cur.requestId), patch.status ?? cur.status, v(patch.resultUrl, cur.resultUrl), v(patch.lastFrameUrl, cur.lastFrameUrl),
       JSON.stringify(patch.thumbUrls ?? cur.thumbUrls), v(patch.executionMs, cur.executionMs), v(patch.costUsd, cur.costUsd),
       patch.error === undefined ? (cur.error ?? null) : patch.error,
       patch.review ? JSON.stringify(patch.review) : (cur.review ? JSON.stringify(cur.review) : null),
-      v(patch.finishedAt, cur.finishedAt), JSON.stringify(patch.input ?? cur.input), id,
+      v(patch.finishedAt, cur.finishedAt), JSON.stringify(patch.input ?? cur.input),
+      v(patch.gpuTypeId, cur.gpuTypeId), v(patch.gpuCostPerHr, cur.gpuCostPerHr), v(patch.outputSeconds, cur.outputSeconds), id,
     ],
   );
   return getTake(id);
+}
+
+/** Per GPU type: how much GPU time bought how many seconds of video, and
+    what that cost at the price the pod was billed. */
+export async function gpuTypeStats(): Promise<GpuTypeStats[]> {
+  const rows = await (await db()).all(
+    `SELECT gpu_type_id, COUNT(*) n, SUM(execution_ms) ms, SUM(output_seconds) secs, MAX(gpu_cost_per_hr) hr
+     FROM takes WHERE status = 'completed' AND gpu_type_id IS NOT NULL AND execution_ms IS NOT NULL
+     GROUP BY gpu_type_id ORDER BY n DESC`,
+  );
+  return rows.map((r) => {
+    const genSeconds = num(r.ms) / 1000;
+    const videoSeconds = num(r.secs);
+    const speed = videoSeconds > 0 ? genSeconds / videoSeconds : 0;
+    const usdPerHr = opt(r.hr, num);
+    return {
+      gpuTypeId: str(r.gpu_type_id), takes: num(r.n), genSeconds: Math.round(genSeconds), videoSeconds: Math.round(videoSeconds * 10) / 10,
+      secondsPerOutputSecond: Math.round(speed * 100) / 100, usdPerHr,
+      usdPerVideoSecond: usdPerHr !== undefined && speed > 0 ? Math.round((speed * usdPerHr) / 3600 * 10000) / 10000 : undefined,
+    };
+  });
+}
+
+/* ---------- loras ---------- */
+
+function mapLora(r: Row): Lora {
+  return {
+    id: str(r.id), name: str(r.name), kind: str(r.kind) as LoraKind, filename: str(r.filename), hfUrl: opt(r.hf_url, str),
+    triggerWords: str(r.trigger_words), defaultStrength: num(r.default_strength), stepsHint: opt(r.steps_hint, num),
+    workflows: json<string[]>(r.workflows_json, []), notes: str(r.notes), createdAt: num(r.created_at), updatedAt: num(r.updated_at),
+  };
+}
+
+export async function listLoras(): Promise<Lora[]> {
+  const rows = await (await db()).all("SELECT * FROM loras ORDER BY kind, name");
+  return rows.map(mapLora);
+}
+
+export async function getLora(id: string): Promise<Lora> {
+  const row = await (await db()).get("SELECT * FROM loras WHERE id = ?", [id]);
+  if (!row) throw notFound("lora", id);
+  return mapLora(row);
+}
+
+export async function getLoras(ids: string[]): Promise<Map<string, Lora>> {
+  const out = new Map<string, Lora>();
+  if (ids.length === 0) return out;
+  const rows = await (await db()).all(`SELECT * FROM loras WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+  for (const row of rows) {
+    const l = mapLora(row);
+    out.set(l.id, l);
+  }
+  return out;
+}
+
+export async function createLora(input: { name: string; kind: LoraKind; filename: string; hfUrl?: string; triggerWords: string; defaultStrength: number; stepsHint?: number; workflows: string[]; notes: string }): Promise<Lora> {
+  const id = newId("lora");
+  const now = Date.now();
+  await (await db()).run(
+    "INSERT INTO loras (id, name, kind, filename, hf_url, trigger_words, default_strength, steps_hint, workflows_json, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, input.name, input.kind, input.filename, input.hfUrl ?? null, input.triggerWords, input.defaultStrength, input.stepsHint ?? null, JSON.stringify(input.workflows), input.notes, now, now],
+  );
+  return getLora(id);
+}
+
+export async function updateLora(id: string, patch: Partial<{ name: string; kind: LoraKind; filename: string; hfUrl: string | null; triggerWords: string; defaultStrength: number; stepsHint: number | null; workflows: string[]; notes: string }>): Promise<Lora> {
+  const cur = await getLora(id);
+  await (await db()).run(
+    "UPDATE loras SET name = ?, kind = ?, filename = ?, hf_url = ?, trigger_words = ?, default_strength = ?, steps_hint = ?, workflows_json = ?, notes = ?, updated_at = ? WHERE id = ?",
+    [
+      patch.name ?? cur.name, patch.kind ?? cur.kind, patch.filename ?? cur.filename,
+      patch.hfUrl === undefined ? (cur.hfUrl ?? null) : patch.hfUrl, patch.triggerWords ?? cur.triggerWords, patch.defaultStrength ?? cur.defaultStrength,
+      patch.stepsHint === undefined ? (cur.stepsHint ?? null) : patch.stepsHint, JSON.stringify(patch.workflows ?? cur.workflows), patch.notes ?? cur.notes, Date.now(), id,
+    ],
+  );
+  return getLora(id);
+}
+
+export async function deleteLora(id: string): Promise<void> {
+  await (await db()).run("DELETE FROM loras WHERE id = ?", [id]);
 }
 
 /* ---------- timeline ---------- */

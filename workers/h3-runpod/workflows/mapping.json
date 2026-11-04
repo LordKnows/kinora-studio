@@ -1,57 +1,201 @@
 {
-  "_comment": "Per workflow: which API-format node id / input name receives each job value. Edit after exporting your real H3 graphs from ComfyUI (Save (API Format)). Optional fields may be null. reference_images lists one target per reference slot.",
+  "_comment": "Per workflow: which API-format node id / input name receives each job value. Edit after exporting your real H3 graphs from ComfyUI (Save (API Format)). Optional fields may be null. reference_images lists one target per reference slot. loras: one entry per LoraLoader node in the graph, in priority order; unused slots get strength 0.",
   "T2VA": {
     "template": "T2VA",
-    "prompt": ["6", "text"],
-    "negative": ["7", "text"],
-    "seconds": ["3", "seconds"],
-    "width": ["3", "width"],
-    "height": ["3", "height"],
-    "steps": ["3", "steps"],
-    "seed": ["3", "seed"],
-    "enhance": ["9", "enabled"],
+    "prompt": [
+      "6",
+      "text"
+    ],
+    "negative": [
+      "7",
+      "text"
+    ],
+    "seconds": [
+      "3",
+      "seconds"
+    ],
+    "width": [
+      "3",
+      "width"
+    ],
+    "height": [
+      "3",
+      "height"
+    ],
+    "steps": [
+      "3",
+      "steps"
+    ],
+    "seed": [
+      "3",
+      "seed"
+    ],
+    "enhance": [
+      "9",
+      "enabled"
+    ],
     "output_node": "8",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "loras": [
+      {
+        "node": "12",
+        "name": "lora_name",
+        "strength": "strength_model",
+        "strength_clip": "strength_clip"
+      }
+    ]
   },
   "I2VA": {
     "template": "I2VA",
-    "prompt": ["6", "text"],
-    "negative": ["7", "text"],
-    "seconds": ["3", "seconds"],
-    "width": ["3", "width"],
-    "height": ["3", "height"],
-    "steps": ["3", "steps"],
-    "seed": ["3", "seed"],
-    "first_frame": ["10", "image"],
+    "prompt": [
+      "6",
+      "text"
+    ],
+    "negative": [
+      "7",
+      "text"
+    ],
+    "seconds": [
+      "3",
+      "seconds"
+    ],
+    "width": [
+      "3",
+      "width"
+    ],
+    "height": [
+      "3",
+      "height"
+    ],
+    "steps": [
+      "3",
+      "steps"
+    ],
+    "seed": [
+      "3",
+      "seed"
+    ],
+    "first_frame": [
+      "10",
+      "image"
+    ],
     "output_node": "8",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "loras": [
+      {
+        "node": "12",
+        "name": "lora_name",
+        "strength": "strength_model",
+        "strength_clip": "strength_clip"
+      }
+    ]
   },
   "FL2VA": {
     "template": "FL2VA",
-    "prompt": ["6", "text"],
-    "negative": ["7", "text"],
-    "seconds": ["3", "seconds"],
-    "width": ["3", "width"],
-    "height": ["3", "height"],
-    "steps": ["3", "steps"],
-    "seed": ["3", "seed"],
-    "first_frame": ["10", "image"],
-    "last_frame": ["11", "image"],
+    "prompt": [
+      "6",
+      "text"
+    ],
+    "negative": [
+      "7",
+      "text"
+    ],
+    "seconds": [
+      "3",
+      "seconds"
+    ],
+    "width": [
+      "3",
+      "width"
+    ],
+    "height": [
+      "3",
+      "height"
+    ],
+    "steps": [
+      "3",
+      "steps"
+    ],
+    "seed": [
+      "3",
+      "seed"
+    ],
+    "first_frame": [
+      "10",
+      "image"
+    ],
+    "last_frame": [
+      "11",
+      "image"
+    ],
     "output_node": "8",
-    "timeout_s": 1800
+    "timeout_s": 1800,
+    "loras": [
+      {
+        "node": "12",
+        "name": "lora_name",
+        "strength": "strength_model",
+        "strength_clip": "strength_clip"
+      }
+    ]
   },
   "R2VA": {
     "template": "R2VA",
-    "prompt": ["6", "text"],
-    "negative": ["7", "text"],
-    "seconds": ["3", "seconds"],
-    "width": ["3", "width"],
-    "height": ["3", "height"],
-    "steps": ["3", "steps"],
-    "seed": ["3", "seed"],
-    "reference_images": [["20", "image"], ["21", "image"], ["22", "image"]],
-    "video": ["30", "video"],
+    "prompt": [
+      "6",
+      "text"
+    ],
+    "negative": [
+      "7",
+      "text"
+    ],
+    "seconds": [
+      "3",
+      "seconds"
+    ],
+    "width": [
+      "3",
+      "width"
+    ],
+    "height": [
+      "3",
+      "height"
+    ],
+    "steps": [
+      "3",
+      "steps"
+    ],
+    "seed": [
+      "3",
+      "seed"
+    ],
+    "reference_images": [
+      [
+        "20",
+        "image"
+      ],
+      [
+        "21",
+        "image"
+      ],
+      [
+        "22",
+        "image"
+      ]
+    ],
+    "video": [
+      "30",
+      "video"
+    ],
     "output_node": "8",
-    "timeout_s": 2400
+    "timeout_s": 2400,
+    "loras": [
+      {
+        "node": "12",
+        "name": "lora_name",
+        "strength": "strength_model",
+        "strength_clip": "strength_clip"
+      }
+    ]
   }
 }

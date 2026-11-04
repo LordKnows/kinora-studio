@@ -8,6 +8,7 @@ import type { LookSettings } from "@/studio/schemas";
 
 import { patch } from "./api";
 import { Button, Chips, ErrorBanner, Field, useAction } from "./common";
+import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
 
 const RATIOS: LookSettings["aspectRatio"][] = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"];
@@ -91,6 +92,11 @@ export function LookPage() {
               <input type="checkbox" checked={look.upscale} onChange={(e) => set("upscale", e.target.checked)} />
               Upscale at export (master-upscaled preset)
             </label>
+          </div>
+          <div className="st-card st-stack">
+            <span className="st-label">LoRAs</span>
+            <LoraPicker value={look.loras} onChange={(v) => set("loras", v)} />
+            <span className="st-muted">Project defaults for every shot; a shot can override them. A speed LoRA’s steps hint becomes the default step count.</span>
           </div>
           <div className="st-card st-stack">
             <span className="st-label">Constraints (negative)</span>

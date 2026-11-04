@@ -152,3 +152,73 @@ describe("pod mode", () => {
     expect(types.find((t) => t.id === "NVIDIA RTX 4090")?.allowed).toBe(false);
   });
 });
+
+describe("gpu stats and loras", () => {
+  it("records GPU type, price and output seconds on completed takes and aggregates per type", async () => {
+    const { mapRunPodStatus } = await import("@/studio/backends/runpod");
+    const project = await repo.createProject({ name: "Stats", budgetCapUsd: 50 });
+    const script = await repo.createScript(project.id, "x");
+    await repo.approveScript(script.id);
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "s", shots: [shot()] }] }));
+    await repo.setShotlistApproval(project.id, "approved");
+    const sid = view.scenes[0]!.shots[0]!.id;
+    /* a running pod at $2.5/h on an H100 (from the earlier tests' replacement pod) */
+    scenario.podStatus = "RUNNING";
+    scenario.healthy = true;
+    await gpu.refreshGpu();
+    const { takes } = await orch.createTakes(sid, { n: 2, confirm: true }, web);
+    for (const take of takes) {
+      const fresh = await repo.getTake(take.id);
+      await orch.applyTakeStatus(fresh, mapRunPodStatus({ id: fresh.requestId!, status: "COMPLETED", executionTime: 60_000, output: { url: "https://r2/x.mp4", duration_s: 5 } }));
+    }
+    const done = await repo.getTake(takes[0]!.id);
+    expect(done.gpuTypeId).toBe("NVIDIA H100 80GB HBM3");
+    expect(done.gpuCostPerHr).toBe(2.5);
+    expect(done.outputSeconds).toBe(5);
+    expect(done.costUsd).toBeCloseTo((60_000 / 3_600_000) * 2.5, 2);
+
+    const stats = await gpu.gpuStats();
+    expect(stats).toHaveLength(1);
+    expect(stats[0]).toMatchObject({ gpuTypeId: "NVIDIA H100 80GB HBM3", takes: 2, genSeconds: 120, videoSeconds: 10, secondsPerOutputSecond: 12, usdPerHr: 2.5 });
+    expect(stats[0]!.usdPerVideoSecond).toBeCloseTo((12 * 2.5) / 3600, 4);
+
+    const basis = await gpu.measuredForEstimate();
+    expect(basis.secondsPerOutputSecond).toBe(12);
+    const compiled = await orch.compileForShot(sid);
+    expect(compiled.estimate.source).toBe("measured");
+
+    process.env.RUNPOD_GPU_PRIORITY = "cost";
+    expect(await gpu.prioritizedGpuTypes()).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000"]);
+    process.env.RUNPOD_GPU_PRIORITY = "availability";
+  });
+
+  it("applies project LoRAs, shot overrides, trigger words and the speed LoRA's step hint", async () => {
+    const speed = await repo.createLora({ name: "H3 lightx2v 8-step", kind: "speed", filename: "h3_lightx2v_8step.safetensors", hfUrl: "https://huggingface.co/o/r/blob/main/h3_lightx2v_8step.safetensors", triggerWords: "", defaultStrength: 1, stepsHint: 8, workflows: [], notes: "" });
+    const style = await repo.createLora({ name: "Neon noir", kind: "style", filename: "neon_noir.safetensors", triggerWords: "neon noir, wet asphalt", defaultStrength: 0.7, workflows: ["T2VA"], notes: "" });
+    const project = await repo.createProject({ name: "Lora film", look: { loras: [{ id: speed.id }, { id: style.id, strength: 0.5 }] } });
+    const script = await repo.createScript(project.id, "x");
+    await repo.approveScript(script.id);
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "s", shots: [shot(), shot()] }] }));
+    const [a, b] = view.scenes[0]!.shots;
+
+    const ca = await orch.compileForShot(a!.id);
+    expect(ca.input.loras).toEqual([
+      { name: "H3 lightx2v 8-step", file: "h3_lightx2v_8step.safetensors", strength: 1, hf_url: "https://huggingface.co/o/r/blob/main/h3_lightx2v_8step.safetensors", kind: "speed" },
+      { name: "Neon noir", file: "neon_noir.safetensors", strength: 0.5, kind: "style" },
+    ]);
+    expect(ca.input.steps).toBe(8);
+    expect(ca.prompt).toContain("neon noir, wet asphalt");
+
+    await orch.patchShot(b!.id, { loras: [] });
+    const cb = await orch.compileForShot(b!.id);
+    expect(cb.input.loras).toEqual([]);
+    expect(cb.prompt).not.toContain("neon noir");
+
+    /* a style LoRA scoped to T2VA is dropped on other workflows */
+    const hero = await repo.createAsset({ projectId: project.id, url: "https://r2/h.png", kind: "image", source: "upload" });
+    await orch.patchShot(a!.id, { mode: "keyframe", heroAssetId: hero.id });
+    const ck = await orch.compileForShot(a!.id);
+    expect(ck.workflow).toBe("I2VA");
+    expect(ck.input.loras.map((l) => l.name)).toEqual(["H3 lightx2v 8-step"]);
+  });
+});

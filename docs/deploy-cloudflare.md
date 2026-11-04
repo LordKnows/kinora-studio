@@ -22,8 +22,12 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 
 ### 1b. 升级表结构（已有数据库时）
 
-Pod 模式新增了 `gpu_pods` 表。D1 → `studio` → Console，把 `migrations/0002_gpu.sql`
-的内容粘进去执行一次即可（语句是幂等的，重复执行无害）。
+新功能会带来新迁移，每个只执行一次（D1 → `studio` → Console 粘贴执行）：
+
+| 文件 | 内容 |
+|---|---|
+| `migrations/0002_gpu.sql` | Pod 模式：`gpu_pods` 表（幂等，重复执行无害） |
+| `migrations/0003_loras_stats.sql` | LoRA 库 `loras` 表；`takes` 表加 GPU 型号、时价、视频秒数三列（**只能执行一次**，ALTER 重复会报列已存在，报错可忽略） |
 
 ## 2. 建对象存储（R2）
 
@@ -188,3 +192,18 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
    `mapping.json`。
 
 Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，列为 TODO。
+
+## 10. GPU 统计与 LoRA
+
+- **GPU 统计**：每个完成的 take 记录它跑在哪种 GPU、当时的时价、生成耗时和视频秒数。
+  Settings → GPU pod → "Generation stats by GPU" 按型号汇总总生成时间、总视频时长、
+  每秒视频耗费的 GPU 秒数和美元。有数据后成本预估自动改用实测速度（编译预览会标
+  "measured"）。把 `RUNPOD_GPU_PRIORITY` 设为 `cost`，起 Pod 时白名单会按"每秒视频
+  美元"从低到高排序。agent 用 `gpu_stats` 读同一份数据。
+- **LoRA**：`/loras` 页面是全局库，每条记录文件名、HuggingFace 链接、类型（speed /
+  style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Look 页选默认 LoRA
+  （加速 LoRA 放这里），镜头编辑器可覆盖或关闭。编译时把 LoRA 写进 worker 输入，触发词
+  进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。Pod 上缺文件时 handler 按 HF 链接下载到
+  `LORA_DIR`（默认 `/workspace/ComfyUI/models/loras`；受限仓库在 Pod 环境变量里设
+  `HF_TOKEN`）。图里的 LoraLoader 节点要在 `workers/h3-runpod/workflows/mapping.json`
+  的 `loras` 槽位里登记，见那里的 README。

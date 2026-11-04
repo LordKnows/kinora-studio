@@ -100,6 +100,9 @@ export type Take = {
   executionMs?: number;
   costUsd?: number;
   seed?: number;
+  gpuTypeId?: string;
+  gpuCostPerHr?: number;
+  outputSeconds?: number;
   error?: string;
   review?: Review;
   createdAt: number;
@@ -107,6 +110,34 @@ export type Take = {
 };
 
 export type Timeline = TimelineInput;
+
+export type LoraKind = "speed" | "style" | "effect";
+
+export type Lora = {
+  id: string;
+  name: string;
+  kind: LoraKind;
+  filename: string;
+  hfUrl?: string;
+  triggerWords: string;
+  defaultStrength: number;
+  stepsHint?: number;
+  workflows: string[];
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type GpuTypeStats = {
+  gpuTypeId: string;
+  takes: number;
+  genSeconds: number;
+  videoSeconds: number;
+  /** GPU seconds per second of output; the number the cost model needs. */
+  secondsPerOutputSecond: number;
+  usdPerHr?: number;
+  usdPerVideoSecond?: number;
+};
 
 export type ExportStatus = "queued" | "running" | "completed" | "failed";
 

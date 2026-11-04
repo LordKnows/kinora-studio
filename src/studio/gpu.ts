@@ -4,7 +4,7 @@ import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { PodBackend } from "./backends/pod";
 import { RunPodPodsClient, podProxyUrl, type GpuType } from "./backends/runpod-pods";
-import type { Actor } from "./types";
+import type { Actor, GpuTypeStats } from "./types";
 
 /* Pod mode: the studio owns one RunPod pod. It is created on the first
    render, started and stopped from the web UI or the agent, stopped by the
@@ -152,7 +152,7 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
     const record = await client.createPod({
       name: pc.podName,
       imageName: pc.image,
-      gpuTypeIds: pc.gpuTypeIds,
+      gpuTypeIds: await prioritizedGpuTypes(),
       cloudType: pc.cloudType,
       containerDiskInGb: pc.containerDiskGb,
       volumeMountPath: pc.volumeMountPath,
@@ -229,6 +229,32 @@ export async function listGpuTypes(): Promise<Array<GpuType & { allowed: boolean
   const allowed = new Set(config.runpodPod().gpuTypeIds);
   const types = await pods().listGpuTypes();
   return types.map((t) => ({ ...t, allowed: allowed.has(t.id) })).sort((a, b) => Number(b.allowed) - Number(a.allowed) || a.displayName.localeCompare(b.displayName));
+}
+
+/** The per-GPU-type ledger: speed and price per second of video. */
+export async function gpuStats(): Promise<GpuTypeStats[]> {
+  return repo.gpuTypeStats();
+}
+
+/** Measured speed for estimates: the running pod's GPU type when known,
+    otherwise the cheapest-per-video-second type we have data for. */
+export async function measuredForEstimate(): Promise<{ secondsPerOutputSecond?: number; usdPerHr?: number; gpuTypeId?: string }> {
+  const stats = await repo.gpuTypeStats();
+  if (stats.length === 0) return {};
+  const pod = await repo.currentGpuPod();
+  const current = pod?.gpuTypeId ? stats.find((s) => s.gpuTypeId === pod.gpuTypeId) : undefined;
+  const pick = current ?? [...stats].sort((a, b) => (a.usdPerVideoSecond ?? Infinity) - (b.usdPerVideoSecond ?? Infinity))[0]!;
+  return { secondsPerOutputSecond: pick.secondsPerOutputSecond || undefined, usdPerHr: pod?.costPerHr ?? pick.usdPerHr, gpuTypeId: pick.gpuTypeId };
+}
+
+/** The allow-list in the order a pod should try it. RUNPOD_GPU_PRIORITY=cost
+    sorts by measured USD per second of video (unknown types last); otherwise
+    the configured order stands and RunPod picks by availability. */
+export async function prioritizedGpuTypes(): Promise<string[]> {
+  const ids = config.runpodPod().gpuTypeIds;
+  if ((process.env.RUNPOD_GPU_PRIORITY ?? "availability") !== "cost") return ids;
+  const stats = new Map((await repo.gpuTypeStats()).map((s) => [s.gpuTypeId, s.usdPerVideoSecond ?? Infinity]));
+  return [...ids].sort((a, b) => (stats.get(a) ?? Infinity) - (stats.get(b) ?? Infinity));
 }
 
 export function estimatedPodUsdPerHour(pod?: repo.GpuPod): number {

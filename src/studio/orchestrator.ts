@@ -1,7 +1,7 @@
 import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } from "./checkpoints";
 import { CompileError, compileShot, type CompiledJob } from "./compiler";
 import { config } from "./config";
-import { actualTakeUsd, estimateExport, estimateTake, reservedUsd, type Estimate } from "./cost";
+import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate } from "./cost";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
@@ -182,14 +182,20 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     }
   }
   const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
-  return { shot, project, elements, assets, prevLastFrameUrl, sourceTake, steps: opts?.steps, seed: opts?.seed };
+  const refs = shot.spec.loras ?? project.look.loras;
+  const loraRows = await repo.getLoras(refs.map((r) => r.id));
+  const loras = refs.flatMap((r) => {
+    const lora = loraRows.get(r.id);
+    return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
+  });
+  return { shot, project, elements, assets, prevLastFrameUrl, sourceTake, loras, steps: opts?.steps, seed: opts?.seed };
 }
 
 export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number }): Promise<CompiledJob & { estimate: Estimate }> {
   const ctx = await compileContext(shotId, opts);
   try {
     const job = compileShot({ ...ctx, look: ctx.project.look });
-    return { ...job, estimate: estimateTake(ctx.shot.spec.durationS, opts?.steps ?? 8) };
+    return { ...job, estimate: estimateTake(ctx.shot.spec.durationS, job.input.steps, 1, await gpu.measuredForEstimate()) };
   } catch (caught) {
     if (caught instanceof CompileError) throw new StudioError("validation", caught.message, { shotId });
     throw caught;
@@ -202,11 +208,6 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed });
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
-  const estimate = estimateTake(ctx.shot.spec.durationS, req.steps ?? 8, req.n);
-  const reserved = reservedUsd(await repo.listProjectActiveTakes(ctx.project.id));
-  assertBudget(ctx.project, estimate.usd + reserved);
-  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `${req.n} take(s) of ${ctx.shot.spec.durationS}s`);
-
   let compiled: CompiledJob;
   try {
     compiled = compileShot({ ...ctx, look: ctx.project.look });
@@ -214,6 +215,10 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
     if (caught instanceof CompileError) throw new StudioError("validation", caught.message, { shotId });
     throw caught;
   }
+  const estimate = estimateTake(ctx.shot.spec.durationS, compiled.input.steps, req.n, await gpu.measuredForEstimate());
+  const reserved = reservedUsd(await repo.listProjectActiveTakes(ctx.project.id));
+  assertBudget(ctx.project, estimate.usd + reserved);
+  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `${req.n} take(s) of ${ctx.shot.spec.durationS}s`);
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
 
@@ -276,11 +281,15 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
       const url = str(out.url) ?? str(out.video_url);
       if (!url) return repo.updateTake(take.id, { status: "failed", error: "worker completed without a video url", finishedAt: Date.now() });
       const executionMs = status.executionMs ?? num(out.execution_ms);
-      const costUsd = executionMs ? actualTakeUsd(executionMs) : undefined;
+      /* Pod mode bills per hour: the take's share is its run time at the pod's
+         rate, recorded with the GPU type so speed and price can be compared. */
+      const pod = config.runpodMode() === "pod" ? await repo.currentGpuPod() : undefined;
+      const costUsd = executionMs ? (pod?.costPerHr ? podTakeUsd(executionMs, pod.costPerHr) : actualTakeUsd(executionMs)) : undefined;
       const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
       const lastFrameUrl = str(out.last_frame_url);
       const updated = await repo.updateTake(take.id, {
         status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null,
+        gpuTypeId: pod?.gpuTypeId, gpuCostPerHr: pod?.costPerHr, outputSeconds: num(out.duration_s) ?? num(take.input.seconds),
       });
       if (costUsd) await repo.addSpent(take.projectId, costUsd);
       await gpu.touchGpuActivity();

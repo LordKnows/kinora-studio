@@ -215,3 +215,60 @@ def test_handler_health_lists_templates(monkeypatch):
     monkeypatch.setattr(h.ComfyClient, "health", lambda self: {"reachable": False})
     out = h.handler({"input": {"action": "health"}})
     assert out["ok"] and out["workflows"] == ["T2VA"]
+
+
+# ---- LoRAs ----
+
+
+def test_validate_accepts_loras_and_rejects_paths():
+    base = {"workflow": "T2VA", "prompt": "x", "seconds": 5, "output": {"key": "a/b.mp4"}}
+    params = h.validate_input({**base, "loras": [{"file": "speed.safetensors", "strength": 0.8, "hf_url": "https://huggingface.co/o/r/blob/main/speed.safetensors"}]})
+    assert params["loras"][0]["strength"] == 0.8
+    with pytest.raises(h.JobError):
+        h.validate_input({**base, "loras": [{"file": "../evil.safetensors"}]})
+    with pytest.raises(h.JobError):
+        h.validate_input({**base, "loras": [{"file": "x.safetensors", "strength": 5}]})
+
+
+def test_fill_graph_sets_lora_slots_and_neutralises_unused():
+    mapping = h.load_mapping()["T2VA"]
+    graph = h.load_workflow("T2VA")
+    params = {"prompt": "p", "negative": "", "seconds": 5, "width": 1344, "height": 768, "steps": 8, "seed": 1, "enhance": False, "files": {},
+              "loras": [{"file": "speed.safetensors", "strength": 0.9}]}
+    filled = h.fill_graph(graph, mapping, params)
+    assert filled["12"]["inputs"]["lora_name"] == "speed.safetensors"
+    assert filled["12"]["inputs"]["strength_model"] == 0.9
+    assert filled["12"]["inputs"]["strength_clip"] == 0.9
+    empty = h.fill_graph(graph, mapping, {**params, "loras": []})
+    assert empty["12"]["inputs"]["strength_model"] == 0.0
+
+
+def test_ensure_loras_downloads_missing_from_hf(tmp_path):
+
+    class Res:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def iter_content(self, chunk_size):
+            yield b"weights"
+
+    class Session:
+        calls = []
+
+        def get(self, url, stream=False, timeout=0, headers=None):
+            Session.calls.append(url)
+            return Res()
+
+    paths = h.ensure_loras([{"file": "s.safetensors", "strength": 1, "hf_url": "https://huggingface.co/o/r/blob/main/s.safetensors"}], lora_dir=tmp_path, session=Session())
+    assert paths[0].read_bytes() == b"weights"
+    assert Session.calls == ["https://huggingface.co/o/r/resolve/main/s.safetensors"]
+    # second call: already present, no download
+    h.ensure_loras([{"file": "s.safetensors", "strength": 1, "hf_url": None}], lora_dir=tmp_path, session=Session())
+    assert len(Session.calls) == 1
+    with pytest.raises(h.JobError):
+        h.ensure_loras([{"file": "missing.safetensors", "strength": 1, "hf_url": None}], lora_dir=tmp_path, session=Session())

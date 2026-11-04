@@ -13,6 +13,27 @@ export const SHOT_MODES = ["text", "keyframe", "reference", "edit"] as const;
 export const ELEMENT_KINDS = ["character", "location", "prop"] as const;
 export const EXPORT_PRESETS = ["master-768p", "master-upscaled", "social-9x16", "preview-480p"] as const;
 
+export const LORA_KINDS = ["speed", "style", "effect"] as const;
+
+export const LoraRef = z.object({
+  id: z.string().describe("LoRA id from the library"),
+  strength: z.number().min(0).max(2).optional().describe("Overrides the library default strength"),
+});
+export type LoraRef = z.infer<typeof LoraRef>;
+
+export const LoraInput = z.object({
+  name: z.string().min(1).max(80),
+  kind: z.enum(LORA_KINDS).describe("speed = fewer steps (lightx2v…), style/effect = look"),
+  filename: z.string().min(1).max(200).describe("File name inside ComfyUI's models/loras, e.g. h3_lightx2v_8step.safetensors"),
+  hfUrl: z.string().url().optional().describe("HuggingFace file link; the pod downloads it when the file is missing"),
+  triggerWords: z.string().max(300).default("").describe("Appended to the LOOK block when the LoRA is active"),
+  defaultStrength: z.number().min(0).max(2).default(1),
+  stepsHint: z.number().int().min(1).max(60).optional().describe("speed LoRAs: the step count they are trained for"),
+  workflows: z.array(z.enum(["T2VA", "I2VA", "FL2VA", "R2VA"])).default([]).describe("Empty = every workflow"),
+  notes: z.string().max(1000).default(""),
+});
+export type LoraInput = z.infer<typeof LoraInput>;
+
 export const LookSettings = z.object({
   genre: z.string().max(200).describe("Genre and tone, e.g. 'neo-noir thriller'"),
   palette: z.string().max(200).describe("Colour palette, e.g. 'teal and amber, crushed blacks'"),
@@ -23,6 +44,7 @@ export const LookSettings = z.object({
   resolution: z.literal("768p").default("768p").describe("Self-hosted H3-Base renders 768p only"),
   upscale: z.boolean().default(false).describe("Upscale at export time (master-upscaled preset)"),
   negative: z.array(z.string().max(80)).max(10).default(["no on-screen text", "no logos", "no subtitles"]),
+  loras: z.array(LoraRef).max(6).default([]).describe("Project-wide LoRAs (speed LoRA goes here); shots may override"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
 
@@ -80,6 +102,7 @@ export const ShotBase = z.object({
     sourceTakeId: z.string().optional().describe("edit mode: the take being revised"),
     editInstruction: z.string().max(600).optional().describe("edit mode: only what changes"),
     promptOverride: z.string().max(7000).optional().describe("Replace the compiled prompt entirely"),
+    loras: z.array(LoraRef).max(6).optional().describe("Override the project LoRAs for this shot; [] = none"),
 });
 
 export const ShotInput = ShotBase.superRefine((shot, ctx) => {

@@ -174,7 +174,13 @@ function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView;
   );
 }
 
-type Compiled = { workflow: string; prompt: string; warnings: string[]; estimate: { usd: number; gpuSeconds: number; steps: number } };
+type Compiled = {
+  workflow: string;
+  prompt: string;
+  warnings: string[];
+  estimate: { usd: number; gpuSeconds: number; steps: number; source?: "measured" | "placeholder"; perOutputSecond?: number };
+  input?: { loras?: Array<{ name: string; strength: number; kind: string }> };
+};
 
 function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) {
   const { projectId, view, reload } = useProjectContext();
@@ -282,7 +288,16 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
             <dt>Estimate</dt>
             <dd>
               {usd(data.estimate.usd)} · {Math.round(data.estimate.gpuSeconds)} GPU s
+              <span className="st-muted"> · {data.estimate.source === "measured" ? "measured" : "placeholder constants"}</span>
             </dd>
+            <dt>Steps</dt>
+            <dd className="st-num">{data.estimate.steps}</dd>
+            {data.input?.loras?.length ? (
+              <>
+                <dt>LoRAs</dt>
+                <dd>{data.input.loras.map((l) => `${l.name} ×${l.strength}`).join(", ")}</dd>
+              </>
+            ) : null}
           </dl>
         )}
       </div>

@@ -34,3 +34,15 @@ Field semantics:
 | `video` | uploaded filename of the source clip (edit mode) |
 | `output_node` | the SaveVideo node whose output the handler downloads |
 | `timeout_s` | how long to wait for ComfyUI before failing the job |
+
+## LoRAs
+
+`mapping.json` lists the LoraLoader nodes of each graph under `loras`, in
+priority order: `{"node": "12", "name": "lora_name", "strength": "strength_model",
+"strength_clip": "strength_clip"}`. The Studio sends `loras: [{file, strength,
+hf_url}]`; the handler fills the slots in order and sets unused slots to
+strength 0. Files are read from `LORA_DIR` (default
+`/workspace/ComfyUI/models/loras`); a missing file is downloaded from its
+`hf_url` first (set `HF_TOKEN` on the pod for gated repos). Put the LoRA
+loaders in the graph where ComfyUI's H3 template expects them (between the
+model loader and the sampler) and keep a speed LoRA as slot 1.

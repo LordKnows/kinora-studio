@@ -5,6 +5,7 @@ import { CAMERA_MOVES, SHOT_MODES, type ShotInput } from "@/studio/schemas";
 import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field } from "./common";
+import { LoraPicker } from "./lora-picker";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
    obvious mistakes (beats not tiling the duration) are caught before the
@@ -220,6 +221,27 @@ export function ShotEditor({
         <Field label="Props (max 3)">
           <ElementPick options={props} value={value.props} max={3} onChange={(v) => set("props", v)} />
         </Field>
+      </div>
+
+      <div className="st-card st-stack">
+        <div className="st-row st-row--between">
+          <span className="st-label" style={{ marginBottom: 0 }}>LoRAs</span>
+          <select
+            className="st-select st-input--sm"
+            value={value.loras === undefined ? "inherit" : value.loras.length === 0 ? "none" : "override"}
+            onChange={(e) => set("loras", e.target.value === "inherit" ? undefined : e.target.value === "none" ? [] : value.loras?.length ? value.loras : [])}
+            aria-label="LoRA mode"
+          >
+            <option value="inherit">inherit project LoRAs</option>
+            <option value="override">override</option>
+            <option value="none">none</option>
+          </select>
+        </div>
+        {value.loras === undefined ? (
+          <span className="st-muted">Uses the project Look’s LoRAs.</span>
+        ) : (
+          <LoraPicker compact value={value.loras} onChange={(v) => set("loras", v)} />
+        )}
       </div>
 
       <Field label="Prompt override" hint="Replaces the compiled prompt entirely. Leave empty to let the compiler write it.">

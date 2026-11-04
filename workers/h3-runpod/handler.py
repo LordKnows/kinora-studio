@@ -38,6 +38,8 @@ FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE", "ffprobe")
 THUMB_COUNT = 4
 THUMB_WIDTH = 320
+LORA_DIR = Path(os.environ.get("LORA_DIR", "/workspace/ComfyUI/models/loras"))
+HF_TOKEN = os.environ.get("HF_TOKEN")
 
 
 class JobError(Exception):
@@ -88,6 +90,22 @@ def validate_input(raw: Any) -> dict[str, Any]:
     key = output.get("key") if isinstance(output, dict) else None
     if not isinstance(key, str) or not key.endswith(".mp4"):
         raise JobError("output.key must be an R2 key ending in .mp4")
+    loras = raw.get("loras") or []
+    if not isinstance(loras, list):
+        raise JobError("loras must be a list")
+    clean_loras = []
+    for lora in loras:
+        if not isinstance(lora, dict) or not isinstance(lora.get("file"), str) or not lora["file"]:
+            raise JobError("each lora needs a file name")
+        if "/" in lora["file"] or lora["file"].startswith("."):
+            raise JobError("lora file must be a bare file name inside models/loras")
+        strength = lora.get("strength", 1.0)
+        if not isinstance(strength, (int, float)) or not 0 <= strength <= 2:
+            raise JobError("lora strength must be between 0 and 2")
+        hf_url = lora.get("hf_url")
+        if hf_url is not None and not isinstance(hf_url, str):
+            raise JobError("lora hf_url must be a string")
+        clean_loras.append({"file": lora["file"], "strength": float(strength), "hf_url": hf_url, "name": lora.get("name", lora["file"])})
     return {
         "workflow": workflow,
         "prompt": prompt,
@@ -102,6 +120,7 @@ def validate_input(raw: Any) -> dict[str, Any]:
         "video": video,
         "output_key": key,
         "studio_take_id": raw.get("studio_take_id"),
+        "loras": clean_loras,
     }
 
 
@@ -180,7 +199,60 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
         put(target, name, True, "reference_images")
     if files.get("video"):
         put(mapping.get("video"), files["video"], True, "video")
+
+    # LoRA slots: [{"node": "12", "name": "lora_name", "strength": "strength_model", "strength_clip": "strength_clip"}, ...]
+    slots = mapping.get("loras", [])
+    loras = params.get("loras", [])
+    if len(loras) > len(slots):
+        if not slots:
+            raise JobError("this workflow has no LoRA slots in mapping.json but the job asks for LoRAs")
+        raise JobError(f"workflow has {len(slots)} LoRA slot(s), got {len(loras)}")
+    for i, slot in enumerate(slots):
+        node_id = slot.get("node")
+        if i < len(loras):
+            put((node_id, slot.get("name", "lora_name")), loras[i]["file"], True, "loras")
+            put((node_id, slot.get("strength", "strength_model")), loras[i]["strength"], True, "loras")
+            if slot.get("strength_clip"):
+                put((node_id, slot["strength_clip"]), loras[i]["strength"], False, "loras")
+        else:
+            # unused slot: neutralise it rather than leaving the template's default LoRA on
+            put((node_id, slot.get("strength", "strength_model")), 0.0, False, "loras")
+            if slot.get("strength_clip"):
+                put((node_id, slot["strength_clip"]), 0.0, False, "loras")
     return graph
+
+
+# ---------- LoRA files ----------
+
+
+def hf_resolve_url(url: str) -> str:
+    """Turn a HuggingFace 'blob' page link into the direct file URL."""
+    return url.replace("/blob/", "/resolve/", 1) if "/blob/" in url else url
+
+
+def ensure_loras(loras: list[dict[str, Any]], lora_dir: Path | None = None, session: requests.Session | None = None) -> list[Path]:
+    """Make sure every LoRA file exists in the ComfyUI loras folder, fetching
+    missing ones from their HuggingFace link."""
+    directory = lora_dir or LORA_DIR
+    paths: list[Path] = []
+    for lora in loras:
+        dest = directory / lora["file"]
+        if not dest.exists():
+            if not lora.get("hf_url"):
+                raise JobError(f"LoRA {lora['file']} is not on the pod and has no hf_url to fetch it from")
+            directory.mkdir(parents=True, exist_ok=True)
+            http = session or requests.Session()
+            headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+            with http.get(hf_resolve_url(lora["hf_url"]), stream=True, timeout=600, headers=headers) as res:
+                if res.status_code >= 400:
+                    raise JobError(f"could not download LoRA {lora['file']} ({res.status_code})")
+                tmp = dest.with_suffix(dest.suffix + ".part")
+                with open(tmp, "wb") as fh:
+                    for chunk in res.iter_content(chunk_size=1 << 20):
+                        fh.write(chunk)
+                tmp.replace(dest)
+        paths.append(dest)
+    return paths
 
 
 # ---------- ComfyUI ----------
@@ -334,6 +406,8 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
         local = download(params["video"], inputs / f"source.{ext_of(params['video'], 'mp4')}", comfy.http)
         files["video"] = comfy.upload_image(local)
 
+    if params.get("loras"):
+        ensure_loras(params["loras"], session=comfy.http)
     filled = fill_graph(graph, entry, {**params, "files": files})
     prompt_id = comfy.queue(filled)
     history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 1800)))

@@ -5,13 +5,25 @@ import type { Take } from "./types";
    placeholder until P0 measures it; every estimate carries its inputs so the
    UI can show where the number came from. */
 
-export type Estimate = { usd: number; gpuSeconds: number; perOutputSecond: number; usdPerGpuSecond: number; steps: number };
+export type Estimate = { usd: number; gpuSeconds: number; perOutputSecond: number; usdPerGpuSecond: number; steps: number; source: "measured" | "placeholder" };
 
-export function estimateTake(durationS: number, steps = 8, n = 1): Estimate {
+/** Measured figures (from GPU stats) beat the placeholder constants. */
+export type Measured = { secondsPerOutputSecond?: number; usdPerHr?: number };
+
+export function estimateTake(durationS: number, steps = 8, n = 1, measured?: Measured): Estimate {
   const rp = safeRunpod();
+  const perOutputSecond = measured?.secondsPerOutputSecond ?? rp.secondsPerOutputSecond;
+  const usdPerGpuSecond = measured?.usdPerHr !== undefined ? measured.usdPerHr / 3600 : rp.gpuUsdPerSecond;
   const stepFactor = steps / 8;
-  const gpuSeconds = durationS * rp.secondsPerOutputSecond * stepFactor * n;
-  return { usd: round(gpuSeconds * rp.gpuUsdPerSecond), gpuSeconds, perOutputSecond: rp.secondsPerOutputSecond, usdPerGpuSecond: rp.gpuUsdPerSecond, steps };
+  const gpuSeconds = durationS * perOutputSecond * stepFactor * n;
+  return {
+    usd: round(gpuSeconds * usdPerGpuSecond), gpuSeconds, perOutputSecond, usdPerGpuSecond, steps,
+    source: measured?.secondsPerOutputSecond !== undefined ? "measured" : "placeholder",
+  };
+}
+
+export function podTakeUsd(executionMs: number, usdPerHr: number): number {
+  return round((executionMs / 3_600_000) * usdPerHr);
 }
 
 export function actualTakeUsd(executionMs: number): number {

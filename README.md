@@ -41,6 +41,13 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   your ComfyUI image, restricted to an allow-list of GPU types, starts it on
   the first render, shows status/uptime/cost in the rail, and stops it after
   idling. "暂时没资源" when none of the allowed GPUs has capacity.
+- **Every take is a data point.** Completed takes record their GPU type,
+  hourly price and output seconds; the Settings page ranks GPU types by USD
+  per second of video, estimates switch to measured speed, and
+  `RUNPOD_GPU_PRIORITY=cost` orders the allow-list by that ledger.
+- **LoRAs are a library.** `/loras` holds speed and style LoRAs with their
+  HuggingFace links; projects pick defaults in the Look, shots can override,
+  and the pod downloads a missing file before rendering.
 - **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
   server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
   attach. `agent/director.md` is the director guide, served as a tool and a
@@ -135,7 +142,7 @@ src/openhiggsfield/      the original single-shot studio (/playground)
 workers/h3-runpod/       ComfyUI serverless handler for H3
 workers/assembler/       ffmpeg serverless handler
 workers/cron/            scheduled Worker that triggers the sweep
-src/studio/gpu.ts        pod lifecycle: create on the allow-list, start/stop, auto-stop, replace
+src/studio/gpu.ts        pod lifecycle: create on the allow-list, start/stop, auto-stop, replace, per-GPU stats
 tests/                   vitest
 ```
 

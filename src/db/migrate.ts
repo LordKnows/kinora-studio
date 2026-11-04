@@ -7,10 +7,12 @@ import type { Db } from "./index";
 
 import init from "./migrations/0001_init";
 import gpu from "./migrations/0002_gpu";
+import lorasStats from "./migrations/0003_loras_stats";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
   { name: "0002_gpu", sql: gpu },
+  { name: "0003_loras_stats", sql: lorasStats },
 ];
 
 export async function migrate(db: Db): Promise<void> {

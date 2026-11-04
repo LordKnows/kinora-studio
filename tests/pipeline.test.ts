@@ -260,7 +260,7 @@ describe("pipeline", () => {
     const spec = shot({ mode: "reference", props: ["e0", "e1", "e2"], characters: ["e3"] });
     const job = compileShot({
       shot: { id: "s", projectId: "p", sceneId: "c", index: 0, spec, createdAt: 0, updatedAt: 0 },
-      look: { genre: "", palette: "", camera: "", lens: "", lighting: "", aspectRatio: "9:16", resolution: "768p", upscale: false, negative: [] },
+      look: { genre: "", palette: "", camera: "", lens: "", lighting: "", aspectRatio: "9:16", resolution: "768p", upscale: false, negative: [], loras: [] },
       elements, assets,
     });
     expect(job.input.images).toHaveLength(3);

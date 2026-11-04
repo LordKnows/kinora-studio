@@ -63,6 +63,9 @@ export function ProjectsPage() {
           <p className="st-subtitle">Script, elements, shotlist, takes, timeline. One project per film.</p>
         </div>
         <div className="st-actions">
+          <Link className="st-btn st-btn--quiet" href="/loras">
+            LoRAs
+          </Link>
           <Link className="st-btn st-btn--quiet" href="/playground">
             Playground
           </Link>

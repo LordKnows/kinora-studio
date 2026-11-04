@@ -1,5 +1,5 @@
 import { CAMERA_MOVES, type LookSettings, type ShotInput } from "./schemas";
-import type { Asset, Element, Shot, Take } from "./types";
+import type { Asset, Element, Lora, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
    an H3 prompt in the community-documented format, with the project Look and
@@ -9,6 +9,8 @@ import type { Asset, Element, Shot, Take } from "./types";
 export type Workflow = "T2VA" | "I2VA" | "FL2VA" | "R2VA";
 
 export type WorkerImage = { url: string; role: "first_frame" | "last_frame" | "reference"; label?: string };
+
+export type WorkerLora = { name: string; file: string; strength: number; hf_url?: string; kind: Lora["kind"] };
 
 export type WorkerInput = {
   workflow: Workflow;
@@ -21,9 +23,12 @@ export type WorkerInput = {
   steps: number;
   seed?: number;
   negative: string;
+  loras: WorkerLora[];
   studio_take_id?: string;
   output?: { key: string };
 };
+
+export type ActiveLora = Lora & { strength: number };
 
 export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[] };
 
@@ -35,6 +40,8 @@ export type CompileContext = {
   /** Last frame of the previous shot's selected take, for linkToPrev = continuous. */
   prevLastFrameUrl?: string;
   sourceTake?: Take;
+  /** Resolved LoRAs (shot override or project default) with final strengths. */
+  loras?: ActiveLora[];
   steps?: number;
   seed?: number;
 };
@@ -105,8 +112,11 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     workflow = "T2VA";
   }
 
-  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow);
+  const loras = (ctx.loras ?? []).filter((l) => l.workflows.length === 0 || l.workflows.includes(workflow));
+  const speed = loras.find((l) => l.kind === "speed");
+  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
+  if (ctx.steps !== undefined && speed?.stepsHint && ctx.steps !== speed.stepsHint) warnings.push(`${speed.name} is tuned for ${speed.stepsHint} steps; you asked for ${ctx.steps}`);
 
   const input: WorkerInput = {
     workflow,
@@ -116,9 +126,10 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     images,
     ...(video ? { video } : {}),
     enhance: spec.mode === "text",
-    steps: ctx.steps ?? 8,
+    steps: ctx.steps ?? speed?.stepsHint ?? 8,
     ...(ctx.seed !== undefined ? { seed: ctx.seed } : {}),
     negative: look.negative.join(", "),
+    loras: loras.map((l) => ({ name: l.name, file: l.filename, strength: l.strength, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}), kind: l.kind })),
   };
   return { workflow, prompt, input, warnings };
 }
@@ -165,7 +176,7 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
   return out;
 }
 
-function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow): string {
+function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = []): string {
   const { shot, look } = ctx;
   const spec = shot.spec;
   const blocks: string[] = [];
@@ -191,9 +202,10 @@ function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workf
   if (spec.mode === "edit") refLines.unshift("Video 1: the source take. Keep its framing, camera motion, timing and everything not listed under EDIT.");
   if (refLines.length) blocks.push(`REFERENCES\n${refLines.join("\n")}`);
 
-  /* LOOK — always. */
+  /* LOOK — always; style LoRAs contribute their trigger words here. */
   const lookParts = [look.genre, look.palette, [look.camera, look.lens].filter(Boolean).join(", "), look.lighting].filter((s) => s && s.trim());
-  if (lookParts.length) blocks.push(`LOOK\n${lookParts.join(". ")}.`);
+  const triggers = loras.map((l) => l.triggerWords.trim()).filter(Boolean);
+  if (lookParts.length || triggers.length) blocks.push(`LOOK\n${[...lookParts, ...triggers].join(". ")}.`);
 
   if (spec.mode === "edit") {
     blocks.push(`EDIT\n${spec.editInstruction ?? ""}`);

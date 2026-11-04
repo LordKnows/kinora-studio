@@ -30,6 +30,11 @@ Every tool that spends money returns `needs_confirm` with an estimate first. Tel
 - **At most 3 cuts inside one shot.** More → split shots.
 - Do not describe what a hero frame already shows (faces, wardrobe, set). Describe what happens.
 
+## LoRAs and GPUs
+
+- `list_loras` shows the library. Put the speed LoRA (and any house style) in the project Look with `update_look` (`loras: [{id, strength}]`); override per shot with `revise_shot` (`loras: []` disables). The speed LoRA's step hint becomes the default step count.
+- `gpu_status` before a batch; `gpu_stats` tells which GPU type renders a second of video cheapest. The pod starts itself on the first `generate_take` and stops after idling.
+
 ## Budget rules
 
 - Previz at 8 steps, one take per shot. Only after the user is happy, raise steps or export with `master-upscaled`.
