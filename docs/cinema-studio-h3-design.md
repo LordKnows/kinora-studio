@@ -1154,7 +1154,7 @@ Agent 连接
 | §4.3 Orchestrator（webhook 主路径 + 轮询兜底、幂等、预算、记账） | 已实现 | `src/studio/orchestrator.ts`、`src/app/api/runpod/hook`、`src/app/api/cron/sweep`、`workers/cron` |
 | §4.4 Assembler 契约 | 已实现（输入构造 + ffmpeg worker） | `src/studio/backends/assembler.ts`、`workers/assembler/` |
 | §4.5 / §6 MCP + Director Skill | 已实现（36 个工具、resource、`get_director_guide`） | `src/mcp/`、`agent/director.md` |
-| §4.6 RunPod H3 worker | handler 已实现；**ComfyUI 工作流 JSON 由部署者放入** | `workers/h3-runpod/` |
+| §4.6 RunPod H3 worker | handler 已实现；**ComfyUI 工作流 JSON 由部署者放入**。部署形态改为 **Pod 模式**（§4.6 的方案 B 变体）：Studio 自己创建 / 启停 Pod，GPU 型号白名单，空闲自动关机，Pod 内作业服务同时承担生成与组装；Serverless 保留为 TODO | `workers/h3-runpod/server.py`、`src/studio/gpu.ts` |
 | §4.7 Cloudflare 部署、Access、OAuth | 已实现：OpenNext 配置、Access JWT 校验、自带 OAuth 2.1 授权服务器（未用 `workers-oauth-provider`，因为它与 OpenNext 的 fetch 包装不兼容） | `wrangler.jsonc`、`src/auth/`、`src/oauth/` |
 | §7 接口 | 已实现，含鉴权矩阵与错误模型 | `src/app/api/**` |
 | §4.1 Web Studio | 已实现：项目、Look、剧本、元素、分镜表、时间线、设置（含 MCP 连接说明与评测模式） | `src/app/p/[id]/*`、`src/studio-ui/` |

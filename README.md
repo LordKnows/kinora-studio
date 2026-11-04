@@ -37,6 +37,10 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   gets `not_approved` and tells you which page to open.
 - **Money asks first.** Every paid tool returns an estimate and `needs_confirm`
   until called with `confirm: true`; projects have a budget cap.
+- **The GPU is a pod you can see.** The studio creates one RunPod pod from
+  your ComfyUI image, restricted to an allow-list of GPU types, starts it on
+  the first render, shows status/uptime/cost in the rail, and stops it after
+  idling. "暂时没资源" when none of the allowed GPUs has capacity.
 - **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
   server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
   attach. `agent/director.md` is the director guide, served as a tool and a
@@ -68,15 +72,20 @@ claude mcp add --transport http studio http://localhost:3000/mcp --header "Autho
 
 ## Deploy
 
-### 1. RunPod
+### 1. RunPod (pod mode)
 
-- **H3 worker** (`workers/h3-runpod`): a ComfyUI serverless worker with the
-  H3-Base graphs. Network volume ≥160 GB, 96 GB-class GPU, max workers 1. Drop
-  the T2VA / I2VA / FL2VA / R2VA API-format workflows into
-  `workers/h3-runpod/workflows/` and fill `mapping.json`. The worker uploads
-  the mp4, last frame and thumbnails to R2 and answers the webhook.
-- **Assembler** (`workers/assembler`): a CPU serverless worker with ffmpeg that
-  concatenates takes, mixes audio, writes subtitles and exports presets.
+- Build `workers/h3-runpod/Dockerfile.pod` on top of your ComfyUI image
+  (custom nodes and LoRAs baked in; the big H3 weights on a network volume)
+  and push it; set `RUNPOD_POD_IMAGE`, `RUNPOD_NETWORK_VOLUME_ID`,
+  `RUNPOD_GPU_TYPES` and `STUDIO_WORKER_TOKEN`. The pod runs
+  `workers/h3-runpod/server.py`, a small job server that renders with the
+  H3 graphs (`workers/h3-runpod/handler.py`) and assembles exports with
+  ffmpeg (`workers/assembler/handler.py`), uploads to R2 and calls the
+  studio's signed webhook.
+- Drop the T2VA / I2VA / FL2VA / R2VA API-format workflows into
+  `workers/h3-runpod/workflows/` and fill `mapping.json`.
+- Serverless endpoints (`RUNPOD_MODE=serverless`) are still supported in
+  code but are a TODO, not the default.
 - Pick a data-center region that the MiniMax Community License allows (it
   excludes the US, EU, UK and South Korea). That is the deployer's
   responsibility; see the design doc §2.3 and §10.
@@ -126,6 +135,7 @@ src/openhiggsfield/      the original single-shot studio (/playground)
 workers/h3-runpod/       ComfyUI serverless handler for H3
 workers/assembler/       ffmpeg serverless handler
 workers/cron/            scheduled Worker that triggers the sweep
+src/studio/gpu.ts        pod lifecycle: create on the allow-list, start/stop, auto-stop, replace
 tests/                   vitest
 ```
 

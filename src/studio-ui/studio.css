@@ -1100,3 +1100,46 @@
 .ohf .st-danger {
   color: var(--danger);
 }
+
+/* ---- GPU pod ---- */
+.ohf .st-gpu {
+  margin: 0 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--s1);
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+.ohf .st-gpu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.ohf .st-gpu-title {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--tx2);
+}
+.ohf .st-gpu-line {
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ohf .st-dl {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.ohf .st-dl dt {
+  color: var(--tx3);
+}
+.ohf .st-dl dd {
+  color: var(--tx);
+}
+.ohf .st-table tr[data-allowed="true"] td {
+  color: var(--accent);
+}

@@ -6,8 +6,12 @@ import type { Db } from "./index";
    are recorded so later ones can carry real ALTERs. */
 
 import init from "./migrations/0001_init";
+import gpu from "./migrations/0002_gpu";
 
-const MIGRATIONS: Array<{ name: string; sql: string }> = [{ name: "0001_init", sql: init }];
+const MIGRATIONS: Array<{ name: string; sql: string }> = [
+  { name: "0001_init", sql: init },
+  { name: "0002_gpu", sql: gpu },
+];
 
 export async function migrate(db: Db): Promise<void> {
   await db.exec(

@@ -699,4 +699,101 @@ export async function listProjectActiveTakes(projectId: string): Promise<Take[]>
   return rows.map(mapTake);
 }
 
+/* ---------- gpu pods ---------- */
+
+export type GpuPodStatus = "creating" | "starting" | "running" | "stopping" | "stopped" | "unavailable" | "terminated";
+
+export type GpuPod = {
+  id: string;
+  name: string;
+  image: string;
+  gpuTypeId?: string;
+  gpuName?: string;
+  dataCenter?: string;
+  status: GpuPodStatus;
+  message?: string;
+  costPerHr?: number;
+  hostUrl?: string;
+  createdAt: number;
+  startedAt?: number;
+  stoppedAt?: number;
+  accumulatedSeconds: number;
+  lastActivityAt?: number;
+  updatedAt: number;
+};
+
+function mapGpuPod(r: Row): GpuPod {
+  return {
+    id: str(r.id), name: str(r.name), image: str(r.image), gpuTypeId: opt(r.gpu_type_id, str), gpuName: opt(r.gpu_name, str),
+    dataCenter: opt(r.data_center, str), status: str(r.status) as GpuPodStatus, message: opt(r.message, str), costPerHr: opt(r.cost_per_hr, num),
+    hostUrl: opt(r.host_url, str), createdAt: num(r.created_at), startedAt: opt(r.started_at, num), stoppedAt: opt(r.stopped_at, num),
+    accumulatedSeconds: num(r.accumulated_seconds), lastActivityAt: opt(r.last_activity_at, num), updatedAt: num(r.updated_at),
+  };
+}
+
+/** The pod the studio currently manages: newest row that is not terminated.
+    An "unavailable" row counts only until the next attempt replaces it. */
+export async function currentGpuPod(): Promise<GpuPod | undefined> {
+  const row = await (await db()).get("SELECT * FROM gpu_pods WHERE status != 'terminated' ORDER BY created_at DESC LIMIT 1");
+  return row ? mapGpuPod(row) : undefined;
+}
+
+export async function listGpuPods(limit = 20): Promise<GpuPod[]> {
+  const rows = await (await db()).all("SELECT * FROM gpu_pods ORDER BY created_at DESC LIMIT ?", [limit]);
+  return rows.map(mapGpuPod);
+}
+
+export async function insertGpuPod(input: { id: string; name: string; image: string; gpuTypeId?: string; gpuName?: string; dataCenter?: string; status: GpuPodStatus; message?: string; costPerHr?: number; hostUrl?: string }): Promise<GpuPod> {
+  const now = Date.now();
+  await (await db()).run(
+    "INSERT INTO gpu_pods (id, name, image, gpu_type_id, gpu_name, data_center, status, message, cost_per_hr, host_url, created_at, accumulated_seconds, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+    [input.id, input.name, input.image, input.gpuTypeId ?? null, input.gpuName ?? null, input.dataCenter ?? null, input.status, input.message ?? null, input.costPerHr ?? null, input.hostUrl ?? null, now, now],
+  );
+  return (await getGpuPod(input.id))!;
+}
+
+export async function getGpuPod(id: string): Promise<GpuPod | undefined> {
+  const row = await (await db()).get("SELECT * FROM gpu_pods WHERE id = ?", [id]);
+  return row ? mapGpuPod(row) : undefined;
+}
+
+export async function updateGpuPod(id: string, patch: Partial<{
+  status: GpuPodStatus; message: string | null; gpuTypeId: string; gpuName: string; dataCenter: string; costPerHr: number; hostUrl: string;
+  startedAt: number | null; stoppedAt: number | null; accumulatedSeconds: number; lastActivityAt: number;
+}>): Promise<GpuPod> {
+  const cur = (await getGpuPod(id))!;
+  const v = <T>(n: T | null | undefined, c: T | undefined): T | null => (n === undefined ? (c ?? null) : n);
+  await (await db()).run(
+    "UPDATE gpu_pods SET status = ?, message = ?, gpu_type_id = ?, gpu_name = ?, data_center = ?, cost_per_hr = ?, host_url = ?, started_at = ?, stopped_at = ?, accumulated_seconds = ?, last_activity_at = ?, updated_at = ? WHERE id = ?",
+    [
+      patch.status ?? cur.status, v(patch.message, cur.message), patch.gpuTypeId ?? cur.gpuTypeId ?? null, patch.gpuName ?? cur.gpuName ?? null,
+      patch.dataCenter ?? cur.dataCenter ?? null, patch.costPerHr ?? cur.costPerHr ?? null, patch.hostUrl ?? cur.hostUrl ?? null,
+      v(patch.startedAt, cur.startedAt), v(patch.stoppedAt, cur.stoppedAt), patch.accumulatedSeconds ?? cur.accumulatedSeconds,
+      patch.lastActivityAt ?? cur.lastActivityAt ?? null, Date.now(), id,
+    ],
+  );
+  return (await getGpuPod(id))!;
+}
+
+/** Back to the pending queue: no request id, no finish time. */
+export async function resetTakeForRetry(id: string): Promise<Take> {
+  await (await db()).run("UPDATE takes SET status = 'queued', request_id = NULL, finished_at = NULL, error = NULL WHERE id = ?", [id]);
+  return getTake(id);
+}
+
+export async function setExportInput(id: string, input: Record<string, unknown>): Promise<ExportJob> {
+  await (await db()).run("UPDATE export_jobs SET input_json = ? WHERE id = ?", [JSON.stringify(input), id]);
+  return getExport(id);
+}
+
+export async function listPendingTakes(): Promise<Take[]> {
+  const rows = await (await db()).all("SELECT * FROM takes WHERE status = 'queued' AND request_id IS NULL ORDER BY created_at");
+  return rows.map(mapTake);
+}
+
+export async function listPendingExports(): Promise<ExportJob[]> {
+  const rows = await (await db()).all("SELECT * FROM export_jobs WHERE status = 'queued' AND request_id IS NULL ORDER BY created_at");
+  return rows.map(mapExport);
+}
+
 export type { SqlValue };

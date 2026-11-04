@@ -6,6 +6,7 @@ import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
+import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
 import type { ExportRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
 import { ShotInput as ShotInputSchema } from "./schemas";
@@ -17,26 +18,42 @@ import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Ta
 
 /* ---------- backends ---------- */
 
-export function videoBackend(): GenerationBackend {
-  let rp: ReturnType<typeof config.runpod>;
-  try {
-    rp = config.runpod();
-  } catch (caught) {
-    throw new StudioError("backend_error", `RunPod is not configured: ${caught instanceof Error ? caught.message : caught}`);
-  }
-  return new RunPodBackend({ apiKey: rp.apiKey, endpointId: rp.h3EndpointId });
+/* Pod mode (default): the studio's own pod answers /run and /assemble. A
+   backend is only handed out while the pod is healthy; before that, jobs sit
+   in the database with no requestId and the sweep submits them later.
+   Serverless mode (TODO) uses RunPod endpoints instead. */
+
+async function readyPod(): Promise<repo.GpuPod | null> {
+  const pod = await repo.currentGpuPod();
+  return pod && pod.status === "running" && pod.hostUrl ? pod : null;
 }
 
-export function assemblerBackend(): GenerationBackend {
-  const rp = (() => {
-    try {
-      return config.runpod();
-    } catch (caught) {
-      throw new StudioError("backend_error", `RunPod is not configured: ${caught instanceof Error ? caught.message : caught}`);
-    }
-  })();
-  if (!rp.assemblerEndpointId) throw new StudioError("backend_error", "RUNPOD_ASSEMBLER_ENDPOINT_ID is not set");
-  return new RunPodBackend({ apiKey: rp.apiKey, endpointId: rp.assemblerEndpointId });
+export async function videoBackend(): Promise<GenerationBackend | null> {
+  if (config.runpodMode() === "serverless") {
+    const rp = config.runpod();
+    return new RunPodBackend({ apiKey: rp.apiKey, endpointId: config.runpodServerless().h3EndpointId });
+  }
+  const pod = await readyPod();
+  return pod ? gpu.podBackend(pod, "video") : null;
+}
+
+export async function assemblerBackend(): Promise<GenerationBackend | null> {
+  if (config.runpodMode() === "serverless") {
+    const rp = config.runpod();
+    const { assemblerEndpointId } = config.runpodServerless();
+    if (!assemblerEndpointId) throw new StudioError("backend_error", "RUNPOD_ASSEMBLER_ENDPOINT_ID is not set");
+    return new RunPodBackend({ apiKey: rp.apiKey, endpointId: assemblerEndpointId });
+  }
+  const pod = await readyPod();
+  return pod ? gpu.podBackend(pod, "assemble") : null;
+}
+
+function runpodOrNull() {
+  try {
+    return config.runpod();
+  } catch {
+    return null;
+  }
 }
 
 /* Image generation (hero frames, element sheets) is disabled for now: the
@@ -181,7 +198,7 @@ export async function compileForShot(shotId: string, opts?: { steps?: number; se
 
 /* ---------- takes ---------- */
 
-export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[] }> {
+export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[]; gpu?: gpu.GpuState }> {
   const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed });
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
@@ -198,14 +215,18 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
     throw caught;
   }
 
-  const rp = (() => {
-    try {
-      return config.runpod();
-    } catch {
-      return null;
+  if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
+
+  /* Pod mode: make sure the GPU is coming up. The agent has already confirmed
+     the take; starting the pod is part of that spend. */
+  let gpuState: gpu.GpuState | undefined;
+  if (config.runpodMode() === "pod") {
+    gpuState = await gpu.startGpu(actor, true);
+    if (gpuState.status === "unavailable") {
+      throw new StudioError("backend_error", gpuState.message ?? "no GPU available right now", { noResources: true, gpu: gpuState });
     }
-  })();
-  const backend = videoBackend();
+  }
+
   const takes: Take[] = [];
   for (let i = 0; i < req.n; i++) {
     const seed = req.seed !== undefined ? req.seed + i : Math.floor(Math.random() * 2 ** 31);
@@ -219,15 +240,28 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
       studio_take_id: take.id,
       output: { key: `projects/${ctx.project.id}/shots/${shotId}/takes/${take.id}.mp4` },
     };
-    try {
-      const webhook = rp ? await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id) : undefined;
-      const { requestId } = await backend.submit(input, { webhook, executionTimeoutMs: rp?.executionTimeoutMs });
-      takes.push(await repo.updateTake(take.id, { requestId, status: "queued", input }));
-    } catch (caught) {
-      takes.push(await repo.updateTake(take.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now(), input }));
-    }
+    takes.push(await submitTake(await repo.updateTake(take.id, { input })));
   }
-  return { takes, estimate, warnings: compiled.warnings };
+  await gpu.touchGpuActivity();
+  return { takes, estimate, warnings: compiled.warnings, gpu: gpuState };
+}
+
+/** Hand a queued take to the backend. With no backend ready yet (pod still
+    booting) the take keeps status queued and no requestId; the sweep retries. */
+export async function submitTake(take: Take): Promise<Take> {
+  if (take.status !== "queued" || take.requestId) return take;
+  const backend = await videoBackend();
+  if (!backend) return take;
+  const rp = config.runpod();
+  try {
+    const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id);
+    const { requestId } = await backend.submit(take.input, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+    return await repo.updateTake(take.id, { requestId, status: "queued", error: null });
+  } catch (caught) {
+    const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);
+    if (unreachable) return take;
+    return repo.updateTake(take.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() });
+  }
 }
 
 export async function applyTakeStatus(take: Take, status: BackendStatus): Promise<Take> {
@@ -249,6 +283,7 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
         status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null,
       });
       if (costUsd) await repo.addSpent(take.projectId, costUsd);
+      await gpu.touchGpuActivity();
       await repo.createAsset({ projectId: take.projectId, url, kind: "video", source: "generated", durationS: num(take.input.seconds), meta: { takeId: take.id, shotId: take.shotId } });
       if (lastFrameUrl) await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame" } });
       return updated;
@@ -270,9 +305,12 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
     from a GET; the cron sweep does the same for everything at once. */
 export async function refreshTake(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
-  if ((take.status !== "queued" && take.status !== "running") || !take.requestId) return take;
+  if (take.status !== "queued" && take.status !== "running") return take;
+  if (!take.requestId) return submitTake(take);
   try {
-    return await applyTakeStatus(take, await videoBackend().status(take.requestId));
+    const backend = await videoBackend();
+    if (!backend) return take;
+    return await applyTakeStatus(take, await backend.status(take.requestId));
   } catch (caught) {
     if (caught instanceof StudioError && caught.code === "backend_error") return take;
     throw caught;
@@ -281,8 +319,10 @@ export async function refreshTake(takeId: string): Promise<Take> {
 
 export async function cancelTake(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
+  if (take.status === "queued" && !take.requestId) return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
   if (take.requestId && (take.status === "queued" || take.status === "running")) {
-    await videoBackend().cancel(take.requestId);
+    const backend = await videoBackend();
+    if (backend) await backend.cancel(take.requestId);
     return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
   }
   return take;
@@ -296,15 +336,18 @@ export async function retryTake(takeId: string, actor: Actor, confirm: boolean):
   const estimate = estimateTake(shot.spec.durationS, num(take.input.steps) ?? 8);
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
   if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
-  const backend = videoBackend();
-  if (take.requestId && backend.retry) {
+  if (config.runpodMode() === "pod") {
+    const state = await gpu.startGpu(actor, true);
+    if (state.status === "unavailable") throw new StudioError("backend_error", state.message ?? "no GPU available right now", { noResources: true, gpu: state });
+  }
+  const backend = await videoBackend();
+  if (backend?.retry && take.requestId && config.runpodMode() === "serverless") {
     const { requestId } = await backend.retry(take.requestId);
     return repo.updateTake(takeId, { requestId, status: "queued", error: null });
   }
-  const rp = config.runpod();
-  const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id);
-  const { requestId } = await backend.submit(take.input, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
-  return repo.updateTake(takeId, { requestId, status: "queued", error: null });
+  const reset = await repo.resetTakeForRetry(takeId);
+  await gpu.touchGpuActivity();
+  return submitTake(reset);
 }
 
 export async function reviewTake(takeId: string, score: number, notes: string, actor: Actor): Promise<Take> {
@@ -359,16 +402,35 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
     elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, burnIn: req.burnInSubtitles,
     videoSize: view.project.look.aspectRatio === "9:16" ? "768x1344" : "1344x768",
   });
-  try {
-    const rp = config.runpod();
-    const backend = assemblerBackend();
-    const webhook = await signHookUrl(config.publicUrl(), "/api/assembler/hook", rp.webhookSecret, exportRow.id);
-    const { requestId } = await backend.submit(input as unknown as Record<string, unknown>, { webhook, executionTimeoutMs: 30 * 60_000 });
-    const job = await repo.updateExport(exportRow.id, { requestId, status: "queued" });
-    return { job: { ...job, input: input as unknown as Record<string, unknown> }, estimateUsd };
-  } catch (caught) {
-    const job = await repo.updateExport(exportRow.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() });
+  await repo.setExportInput(exportRow.id, input as unknown as Record<string, unknown>);
+  if (!runpodOrNull()) {
+    const job = await repo.updateExport(exportRow.id, { status: "failed", error: "RunPod is not configured", finishedAt: Date.now() });
     return { job, estimateUsd };
+  }
+  if (config.runpodMode() === "pod") {
+    const state = await gpu.startGpu(actor, true);
+    if (state.status === "unavailable") {
+      const job = await repo.updateExport(exportRow.id, { status: "failed", error: state.message ?? "no GPU available right now", finishedAt: Date.now() });
+      return { job, estimateUsd };
+    }
+  }
+  const job = await submitExport(await repo.getExport(exportRow.id));
+  await gpu.touchGpuActivity();
+  return { job, estimateUsd };
+}
+
+export async function submitExport(job: ExportJob): Promise<ExportJob> {
+  if (job.status !== "queued" || job.requestId) return job;
+  const backend = await assemblerBackend();
+  if (!backend) return job;
+  try {
+    const webhook = await signHookUrl(config.publicUrl(), "/api/assembler/hook", config.runpod().webhookSecret, job.id);
+    const { requestId } = await backend.submit(job.input, { webhook, executionTimeoutMs: 30 * 60_000 });
+    return await repo.updateExport(job.id, { requestId, status: "queued", error: null });
+  } catch (caught) {
+    const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);
+    if (unreachable) return job;
+    return repo.updateExport(job.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() });
   }
 }
 
@@ -396,9 +458,12 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
 
 export async function refreshExport(exportId: string): Promise<ExportJob> {
   const job = await repo.getExport(exportId);
-  if ((job.status !== "queued" && job.status !== "running") || !job.requestId) return job;
+  if (job.status !== "queued" && job.status !== "running") return job;
+  if (!job.requestId) return submitExport(job);
   try {
-    return await applyExportStatus(job, await assemblerBackend().status(job.requestId));
+    const backend = await assemblerBackend();
+    if (!backend) return job;
+    return await applyExportStatus(job, await backend.status(job.requestId));
   } catch (caught) {
     if (caught instanceof StudioError && caught.code === "backend_error") return job;
     throw caught;
@@ -407,7 +472,15 @@ export async function refreshExport(exportId: string): Promise<ExportJob> {
 
 /* ---------- sweep (cron) ---------- */
 
-export async function sweep(): Promise<{ takes: number; exports: number }> {
+export async function sweep(): Promise<{ takes: number; exports: number; gpu?: string; autoStopped?: boolean }> {
+  let gpuStatus: string | undefined;
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
+    try {
+      gpuStatus = (await gpu.refreshGpu())?.status;
+    } catch (caught) {
+      gpuStatus = `refresh failed: ${caught instanceof Error ? caught.message : caught}`;
+    }
+  }
   const [takes, exports] = await Promise.all([repo.listActiveTakes(), repo.listActiveExports()]);
   const timeoutMs = (() => {
     try {
@@ -432,7 +505,16 @@ export async function sweep(): Promise<{ takes: number; exports: number }> {
     const before = job.status;
     if ((await refreshExport(job.id)).status !== before) e++;
   }
-  return { takes: t, exports: e };
+  let autoStopped: boolean | undefined;
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
+    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0;
+    try {
+      autoStopped = await gpu.autoStopIfIdle(stillBusy);
+    } catch {
+      autoStopped = false;
+    }
+  }
+  return { takes: t, exports: e, gpu: gpuStatus, autoStopped };
 }
 
 /* ---------- helpers ---------- */

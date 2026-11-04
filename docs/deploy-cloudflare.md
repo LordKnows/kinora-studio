@@ -20,6 +20,11 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
   > 如果 Console 对多条语句报错，用一次命令行：
   > `npx wrangler d1 migrations apply studio --remote`（需要 `npx wrangler login`）。
 
+### 1b. 升级表结构（已有数据库时）
+
+Pod 模式新增了 `gpu_pods` 表。D1 → `studio` → Console，把 `migrations/0002_gpu.sql`
+的内容粘进去执行一次即可（语句是幂等的，重复执行无害）。
+
 ## 2. 建对象存储（R2）
 
 **R2 Object Storage → Create bucket**
@@ -86,8 +91,15 @@ Worker 页面 → **Settings → Variables and Secrets**。
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | 第 2 步 |
 | `R2_BUCKET` | `studio` |
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | 第 6 步 |
-| `RUNPOD_API_KEY` / `RUNPOD_ENDPOINT_ID` / `RUNPOD_ASSEMBLER_ENDPOINT_ID` | RunPod 部署好以后再填 |
+| `RUNPOD_API_KEY` | RunPod → Settings → API Keys |
+| `RUNPOD_POD_IMAGE` | 你的 ComfyUI 镜像（用 `workers/h3-runpod/Dockerfile.pod` 叠上作业服务） |
+| `RUNPOD_NETWORK_VOLUME_ID` | 放 H3 权重的网络卷 ID |
+| `STUDIO_WORKER_TOKEN` | 自己生成，Studio 和 Pod 内作业服务之间的共享密钥 |
 | `RUNPOD_WEBHOOK_SECRET` | 自己生成一串随机字符（32 位以上） |
+
+`RUNPOD_GPU_TYPES`（允许的 GPU 型号，逗号分隔）、`RUNPOD_DATACENTER_IDS`、
+`RUNPOD_IDLE_STOP_MINUTES` 是普通变量，写在 `wrangler.jsonc` 的 `vars` 里。
+型号 ID 可以在 Studio 的 Settings → GPU pod → "GPU types" 里查。
 | `CRON_SECRET` | 自己生成，供定时 Worker 调用轮询 |
 | `MCP_STATIC_TOKEN` | 可选，给 Claude Code 这类能发 header 的客户端 |
 
@@ -151,3 +163,28 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 - **媒体 404**：Worker 的 Settings → Bindings 里没有 `TAKES`，或对象不在 `uploads/` / `projects/` 前缀下。
 - **MCP 连接器登录后 401**：`STUDIO_PUBLIC_URL` 和实际域名不一致，OAuth 元数据里
   的地址会指向错的主机。
+
+
+## 9. RunPod Pod 模式
+
+Studio 自己管理一台 Secure Cloud 的 Pod：第一次生成时创建，网页侧栏和 Settings
+页可以 Start / Stop / Terminate，agent 有 `gpu_status` / `gpu_start` / `gpu_stop`
+工具，空闲超过 `RUNPOD_IDLE_STOP_MINUTES` 自动关机。Stop 后再 Start 若拿不到
+GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就显示"暂时没资源"，
+稍后 Retry。
+
+准备工作：
+
+1. **镜像**：以你的 ComfyUI 镜像为基础构建 `workers/h3-runpod/Dockerfile.pod`
+   （构建上下文是 `workers/` 目录：`docker build -f workers/h3-runpod/Dockerfile.pod
+   --build-arg BASE_IMAGE=<你的镜像> -t <registry>/studio-h3:pod workers/`），推到
+   Docker Hub 或 GHCR，把镜像名填进 `RUNPOD_POD_IMAGE`。镜像的 ComfyUI 启动命令若
+   不是默认的 `/workspace/ComfyUI/main.py`，在 Pod 环境变量里设 `COMFY_CMD`。
+2. **网络卷**：放 H3 权重，ID 填 `RUNPOD_NETWORK_VOLUME_ID`；`RUNPOD_DATACENTER_IDS`
+   填卷所在的数据中心。
+3. **GPU 白名单**：`RUNPOD_GPU_TYPES` 填允许的 gpuTypeId（Settings → GPU pod → GPU
+   types 可查），Studio 只会在这些型号里起 Pod，按可用性自动挑。
+4. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
+   `mapping.json`。
+
+Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，列为 TODO。

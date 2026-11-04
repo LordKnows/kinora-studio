@@ -8,6 +8,7 @@ import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
 import { Lamp, Skeleton } from "./common";
+import { GpuRailCard } from "./gpu-panel";
 import { useProject } from "./use-project";
 
 /* The project shell: a left rail with the six pages, the budget and the two
@@ -70,6 +71,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
               );
             })}
           </div>
+          <GpuRailCard />
           <div className="st-rail-foot">
             {view && (view.canGenerate ? <Lamp state="approved" label="Ready to render" /> : <span>{view.blockers.join(" · ")}</span>)}
             <Link href="/playground">Playground</Link>

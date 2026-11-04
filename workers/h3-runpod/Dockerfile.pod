@@ -1,0 +1,24 @@
+# Pod-mode image: YOUR ComfyUI image (custom nodes + LoRAs baked in, big
+# weights on the network volume) plus the studio job server. The Studio
+# creates pods from this image (RUNPOD_POD_IMAGE) and exposes STUDIO_PORT.
+ARG BASE_IMAGE=your-registry/comfyui-h3:latest
+FROM ${BASE_IMAGE}
+
+RUN (apt-get update && apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && rm -rf /var/lib/apt/lists/*) || true
+
+WORKDIR /app
+COPY h3-runpod/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir requests boto3
+COPY h3-runpod/handler.py /app/handler.py
+COPY h3-runpod/server.py /app/server.py
+COPY h3-runpod/start.sh /app/start.sh
+COPY h3-runpod/workflows /app/workflows
+COPY assembler/handler.py /app/assembler_handler.py
+
+ENV COMFY_URL=http://127.0.0.1:8188 \
+    WORKFLOW_DIR=/app/workflows \
+    STUDIO_PORT=8000 \
+    PYTHONUNBUFFERED=1
+
+EXPOSE 8000 8188
+CMD ["bash", "/app/start.sh"]

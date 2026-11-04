@@ -34,6 +34,7 @@ let nextStatus: Record<string, unknown> = { id: "job-1", status: "IN_QUEUE" };
 
 beforeAll(async () => {
   setDb(await memoryDb());
+  process.env.RUNPOD_MODE = "serverless";
   process.env.RUNPOD_API_KEY = "k";
   process.env.RUNPOD_ENDPOINT_ID = "ep";
   process.env.RUNPOD_ASSEMBLER_ENDPOINT_ID = "asm";

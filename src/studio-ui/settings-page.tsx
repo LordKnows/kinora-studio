@@ -6,6 +6,7 @@ import directorGuide from "@/mcp/guide";
 
 import { get, post } from "./api";
 import { Button, CopyRow, Empty, ErrorBanner, Lamp, Section, Stars, useAction } from "./common";
+import { GpuSection } from "./gpu-panel";
 import { useProjectContext } from "./shell";
 
 type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imageGeneration: string };
@@ -55,6 +56,10 @@ export function SettingsPage() {
             <span className="st-muted">Loading…</span>
           )}
         </div>
+      </Section>
+
+      <Section title="GPU pod">
+        <GpuSection />
       </Section>
 
       <Section title="Connect your director agent (MCP)">
