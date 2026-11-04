@@ -49,12 +49,22 @@ export class PodBackend implements GenerationBackend {
     return payload;
   }
 
-  async health(): Promise<{ ok: boolean; detail?: unknown }> {
+  /** ok only when the job server answers AND it can reach ComfyUI; `why`
+      says which half is still missing so the pod card can show it. */
+  async health(): Promise<{ ok: boolean; why?: string; detail?: unknown }> {
     try {
-      const payload = (await this.call("GET", "/health")) as { ok?: unknown };
-      return { ok: payload?.ok === true, detail: payload };
+      const payload = (await this.call("GET", "/health")) as { ok?: unknown; comfy?: { reachable?: unknown; status?: unknown; error?: unknown } };
+      if (payload?.ok !== true) return { ok: false, why: "job server answered without ok", detail: payload };
+      const comfy = payload.comfy;
+      if (comfy && comfy.reachable === false) return { ok: false, why: `job server up; ComfyUI not answering yet${comfy.error ? ` (${String(comfy.error).slice(0, 120)})` : comfy.status ? ` (HTTP ${comfy.status})` : ""}`, detail: payload };
+      return { ok: true, detail: payload };
     } catch (caught) {
-      return { ok: false, detail: caught instanceof Error ? caught.message : String(caught) };
+      const message = caught instanceof Error ? caught.message : String(caught);
+      const status = /\((\d{3})\)/.exec(message)?.[1];
+      const why = status === "401" ? "job server up but it rejects STUDIO_WORKER_TOKEN: the pod's token differs from the Worker secret"
+        : status === "502" || status === "503" || status === "504" ? `nothing listening on the job-server port yet (proxy ${status}); the boot script is still running or failed — see the container log`
+        : message;
+      return { ok: false, why, detail: message };
     }
   }
 

@@ -133,9 +133,9 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
     hostUrl: podProxyUrl(pod.id, config.runpodPod().podPort),
   };
   if (desired === "RUNNING") {
-    const healthy = (await new PodBackend({ hostUrl: patch.hostUrl!, token: config.runpodPod().workerToken }).health()).ok;
-    patch.status = healthy ? "running" : "starting";
-    patch.message = healthy ? null : "booting: ComfyUI and the job server are not answering yet";
+    const health = await new PodBackend({ hostUrl: patch.hostUrl!, token: config.runpodPod().workerToken }).health();
+    patch.status = health.ok ? "running" : "starting";
+    patch.message = health.ok ? null : `booting: ${health.why ?? "not answering yet"}`;
     if (pod.status !== "running" && pod.status !== "starting") patch.startedAt = Date.now();
     else if (!pod.startedAt) patch.startedAt = Date.now();
   } else if (desired === "EXITED" || desired === "STOPPED" || desired === "TERMINATED") {
