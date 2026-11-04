@@ -1,0 +1,523 @@
+import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } from "./checkpoints";
+import { CompileError, compileElementPrompt, compileShot, compileStillPrompt, type CompiledJob } from "./compiler";
+import { config } from "./config";
+import { actualTakeUsd, estimateExport, estimateImages, estimateTake, type Estimate } from "./cost";
+import { StudioError } from "./errors";
+import * as repo from "./repo";
+import { buildAssemblerInput } from "./backends/assembler";
+import { HiggsfieldImageBackend } from "./backends/higgsfield";
+import { RunPodBackend, signHookUrl } from "./backends/runpod";
+import type { BackendStatus, GenerationBackend } from "./backends/types";
+import { mirrorUrl } from "./storage/r2";
+import type { ExportRequest, GenerateImagesRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
+import { ShotInput as ShotInputSchema } from "./schemas";
+import type { Actor, Asset, Element, ExportJob, Job, JobKind, Project, Scene, Script, Shot, Take, Timeline } from "./types";
+
+/* §4.3 — the server-side conductor. Everything that spends money or touches a
+   backend goes through here, so checkpoints, budget and the ledger are
+   enforced in one place for the web UI and the MCP tools alike. */
+
+/* ---------- backends ---------- */
+
+export function videoBackend(): GenerationBackend {
+  let rp: ReturnType<typeof config.runpod>;
+  try {
+    rp = config.runpod();
+  } catch (caught) {
+    throw new StudioError("backend_error", `RunPod is not configured: ${caught instanceof Error ? caught.message : caught}`);
+  }
+  return new RunPodBackend({ apiKey: rp.apiKey, endpointId: rp.h3EndpointId });
+}
+
+export function assemblerBackend(): GenerationBackend {
+  const rp = (() => {
+    try {
+      return config.runpod();
+    } catch (caught) {
+      throw new StudioError("backend_error", `RunPod is not configured: ${caught instanceof Error ? caught.message : caught}`);
+    }
+  })();
+  if (!rp.assemblerEndpointId) throw new StudioError("backend_error", "RUNPOD_ASSEMBLER_ENDPOINT_ID is not set");
+  return new RunPodBackend({ apiKey: rp.apiKey, endpointId: rp.assemblerEndpointId });
+}
+
+export function imageBackend(): GenerationBackend {
+  const hf = config.higgsfield();
+  if (!hf.baseUrl || !hf.apiKey) throw new StudioError("backend_error", "Image models are not configured (HF_API_BASE_URL / HF_API_KEY)");
+  return new HiggsfieldImageBackend({ apiKey: hf.apiKey, baseUrl: hf.baseUrl });
+}
+
+/* ---------- aggregate view ---------- */
+
+export type ShotView = Shot & { takes: Take[]; hero?: Asset; end?: Asset; selectedTake?: Take };
+export type SceneView = Scene & { shots: ShotView[] };
+export type ProjectView = {
+  project: Project;
+  script?: Script;
+  elements: Element[];
+  scenes: SceneView[];
+  timeline: Timeline;
+  assets: Asset[];
+  canGenerate: boolean;
+  blockers: string[];
+};
+
+export async function getProjectView(projectId: string): Promise<ProjectView> {
+  const project = await repo.getProject(projectId);
+  const [script, elements, scenes, shots, takes, timeline, assets] = await Promise.all([
+    repo.latestScript(projectId),
+    repo.listElements(projectId, true),
+    repo.listScenes(projectId),
+    repo.listShots(projectId),
+    repo.listProjectTakes(projectId),
+    repo.getTimeline(projectId),
+    repo.listAssets(projectId),
+  ]);
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+  const takesByShot = new Map<string, Take[]>();
+  for (const take of takes) {
+    const list = takesByShot.get(take.shotId) ?? [];
+    list.push(take);
+    takesByShot.set(take.shotId, list);
+  }
+  const shotViews: ShotView[] = shots.map((shot) => {
+    const list = (takesByShot.get(shot.id) ?? []).sort((a, b) => b.n - a.n);
+    return {
+      ...shot,
+      takes: list,
+      hero: shot.heroAssetId ? assetById.get(shot.heroAssetId) : undefined,
+      end: shot.endAssetId ? assetById.get(shot.endAssetId) : undefined,
+      selectedTake: shot.selectedTakeId ? list.find((t) => t.id === shot.selectedTakeId) : undefined,
+    };
+  });
+  const sceneViews: SceneView[] = scenes.map((scene) => ({ ...scene, shots: shotViews.filter((s) => s.sceneId === scene.id) }));
+  const blockers: string[] = [];
+  if (!script) blockers.push("No script yet");
+  else if (script.approval !== "approved") blockers.push("Script not approved");
+  if (shots.length === 0) blockers.push("No shots yet");
+  else if (project.shotlistApproval !== "approved") blockers.push("Shotlist not approved");
+  return { project, script, elements, scenes: sceneViews, timeline, assets, canGenerate: blockers.length === 0, blockers };
+}
+
+/* ---------- shotlist ---------- */
+
+export async function saveShotlist(projectId: string, input: ShotlistInput): Promise<ProjectView> {
+  await repo.getProject(projectId);
+  await repo.replaceShotlist(projectId, input.scenes);
+  await repo.setShotlistApproval(projectId, "draft");
+  return getProjectView(projectId);
+}
+
+export async function patchShot(shotId: string, patch: ShotPatch & { heroAssetId?: string | null; endAssetId?: string | null }): Promise<Shot> {
+  const shot = await repo.getShot(shotId);
+  const { heroAssetId, endAssetId, ...specPatch } = patch;
+  const nextSpec = ShotInputSchema.parse({ ...shot.spec, ...specPatch });
+  const updated = await repo.updateShot(shotId, {
+    spec: nextSpec,
+    heroAssetId,
+    endAssetId,
+    promptOverride: specPatch.promptOverride === undefined ? undefined : (specPatch.promptOverride ?? null),
+  });
+  if (isStructuralChange(shot.spec as unknown as Record<string, unknown>, nextSpec as unknown as Record<string, unknown>)) await repo.setShotlistApproval(shot.projectId, "draft");
+  else await repo.touchProject(shot.projectId);
+  return updated;
+}
+
+export async function addShot(sceneId: string, spec: ShotInput): Promise<Shot> {
+  const scene = await repo.getScene(sceneId);
+  const shot = await repo.createShot(scene.projectId, sceneId, spec);
+  await repo.setShotlistApproval(scene.projectId, "draft");
+  return shot;
+}
+
+export async function removeShot(shotId: string): Promise<void> {
+  const shot = await repo.getShot(shotId);
+  await repo.deleteShot(shotId);
+  await repo.setShotlistApproval(shot.projectId, "draft");
+}
+
+/* ---------- compile ---------- */
+
+async function compileContext(shotId: string, opts?: { steps?: number; seed?: number }) {
+  const shot = await repo.getShot(shotId);
+  const project = await repo.getProject(shot.projectId);
+  const ids = [...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])];
+  const elements = await repo.getElements(ids);
+  const assetIds = new Set<string>();
+  for (const el of elements.values()) for (const id of el.refAssetIds) assetIds.add(id);
+  if (shot.heroAssetId) assetIds.add(shot.heroAssetId);
+  if (shot.endAssetId) assetIds.add(shot.endAssetId);
+  const assets = await repo.getAssets([...assetIds]);
+  let prevLastFrameUrl: string | undefined;
+  if (shot.spec.linkToPrev === "continuous") {
+    const all = await repo.listShots(shot.projectId);
+    const idx = all.findIndex((s) => s.id === shot.id);
+    const prev = idx > 0 ? all[idx - 1] : undefined;
+    if (prev) {
+      const takes = await repo.listShotTakes(prev.id);
+      const chosen = (prev.selectedTakeId ? takes.find((t) => t.id === prev.selectedTakeId) : undefined) ?? takes.find((t) => t.status === "completed");
+      prevLastFrameUrl = chosen?.lastFrameUrl;
+    }
+  }
+  const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
+  return { shot, project, elements, assets, prevLastFrameUrl, sourceTake, steps: opts?.steps, seed: opts?.seed };
+}
+
+export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number }): Promise<CompiledJob & { estimate: Estimate }> {
+  const ctx = await compileContext(shotId, opts);
+  try {
+    const job = compileShot({ ...ctx, look: ctx.project.look });
+    return { ...job, estimate: estimateTake(ctx.shot.spec.durationS, opts?.steps ?? 8) };
+  } catch (caught) {
+    if (caught instanceof CompileError) throw new StudioError("validation", caught.message, { shotId });
+    throw caught;
+  }
+}
+
+/* ---------- takes ---------- */
+
+export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[] }> {
+  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed });
+  const script = await repo.latestScript(ctx.project.id);
+  assertCanGenerate(ctx.project, script);
+  const estimate = estimateTake(ctx.shot.spec.durationS, req.steps ?? 8, req.n);
+  assertBudget(ctx.project, estimate.usd);
+  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `${req.n} take(s) of ${ctx.shot.spec.durationS}s`);
+
+  let compiled: CompiledJob;
+  try {
+    compiled = compileShot({ ...ctx, look: ctx.project.look });
+  } catch (caught) {
+    if (caught instanceof CompileError) throw new StudioError("validation", caught.message, { shotId });
+    throw caught;
+  }
+
+  const rp = (() => {
+    try {
+      return config.runpod();
+    } catch {
+      return null;
+    }
+  })();
+  const backend = videoBackend();
+  const takes: Take[] = [];
+  for (let i = 0; i < req.n; i++) {
+    const seed = req.seed !== undefined ? req.seed + i : Math.floor(Math.random() * 2 ** 31);
+    const take = await repo.createTake({
+      projectId: ctx.project.id, shotId, backend: "runpod", workflow: compiled.workflow, prompt: compiled.prompt,
+      input: { ...compiled.input, seed }, seed,
+    });
+    const input = {
+      ...compiled.input,
+      seed,
+      studio_take_id: take.id,
+      output: { key: `projects/${ctx.project.id}/shots/${shotId}/takes/${take.id}.mp4` },
+    };
+    try {
+      const webhook = rp ? await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id) : undefined;
+      const { requestId } = await backend.submit(input, { webhook, executionTimeoutMs: rp?.executionTimeoutMs });
+      takes.push(await repo.updateTake(take.id, { requestId, status: "queued", input }));
+    } catch (caught) {
+      takes.push(await repo.updateTake(take.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now(), input }));
+    }
+  }
+  return { takes, estimate, warnings: compiled.warnings };
+}
+
+export async function applyTakeStatus(take: Take, status: BackendStatus): Promise<Take> {
+  if (take.status === "completed" || take.status === "failed" || take.status === "canceled" || take.status === "timeout") return take;
+  switch (status.state) {
+    case "queued":
+      return take.status === "queued" ? take : repo.updateTake(take.id, { status: "queued" });
+    case "running":
+      return take.status === "running" ? take : repo.updateTake(take.id, { status: "running" });
+    case "completed": {
+      const out = status.output;
+      const url = str(out.url) ?? str(out.video_url);
+      if (!url) return repo.updateTake(take.id, { status: "failed", error: "worker completed without a video url", finishedAt: Date.now() });
+      const executionMs = status.executionMs ?? num(out.execution_ms);
+      const costUsd = executionMs ? actualTakeUsd(executionMs) : undefined;
+      const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
+      const lastFrameUrl = str(out.last_frame_url);
+      const updated = await repo.updateTake(take.id, {
+        status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null,
+      });
+      if (costUsd) await repo.addSpent(take.projectId, costUsd);
+      await repo.createAsset({ projectId: take.projectId, url, kind: "video", source: "generated", durationS: num(take.input.seconds), meta: { takeId: take.id, shotId: take.shotId } });
+      if (lastFrameUrl) await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame" } });
+      return updated;
+    }
+    case "failed": {
+      const executionMs = status.executionMs;
+      const costUsd = executionMs ? actualTakeUsd(executionMs) : undefined;
+      if (costUsd) await repo.addSpent(take.projectId, costUsd);
+      return repo.updateTake(take.id, { status: "failed", error: status.error, executionMs, costUsd, finishedAt: Date.now() });
+    }
+    case "canceled":
+      return repo.updateTake(take.id, { status: "canceled", finishedAt: Date.now() });
+    case "timeout":
+      return repo.updateTake(take.id, { status: "timeout", error: "worker execution timed out", finishedAt: Date.now() });
+  }
+}
+
+/** Poll the backend for a take that is still in flight. Cheap enough to call
+    from a GET; the cron sweep does the same for everything at once. */
+export async function refreshTake(takeId: string): Promise<Take> {
+  const take = await repo.getTake(takeId);
+  if ((take.status !== "queued" && take.status !== "running") || !take.requestId) return take;
+  try {
+    return await applyTakeStatus(take, await videoBackend().status(take.requestId));
+  } catch (caught) {
+    if (caught instanceof StudioError && caught.code === "backend_error") return take;
+    throw caught;
+  }
+}
+
+export async function cancelTake(takeId: string): Promise<Take> {
+  const take = await repo.getTake(takeId);
+  if (take.requestId && (take.status === "queued" || take.status === "running")) {
+    await videoBackend().cancel(take.requestId);
+    return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
+  }
+  return take;
+}
+
+export async function retryTake(takeId: string, actor: Actor, confirm: boolean): Promise<Take> {
+  const take = await repo.getTake(takeId);
+  if (take.status !== "failed" && take.status !== "timeout") throw new StudioError("validation", "only failed or timed-out takes can be retried");
+  const shot = await repo.getShot(take.shotId);
+  const project = await repo.getProject(take.projectId);
+  const estimate = estimateTake(shot.spec.durationS, num(take.input.steps) ?? 8);
+  assertBudget(project, estimate.usd);
+  if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
+  const backend = videoBackend();
+  if (take.requestId && backend.retry) {
+    const { requestId } = await backend.retry(take.requestId);
+    return repo.updateTake(takeId, { requestId, status: "queued", error: null });
+  }
+  const rp = config.runpod();
+  const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id);
+  const { requestId } = await backend.submit(take.input, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+  return repo.updateTake(takeId, { requestId, status: "queued", error: null });
+}
+
+export async function reviewTake(takeId: string, score: number, notes: string, actor: Actor): Promise<Take> {
+  return repo.updateTake(takeId, { review: { score, notes, by: actor.via === "mcp" ? "agent" : "human", at: Date.now() } });
+}
+
+export async function selectTake(shotId: string, takeId: string): Promise<Shot> {
+  const take = await repo.getTake(takeId);
+  if (take.shotId !== shotId) throw new StudioError("validation", "take belongs to another shot");
+  if (take.status !== "completed") throw new StudioError("validation", "only completed takes can be selected");
+  return repo.updateShot(shotId, { selectedTakeId: takeId });
+}
+
+/* ---------- stills: hero frames and element references ---------- */
+
+export async function generateImages(kind: JobKind, targetId: string, req: GenerateImagesRequest, actor: Actor): Promise<{ job: Job; estimateUsd: number; prompt: string }> {
+  let projectId: string;
+  let prompt: string;
+  let aspect: string;
+  if (kind === "hero-frames") {
+    const shot = await repo.getShot(targetId);
+    const project = await repo.getProject(shot.projectId);
+    const ids = [...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])];
+    const elements = await repo.getElements(ids);
+    projectId = project.id;
+    prompt = req.prompt ?? compileStillPrompt(shot, project.look, elements);
+    aspect = project.look.aspectRatio;
+  } else {
+    const element = await repo.getElement(targetId);
+    if (!element.projectId) throw new StudioError("validation", "import the library element into a project before generating references");
+    const project = await repo.getProject(element.projectId);
+    projectId = project.id;
+    prompt = req.prompt ?? compileElementPrompt(element, project.look);
+    aspect = element.kind === "character" ? "3:4" : "16:9";
+  }
+  const project = await repo.getProject(projectId);
+  const estimateUsd = estimateImages(req.n);
+  assertBudget(project, estimateUsd);
+  if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `${req.n} still(s)`);
+  const backend = imageBackend();
+  const job = await repo.createJob({ projectId, kind, targetId, backend: "higgsfield" });
+  try {
+    const { requestId } = await backend.submit({ prompt, aspectRatio: aspect, n: req.n });
+    return { job: await repo.updateJob(job.id, { requestId, status: "running" }), estimateUsd, prompt };
+  } catch (caught) {
+    return { job: await repo.updateJob(job.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() }), estimateUsd, prompt };
+  }
+}
+
+export async function refreshJob(jobId: string): Promise<Job> {
+  const job = await repo.getJob(jobId);
+  if ((job.status !== "queued" && job.status !== "running") || !job.requestId) return job;
+  let status: BackendStatus;
+  try {
+    status = await imageBackend().status(job.requestId);
+  } catch (caught) {
+    if (caught instanceof StudioError && caught.code === "backend_error") return job;
+    throw caught;
+  }
+  if (status.state === "completed") {
+    const images = Array.isArray(status.output.images) ? (status.output.images as Array<{ url?: unknown }>) : [];
+    const assetIds: string[] = [];
+    for (const [i, img] of images.entries()) {
+      if (typeof img.url !== "string") continue;
+      let url = img.url;
+      if (config.r2Configured()) {
+        try {
+          url = await mirrorUrl(img.url, `projects/${job.projectId}/${job.kind === "hero-frames" ? `shots/${job.targetId}/hero` : `elements/${job.targetId}`}/${job.id}-${i}.png`, "image/png");
+        } catch {
+          /* keep the CDN url; the UI can still show it while it lasts */
+        }
+      }
+      const asset = await repo.createAsset({ projectId: job.projectId, url, kind: "image", source: "generated", meta: { jobId: job.id, kind: job.kind, targetId: job.targetId } });
+      assetIds.push(asset.id);
+    }
+    const costUsd = estimateImages(assetIds.length);
+    await repo.addSpent(job.projectId, costUsd);
+    return repo.updateJob(jobId, { status: "completed", assetIds, costUsd, finishedAt: Date.now() });
+  }
+  if (status.state === "failed") return repo.updateJob(jobId, { status: "failed", error: status.error, finishedAt: Date.now() });
+  if (status.state === "canceled" || status.state === "timeout") return repo.updateJob(jobId, { status: "failed", error: status.state, finishedAt: Date.now() });
+  return job;
+}
+
+export async function jobAssets(targetId: string): Promise<Array<Job & { assets: Asset[] }>> {
+  const jobs = await repo.listTargetJobs(targetId);
+  const ids = jobs.flatMap((j) => j.assetIds);
+  const assets = await repo.getAssets(ids);
+  return jobs.map((job) => ({ ...job, assets: job.assetIds.map((id) => assets.get(id)).filter((a): a is Asset => Boolean(a)) }));
+}
+
+/* ---------- timeline & export ---------- */
+
+export async function autoTimeline(projectId: string): Promise<Timeline> {
+  const view = await getProjectView(projectId);
+  const clips: TimelineInput["clips"] = [];
+  for (const scene of view.scenes) {
+    for (const shot of scene.shots) {
+      const take = shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
+      if (!take) continue;
+      clips.push({ shotId: shot.id, takeId: take.id, inS: 0, outS: shot.spec.durationS, transition: shot.spec.linkToPrev === "continuous" ? "dissolve" : "cut", transitionS: 0.3 });
+    }
+  }
+  return repo.setTimeline(projectId, { ...view.timeline, clips });
+}
+
+export async function createExportJob(projectId: string, req: ExportRequest, actor: Actor): Promise<{ job: ExportJob; estimateUsd: number }> {
+  const view = await getProjectView(projectId);
+  if (view.timeline.clips.length === 0) throw new StudioError("validation", "the timeline is empty; add clips or run auto timeline first");
+  const takes = new Map<string, Take>();
+  const shots = new Map<string, Shot>();
+  for (const scene of view.scenes) for (const shot of scene.shots) {
+    shots.set(shot.id, shot);
+    for (const take of shot.takes) takes.set(take.id, take);
+  }
+  for (const clip of view.timeline.clips) {
+    const take = takes.get(clip.takeId);
+    if (!take || take.status !== "completed" || !take.resultUrl) {
+      throw new StudioError("not_approved", `clip for shot ${clip.shotId} points at a take that is not completed`, { checkpoint: "timeline", takeId: clip.takeId });
+    }
+  }
+  const total = view.timeline.clips.reduce((n, c) => n + Math.max(0, c.outS - c.inS), 0);
+  const estimateUsd = estimateExport(total, req.preset === "master-upscaled");
+  assertBudget(view.project, estimateUsd);
+  if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `exporting ${req.preset}`);
+  const music = view.timeline.music ? view.assets.find((a) => a.id === view.timeline.music) : undefined;
+  const exportRow = await repo.createExport(projectId, req.preset, {});
+  const input = buildAssemblerInput({
+    exportId: exportRow.id, projectId, preset: req.preset, look: view.project.look, timeline: view.timeline, shots, takes,
+    elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, burnIn: req.burnInSubtitles,
+    videoSize: view.project.look.aspectRatio === "9:16" ? "768x1344" : "1344x768",
+  });
+  try {
+    const rp = config.runpod();
+    const backend = assemblerBackend();
+    const webhook = await signHookUrl(config.publicUrl(), "/api/assembler/hook", rp.webhookSecret, exportRow.id);
+    const { requestId } = await backend.submit(input as unknown as Record<string, unknown>, { webhook, executionTimeoutMs: 30 * 60_000 });
+    const job = await repo.updateExport(exportRow.id, { requestId, status: "queued" });
+    return { job: { ...job, input: input as unknown as Record<string, unknown> }, estimateUsd };
+  } catch (caught) {
+    const job = await repo.updateExport(exportRow.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() });
+    return { job, estimateUsd };
+  }
+}
+
+export async function applyExportStatus(job: ExportJob, status: BackendStatus): Promise<ExportJob> {
+  if (job.status === "completed" || job.status === "failed") return job;
+  switch (status.state) {
+    case "queued":
+      return job;
+    case "running":
+      return job.status === "running" ? job : repo.updateExport(job.id, { status: "running" });
+    case "completed": {
+      const url = str(status.output.url);
+      if (!url) return repo.updateExport(job.id, { status: "failed", error: "assembler completed without a url", finishedAt: Date.now() });
+      const updated = await repo.updateExport(job.id, { status: "completed", resultUrl: url, srtUrl: str(status.output.srt_url), finishedAt: Date.now() });
+      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset } });
+      return updated;
+    }
+    case "failed":
+      return repo.updateExport(job.id, { status: "failed", error: status.error, finishedAt: Date.now() });
+    case "canceled":
+    case "timeout":
+      return repo.updateExport(job.id, { status: "failed", error: status.state, finishedAt: Date.now() });
+  }
+}
+
+export async function refreshExport(exportId: string): Promise<ExportJob> {
+  const job = await repo.getExport(exportId);
+  if ((job.status !== "queued" && job.status !== "running") || !job.requestId) return job;
+  try {
+    return await applyExportStatus(job, await assemblerBackend().status(job.requestId));
+  } catch (caught) {
+    if (caught instanceof StudioError && caught.code === "backend_error") return job;
+    throw caught;
+  }
+}
+
+/* ---------- sweep (cron) ---------- */
+
+export async function sweep(): Promise<{ takes: number; jobs: number; exports: number }> {
+  const [takes, jobs, exports] = await Promise.all([repo.listActiveTakes(), repo.listActiveJobs(), repo.listActiveExports()]);
+  const timeoutMs = (() => {
+    try {
+      return config.runpod().executionTimeoutMs + 2 * 60 * 60_000;
+    } catch {
+      return 3 * 60 * 60_000;
+    }
+  })();
+  let t = 0;
+  for (const take of takes.slice(0, 50)) {
+    if (Date.now() - take.createdAt > timeoutMs) {
+      await repo.updateTake(take.id, { status: "timeout", error: "no answer from the worker within the deadline", finishedAt: Date.now() });
+      t++;
+      continue;
+    }
+    const before = take.status;
+    const after = await refreshTake(take.id);
+    if (after.status !== before) t++;
+  }
+  let j = 0;
+  for (const job of jobs.slice(0, 50)) {
+    const before = job.status;
+    if ((await refreshJob(job.id)).status !== before) j++;
+  }
+  let e = 0;
+  for (const job of exports.slice(0, 20)) {
+    const before = job.status;
+    if ((await refreshExport(job.id)).status !== before) e++;
+  }
+  return { takes: t, jobs: j, exports: e };
+}
+
+/* ---------- helpers ---------- */
+
+function str(v: unknown): string | undefined {
+  return typeof v === "string" && v ? v : undefined;
+}
+
+function num(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
