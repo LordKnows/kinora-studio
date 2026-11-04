@@ -57,6 +57,7 @@ function podEnv(): Record<string, string> {
     STUDIO_PORT: String(pod.podPort),
     COMFY_URL: `http://127.0.0.1:${pod.comfyPort}`,
     STUDIO_BUNDLE_URL: `${config.publicUrl()}/api/pod/bundle?token=${encodeURIComponent(pod.workerToken)}`,
+    STUDIO_VOLUME_PATH: pod.volumeMountPath,
   };
 }
 
@@ -422,7 +423,7 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
     dockerStartCmd: pc.bootstrap ? bootstrapCommandLine() : "(image default)",
     gpuTypes: pc.gpuTypeIds,
     notes: [
-      "Attach the global volume (minimax-h3-models) at the mount path.",
+      "Attach the model volume (minimax-h3-models) at the mount path. A global volume must NOT be mounted at /workspace: the image cannot build its Python env there.",
       "Expose the HTTP ports; the studio reaches the job server through RunPod's proxy on the first port.",
       "Paste the env vars exactly; STUDIO_BUNDLE_URL carries the worker token.",
       "With RUNPOD_API=v2 the start command and env are applied by the studio when you adopt the pod; pasting them is only needed on v1.",

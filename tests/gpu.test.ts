@@ -145,7 +145,8 @@ describe("pod mode", () => {
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");
     /* the model volume as a network mount at the ComfyUI workspace */
-    expect(create.mounts).toEqual({ network: [{ volumeId: "vol1", path: "/workspace" }] });
+    expect(create.mounts).toEqual({ network: [{ volumeId: "vol1", path: "/runpod-volume" }] });
+    expect(create.env.STUDIO_VOLUME_PATH).toBe("/runpod-volume");
     /* stock image: the pod bootstraps the job server from the studio; one shell-split string, single-quoted */
     expect(create.args.startsWith("bash -lc '")).toBe(true);
     expect(create.args).toContain("$STUDIO_BUNDLE_URL");

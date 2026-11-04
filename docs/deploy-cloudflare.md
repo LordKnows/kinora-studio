@@ -196,10 +196,14 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 4. **数据中心**：
    - **全局盘（首选）**：一个能被任意数据中心挂载的卷，填 `RUNPOD_NETWORK_VOLUME_ID`，
      `RUNPOD_DATACENTER_IDS` 留空，`RUNPOD_NETWORK_VOLUMES` 不填。起 Pod 时不限数据中心，
-     RunPod 在白名单 GPU 里按可用性挑。若跨区读取慢，在 Pod 环境变量里设
-     `MODELS_LINK_FROM=/workspace/runpod-slim/ComfyUI/models`（卷上的目录）、`MODELS_LINK_TO=/opt/models`、
-     `MODELS_COPY=1`，启动时把模型拷到本地盘再跑（容器盘要 ≥100 GB），并把 ComfyUI 的
-     `--base-directory` 或 extra_model_paths 指到本地目录。
+     RunPod 在白名单 GPU 里按可用性挑。**全局盘不能挂在 `/workspace`**：官方 ComfyUI 镜像会把
+     Python 环境建在那里，而全局盘不支持 venv 需要的文件权限（RunPod 控制台会提示
+     "Unsupported volume type"）。所以 `RUNPOD_VOLUME_MOUNT_PATH` 默认是 `/runpod-volume`：
+     卷只出借模型，ComfyUI 和 venv 装在容器盘上，作业服务启动时把容器盘上的
+     `/workspace/runpod-slim/ComfyUI/models` 软链到卷里的模型目录（在卷上依次找
+     `runpod-slim/ComfyUI/models`、`ComfyUI/models`、`models`）。每次开机镜像重装 ComfyUI
+     约一分钟，模型零下载。若跨区读取慢，Pod 环境变量里设 `MODELS_LINK_FROM=<卷上的模型目录>`、
+     `MODELS_LINK_TO=/opt/models`、`MODELS_COPY=1`，启动时拷到本地盘（容器盘要 ≥100 GB）。
    - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`
      （密钥），起 Pod 时按顺序遍历数据中心（上次成功的优先），全部失败才显示"暂时没资源"。
 5. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
@@ -227,8 +231,9 @@ GPU、卷、端口对。Settings 里的 **Apply boot & restart** 随时可以再
    环境变量（含 worker token 和 R2 密钥，只粘到 Pod 的环境变量里）。
 2. RunPod 控制台 → Pods → Deploy：选白名单里的 GPU（5090 / PRO 6000 优先），
    **Network Volume 选 `minimax-h3-models`**，Pod Template 用 Edit / Customize 把上面的值逐项填进去
-   （Container Image、Container Disk、Volume Mount Path、Expose HTTP Ports、Container Start Command、
-   Environment Variables）。Secure Cloud。
+   （Container Image、Container Disk、**Volume Mount Path 填 `/runpod-volume`，不要用 `/workspace`**、
+   Expose HTTP Ports、Container Start Command、Environment Variables）。Secure Cloud。挂载路径建好后
+   改不了，挂错了只能终止重建。
 3. 部署后复制 Pod ID，回到 Settings → **Adopt** 粘贴。Studio 会读取这台 Pod 的状态、GPU 型号和时价，
    （v2）写入启动命令和环境变量并重启，健康检查通过后把排队的 take 送过去。
 4. 被接管的 Pod（卡片上标 *adopted*）**永远不会被 Studio 终止或替换**：Stop 后 Start 拿不到卡时只显示
@@ -275,10 +280,10 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   `models/{unet,text_encoders,vae,loras}`；作业服务启动时自动把 `MODELS_DIR` / `LORA_DIR`
   指到那里。`workers/h3-runpod/download_models.sh` 按 `models.txt` 下载约 68 GB 的底模、
   文本编码器、VAE 和 LoRA。
-- 镜像的 start.sh 写死了 venv 名 `.venv-cu128`（13.0 标签也是），卷上有 ComfyUI 但没有这个
-  venv 时它会报 `bin/activate: No such file` 并挂起。作业服务的 `start.sh` 在它之前先检查：
-  有别的 `.venv*` 就用那个（`COMFYUI_VENV_NAME`），一个都没有就按镜像的方式新建一个
-  （`--system-site-packages`）。
+- 镜像的 start.sh 写死了 venv 名 `.venv-cu128`（13.0 标签也是），`/workspace` 上有 ComfyUI 但没有
+  这个 venv 时它会报 `bin/activate: No such file` 并挂起。常规网络卷挂在 `/workspace` 时作业服务的
+  `start.sh` 会先检查：有别的 `.venv*` 就用那个（`COMFYUI_VENV_NAME`），一个都没有就按镜像的方式
+  新建一个。全局盘上建不了 venv，所以全局盘不挂 `/workspace`（见 §9 第 4 条）。
 - 成本常量：每秒视频约 32 秒 GPU（A100 ≈ 35，RTX PRO 6000 ≈ 27），冷启动约 3 分钟。
   有真实 take 后统计表会覆盖它。
 

@@ -29,7 +29,7 @@
     "RUNPOD_GPU_TYPES": "RTX 5090,RTX PRO 6000,A100 80GB,A100-SXM4-80GB,H100 80GB,H100 PCIe,H200",
     "RUNPOD_CLOUD_TYPE": "SECURE",
     "RUNPOD_CONTAINER_DISK_GB": "50",
-    "RUNPOD_VOLUME_MOUNT_PATH": "/workspace",
+    "RUNPOD_VOLUME_MOUNT_PATH": "/runpod-volume",
     "RUNPOD_POD_IMAGE": "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
     "RUNPOD_CUDA_VERSIONS": "",
     "H3_PROMPT_FORMAT": "lightx2v-lines",

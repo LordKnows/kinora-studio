@@ -66,7 +66,8 @@ export const config = {
     }),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
     containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "50"),
-    volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/workspace",
+    /* Away from /workspace by default: a global volume only lends models (see workers/h3-runpod/start.sh). */
+    volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/runpod-volume",
     /** Host CUDA versions to allow (RunPod enum, e.g. "13.0"). Empty = no
         constraint; the handoff image needs a ≥13 host, so set it once the
         accepted values are known. */

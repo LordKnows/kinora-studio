@@ -2,7 +2,7 @@
 # Fetch the H3 models into a ComfyUI models directory (default /workspace/ComfyUI/models).
 # Idempotent: skips files that already exist with the expected size header.
 set -euo pipefail
-MODELS_DIR="${1:-/workspace/ComfyUI/models}"
+MODELS_DIR="${1:-/workspace/runpod-slim/ComfyUI/models}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AUTH=()
 [ -n "${HF_TOKEN:-}" ] && AUTH=(--header "Authorization: Bearer ${HF_TOKEN}")

@@ -10,15 +10,53 @@ if [ -z "$COMFY_CMD" ]; then
   # runpod/comfyui images bring their own entrypoint that starts ComfyUI (and Jupyter); use it when present.
   if [ -x /start.sh ]; then COMFY_CMD="/start.sh"; else COMFY_CMD="python3 /workspace/ComfyUI/main.py --listen 127.0.0.1 --port ${COMFY_PORT}"; fi
 fi
-# The stock runpod/comfyui image keeps its ComfyUI on the volume at
-# /workspace/runpod-slim/ComfyUI with a virtualenv whose name is baked into
-# the image (.venv-cu128 even on the CUDA 13.0 tag). A volume filled by
-# another pod, or copied without dot-files, may carry the install but not
-# that venv, and the image's start.sh then holds the pod. Point it at a venv
-# that does exist, or create one the way the image does (system site
-# packages hold torch and ComfyUI's requirements).
 SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
-if [ -d "$SLIM_DIR" ]; then
+
+# The stock runpod/comfyui image installs ComfyUI and its virtualenv under
+# /workspace. A *global* network volume cannot hold that venv (it lacks the
+# file permissions a venv needs), so the volume is mounted elsewhere
+# (STUDIO_VOLUME_PATH, default /runpod-volume) and only lends its models:
+# ComfyUI and the venv go on the container disk, and models/ is a symlink
+# into the volume. The directory is created before the image's start.sh
+# runs because its sync skips /models and /extra_model_paths.yaml.
+VOLUME_PATH="${STUDIO_VOLUME_PATH:-/workspace}"
+if [ "$VOLUME_PATH" != "/workspace" ] && [ -d "$VOLUME_PATH" ]; then
+  MODELS_SRC=""
+  for cand in "$VOLUME_PATH/runpod-slim/ComfyUI/models" "$VOLUME_PATH/ComfyUI/models" "$VOLUME_PATH/models"; do
+    if [ -d "$cand" ]; then MODELS_SRC="$cand"; break; fi
+  done
+  if [ -z "$MODELS_SRC" ] && [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then
+    MODELS_SRC="$VOLUME_PATH/models"
+    mkdir -p "$MODELS_SRC"
+  fi
+  if [ -n "$MODELS_SRC" ]; then
+    echo "[start] models come from the volume: $MODELS_SRC"
+    mkdir -p "$SLIM_DIR"
+    if [ -L "$SLIM_DIR/models" ]; then rm -f "$SLIM_DIR/models"; elif [ -d "$SLIM_DIR/models" ]; then mv "$SLIM_DIR/models" "$SLIM_DIR/models.local.$(date +%s)"; fi
+    ln -s "$MODELS_SRC" "$SLIM_DIR/models"
+    # Belt and braces: ComfyUI also learns the path from extra_model_paths.yaml.
+    cat > "$SLIM_DIR/extra_model_paths.yaml" <<YAML
+studio_volume:
+  base_path: $MODELS_SRC
+  unet: unet
+  diffusion_models: unet
+  text_encoders: text_encoders
+  vae: vae
+  loras: loras
+YAML
+    export MODELS_DIR="$MODELS_SRC"
+    export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
+  else
+    echo "[start] the volume at $VOLUME_PATH has no models directory (looked for runpod-slim/ComfyUI/models, ComfyUI/models, models); set DOWNLOAD_MODELS=1 to fill it"
+  fi
+fi
+
+# With the volume on /workspace (a regular network volume, the image's own
+# layout) the install may carry a venv under another name, or none: the
+# image's start.sh hardcodes .venv-cu128 and holds the pod when it is
+# missing. Point it at a venv that does exist, or create one the way the
+# image does (system site packages hold torch and ComfyUI's requirements).
+if [ -d "$SLIM_DIR" ] && [ -f "$SLIM_DIR/main.py" ]; then
   VENV_NAME="${COMFYUI_VENV_NAME:-.venv-cu128}"
   if [ ! -f "$SLIM_DIR/$VENV_NAME/bin/activate" ]; then
     found=""
@@ -32,14 +70,14 @@ if [ -d "$SLIM_DIR" ]; then
       echo "[start] no venv under $SLIM_DIR; creating $VENV_NAME"
       py="$(command -v python3.12 || command -v python3)"
       [ -d "$SLIM_DIR/$VENV_NAME" ] && mv "$SLIM_DIR/$VENV_NAME" "$SLIM_DIR/$VENV_NAME.broken.$(date +%s)"
-      "$py" -m venv --system-site-packages --without-pip "$SLIM_DIR/$VENV_NAME" || echo "[start] venv creation failed; ComfyUI may not start"
+      "$py" -m venv --system-site-packages --without-pip "$SLIM_DIR/$VENV_NAME" || echo "[start] venv creation failed (a global volume cannot hold one: mount it away from /workspace); ComfyUI may not start"
     fi
   fi
   # Models live inside that install on this image.
   [ -z "${MODELS_DIR:-}" ] && [ -d "$SLIM_DIR/models" ] && export MODELS_DIR="$SLIM_DIR/models"
   [ -z "${LORA_DIR:-}" ] && [ -d "$SLIM_DIR/models/loras" ] && export LORA_DIR="$SLIM_DIR/models/loras"
 fi
-if [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then bash /app/download_models.sh "${MODELS_DIR:-/workspace/ComfyUI/models}"; fi
+if [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then bash /app/download_models.sh "${MODELS_DIR:-$SLIM_DIR/models}"; fi
 : "${STUDIO_PORT:=8000}"
 
 # Models on a network volume: either symlink the ComfyUI models dir to the
