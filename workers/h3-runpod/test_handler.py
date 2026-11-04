@@ -214,7 +214,7 @@ def test_handler_health_lists_templates(monkeypatch):
     monkeypatch.setattr(h, "WORKFLOW_DIR", HERE / "workflows")
     monkeypatch.setattr(h.ComfyClient, "health", lambda self: {"reachable": False})
     out = h.handler({"input": {"action": "health"}})
-    assert out["ok"] and out["workflows"] == ["T2VA"]
+    assert out["ok"] and out["workflows"] == ["FL2VA", "I2VA", "R2VA", "T2VA"]
 
 
 # ---- LoRAs ----
