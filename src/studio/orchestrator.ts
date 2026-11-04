@@ -1,17 +1,15 @@
 import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } from "./checkpoints";
-import { CompileError, compileElementPrompt, compileShot, compileStillPrompt, type CompiledJob } from "./compiler";
+import { CompileError, compileShot, type CompiledJob } from "./compiler";
 import { config } from "./config";
-import { actualTakeUsd, estimateExport, estimateImages, estimateTake, type Estimate } from "./cost";
+import { actualTakeUsd, estimateExport, estimateTake, reservedUsd, type Estimate } from "./cost";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
-import { HiggsfieldImageBackend } from "./backends/higgsfield";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
-import { mirrorUrl } from "./storage/r2";
-import type { ExportRequest, GenerateImagesRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
+import type { ExportRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
 import { ShotInput as ShotInputSchema } from "./schemas";
-import type { Actor, Asset, Element, ExportJob, Job, JobKind, Project, Scene, Script, Shot, Take, Timeline } from "./types";
+import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Take, Timeline } from "./types";
 
 /* §4.3 — the server-side conductor. Everything that spends money or touches a
    backend goes through here, so checkpoints, budget and the ledger are
@@ -41,11 +39,10 @@ export function assemblerBackend(): GenerationBackend {
   return new RunPodBackend({ apiKey: rp.apiKey, endpointId: rp.assemblerEndpointId });
 }
 
-export function imageBackend(): GenerationBackend {
-  const hf = config.higgsfield();
-  if (!hf.baseUrl || !hf.apiKey) throw new StudioError("backend_error", "Image models are not configured (HF_API_BASE_URL / HF_API_KEY)");
-  return new HiggsfieldImageBackend({ apiKey: hf.apiKey, baseUrl: hf.baseUrl });
-}
+/* Image generation (hero frames, element sheets) is disabled for now: the
+   Higgsfield image backend was removed and references are uploaded instead.
+   TODO: bring back a still-image backend behind the same GenerationBackend
+   interface and re-add generate_hero_frames / generate_element_refs. */
 
 /* ---------- aggregate view ---------- */
 
@@ -101,22 +98,30 @@ export async function getProjectView(projectId: string): Promise<ProjectView> {
 
 /* ---------- shotlist ---------- */
 
-export async function saveShotlist(projectId: string, input: ShotlistInput): Promise<ProjectView> {
+export async function saveShotlist(projectId: string, input: ShotlistInput): Promise<ProjectView & { merge: repo.ShotlistMergeResult }> {
   await repo.getProject(projectId);
-  await repo.replaceShotlist(projectId, input.scenes);
+  const removals = await repo.shotlistRemovals(projectId, input.scenes);
+  if (removals.length) {
+    throw new StudioError(
+      "validation",
+      `this shotlist would delete ${removals.length} shot(s) that already have takes; keep them in the list, or delete them one by one on the Board`,
+      { removals },
+    );
+  }
+  const merge = await repo.mergeShotlist(projectId, input.scenes);
   await repo.setShotlistApproval(projectId, "draft");
-  return getProjectView(projectId);
+  return { ...(await getProjectView(projectId)), merge };
 }
 
 export async function patchShot(shotId: string, patch: ShotPatch & { heroAssetId?: string | null; endAssetId?: string | null }): Promise<Shot> {
   const shot = await repo.getShot(shotId);
-  const { heroAssetId, endAssetId, ...specPatch } = patch;
-  const nextSpec = ShotInputSchema.parse({ ...shot.spec, ...specPatch });
+  const { heroAssetId, endAssetId, promptOverride, ...specPatch } = patch;
+  const nextSpec = ShotInputSchema.parse({ ...shot.spec, ...specPatch, promptOverride: promptOverride === undefined ? shot.promptOverride : (promptOverride ?? undefined) });
   const updated = await repo.updateShot(shotId, {
     spec: nextSpec,
     heroAssetId,
     endAssetId,
-    promptOverride: specPatch.promptOverride === undefined ? undefined : (specPatch.promptOverride ?? null),
+    promptOverride: promptOverride === undefined ? undefined : (promptOverride?.trim() ? promptOverride : null),
   });
   if (isStructuralChange(shot.spec as unknown as Record<string, unknown>, nextSpec as unknown as Record<string, unknown>)) await repo.setShotlistApproval(shot.projectId, "draft");
   else await repo.touchProject(shot.projectId);
@@ -181,7 +186,8 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
   const estimate = estimateTake(ctx.shot.spec.durationS, req.steps ?? 8, req.n);
-  assertBudget(ctx.project, estimate.usd);
+  const reserved = reservedUsd(await repo.listProjectActiveTakes(ctx.project.id));
+  assertBudget(ctx.project, estimate.usd + reserved);
   if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `${req.n} take(s) of ${ctx.shot.spec.durationS}s`);
 
   let compiled: CompiledJob;
@@ -288,7 +294,7 @@ export async function retryTake(takeId: string, actor: Actor, confirm: boolean):
   const shot = await repo.getShot(take.shotId);
   const project = await repo.getProject(take.projectId);
   const estimate = estimateTake(shot.spec.durationS, num(take.input.steps) ?? 8);
-  assertBudget(project, estimate.usd);
+  assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
   if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
   const backend = videoBackend();
   if (take.requestId && backend.retry) {
@@ -310,84 +316,6 @@ export async function selectTake(shotId: string, takeId: string): Promise<Shot> 
   if (take.shotId !== shotId) throw new StudioError("validation", "take belongs to another shot");
   if (take.status !== "completed") throw new StudioError("validation", "only completed takes can be selected");
   return repo.updateShot(shotId, { selectedTakeId: takeId });
-}
-
-/* ---------- stills: hero frames and element references ---------- */
-
-export async function generateImages(kind: JobKind, targetId: string, req: GenerateImagesRequest, actor: Actor): Promise<{ job: Job; estimateUsd: number; prompt: string }> {
-  let projectId: string;
-  let prompt: string;
-  let aspect: string;
-  if (kind === "hero-frames") {
-    const shot = await repo.getShot(targetId);
-    const project = await repo.getProject(shot.projectId);
-    const ids = [...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])];
-    const elements = await repo.getElements(ids);
-    projectId = project.id;
-    prompt = req.prompt ?? compileStillPrompt(shot, project.look, elements);
-    aspect = project.look.aspectRatio;
-  } else {
-    const element = await repo.getElement(targetId);
-    if (!element.projectId) throw new StudioError("validation", "import the library element into a project before generating references");
-    const project = await repo.getProject(element.projectId);
-    projectId = project.id;
-    prompt = req.prompt ?? compileElementPrompt(element, project.look);
-    aspect = element.kind === "character" ? "3:4" : "16:9";
-  }
-  const project = await repo.getProject(projectId);
-  const estimateUsd = estimateImages(req.n);
-  assertBudget(project, estimateUsd);
-  if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `${req.n} still(s)`);
-  const backend = imageBackend();
-  const job = await repo.createJob({ projectId, kind, targetId, backend: "higgsfield" });
-  try {
-    const { requestId } = await backend.submit({ prompt, aspectRatio: aspect, n: req.n });
-    return { job: await repo.updateJob(job.id, { requestId, status: "running" }), estimateUsd, prompt };
-  } catch (caught) {
-    return { job: await repo.updateJob(job.id, { status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() }), estimateUsd, prompt };
-  }
-}
-
-export async function refreshJob(jobId: string): Promise<Job> {
-  const job = await repo.getJob(jobId);
-  if ((job.status !== "queued" && job.status !== "running") || !job.requestId) return job;
-  let status: BackendStatus;
-  try {
-    status = await imageBackend().status(job.requestId);
-  } catch (caught) {
-    if (caught instanceof StudioError && caught.code === "backend_error") return job;
-    throw caught;
-  }
-  if (status.state === "completed") {
-    const images = Array.isArray(status.output.images) ? (status.output.images as Array<{ url?: unknown }>) : [];
-    const assetIds: string[] = [];
-    for (const [i, img] of images.entries()) {
-      if (typeof img.url !== "string") continue;
-      let url = img.url;
-      if (config.r2Configured()) {
-        try {
-          url = await mirrorUrl(img.url, `projects/${job.projectId}/${job.kind === "hero-frames" ? `shots/${job.targetId}/hero` : `elements/${job.targetId}`}/${job.id}-${i}.png`, "image/png");
-        } catch {
-          /* keep the CDN url; the UI can still show it while it lasts */
-        }
-      }
-      const asset = await repo.createAsset({ projectId: job.projectId, url, kind: "image", source: "generated", meta: { jobId: job.id, kind: job.kind, targetId: job.targetId } });
-      assetIds.push(asset.id);
-    }
-    const costUsd = estimateImages(assetIds.length);
-    await repo.addSpent(job.projectId, costUsd);
-    return repo.updateJob(jobId, { status: "completed", assetIds, costUsd, finishedAt: Date.now() });
-  }
-  if (status.state === "failed") return repo.updateJob(jobId, { status: "failed", error: status.error, finishedAt: Date.now() });
-  if (status.state === "canceled" || status.state === "timeout") return repo.updateJob(jobId, { status: "failed", error: status.state, finishedAt: Date.now() });
-  return job;
-}
-
-export async function jobAssets(targetId: string): Promise<Array<Job & { assets: Asset[] }>> {
-  const jobs = await repo.listTargetJobs(targetId);
-  const ids = jobs.flatMap((j) => j.assetIds);
-  const assets = await repo.getAssets(ids);
-  return jobs.map((job) => ({ ...job, assets: job.assetIds.map((id) => assets.get(id)).filter((a): a is Asset => Boolean(a)) }));
 }
 
 /* ---------- timeline & export ---------- */
@@ -479,8 +407,8 @@ export async function refreshExport(exportId: string): Promise<ExportJob> {
 
 /* ---------- sweep (cron) ---------- */
 
-export async function sweep(): Promise<{ takes: number; jobs: number; exports: number }> {
-  const [takes, jobs, exports] = await Promise.all([repo.listActiveTakes(), repo.listActiveJobs(), repo.listActiveExports()]);
+export async function sweep(): Promise<{ takes: number; exports: number }> {
+  const [takes, exports] = await Promise.all([repo.listActiveTakes(), repo.listActiveExports()]);
   const timeoutMs = (() => {
     try {
       return config.runpod().executionTimeoutMs + 2 * 60 * 60_000;
@@ -499,17 +427,12 @@ export async function sweep(): Promise<{ takes: number; jobs: number; exports: n
     const after = await refreshTake(take.id);
     if (after.status !== before) t++;
   }
-  let j = 0;
-  for (const job of jobs.slice(0, 50)) {
-    const before = job.status;
-    if ((await refreshJob(job.id)).status !== before) j++;
-  }
   let e = 0;
   for (const job of exports.slice(0, 20)) {
     const before = job.status;
     if ((await refreshExport(job.id)).status !== before) e++;
   }
-  return { takes: t, jobs: j, exports: e };
+  return { takes: t, exports: e };
 }
 
 /* ---------- helpers ---------- */

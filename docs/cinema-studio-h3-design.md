@@ -1148,8 +1148,9 @@ Agent 连接
 | 设计章节 | 状态 | 实现位置 |
 |---|---|---|
 | §3 领域模型、§3.2 检查点 | 已实现 | `src/studio/types.ts`、`schemas.ts`、`repo.ts`、`checkpoints.ts` |
-| §3.3 存储 | 已实现，数据库选了 **SQLite / D1**（设计里的备选），R2 为唯一文件存储 | `src/db/`、`src/studio/storage/r2.ts` |
+| §3.3 存储 | 已实现，数据库选了 **SQLite / D1**（设计里的备选），R2 为唯一文件存储；`save_shotlist` 为合并语义，不会删除已有 take | `src/db/`、`src/studio/storage/r2.ts`、`repo.mergeShotlist` |
 | §4.2 Compiler（四模式模板、校验、成本估算） | 已实现；评测模式的端点和页面已实现，评测本身待 P0 | `src/studio/compiler.ts`、`cost.ts` |
+| §5.2 Hero Frame / 角色设定图的图像生成 | **已关闭，列为 TODO**：Higgsfield 图像后端已移除，参考图和 hero frame 改为上传；take 的末帧也可作为帧 | `UploadButton`、`list_assets` 工具 |
 | §4.3 Orchestrator（webhook 主路径 + 轮询兜底、幂等、预算、记账） | 已实现 | `src/studio/orchestrator.ts`、`src/app/api/runpod/hook`、`src/app/api/cron/sweep`、`workers/cron` |
 | §4.4 Assembler 契约 | 已实现（输入构造 + ffmpeg worker） | `src/studio/backends/assembler.ts`、`workers/assembler/` |
 | §4.5 / §6 MCP + Director Skill | 已实现（36 个工具、resource、`get_director_guide`） | `src/mcp/`、`agent/director.md` |

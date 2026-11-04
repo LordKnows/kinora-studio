@@ -8,7 +8,7 @@ import { get, post } from "./api";
 import { Button, CopyRow, Empty, ErrorBanner, Lamp, Section, Stars, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
-type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imagesConfigured: boolean };
+type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imageGeneration: string };
 
 export function SettingsPage() {
   const { projectId } = useProjectContext();
@@ -48,7 +48,7 @@ export function SettingsPage() {
               </dd>
               <dt>Image models</dt>
               <dd>
-                <Lamp state={me.imagesConfigured ? "approved" : "draft"} label={me.imagesConfigured ? "configured" : "missing HF_API_BASE_URL / HF_API_KEY"} />
+                <Lamp state="draft" label="disabled for now — upload references and hero frames (TODO)" />
               </dd>
             </dl>
           ) : (

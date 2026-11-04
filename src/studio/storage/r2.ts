@@ -53,13 +53,3 @@ export async function objectExists(key: string): Promise<boolean> {
 export async function getObject(key: string, range?: string | null): Promise<Response> {
   return s3().fetch(objectUrl(key), { method: "GET", headers: range ? { range } : {} });
 }
-
-/** Mirror a platform CDN result into R2 so history outlives the CDN. */
-export async function mirrorUrl(sourceUrl: string, key: string, contentType: string): Promise<string> {
-  const res = await fetch(sourceUrl);
-  if (!res.ok) throw new Error(`mirror fetch failed (${res.status})`);
-  const body = await res.arrayBuffer();
-  const put = await s3().fetch(objectUrl(key), { method: "PUT", body, headers: { "content-type": contentType } });
-  if (!put.ok) throw new Error(`mirror upload failed (${put.status})`);
-  return publicUrl(key);
-}

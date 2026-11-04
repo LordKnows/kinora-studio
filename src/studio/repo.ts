@@ -386,16 +386,75 @@ export async function reorderShots(sceneId: string, shotIds: string[]): Promise<
   }
 }
 
-/** Replace every scene and shot of a project. Not transactional on D1; the
-    caller re-reads afterwards. */
-export async function replaceShotlist(projectId: string, scenes: Array<{ slug: string; summary: string; location?: string; shots: ShotInput[] }>): Promise<void> {
+export type ShotlistMergeResult = { created: number; updated: number; deleted: number };
+
+/** Merge a whole shotlist into the project without losing rendered work:
+    scenes match by slug, shots by position inside their scene. Matched shots
+    keep their takes, hero / end frames, selected take and prompt override.
+    Scenes or shots that disappear are deleted only when nothing has been
+    rendered for them; otherwise the caller gets the list and refuses. */
+export async function mergeShotlist(
+  projectId: string,
+  scenes: Array<{ slug: string; summary: string; location?: string; shots: ShotInput[] }>,
+): Promise<ShotlistMergeResult> {
+  const existingScenes = await listScenes(projectId);
+  const bySlug = new Map(existingScenes.map((s) => [s.slug, s]));
+  const keepScenes = new Set<string>();
+  const result: ShotlistMergeResult = { created: 0, updated: 0, deleted: 0 };
   const d = await db();
-  await d.run("DELETE FROM scenes WHERE project_id = ?", [projectId]);
-  for (const [si, scene] of scenes.entries()) {
-    const created = await createScene(projectId, { slug: scene.slug, summary: scene.summary, location: scene.location, index: si });
-    for (const [i, shot] of scene.shots.entries()) await createShot(projectId, created.id, shot, i);
+
+  for (const [si, incoming] of scenes.entries()) {
+    let scene = bySlug.get(incoming.slug);
+    if (scene) {
+      await d.run("UPDATE scenes SET idx = ?, summary = ?, location_element_id = ? WHERE id = ?", [si, incoming.summary, incoming.location ?? null, scene.id]);
+    } else {
+      scene = await createScene(projectId, { slug: incoming.slug, summary: incoming.summary, location: incoming.location, index: si });
+    }
+    keepScenes.add(scene.id);
+    const current = await listSceneShots(scene.id);
+    for (const [i, spec] of incoming.shots.entries()) {
+      const match = current[i];
+      if (match) {
+        await updateShot(match.id, { spec, promptOverride: spec.promptOverride ?? match.promptOverride ?? null });
+        await d.run("UPDATE shots SET idx = ? WHERE id = ?", [i, match.id]);
+        result.updated++;
+      } else {
+        await createShot(projectId, scene.id, spec, i);
+        result.created++;
+      }
+    }
+    for (const surplus of current.slice(incoming.shots.length)) {
+      await deleteShot(surplus.id);
+      result.deleted++;
+    }
+  }
+  for (const scene of existingScenes) {
+    if (keepScenes.has(scene.id)) continue;
+    await deleteScene(scene.id);
+    result.deleted++;
   }
   await touchProject(projectId);
+  return result;
+}
+
+/** Shots that a merge would delete although they already have takes. */
+export async function shotlistRemovals(
+  projectId: string,
+  scenes: Array<{ slug: string; shots: unknown[] }>,
+): Promise<Array<{ shotId: string; scene: string; index: number; takes: number }>> {
+  const existingScenes = await listScenes(projectId);
+  const incoming = new Map(scenes.map((s) => [s.slug, s.shots.length]));
+  const out: Array<{ shotId: string; scene: string; index: number; takes: number }> = [];
+  for (const scene of existingScenes) {
+    const keep = incoming.get(scene.slug) ?? 0;
+    const shots = await listSceneShots(scene.id);
+    for (const shot of shots) {
+      if (shot.index < keep) continue;
+      const takes = await listShotTakes(shot.id);
+      if (takes.length) out.push({ shotId: shot.id, scene: scene.slug, index: shot.index, takes: takes.length });
+    }
+  }
+  return out;
 }
 
 /* ---------- takes ---------- */
@@ -629,6 +688,15 @@ export async function getOAuthToken(tokenHash: string): Promise<{ kind: string; 
 
 export async function deleteOAuthToken(tokenHash: string): Promise<void> {
   await (await db()).run("DELETE FROM oauth_tokens WHERE token_hash = ?", [tokenHash]);
+}
+
+export async function deleteOAuthTokensFor(clientId: string, user: string, kind: "access" | "refresh"): Promise<void> {
+  await (await db()).run("DELETE FROM oauth_tokens WHERE client_id = ? AND user = ? AND kind = ?", [clientId, user, kind]);
+}
+
+export async function listProjectActiveTakes(projectId: string): Promise<Take[]> {
+  const rows = await (await db()).all("SELECT * FROM takes WHERE project_id = ? AND status IN ('queued','running')", [projectId]);
+  return rows.map(mapTake);
 }
 
 export type { SqlValue };

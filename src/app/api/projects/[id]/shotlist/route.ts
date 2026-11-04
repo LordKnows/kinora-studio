@@ -9,5 +9,5 @@ export const GET = route(["web", "mcp"], async (_req, { params }) => {
 
 export const PUT = route(["web", "mcp"], async (req, { params }) => {
   const view = await saveShotlist(params.id!, await body(req, ShotlistInput));
-  return { approval: view.project.shotlistApproval, scenes: view.scenes };
+  return { approval: view.project.shotlistApproval, merge: view.merge, scenes: view.scenes };
 });

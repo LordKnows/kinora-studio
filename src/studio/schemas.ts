@@ -121,7 +121,9 @@ export const SceneInput = z.object({
 export const ShotlistInput = z.object({ scenes: z.array(SceneInput).min(1) });
 export type ShotlistInput = z.infer<typeof ShotlistInput>;
 
-export const ShotPatch = ShotBase.partial();
+export const ShotPatch = ShotBase.partial().extend({
+  promptOverride: z.string().max(7000).nullable().optional().describe("null clears the override"),
+});
 export type ShotPatch = z.infer<typeof ShotPatch>;
 
 export const ElementInput = z.object({
@@ -177,13 +179,6 @@ export const ProjectPatch = z.object({
   name: z.string().min(1).max(120).optional(),
   budgetCapUsd: z.number().min(0).max(100000).optional(),
 });
-
-export const GenerateImagesRequest = z.object({
-  n: z.number().int().min(1).max(4).default(4),
-  prompt: z.string().max(2000).optional().describe("Override the compiled still prompt"),
-  confirm: z.boolean().default(false),
-});
-export type GenerateImagesRequest = z.infer<typeof GenerateImagesRequest>;
 
 export const PresignRequest = z.object({
   filename: z.string().min(1).max(200),

@@ -53,6 +53,9 @@ describe("oauth 2.1 for MCP connectors", () => {
 
     const refreshed = await exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: String(tokens.refresh_token) }));
     expect(refreshed.access_token).not.toBe(tokens.access_token);
+    /* rotation revokes the old access token too */
+    expect(await authenticateBearer(new Request("https://studio.example/mcp", { headers: { authorization: `Bearer ${tokens.access_token}` } }))).toBeNull();
+    expect((await authenticateBearer(new Request("https://studio.example/mcp", { headers: { authorization: `Bearer ${refreshed.access_token}` } })))?.user).toBe("you@example.com");
     await expect(exchangeToken(new URLSearchParams({ grant_type: "refresh_token", refresh_token: String(tokens.refresh_token) }))).rejects.toMatchObject({ code: "invalid_grant" });
   });
 
@@ -61,6 +64,16 @@ describe("oauth 2.1 for MCP connectors", () => {
     const reg = await registerClient({ client_name: "Grok", redirect_uris: ["https://grok.com/cb"] });
     const url = new URL(`https://studio.example/oauth/authorize?client_id=${reg.client_id}&redirect_uri=${encodeURIComponent("https://other.example/cb")}&code_challenge=abc`);
     await expect(parseAuthorize(url)).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("auth mode fails closed when AUTH_MODE is unset", async () => {
+    const { config } = await import("@/studio/config");
+    const saved = process.env.AUTH_MODE;
+    delete process.env.AUTH_MODE;
+    expect(config.authMode()).toBe("access");
+    process.env.AUTH_MODE = "dev";
+    expect(config.authMode()).toBe("dev");
+    process.env.AUTH_MODE = saved;
   });
 
   it("static token authenticates as the mcp actor", async () => {

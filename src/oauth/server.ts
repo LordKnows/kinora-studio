@@ -97,6 +97,8 @@ export async function exchangeToken(form: URLSearchParams): Promise<Record<strin
     const row = await repo.getOAuthToken(hash);
     if (!row || row.kind !== "refresh" || row.expiresAt < Date.now()) throw oauthError("invalid_grant", "refresh token invalid");
     await repo.deleteOAuthToken(hash);
+    /* Rotation: the access tokens issued alongside the used refresh token die with it. */
+    await repo.deleteOAuthTokensFor(row.clientId, row.user, "access");
     return mintTokens(row.clientId, row.user, row.scope);
   }
   throw oauthError("unsupported_grant_type", "use authorization_code or refresh_token");

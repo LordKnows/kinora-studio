@@ -3,9 +3,9 @@
 A film-crew workflow in the browser: **script → elements → shotlist → hero
 frames → takes → timeline → export**. The director is your own subscription
 Claude or Grok, connected over MCP. Video renders on **MiniMax H3-Base** running
-on your RunPod endpoint. Stills for hero frames and character sheets come from
-the image models of the Higgsfield platform. Everything is stored in R2 and a
-small SQLite/D1 database. Deploys to Cloudflare Workers.
+on your RunPod endpoint. Hero frames and element references are uploaded (a
+still-image backend is a TODO). Everything is stored in R2 and a small
+SQLite/D1 database. Deploys to Cloudflare Workers.
 
 The original single-shot studio is still here at `/playground`.
 
@@ -22,8 +22,8 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
                                                        │  compiler · checkpoints · budget · orchestrator
                            ┌───────────────────────────┼───────────────────────────┐
                            ▼                           ▼                           ▼
-                 RunPod H3 worker              RunPod assembler            Higgsfield images
-                 (ComfyUI, 768p + audio)       (ffmpeg, CPU)               (hero frames, refs)
+                 RunPod H3 worker              RunPod assembler            Uploads (R2)
+                 (ComfyUI, 768p + audio)       (ffmpeg, CPU)               (hero frames, refs, music)
                            └──────────── writes to R2 ◄────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ cp .env.example .env.local   # AUTH_MODE=dev is enough to click around
 pnpm dev                     # http://localhost:3000
 ```
 
-Without RunPod / R2 / image keys the studio still lets you build a project,
+Without RunPod / R2 keys the studio still lets you build a project,
 script, elements, shotlist and compile prompts; generation buttons report what
 is missing. Tests:
 
@@ -97,7 +97,8 @@ Put the studio hostname behind **Cloudflare Access** (set `AUTH_MODE=access`,
 `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`) and add bypass rules for `/mcp`,
 `/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`,
 `/api/cron/sweep` and `/media/*` (unguessable keys), which carry their own
-auth (OAuth bearer, HMAC, secret).
+auth (OAuth bearer, HMAC, secret). `AUTH_MODE` fails closed: anything but
+`dev` means Access.
 
 ### 3. Connect the director
 
@@ -120,7 +121,7 @@ src/oauth/               OAuth 2.1 authorization server for connectors
 src/auth/                Cloudflare Access JWT, bearer tokens, HMAC
 src/db/                  SQLite (Node) / D1 (Workers) and migrations
 src/studio-ui/           the studio pages' components and styles
-src/generation/          the original catalog + platform client (image models, /playground)
+src/generation/          the original catalog + platform client (/playground only)
 src/openhiggsfield/      the original single-shot studio (/playground)
 workers/h3-runpod/       ComfyUI serverless handler for H3
 workers/assembler/       ffmpeg serverless handler

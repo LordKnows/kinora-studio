@@ -13,8 +13,10 @@ function need(name: string): string {
 }
 
 export const config = {
-  /** "dev" trusts every request as DEV_USER; "access" verifies Cloudflare Access JWTs. */
-  authMode: (): "dev" | "access" => (env("AUTH_MODE") === "access" ? "access" : "dev"),
+  /** "dev" trusts every request as DEV_USER and must be asked for explicitly;
+      anything else verifies Cloudflare Access JWTs, so a missing variable
+      fails closed. */
+  authMode: (): "dev" | "access" => (env("AUTH_MODE") === "dev" ? "dev" : "access"),
   devUser: (): string => env("DEV_USER") ?? "dev@local",
   access: () => ({ teamDomain: need("CF_ACCESS_TEAM_DOMAIN"), aud: need("CF_ACCESS_AUD") }),
 
@@ -42,11 +44,6 @@ export const config = {
   }),
   r2Configured: (): boolean => Boolean(env("R2_ACCOUNT_ID") && env("R2_BUCKET")),
 
-  higgsfield: () => ({ baseUrl: env("HF_API_BASE_URL"), apiKey: env("HF_API_KEY") }),
-
   /** Static bearer for clients that cannot do OAuth (Claude Code, curl). */
   mcpStaticToken: (): string | undefined => env("MCP_STATIC_TOKEN"),
-
-  /** USD per image from the Higgsfield image models, for the ledger. */
-  imageUsd: (): number => Number(env("IMAGE_USD_PER_RESULT") ?? "0.05"),
 };

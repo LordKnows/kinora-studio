@@ -249,38 +249,6 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-/* ---------- stills (hero frames, element refs) via the image models ---------- */
-
-export function compileStillPrompt(shot: Shot, look: LookSettings, elements: Map<string, Element>): string {
-  const spec = shot.spec;
-  const describe = (id: string) => {
-    const el = elements.get(id);
-    return el ? `${el.name}: ${el.description}` : id;
-  };
-  const first = spec.beats[0]?.action ?? spec.intent;
-  const parts = [
-    `Cinematic still frame. ${spec.intent}.`,
-    `Opening moment: ${first}.`,
-    ...spec.characters.map(describe),
-    spec.location ? `Setting: ${describe(spec.location)}.` : "",
-    [look.genre, look.palette, look.camera, look.lens, look.lighting].filter(Boolean).join(", "),
-    spec.camera.move === "static" ? "" : `Framed for a ${spec.camera.move.replace("_", " ")}.`,
-    look.negative.join(", "),
-  ].filter((s) => s && s.trim());
-  return parts.join(" ");
-}
-
-export function compileElementPrompt(element: Element, look: LookSettings, view: "front" | "three-quarter" | "full-body" | "wide" = "front"): string {
-  if (element.kind === "character") {
-    const framing = view === "front" ? "front-facing portrait, neutral expression" : view === "three-quarter" ? "three-quarter view portrait" : "full body, standing";
-    return `Character reference sheet, ${framing}, plain mid-grey backdrop, even soft light. ${element.name}: ${element.description}. ${look.genre ? `Styled for ${look.genre}.` : ""} ${look.negative.join(", ")}`.trim();
-  }
-  if (element.kind === "location") {
-    return `Location reference, ${view === "wide" ? "wide establishing view" : "establishing view"}. ${element.name}: ${element.description}. ${[look.palette, look.lighting].filter(Boolean).join(", ")}. ${look.negative.join(", ")}`.trim();
-  }
-  return `Product reference photo, plain backdrop, even light, ${view === "three-quarter" ? "three-quarter angle" : "front view"}. ${element.name}: ${element.description}. ${look.negative.join(", ")}`.trim();
-}
-
 export function shotSummary(spec: ShotInput): string {
   return `${spec.durationS}s · ${spec.mode} · ${spec.camera.move.replace("_", " ")}`;
 }

@@ -6,7 +6,7 @@ import { StudioError } from "@/studio/errors";
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import {
-  ElementInput, ExportRequest, GenerateImagesRequest, LookSettings, ProjectInput, ReviewInput, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput,
+  ElementInput, ExportRequest, LookSettings, ProjectInput, ReviewInput, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -64,16 +64,12 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("create_element", "Create a character, location or prop with a concrete visual description.", z.object({ projectId: id }).extend(ElementInput.shape), async ({ projectId, ...input }) => ({ element: await repo.createElement(projectId, input) }));
   tool("update_element", "Patch an element's name, kind or description.", z.object({ elementId: id }).extend(ElementInput.partial().shape), async ({ elementId, ...patch }) => ({ element: await repo.updateElement(elementId, patch) }));
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
-  tool("generate_element_refs", "Generate candidate reference images for an element with the image model (costs money; confirm).", z.object({ elementId: id }).extend(GenerateImagesRequest.shape), async ({ elementId, ...req }) => orch.generateImages("element-refs", elementId, req, actor));
-  tool("list_element_candidates", "Candidate reference images generated so far for an element.", z.object({ elementId: id }), async ({ elementId }) => {
-    for (const job of await orch.jobAssets(elementId)) if (job.status === "running" || job.status === "queued") await orch.refreshJob(job.id);
-    return { jobs: await orch.jobAssets(elementId) };
-  });
+  tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Use the ids with select_element_refs / select_hero_frame / select_end_frame. Image generation is disabled for now: ask the user to upload references on the Elements page or hero frames on the Board.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
   tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary).", z.object({ elementId: id, assetIds: z.array(id).max(6) }), async ({ elementId, assetIds }) => ({ element: await repo.updateElement(elementId, { refAssetIds: assetIds }) }));
 
-  tool("save_shotlist", "Replace the whole shotlist (scenes with shots). Resets the shotlist approval; the user approves on the Board.", z.object({ projectId: id }).extend(ShotlistInput.shape), async ({ projectId, scenes }) => {
+  tool("save_shotlist", "Merge the whole shotlist: scenes match by slug, shots by position, so existing takes and hero frames are kept. Refuses to drop shots that already have takes. Resets the shotlist approval; the user approves on the Board.", z.object({ projectId: id }).extend(ShotlistInput.shape), async ({ projectId, scenes }) => {
     const view = await orch.saveShotlist(projectId, { scenes });
-    return { approval: view.project.shotlistApproval, scenes: view.scenes.map((s) => ({ id: s.id, slug: s.slug, shots: s.shots.map((sh) => ({ id: sh.id, index: sh.index, intent: sh.spec.intent, mode: sh.spec.mode, durationS: sh.spec.durationS })) })) };
+    return { approval: view.project.shotlistApproval, merge: view.merge, scenes: view.scenes.map((s) => ({ id: s.id, slug: s.slug, shots: s.shots.map((sh) => ({ id: sh.id, index: sh.index, intent: sh.spec.intent, mode: sh.spec.mode, durationS: sh.spec.durationS })) })) };
   });
   tool("get_shotlist", "Scenes and shots with their takes, hero frames and approval.", z.object({ projectId: id }), async ({ projectId }) => {
     const view = await orch.getProjectView(projectId);
@@ -83,11 +79,6 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("revise_shot", "Patch a shot. Structural changes (beats, camera move, dialogue, mode…) reset the shotlist approval; promptOverride and camera.note do not.", z.object({ shotId: id, patch: ShotPatch }), async ({ shotId, patch }) => ({ shot: await orch.patchShot(shotId, patch) }));
   tool("compile_prompt", "Preview the compiled H3 prompt, worker input, warnings and cost estimate for a shot.", z.object({ shotId: id, steps: z.number().int().min(4).max(30).optional() }), async ({ shotId, steps }) => orch.compileForShot(shotId, { steps }));
 
-  tool("generate_hero_frames", "Generate still candidates for a shot's hero frame (costs money; confirm).", z.object({ shotId: id }).extend(GenerateImagesRequest.shape), async ({ shotId, ...req }) => orch.generateImages("hero-frames", shotId, req, actor));
-  tool("list_hero_candidates", "Hero frame candidates generated so far for a shot.", z.object({ shotId: id }), async ({ shotId }) => {
-    for (const job of await orch.jobAssets(shotId)) if (job.status === "running" || job.status === "queued") await orch.refreshJob(job.id);
-    return { jobs: await orch.jobAssets(shotId) };
-  });
   tool("select_hero_frame", "Choose the hero frame (asset id) for a shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { heroAssetId: assetId }) }));
   tool("select_end_frame", "Choose an end frame (asset id) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: assetId }) }));
 

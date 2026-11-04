@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { CheckIcon } from "@/openhiggsfield/icons";
-import type { Asset, Element, Job } from "@/studio/types";
+import type { Asset, Element } from "@/studio/types";
 
 import { del, get, patch, post } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Section, Lamp, UploadButton, useAction } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
 type ElementRow = Element & { refs: Asset[] };
-type JobRow = Job & { assets: Asset[] };
 
 const KINDS = ["character", "location", "prop"] as const;
 const KIND_LABEL: Record<(typeof KINDS)[number], string> = { character: "Characters", location: "Locations", prop: "Props" };
@@ -150,37 +149,24 @@ function ElementEditor({
   const [kind, setKind] = useState<(typeof KINDS)[number]>(element?.kind ?? "character");
   const [name, setName] = useState(element?.name ?? "");
   const [description, setDescription] = useState(element?.description ?? "");
-  const [jobs, setJobs] = useState<JobRow[]>([]);
   const [selected, setSelected] = useState<string[]>(element?.refAssetIds ?? []);
+  /* Every image in the project is a candidate: uploads and last frames of
+     finished takes. Image generation is disabled for now (TODO). */
+  const [images, setImages] = useState<Asset[]>([]);
 
-  const loadJobs = useCallback(async () => {
-    if (!element) return;
-    const { jobs } = await get<{ jobs: JobRow[] }>(`/api/elements/${element.id}/refs`);
-    setJobs(jobs);
-    return jobs;
-  }, [element]);
+  const loadImages = useCallback(async () => {
+    const view = await get<{ assets: Asset[] }>(`/api/projects/${projectId}`);
+    setImages(view.assets.filter((a) => a.kind === "image"));
+  }, [projectId]);
 
   useEffect(() => {
-    void loadJobs();
-  }, [loadJobs]);
-
-  /* Poll while a generation is in flight. */
-  useEffect(() => {
-    if (!jobs.some((j) => j.status === "queued" || j.status === "running")) return;
-    const t = window.setInterval(() => void loadJobs(), 4000);
-    return () => window.clearInterval(t);
-  }, [jobs, loadJobs]);
+    void loadImages();
+  }, [loadImages]);
 
   const save = useAction(async () => {
     if (element) await patch(`/api/elements/${element.id}`, { kind, name, description });
     else await post(`/api/projects/${projectId}/elements`, { kind, name, description });
     await onSaved();
-  });
-
-  const generate = useAction(async (confirm) => {
-    if (!element) return;
-    await post(`/api/elements/${element.id}/generate-refs`, { n: 4, confirm });
-    await loadJobs();
   });
 
   const saveRefs = useAction(async () => {
@@ -200,24 +186,21 @@ function ElementEditor({
     await post(`/api/elements/${element.id}/promote`);
   });
 
-  /* Generated candidates plus whatever the element already holds (uploads
-     arrive here, not through a job). */
-  const generated = jobs.flatMap((j) => j.assets);
-  const candidates = [...generated, ...(element?.refs ?? []).filter((r) => !generated.some((g) => g.id === r.id))];
-  const running = jobs.some((j) => j.status === "queued" || j.status === "running");
+  const candidates = [...(element?.refs ?? []), ...images.filter((a) => !element?.refs.some((r) => r.id === a.id))];
 
   const uploaded = async ({ assetId }: { assetId: string }) => {
     if (!element) return;
     const next = [...selected, assetId];
     setSelected(next);
     await post(`/api/elements/${element.id}/refs`, { assetIds: next });
+    await loadImages();
     await onSaved();
   };
 
   return (
     <Drawer title={element ? element.name : "New element"} onClose={onClose}>
       <div className="st-stack">
-        <ErrorBanner error={save.error ?? generate.error ?? saveRefs.error ?? remove.error ?? promote.error} onConfirm={generate.error ? () => void generate.confirm() : undefined} onDismiss={() => { save.dismiss(); generate.dismiss(); saveRefs.dismiss(); remove.dismiss(); promote.dismiss(); }} />
+        <ErrorBanner error={save.error ?? saveRefs.error ?? remove.error ?? promote.error} onDismiss={() => { save.dismiss(); saveRefs.dismiss(); remove.dismiss(); promote.dismiss(); }} />
         <div className="st-fields">
           <Field label="Kind">
             <select className="st-select" value={kind} onChange={(e) => setKind(e.target.value as (typeof KINDS)[number])}>
@@ -256,17 +239,10 @@ function ElementEditor({
         {element && (
           <Section
             title="Reference images"
-            aside={
-              <span className="st-row">
-                <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />
-                <Button size="sm" busy={generate.busy || running} onClick={() => void generate.fire()}>
-                  {running ? "Generating…" : "Generate 4"}
-                </Button>
-              </span>
-            }
+            aside={<UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />}
           >
-            {candidates.length === 0 && !running ? (
-              <Empty title="No references yet" hint="Upload your own image, or generate references with the image model, then pick the keepers. The first pick is the primary reference." />
+            {candidates.length === 0 ? (
+              <Empty title="No references yet" hint="Upload an image of this element. Generated references are coming later; for now every project image can be picked. The first pick is the primary reference." />
             ) : (
               <>
                 <div className="st-thumbs">
@@ -290,7 +266,6 @@ function ElementEditor({
                       </button>
                     );
                   })}
-                  {running && <div className="st-skeleton" style={{ aspectRatio: kind === "character" ? "3 / 4" : "16 / 9" }} />}
                 </div>
                 <div className="st-row st-row--between" style={{ marginTop: 10 }}>
                   <span className="st-muted st-num">{selected.length} selected</span>
@@ -299,11 +274,6 @@ function ElementEditor({
                   </Button>
                 </div>
               </>
-            )}
-            {jobs.some((j) => j.status === "failed") && (
-              <div style={{ marginTop: 8 }}>
-                <Lamp state="failed" label={jobs.find((j) => j.status === "failed")?.error ?? "generation failed"} />
-              </div>
             )}
           </Section>
         )}

@@ -88,7 +88,6 @@ Worker 页面 → **Settings → Variables and Secrets**。
 | `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` | 第 6 步 |
 | `RUNPOD_API_KEY` / `RUNPOD_ENDPOINT_ID` / `RUNPOD_ASSEMBLER_ENDPOINT_ID` | RunPod 部署好以后再填 |
 | `RUNPOD_WEBHOOK_SECRET` | 自己生成一串随机字符（32 位以上） |
-| `HF_API_BASE_URL` / `HF_API_KEY` | Higgsfield 平台，用于 hero frame 的图像模型 |
 | `CRON_SECRET` | 自己生成，供定时 Worker 调用轮询 |
 | `MCP_STATIC_TOKEN` | 可选，给 Claude Code 这类能发 header 的客户端 |
 

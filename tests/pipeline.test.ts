@@ -140,6 +140,20 @@ describe("pipeline", () => {
     expect(body.policy.executionTimeout).toBe(900000);
   });
 
+  it("patchShot accepts a null promptOverride and clears it", async () => {
+    await orch.patchShot(shotId, { promptOverride: "custom prompt" });
+    expect((await repo.getShot(shotId)).promptOverride).toBe("custom prompt");
+    await orch.patchShot(shotId, { promptOverride: null });
+    expect((await repo.getShot(shotId)).promptOverride).toBeUndefined();
+  });
+
+  it("budget counts takes still in flight", async () => {
+    const project = await repo.getProject(projectId);
+    await repo.updateProject(projectId, { budgetCapUsd: 0.2 });
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true }, mcp)).rejects.toMatchObject({ code: "budget_exceeded" });
+    await repo.updateProject(projectId, { budgetCapUsd: project.budgetCapUsd });
+  });
+
   it("a structural revise_shot resets the shotlist approval; a note does not", async () => {
     await orch.patchShot(shotId, { camera: { move: "static", amplitude: "moderate", speed: "slow", note: "hold on the lamp" } });
     expect((await repo.getProject(projectId)).shotlistApproval).toBe("approved");
@@ -174,6 +188,31 @@ describe("pipeline", () => {
     const asm = runpodCalls.filter((c) => c.url.includes("/asm/run")).pop()!.body as { input: { clips: unknown[]; subtitles: { srt: string }; output: { key: string } } };
     expect(asm.input.clips).toHaveLength(1);
     expect(asm.input.output.key).toContain(`/exports/${job.id}.master-768p.mp4`);
+  });
+
+  it("save_shotlist merges and refuses to drop shots that already have takes", async () => {
+    const before = await repo.listShotTakes(shotId);
+    expect(before.length).toBeGreaterThan(0);
+    const mara = (await repo.listElements(projectId))[0]!;
+    const merged = await orch.saveShotlist(projectId, ShotlistInput.parse({
+      scenes: [{ slug: "alley", summary: "revised", shots: [shot({ intent: "Revised opening" }), shot({ mode: "reference", characters: [mara.id], intent: "Mara looks back" }), shot({ intent: "A third shot" })] }],
+    }));
+    expect(merged.merge).toEqual({ created: 1, updated: 2, deleted: 0 });
+    const after = await repo.getShot(shotId);
+    expect(after.spec.intent).toBe("Revised opening");
+    expect(after.heroAssetId).toBeDefined();
+    expect(after.selectedTakeId).toBeDefined();
+    expect((await repo.listShotTakes(shotId)).length).toBe(before.length);
+
+    await expect(orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "other", shots: [shot()] }] }))).rejects.toMatchObject({ code: "validation" });
+    expect((await repo.listShots(projectId)).length).toBe(3);
+
+    /* dropping only the take-less third shot is fine */
+    const trimmed = await orch.saveShotlist(projectId, ShotlistInput.parse({
+      scenes: [{ slug: "alley", summary: "revised", shots: [shot({ intent: "Revised opening" }), shot({ mode: "reference", characters: [mara.id], intent: "Mara looks back" })] }],
+    }));
+    expect(trimmed.merge.deleted).toBe(1);
+    await repo.setShotlistApproval(projectId, "approved");
   });
 
   it("continuous shots take the previous shot's last frame", async () => {

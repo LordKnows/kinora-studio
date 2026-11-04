@@ -9,8 +9,9 @@ import { sweep } from "@/studio/orchestrator";
 async function run(req: Request): Promise<Response> {
   try {
     const secret = process.env.CRON_SECRET;
+    if (!secret) throw new StudioError("unauthorized", "CRON_SECRET is not configured");
     const given = req.headers.get("x-cron-secret") ?? new URL(req.url).searchParams.get("secret");
-    if (secret && given !== secret) throw new StudioError("unauthorized", "bad cron secret");
+    if (given !== secret) throw new StudioError("unauthorized", "bad cron secret");
     return NextResponse.json(await sweep());
   } catch (caught) {
     return errorResponse(caught);
