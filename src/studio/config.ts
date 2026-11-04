@@ -65,8 +65,21 @@ export const config = {
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
     containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "50"),
     volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/workspace",
-    /** Host CUDA the image needs (the handoff image is CUDA 13). */
-    cudaVersions: (env("RUNPOD_CUDA_VERSIONS") ?? "13.0,13.1,13.2").split(",").map((s) => s.trim()).filter(Boolean),
+    /** Host CUDA versions to allow (RunPod enum, e.g. "13.0"). Empty = no
+        constraint; the handoff image needs a ≥13 host, so set it once the
+        accepted values are known. */
+    cudaVersions: (env("RUNPOD_CUDA_VERSIONS") ?? "").split(",").map((s) => s.trim()).filter(Boolean),
+    /** JSON merged into the create-pod body last (null deletes a key). */
+    bodyOverrides: ((): Record<string, unknown> => {
+      const raw = env("RUNPOD_POD_BODY_OVERRIDES");
+      if (!raw) return {};
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+      } catch {
+        return {};
+      }
+    })(),
     podPort: Number(env("RUNPOD_POD_PORT") ?? "8000"),
     comfyPort: Number(env("RUNPOD_COMFY_PORT") ?? "8188"),
     idleStopMinutes: Number(env("RUNPOD_IDLE_STOP_MINUTES") ?? "15"),

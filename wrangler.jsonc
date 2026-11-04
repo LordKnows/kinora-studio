@@ -30,7 +30,7 @@
     "RUNPOD_CONTAINER_DISK_GB": "50",
     "RUNPOD_VOLUME_MOUNT_PATH": "/workspace",
     "RUNPOD_POD_IMAGE": "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
-    "RUNPOD_CUDA_VERSIONS": "13.0,13.1,13.2",
+    "RUNPOD_CUDA_VERSIONS": "",
     "H3_PROMPT_FORMAT": "lightx2v-lines",
     "RUNPOD_POD_PORT": "8000",
     "RUNPOD_COMFY_PORT": "8188",

@@ -187,7 +187,7 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
         env: podEnv(),
         allowedCudaVersions: pc.cudaVersions,
         ...(pc.bootstrap ? { dockerStartCmd: bootstrapCommand() } : {}),
-      });
+      }, pc.bodyOverrides);
       await repo.insertGpuPod({
         id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId, gpuName: record.gpuDisplayName,
         dataCenter: record.dataCenterId ?? placement.dataCenterIds[0],

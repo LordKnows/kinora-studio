@@ -65,9 +65,11 @@ export class RunPodPodsClient {
       payload = text;
     }
     if (!res.ok) {
-      const detail = errorMessage(payload);
+      const detail = Array.isArray(payload) ? errorMessage(payload[0]) : errorMessage(payload);
       const raw = typeof payload === "string" ? payload : payload ? JSON.stringify(payload) : "";
-      const message = `RunPod ${method} ${path} failed (${res.status})${detail ? `: ${detail}` : raw ? `: ${raw.slice(0, 300)}` : ""}`;
+      /* Schema errors list every offending property under "problems": keep them. */
+      const problems = Array.isArray(payload) ? payload.flatMap((p) => (asRecord(p).problems as unknown[] | undefined) ?? []) : (asRecord(payload).problems as unknown[] | undefined) ?? [];
+      const message = `RunPod ${method} ${path} failed (${res.status})${detail ? `: ${detail}` : ""}${problems.length ? ` — ${problems.map(String).join(" | ")}` : raw && !detail ? `: ${raw.slice(0, 1500)}` : ""}`;
       throw new StudioError("backend_error", message, { status: res.status, body: payload, noResources: isNoResources(message) });
     }
     return payload;
@@ -88,7 +90,7 @@ export class RunPodPodsClient {
     return payload.data;
   }
 
-  async createPod(input: CreatePodInput): Promise<PodRecord> {
+  async createPod(input: CreatePodInput, overrides?: Record<string, unknown>): Promise<PodRecord> {
     const body: Record<string, unknown> = {
       name: input.name,
       imageName: input.imageName,
