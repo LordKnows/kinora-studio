@@ -197,7 +197,7 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
    - **全局盘（首选）**：一个能被任意数据中心挂载的卷，填 `RUNPOD_NETWORK_VOLUME_ID`，
      `RUNPOD_DATACENTER_IDS` 留空，`RUNPOD_NETWORK_VOLUMES` 不填。起 Pod 时不限数据中心，
      RunPod 在白名单 GPU 里按可用性挑。若跨区读取慢，在 Pod 环境变量里设
-     `MODELS_LINK_FROM=/workspace/ComfyUI/models`（卷上的目录）、`MODELS_LINK_TO=/opt/models`、
+     `MODELS_LINK_FROM=/workspace/runpod-slim/ComfyUI/models`（卷上的目录）、`MODELS_LINK_TO=/opt/models`、
      `MODELS_COPY=1`，启动时把模型拷到本地盘再跑（容器盘要 ≥100 GB），并把 ComfyUI 的
      `--base-directory` 或 extra_model_paths 指到本地目录。
    - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`
@@ -240,7 +240,7 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Look 页选默认 LoRA
   （加速 LoRA 放这里），镜头编辑器可覆盖或关闭。编译时把 LoRA 写进 worker 输入，触发词
   进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。Pod 上缺文件时 handler 按 HF 链接下载到
-  `LORA_DIR`（默认 `/workspace/ComfyUI/models/loras`；受限仓库在 Pod 环境变量里设
+  `LORA_DIR`（默认是镜像 ComfyUI 的 `models/loras`；受限仓库在 Pod 环境变量里设
   `HF_TOKEN`）。图里的 LoraLoader 节点要在 `workers/h3-runpod/workflows/mapping.json`
   的 `loras` 槽位里登记，见那里的 README。
 
@@ -259,9 +259,15 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   generation]）/ retention_analysis（<Subject N> (appears in [Shot 1]): fully_preserved - …）/
   detailed_description / overall_soundscape / non_diegetic_music`；没有音乐写 `N/A`。镜头内的硬切
   变成 `[Shot 2]`、`[Shot 3]` 段。
-- 镜像用交接的 `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`（宿主 CUDA ≥ 13），模型目录
-  `/workspace/ComfyUI/models`，卷挂在 `/workspace`。`workers/h3-runpod/download_models.sh`
-  按 `models.txt` 下载约 68 GB 的底模、文本编码器、VAE 和 LoRA。
+- 镜像用交接的 `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`（宿主 CUDA ≥ 13）。这个镜像把
+  ComfyUI 装在卷上的 `/workspace/runpod-slim/ComfyUI`，模型目录就是它下面的
+  `models/{unet,text_encoders,vae,loras}`；作业服务启动时自动把 `MODELS_DIR` / `LORA_DIR`
+  指到那里。`workers/h3-runpod/download_models.sh` 按 `models.txt` 下载约 68 GB 的底模、
+  文本编码器、VAE 和 LoRA。
+- 镜像的 start.sh 写死了 venv 名 `.venv-cu128`（13.0 标签也是），卷上有 ComfyUI 但没有这个
+  venv 时它会报 `bin/activate: No such file` 并挂起。作业服务的 `start.sh` 在它之前先检查：
+  有别的 `.venv*` 就用那个（`COMFYUI_VENV_NAME`），一个都没有就按镜像的方式新建一个
+  （`--system-site-packages`）。
 - 成本常量：每秒视频约 32 秒 GPU（A100 ≈ 35，RTX PRO 6000 ≈ 27），冷启动约 3 分钟。
   有真实 take 后统计表会覆盖它。
 

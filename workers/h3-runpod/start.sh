@@ -10,6 +10,35 @@ if [ -z "$COMFY_CMD" ]; then
   # runpod/comfyui images bring their own entrypoint that starts ComfyUI (and Jupyter); use it when present.
   if [ -x /start.sh ]; then COMFY_CMD="/start.sh"; else COMFY_CMD="python3 /workspace/ComfyUI/main.py --listen 127.0.0.1 --port ${COMFY_PORT}"; fi
 fi
+# The stock runpod/comfyui image keeps its ComfyUI on the volume at
+# /workspace/runpod-slim/ComfyUI with a virtualenv whose name is baked into
+# the image (.venv-cu128 even on the CUDA 13.0 tag). A volume filled by
+# another pod, or copied without dot-files, may carry the install but not
+# that venv, and the image's start.sh then holds the pod. Point it at a venv
+# that does exist, or create one the way the image does (system site
+# packages hold torch and ComfyUI's requirements).
+SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
+if [ -d "$SLIM_DIR" ]; then
+  VENV_NAME="${COMFYUI_VENV_NAME:-.venv-cu128}"
+  if [ ! -f "$SLIM_DIR/$VENV_NAME/bin/activate" ]; then
+    found=""
+    for v in "$SLIM_DIR"/.venv-cu* "$SLIM_DIR"/.venv; do
+      if [ -f "$v/bin/activate" ]; then found="$v"; break; fi
+    done
+    if [ -n "$found" ]; then
+      export COMFYUI_VENV_NAME="$(basename "$found")"
+      echo "[start] image venv $VENV_NAME is missing; using $COMFYUI_VENV_NAME"
+    else
+      echo "[start] no venv under $SLIM_DIR; creating $VENV_NAME"
+      py="$(command -v python3.12 || command -v python3)"
+      [ -d "$SLIM_DIR/$VENV_NAME" ] && mv "$SLIM_DIR/$VENV_NAME" "$SLIM_DIR/$VENV_NAME.broken.$(date +%s)"
+      "$py" -m venv --system-site-packages --without-pip "$SLIM_DIR/$VENV_NAME" || echo "[start] venv creation failed; ComfyUI may not start"
+    fi
+  fi
+  # Models live inside that install on this image.
+  [ -z "${MODELS_DIR:-}" ] && [ -d "$SLIM_DIR/models" ] && export MODELS_DIR="$SLIM_DIR/models"
+  [ -z "${LORA_DIR:-}" ] && [ -d "$SLIM_DIR/models/loras" ] && export LORA_DIR="$SLIM_DIR/models/loras"
+fi
 if [ "${DOWNLOAD_MODELS:-0}" = "1" ]; then bash /app/download_models.sh "${MODELS_DIR:-/workspace/ComfyUI/models}"; fi
 : "${STUDIO_PORT:=8000}"
 
