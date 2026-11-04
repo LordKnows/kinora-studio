@@ -230,8 +230,10 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
         const noResources = caught instanceof StudioError && Boolean((caught.details as { noResources?: boolean } | undefined)?.noResources);
         attempts.push(`${placement.dataCenterIds.join("/") || "any"} × ${batch.length === 1 ? batch[0] : "allow-list"}: ${message}`);
         if (!noResources) {
-          await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `pod creation failed: ${message}` });
-          throw caught;
+          /* Not a capacity answer: the same request would fail on every GPU, so the walk stops here. */
+          const note = `pod creation failed on the first attempt (${batch.length === 1 ? batch[0] : "allow-list"}); other GPUs were not tried because this error is not about capacity: ${message}`;
+          await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: note });
+          throw new StudioError("backend_error", note, caught instanceof StudioError ? caught.details : undefined);
         }
       }
     }

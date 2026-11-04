@@ -162,7 +162,7 @@ export class RunPodPodsClient {
   private async createPodV2(input: CreatePodInput, overrides?: Record<string, unknown>): Promise<PodRecord> {
     const gpuId = input.gpuTypeIds[0];
     if (!gpuId) throw new StudioError("backend_error", "no GPU type to request");
-    const body: Record<string, unknown> = {
+    const base: Record<string, unknown> = {
       name: input.name,
       image: input.imageName,
       cloud: input.cloudType,
@@ -172,21 +172,39 @@ export class RunPodPodsClient {
       env: input.env,
       ...(input.dockerEntrypoint?.length ? { entrypoint: input.dockerEntrypoint } : input.dockerStartLine ? { args: input.dockerStartLine } : {}),
       ...(input.dataCenterIds?.length ? { dataCenterIds: input.dataCenterIds } : {}),
-      ...(input.networkVolumeId ? { mounts: { network: [{ volumeId: input.networkVolumeId, path: input.volumeMountPath }] } } : {}),
     };
-    for (const [k, v] of Object.entries(overrides ?? {})) {
-      if (v === null) delete body[k];
-      else body[k] = v;
-    }
-    try {
-      return mapPod(await this.callV2("POST", "/pods", body));
-    } catch (caught) {
-      if (caught instanceof StudioError && caught.code === "backend_error") {
-        const sent = { gpu: body.gpu, dataCenterIds: body.dataCenterIds, mounts: body.mounts, cloud: body.cloud, keys: Object.keys(body) };
-        throw new StudioError("backend_error", `${caught.message} — sent ${JSON.stringify(sent)}`, { ...(caught.details as object), sent });
+    /* How the model volume is attached. RunPod documents mounts.network for
+       network volumes; global volumes (beta) have no documented pod field,
+       so when the network form is refused as "not found" the other shapes
+       are tried, cheapest first. Every attempt and answer is reported. */
+    const encodings: Array<[string, Record<string, unknown>]> = input.networkVolumeId
+      ? [
+          ["mounts.network", { mounts: { network: [{ volumeId: input.networkVolumeId, path: input.volumeMountPath }] } }],
+          ["mounts.global[]", { mounts: { global: [{ volumeId: input.networkVolumeId, path: input.volumeMountPath }] } }],
+          ["mounts.global{}", { mounts: { global: { volumeId: input.networkVolumeId, path: input.volumeMountPath } } }],
+          ["globalVolumeId", { globalVolumeId: input.networkVolumeId, volumeMountPath: input.volumeMountPath }],
+        ]
+      : [["no volume", {}]];
+    const attempts: string[] = [];
+    for (const [label, mount] of encodings) {
+      const body: Record<string, unknown> = { ...base, ...mount };
+      for (const [k, v] of Object.entries(overrides ?? {})) {
+        if (v === null) delete body[k];
+        else body[k] = v;
       }
-      throw caught;
+      try {
+        return mapPod(await this.callV2("POST", "/pods", body));
+      } catch (caught) {
+        if (!(caught instanceof StudioError) || caught.code !== "backend_error") throw caught;
+        const details = caught.details as { status?: number; noResources?: boolean } | undefined;
+        attempts.push(`${label}: ${caught.message}`);
+        const volumeTrouble = /volume.*not found|not found.*volume|mounts|unknown (field|propert)|unrecognized|additional propert/i.test(caught.message) && !details?.noResources;
+        if (volumeTrouble && encodings.indexOf(encodings.find((e) => e[0] === label)!) < encodings.length - 1) continue;
+        const sent = { gpu: body.gpu, dataCenterIds: body.dataCenterIds, volume: mount, cloud: body.cloud, keys: Object.keys(body) };
+        throw new StudioError("backend_error", `${attempts.length > 1 ? `tried ${attempts.length} volume encodings — ${attempts.join(" || ")}` : caught.message} — sent ${JSON.stringify(sent)}`, { ...(details as object), sent, attempts });
+      }
     }
+    throw new StudioError("backend_error", `pod creation failed: ${attempts.join(" || ")}`, { attempts });
   }
 
   async getPod(id: string): Promise<PodRecord | null> {
@@ -256,13 +274,13 @@ export class RunPodPodsClient {
       must never stop a pod from being requested. `source` says which answered. */
   /** Network volumes visible to this API key: REST and GraphQL are both
       asked and merged, and the raw answers are returned for diagnosis. */
-  async listNetworkVolumes(): Promise<{ volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string }>; raw: { rest?: unknown; v2?: unknown; graphql?: unknown; errors: string[] } }> {
+  async listNetworkVolumes(): Promise<{ volumes: Array<{ id: string; name: string; size?: number; dataCenterId?: string }>; raw: { rest?: unknown; v2?: unknown; v2global?: unknown; graphql?: unknown; errors: string[] } }> {
     const shape = (raw: unknown) => {
       const r = asRecord(raw);
       return { id: str(r.id) ?? "", name: str(r.name) ?? "", size: num(r.size), dataCenterId: str(r.dataCenterId) ?? str(r.dataCenter) };
     };
     const found = new Map<string, ReturnType<typeof shape>>();
-    const raw: { rest?: unknown; v2?: unknown; graphql?: unknown; errors: string[] } = { errors: [] };
+    const raw: { rest?: unknown; v2?: unknown; v2global?: unknown; graphql?: unknown; errors: string[] } = { errors: [] };
     try {
       const payload = await this.callV2("GET", "/network-volumes");
       raw.v2 = payload;
@@ -270,6 +288,15 @@ export class RunPodPodsClient {
       for (const v of (Array.isArray(inner) ? inner : Array.isArray(payload) ? payload : []).map(shape)) if (v.id) found.set(v.id, v);
     } catch (caught) {
       raw.errors.push(`v2: ${caught instanceof Error ? caught.message : caught}`);
+    }
+    try {
+      const payload = await this.callV2("GET", "/global-volumes");
+      raw.v2global = payload;
+      const r = asRecord(payload);
+      const inner = r.globalVolumes ?? r.volumes ?? r.data ?? r.items;
+      for (const v of (Array.isArray(inner) ? inner : Array.isArray(payload) ? payload : []).map(shape)) if (v.id) found.set(v.id, { ...v, dataCenterId: v.dataCenterId ?? "global" });
+    } catch (caught) {
+      raw.errors.push(`v2 global: ${caught instanceof Error ? caught.message : caught}`);
     }
     try {
       const payload = await this.call("GET", "/networkvolumes");

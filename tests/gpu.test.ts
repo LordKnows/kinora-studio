@@ -29,8 +29,8 @@ async function memoryDb(): Promise<Db> {
   return db;
 }
 
-type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean };
-const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false };
+type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global" };
+const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false, volumeKind: "network" };
 const calls: Array<{ method: string; url: string; body?: unknown }> = [];
 const podsV2 = new Map<string, { env?: Record<string, string>; args?: string }>();
 let podCounter = 0;
@@ -53,7 +53,10 @@ beforeAll(async () => {
     if (url === "https://api.runpod.io/v2/pods" && method === "POST") {
       if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
       if (!body.gpu?.id || body.gpu.count !== 1) return json(422, { error: "gpu.id and gpu.count are required" });
-      if (!body.mounts?.network?.[0]?.volumeId || !body.mounts.network[0].path) return json(422, { error: "mounts.network[].volumeId and path are required" });
+      if (scenario.volumeKind === "global") {
+        if (body.mounts?.network) return json(400, { error: `Network volume "${body.mounts.network[0].volumeId}" not found` });
+        if (!body.mounts?.global?.[0]?.volumeId) return json(422, { error: "unknown mount kind" });
+      } else if (!body.mounts?.network?.[0]?.volumeId || !body.mounts.network[0].path) return json(422, { error: "mounts.network[].volumeId and path are required" });
       if (body.args !== undefined && typeof body.args !== "string") return json(422, { error: "args must be a string" });
       if (body.entrypoint !== undefined && !Array.isArray(body.entrypoint)) return json(422, { error: "entrypoint must be an array" });
       podCounter++;
@@ -75,6 +78,7 @@ beforeAll(async () => {
     }
     if (url.startsWith("https://api.runpod.io/v2/pods/") && method === "DELETE") return json(200, {});
     if (url.endsWith("/v2/network-volumes")) return json(200, { networkVolumes: [{ id: "vol1", name: "minimax-h3-models", size: 200 }] });
+    if (url.endsWith("/v2/global-volumes")) return json(200, { globalVolumes: [{ id: "gvol1", name: "global-models", size: 500 }] });
     /* v1 (rest.runpod.io/v1), still selectable with RUNPOD_API=v1 */
     if (url.startsWith("https://rest.runpod.io/v1/pods") && method === "POST" && url.endsWith("/pods")) {
       if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
@@ -254,6 +258,19 @@ describe("pod mode", () => {
     ]);
     /* ids outside RunPod's enum never reach POST /pods, whatever the listing says */
     expect(await gpu.resolveGpuTypeIds(["RTX 4090"], [{ id: "NVIDIA RTX 4090 Mystery Edition" }])).toEqual(["NVIDIA GeForce RTX 4090"]);
+  });
+
+  it("tries the other volume encodings when the network mount is 'not found' (global volume)", async () => {
+    scenario.volumeKind = "global";
+    await gpu.terminateGpu();
+    const before = calls.length;
+    const state = await gpu.startGpu(web, true);
+    expect(state.status).toBe("starting");
+    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/v2/pods")).map((c) => c.body as { mounts: Record<string, unknown> });
+    expect(creates).toHaveLength(2);
+    expect(Object.keys(creates[0]!.mounts)).toEqual(["network"]);
+    expect(Object.keys(creates[1]!.mounts)).toEqual(["global"]);
+    scenario.volumeKind = "network";
   });
 
   it("lists GPU types flagged by the allow-list", async () => {
