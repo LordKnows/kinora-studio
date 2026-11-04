@@ -80,7 +80,7 @@
 
 - 生成模型：**只用 MiniMax H3 系列，且必须部署在 RunPod 上调用**，不走 Higgsfield
   托管的 H3，也不在本地跑。推论：可用的是开源的 **H3-Base**（768p + 原生音频），
-  托管版独有的 2K 上采样和 Context-IR 不可用；模型的地域许可（§2.4）由部署者负责。
+  托管版独有的 2K 上采样和 Context-IR 不可用；模型的地域许可（§2.3）由部署者负责。
 - 编排 agent：**订阅版 Grok 和 Claude，并列，不走 API**。
   推论：服务端不能主动调用 LLM；任何"AI 写剧本 / 拆镜头"都必须由用户在
   聊天客户端里触发。禁止做浏览器自动化去操控聊天界面（违反服务条款、不稳定）。
@@ -100,7 +100,7 @@
 ### 2.1 托管版 H3 的事实（作为能力上限的参照）
 
 > 下表描述的是 MiniMax / Higgsfield 托管的 H3。本方案用的是自托管的 H3-Base，
-> 实际能力以 §2.4 为准；保留本表是为了说明自托管缺了什么。
+> 实际能力以 §2.3 为准；保留本表是为了说明自托管缺了什么。
 
 | 项目 | 结论 | 来源可靠度 |
 |---|---|---|
@@ -136,7 +136,7 @@
 7. **约束块**：no text / no logos / no extra dialogue 等。
 8. **一次生成内多镜头**：用时间段 + "hard cut at 6s" 之类的措辞，在一个 15 秒 clip 里切 2–3 个 cut。
 
-### 2.4 自托管 H3-Base 的事实（本方案真正的能力边界）
+### 2.3 自托管 H3-Base 的事实（本方案真正的能力边界）
 
 | 项目 | 结论 | 可靠度 |
 |---|---|---|
@@ -152,7 +152,7 @@
 | 速度 | 8 步 lightx2v turbo LoRA（fl2v / ref2v）；单卡生成时长未公布，**P0 必须实测** | 社区 worker |
 | 提示词增强 | 托管版的 Context-IR 不在开源包里；社区 worker 内置一个 Qwen3.5-9B GGUF 做 `enhance`，可关 | 社区 worker |
 
-### 2.5 RunPod 的事实
+### 2.4 RunPod 的事实
 
 | 项目 | 结论 |
 |---|---|
@@ -167,7 +167,7 @@
 | 大文件输出 | worker 自己负责把产物上传到 S3 兼容存储（MinIO / B2 / Spaces 等），不要走 base64 回传 |
 | 价格（2026 年中，多源不一致，**待核对**） | Serverless Flex：H100 约 $4.79/h、H200 约 $5.93/h、B200 约 $8.64/h；Pod：H100 SXM 约 $3.49/h、H200 约 $4.59/h、B200 约 $6.79/h；Serverless 比 Pod 贵 26–71%，换来缩零和自动扩缩 |
 
-### 2.3 "H3 导向"对架构的具体影响
+### 2.5 "H3 导向"对架构的具体影响
 
 | Cinema Studio 的 Seedance 导向 | 换成 H3 后 |
 |---|---|
@@ -438,7 +438,7 @@ Take 创建 ──► 队列(Postgres) ──► 预算检查 ──► backend.
 3. **endpoint 配置**：GPU 池选 96 GB 级；`max workers = 1`；出片高峰期把 `active workers`
    设为 1 消灭冷启动，闲时设 0；开 FlashBoot；`executionTimeout` 默认 900 s；
    `ttl` 默认 2 h（覆盖排队 + 执行）。
-4. **地域**：endpoint 的数据中心必须选在许可证允许的地域（见 §2.4、§10），这是部署者的责任，
+4. **地域**：endpoint 的数据中心必须选在许可证允许的地域（见 §2.3、§10），这是部署者的责任，
    Studio 在配置页里显式提示。
 5. **健康检查**：worker 支持 `{"action":"health"}`，Studio 的配置页提供"测试连接"按钮，
    并在每天第一次生成前预热（发一个 2 秒的 T2VA 小任务）。
@@ -640,7 +640,7 @@ MCP 工具是这些 REST 的薄封装，共用一套 zod schema。
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| P0 部署与实测（1–2 周） | 在 RunPod 部署社区 H3 worker（先不改代码）；用 `/playground` 加一个临时 RunPod 后端跑通 T2VA / I2VA / FL2VA / R2VA；实测每种模式 5 s / 10 s / 15 s 的生成时长、冷启动时长、单 take 成本、参考图上限、参考音频是否可用；确认 endpoint 地域与许可证 | §2.4 / §2.5 中"待验证"全部清零，拿到成本表 |
+| P0 部署与实测（1–2 周） | 在 RunPod 部署社区 H3 worker（先不改代码）；用 `/playground` 加一个临时 RunPod 后端跑通 T2VA / I2VA / FL2VA / R2VA；实测每种模式 5 s / 10 s / 15 s 的生成时长、冷启动时长、单 take 成本、参考图上限、参考音频是否可用；确认 endpoint 地域与许可证 | §2.3 / §2.4 中"待验证"全部清零，拿到成本表 |
 | P1 领域 + Compiler（1–2 周） | Postgres schema、Shot 编辑器、Compiler、单镜头生成走服务端 Orchestrator | 能手工建一个 5 镜头项目并逐个生成 |
 | P2 Elements + Hero Frame（1 周） | 元素库、角色三视图生成、hero frame 四选一、keyframe / reference 两种模式 | 同一角色跨 5 个镜头脸不漂 |
 | P3 MCP + Director Skill（1 周） | MCP 服务器 + OAuth、工具清单、Skill 文档、Prompt Pack 兜底 | Grok 和 Claude 各自从一句话需求跑到分镜表 |
