@@ -289,6 +289,37 @@ def hf_resolve_url(url: str) -> str:
     return url.replace("/blob/", "/resolve/", 1) if "/blob/" in url else url
 
 
+def hf_repo_of(url: str) -> str | None:
+    """'https://huggingface.co/owner/repo[/tree/main...]' → 'owner/repo'; a
+    direct file link (blob/resolve) → None."""
+    m = re.match(r"https?://(?:www\.)?huggingface\.co/([^/\s]+/[^/\s]+)(?:/(?:tree)/[^\s]*)?/?$", url.strip())
+    return m.group(1) if m and "/blob/" not in url and "/resolve/" not in url else None
+
+
+def hf_pick_file(repo: str, wanted: str, http: Any, headers: dict[str, str]) -> tuple[str, str]:
+    """Choose the weight file in a repo: the one named like `wanted` when it
+    exists, else a ComfyUI-flavoured one, else the most-trained / largest
+    .safetensors. Returns (filename in repo, direct URL)."""
+    res = http.get(f"https://huggingface.co/api/models/{repo}?blobs=true", timeout=60, headers=headers)
+    if res.status_code >= 400:
+        raise JobError(f"could not list HuggingFace repo {repo} ({res.status_code})")
+    info = res.json()
+    files = [(s.get("rfilename", ""), int(s.get("size") or 0)) for s in info.get("siblings", [])]
+    weights = [(n, sz) for n, sz in files if n.lower().endswith(".safetensors")]
+    if not weights:
+        raise JobError(f"HuggingFace repo {repo} has no .safetensors file")
+    exact = [w for w in weights if w[0].rsplit("/", 1)[-1] == wanted]
+    if exact:
+        chosen = exact[0]
+    else:
+        def rank(w: tuple[str, int]) -> tuple[int, int, int]:
+            name = w[0].lower()
+            steps = max([int(x) for x in re.findall(r"(\d{3,6})", name)] or [0])
+            return (1 if "comfy" in name else 0, steps, w[1])
+        chosen = sorted(weights, key=rank, reverse=True)[0]
+    return chosen[0], f"https://huggingface.co/{repo}/resolve/main/{chosen[0]}"
+
+
 def ensure_loras(loras: list[dict[str, Any]], lora_dir: Path | None = None, session: requests.Session | None = None) -> list[Path]:
     """Make sure every LoRA file exists in the ComfyUI loras folder, fetching
     missing ones from their HuggingFace link."""
@@ -302,7 +333,13 @@ def ensure_loras(loras: list[dict[str, Any]], lora_dir: Path | None = None, sess
             directory.mkdir(parents=True, exist_ok=True)
             http = session or requests.Session()
             headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
-            with http.get(hf_resolve_url(lora["hf_url"]), stream=True, timeout=600, headers=headers) as res:
+            url = hf_resolve_url(lora["hf_url"])
+            repo = hf_repo_of(lora["hf_url"])
+            if repo:
+                # A repo page rather than a file: pick the weight file and save it under the studio's name.
+                picked, url = hf_pick_file(repo, lora["file"], http, headers)
+                print(f"[lora] {repo}: using {picked} as {lora['file']}", file=sys.stderr)
+            with http.get(url, stream=True, timeout=600, headers=headers) as res:
                 if res.status_code >= 400:
                     raise JobError(f"could not download LoRA {lora['file']} ({res.status_code})")
                 tmp = dest.with_suffix(dest.suffix + ".part")

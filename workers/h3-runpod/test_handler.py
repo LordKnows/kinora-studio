@@ -340,3 +340,42 @@ def test_wait_stops_comfy_when_the_job_is_cancelled():
         comfy.wait("p1", timeout_s=5, poll_s=0.01, should_cancel=lambda: True)
     assert [u.rsplit("/", 1)[-1] for u, _ in posted] == ["queue", "interrupt"]
     assert posted[0][1] == {"delete": ["p1"]}
+
+
+def test_ensure_loras_resolves_a_repo_link_to_its_weight_file(tmp_path):
+    class Res:
+        def __init__(self, payload=None):
+            self.status_code = 200
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def json(self):
+            return self.payload
+
+        def iter_content(self, chunk_size):
+            yield b"w"
+
+    class Session:
+        calls: list[str] = []
+
+        def get(self, url, stream=False, timeout=0, headers=None):
+            Session.calls.append(url)
+            if "/api/models/" in url:
+                return Res({"siblings": [
+                    {"rfilename": "README.md", "size": 10},
+                    {"rfilename": "camera_motion_v1_1000_pruned.safetensors", "size": 300},
+                    {"rfilename": "camera_motion_v1_3000_pruned.safetensors", "size": 310},
+                ]})
+            return Res()
+
+    assert h.hf_repo_of("https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora") == "Jojocodex/minimax-h3-Camera-Motion-lora"
+    assert h.hf_repo_of("https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora/tree/main") == "Jojocodex/minimax-h3-Camera-Motion-lora"
+    assert h.hf_repo_of("https://huggingface.co/o/r/blob/main/s.safetensors") is None
+    paths = h.ensure_loras([{"file": "jojocodex_camera_motion.safetensors", "strength": 0.6, "hf_url": "https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora"}], lora_dir=tmp_path, session=Session())
+    assert paths[0].name == "jojocodex_camera_motion.safetensors" and paths[0].read_bytes() == b"w"
+    assert Session.calls[-1] == "https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora/resolve/main/camera_motion_v1_3000_pruned.safetensors"

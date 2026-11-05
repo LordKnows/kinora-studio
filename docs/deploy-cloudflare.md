@@ -31,6 +31,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0004_brief.sql` | 导演第一层：`projects` 表加 `brief`、`target_seconds`（同样只执行一次） |
 | `migrations/0005_seed_loras.sql` | 预置两个 lightx2v turbo LoRA（幂等） |
 | `migrations/0006_adopted.sql` | `gpu_pods` 表加 `adopted` 列（手动建的 Pod 由 Studio 接管；只执行一次） |
+| `migrations/0007_seed_more_loras.sql` | 预置 7 个社区 LoRA（fal 写实人物、Jojocodex 运镜 / 物理、anime 风格等；幂等） |
 
 ## 2. 建对象存储（R2）
 

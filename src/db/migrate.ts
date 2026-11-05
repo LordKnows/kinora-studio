@@ -11,6 +11,7 @@ import lorasStats from "./migrations/0003_loras_stats";
 import brief from "./migrations/0004_brief";
 import seedLoras from "./migrations/0005_seed_loras";
 import adopted from "./migrations/0006_adopted";
+import seedMoreLoras from "./migrations/0007_seed_more_loras";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -19,6 +20,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0004_brief", sql: brief },
   { name: "0005_seed_loras", sql: seedLoras },
   { name: "0006_adopted", sql: adopted },
+  { name: "0007_seed_more_loras", sql: seedMoreLoras },
 ];
 
 export async function migrate(db: Db): Promise<void> {

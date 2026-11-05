@@ -28,7 +28,7 @@ export const LoraInput = z.object({
   name: z.string().min(1).max(80),
   kind: z.enum(LORA_KINDS).describe("speed = fewer steps (lightx2v…), style/effect = look"),
   filename: z.string().min(1).max(200).describe("File name inside ComfyUI's models/loras, e.g. h3_lightx2v_8step.safetensors"),
-  hfUrl: z.string().url().optional().describe("HuggingFace file link; the pod downloads it when the file is missing"),
+  hfUrl: z.string().url().optional().describe("HuggingFace link: a file (blob/resolve) or a repo page; with a repo the pod picks the .safetensors (exact filename match, else the most-trained one) and saves it under filename"),
   triggerWords: z.string().max(300).default("").describe("Appended to the LOOK block when the LoRA is active"),
   defaultStrength: z.number().min(0).max(2).default(1),
   stepsHint: z.number().int().min(1).max(60).optional().describe("speed LoRAs: the step count they are trained for"),
