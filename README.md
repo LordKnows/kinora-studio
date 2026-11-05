@@ -177,8 +177,15 @@ has an eval mode for blind A/B scoring of takes.
 
 ## Director layer (`packages/director`)
 
-A local stdio MCP server that sits beside the Studio MCP and adds judgement
-the Studio does not check or render yet: 16 style presets (eleven-section
+Judgement helpers that sit beside the Studio's own tools. **They are served
+from the Studio MCP connector** (`list_styles`, `suggest_styles`, `get_style`,
+`compile_look`, `apply_style`, `lint_shotlist`, `validate_treatment`,
+`check_cue_map`, `cut_on_beats`, `check_subtitles`, `plan_batch`,
+`check_timeline`, and `get_director_guide` sections `judgement` / `technique` /
+`styles`), so Grok and Claude get them through the same connector; the package
+also runs as a local stdio MCP for the two tools that need a machine
+(`assemble_local` with ffmpeg, `synthesize_narration` with edge-tts). What it
+adds: 16 style presets (eleven-section
 `STYLE.md` convention) compiled into Studio fields, a treatment validator, a
 rhythm lint for shotlists, a cue map that snaps cuts to the beat, an extended
 timeline (J/L cuts, fades, titles, narration, ducking) assembled locally with
