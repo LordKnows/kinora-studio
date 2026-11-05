@@ -421,7 +421,20 @@ def regen_status(models_dir: Path | None = None) -> dict[str, Any]:
     base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
     missing = [f"{sub}/{name}" for sub, name in REGEN_FILES if not ((base / sub / name).is_file() and (base / sub / name).stat().st_size > 1_000_000)]
     nodes = Path(REGEN_NODE_DIR).is_dir()
-    return {"ready": not missing and nodes, "missing": missing, "nodes": nodes, "dir": str(base)}
+    # What the boot-time download is doing, so a "not ready" answer can say
+    # "still downloading" instead of just listing files.
+    log = Path("/app/download_regen.log")
+    core_log = Path("/app/download_models.log")
+    tail = ""
+    phase = "not started"
+    if log.exists():
+        lines = [l for l in log.read_text(errors="replace").splitlines() if l.strip()]
+        tail = lines[-1] if lines else ""
+        phase = "done" if tail.startswith("done") else "downloading"
+    elif core_log.exists():
+        lines = [l for l in core_log.read_text(errors="replace").splitlines() if l.strip()]
+        phase = "waiting for the core models to finish" if not (lines and lines[-1].startswith("done")) else "not started"
+    return {"ready": not missing and nodes, "missing": missing, "nodes": nodes, "dir": str(base), "download": phase, "log": tail}
 
 
 def fill_regen_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str, Any], node_classes: set[str] | None = None) -> dict[str, Any]:
@@ -464,7 +477,7 @@ def run_regen_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, wor
     report = report or (lambda p: None)
     status = regen_status()
     if not status["ready"]:
-        raise JobError(f"Open-H3-Regenerate-2K is not ready on this pod: missing {status['missing'] or 'the node pack'} — the pod downloads it at boot when REGEN_2K=1")
+        raise JobError(f"Open-H3-Regenerate-2K is not ready on this pod: missing {status['missing'] or 'the node pack'}; download {status['download']}{' — ' + status['log'] if status['log'] else ''} (the pod fetches it at boot after the core models when REGEN_2K=1; see /app/download_regen.log)")
     mapping = mapping or load_mapping()
     entry = mapping.get(REGEN_WORKFLOW)
     if not entry:
