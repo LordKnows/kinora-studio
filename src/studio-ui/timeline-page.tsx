@@ -19,6 +19,11 @@ export function TimelinePage() {
   const [exports, setExports] = useState<ExportJob[]>([]);
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>("master-768p");
   const [burnIn, setBurnIn] = useState(false);
+  const [exportNote, setExportNote] = useState<string[] | null>(null);
+  const [grid, setGrid] = useState({ bpm: 120, beatsPerBar: 4, subdivision: 1 });
+  const [gridResult, setGridResult] = useState<{ cuts: Array<{ startS: number; outS: number; cutAtS: number }>; warnings: Array<{ message: string }> } | null>(null);
+  const [subs, setSubs] = useState<{ issues: Array<{ id?: string; message: string; severity?: string }>; srt: string } | null>(null);
+  const [showSrt, setShowSrt] = useState(false);
 
   useEffect(() => {
     if (view && !timeline) setTimeline(view.timeline);
@@ -54,10 +59,39 @@ export function TimelinePage() {
   const exportNow = useAction(async (confirm) => {
     if (dirty && timeline) await put(`/api/projects/${projectId}/timeline`, timeline);
     setDirty(false);
-    await post(`/api/projects/${projectId}/exports`, { preset, burnInSubtitles: burnIn, confirm });
+    const created = await post<{ warnings?: string[] }>(`/api/projects/${projectId}/exports`, { preset, burnInSubtitles: burnIn, confirm });
+    setExportNote(created.warnings?.length ? created.warnings : null);
     const r = await get<{ exports: ExportJob[] }>(`/api/projects/${projectId}/exports`);
     setExports(r.exports);
     await reload();
+  });
+
+  const snap = useAction(async () => {
+    if (!timeline) return;
+    const shots = timeline.clips.map((c) => ({ durationS: takesById.get(c.takeId)?.durationS ?? Math.max(0, c.outS - c.inS) }));
+    const r = await post<{ cuts: Array<{ startS: number; outS: number; cutAtS: number }>; warnings: Array<{ message: string }> }>("/api/director/cue", {
+      cueMap: { sections: [{ id: "a", t: 0, bpm: grid.bpm, beatsPerBar: grid.beatsPerBar }], hits: [] },
+      shots, subdivision: grid.subdivision, startS: 0,
+    });
+    setGridResult(r);
+    set({ ...timeline, clips: timeline.clips.map((c, i) => (r.cuts[i] ? { ...c, outS: Math.round((c.inS + r.cuts[i]!.outS) * 100) / 100 } : c)) });
+  });
+  const checkSubs = useAction(async () => {
+    if (!timeline || !view) return;
+    const lines: Array<{ id: string; text: string; t0: number; t1: number; language?: string }> = [];
+    let cursor = 0;
+    for (const clip of timeline.clips) {
+      const shot = view.scenes.flatMap((sc) => sc.shots).find((sh) => sh.takes.some((t) => t.id === clip.takeId));
+      const len = Math.max(0, clip.outS - clip.inS);
+      const dialogue = shot?.spec.dialogue ?? [];
+      dialogue.forEach((d, i) => {
+        const slot = len / dialogue.length;
+        lines.push({ id: `${clip.takeId}-${i}`, text: d.text, t0: cursor + i * slot, t1: cursor + (i + 1) * slot, language: d.language });
+      });
+      cursor += len;
+    }
+    setSubs(await post("/api/director/subtitles", { lines }));
+    setShowSrt(false);
   });
 
   if (!timeline || !view) return null;
@@ -84,7 +118,13 @@ export function TimelinePage() {
           </Button>
         </div>
       </div>
-      <ErrorBanner error={save.error ?? auto.error ?? exportNow.error} projectId={projectId} onConfirm={exportNow.error ? () => void exportNow.confirm() : undefined} onDismiss={() => { save.dismiss(); auto.dismiss(); exportNow.dismiss(); }} />
+      <ErrorBanner error={save.error ?? auto.error ?? exportNow.error ?? snap.error ?? checkSubs.error} projectId={projectId} onConfirm={exportNow.error ? () => void exportNow.confirm() : undefined} onDismiss={() => { save.dismiss(); auto.dismiss(); exportNow.dismiss(); snap.dismiss(); checkSubs.dismiss(); }} />
+      {exportNote && (
+        <div className="st-alert st-alert--warn" style={{ marginBottom: 16 }}>
+          <span>{exportNote.join(" ")}</span>
+          <Button size="sm" kind="quiet" onClick={() => setExportNote(null)}>Dismiss</Button>
+        </div>
+      )}
 
       {timeline.clips.length === 0 ? (
         <Empty title="Empty timeline" hint="Auto build takes the selected take of every shot in board order.">
@@ -155,9 +195,32 @@ export function TimelinePage() {
         <RoughCut timeline={timeline} view={view} />
       </Section>
 
-      <div className="st-split" style={{ marginTop: 24 }}>
+      <div className="st-section" style={{ display: "grid", gap: 20, gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
         <div className="st-card st-stack">
-          <span className="st-label" style={{ marginBottom: 0 }}>Audio mix</span>
+          <span className="st-h2">Beat grid</span>
+          <span className="st-muted">Snap every cut to the music: each clip ends on a beat, bar or half beat within what its take can give.</span>
+          <div className="st-fields">
+            <Field label="BPM">
+              <input className="st-input" type="number" min={20} max={300} value={grid.bpm} onChange={(e) => setGrid({ ...grid, bpm: Number(e.target.value) || 120 })} />
+            </Field>
+            <Field label="Beats per bar">
+              <input className="st-input" type="number" min={1} max={12} value={grid.beatsPerBar} onChange={(e) => setGrid({ ...grid, beatsPerBar: Number(e.target.value) || 4 })} />
+            </Field>
+            <Field label="Cut on">
+              <select className="st-select" value={grid.subdivision} onChange={(e) => setGrid({ ...grid, subdivision: Number(e.target.value) })}>
+                <option value={1}>beat</option>
+                <option value={0.25}>bar</option>
+                <option value={2}>half beat</option>
+              </select>
+            </Field>
+          </div>
+          <div className="st-row st-row--between">
+            <span className="st-muted st-num">{gridResult ? `${gridResult.cuts.length} cuts snapped · last at ${gridResult.cuts.at(-1)?.cutAtS.toFixed(2) ?? "—"} s` : "not applied"}</span>
+            <Button busy={snap.busy} disabled={timeline.clips.length === 0} onClick={() => void snap.fire()}>Snap cuts to grid</Button>
+          </div>
+        </div>
+        <div className="st-card st-stack">
+          <span className="st-h2">Audio mix</span>
           <Field label="Music track">
             <UploadButton accept="audio/mpeg,audio/wav,audio/x-wav" projectId={projectId} label="Upload music" onUploaded={async ({ assetId }) => { await reload(); set({ ...timeline, music: assetId }); }} />
             <select className="st-select" value={timeline.music ?? ""} onChange={(e) => set({ ...timeline, music: e.target.value || undefined })}>
@@ -171,12 +234,12 @@ export function TimelinePage() {
           </Field>
           {(["dialogueDb", "sfxDb", "musicDb"] as const).map((key) => (
             <Field key={key} label={`${key.replace("Db", "")} ${timeline.mix[key]} dB`}>
-              <input type="range" className="ohf-slider" min={-30} max={6} step={1} value={timeline.mix[key]} style={{ "--fill": `${((timeline.mix[key] + 30) / 36) * 100}%` } as React.CSSProperties} onChange={(e) => set({ ...timeline, mix: { ...timeline.mix, [key]: Number(e.target.value) } })} />
+              <input type="range" className="st-range" min={-30} max={6} step={1} value={timeline.mix[key]} style={{ "--fill": `${((timeline.mix[key] + 30) / 36) * 100}%` } as React.CSSProperties} onChange={(e) => set({ ...timeline, mix: { ...timeline.mix, [key]: Number(e.target.value) } })} />
             </Field>
           ))}
         </div>
         <div className="st-card st-stack">
-          <span className="st-label" style={{ marginBottom: 0 }}>Export</span>
+          <span className="st-h2">Export</span>
           <Field label="Preset">
             <select className="st-select" value={preset} onChange={(e) => setPreset(e.target.value as (typeof PRESETS)[number])}>
               {PRESETS.map((p) => (
@@ -193,8 +256,37 @@ export function TimelinePage() {
           <Button kind="primary" busy={exportNow.busy} disabled={timeline.clips.length === 0} onClick={() => void exportNow.fire()}>
             Export
           </Button>
+          <span className="st-muted">master-upscaled uses each pick’s 2K file from Finals; clips without one fall back to 768p and are listed when the export starts.</span>
         </div>
       </div>
+
+      <Section title="Subtitles" aside={<small>reading time: CJK ÷ 4.5 + Latin ÷ 15 + 1.5 s, at least 1.8 s</small>}>
+        <div className="st-card st-stack">
+          <div className="st-row st-row--between">
+            <span className="st-muted">Dialogue lines of the clips in order, spread across each clip. The check flags lines too short to read; the SRT is what burn-in uses.</span>
+            <Button busy={checkSubs.busy} disabled={timeline.clips.length === 0} onClick={() => void checkSubs.fire()}>Check subtitles</Button>
+          </div>
+          {subs && (
+            <>
+              {subs.issues.length === 0 ? <Lamp state="ok" label="every line has time to be read" /> : (
+                <div className="st-lint">
+                  {subs.issues.map((i, n) => (
+                    <div key={n} className="st-lint-row" data-severity={i.severity ?? "warn"}>
+                      <span className="st-lint-where">{i.id ?? "line"}</span>
+                      <span>{i.message}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="st-row">
+                <Button size="sm" kind="quiet" onClick={() => setShowSrt((v) => !v)}>{showSrt ? "Hide SRT" : "Show SRT"}</Button>
+                <Button size="sm" kind="quiet" onClick={() => void navigator.clipboard.writeText(subs.srt)}>Copy SRT</Button>
+              </div>
+              {showSrt && <pre className="st-pre">{subs.srt || "(no dialogue in the timeline)"}</pre>}
+            </>
+          )}
+        </div>
+      </Section>
 
       <Section title="Exports" aside={<small>{exports.length}</small>}>
         {exports.length === 0 ? (

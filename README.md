@@ -184,6 +184,19 @@ file sits beside the take, and the `master-upscaled` export uses it. The pod
 installs the node packs and downloads the ~21 GB of weights at boot
 (`REGEN_2K=1`).
 
+## The pages
+
+Top bar on every surface (project crumb, GPU pill, Projects / Library /
+Machine / Connect). Inside a project the rail follows the order of work:
+**1 Brief & style** (brief, running time, a style preset compiled into the
+Look), **2 Script** (versions, rendered markdown, approval), **3 Elements**,
+**4 Board** (shot cards with cinematography codes, link and lint badges; Lint,
+Apply style and Render batch in the toolbar; the shot drawer), **5 Finals**
+(the pick per shot, Regenerate 2K, blind A/B), **6 Timeline** (clips, rough
+cut, beat grid, audio mix, subtitles check, export). Global pages: Library
+(styles + LoRAs), Machine (the pod), Connect (MCP). Geist Sans / Geist Mono,
+one accent reserved for the primary action, the selection and "running".
+
 ## Director layer (`packages/director`)
 
 Judgement helpers that sit beside the Studio's own tools. **They are served

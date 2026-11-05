@@ -1,5 +1,7 @@
 # 前端重设计调研（2026-11）
 
+> 状态：第 1 到 3 阶段已实现（commit `67a31ac`、`cf5d9f3` 及其后续）。壳、token、Geist、六步导航、Library / Machine / Connect、Brief & style 的风格库、Board 的 Lint / Apply style / Render batch、Finals、Timeline 的节拍网格与字幕检查都已上线。第 4 阶段（assembler 的 J/L cut、标题卡、旁白轨道）和 Director log 仍待做。
+
 基于本地跑起来的 Studio 截图（桌面 1440 宽、手机 390 宽，九个页面加 Board 的镜头抽屉），
 以及导演层 MCP 现有的 27 个工具，给出三部分结论：现状问题、视觉模版的选择、
 信息架构怎么和导演技能对齐。最后是分阶段的实施计划。
