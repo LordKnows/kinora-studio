@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { CheckIcon } from "@/openhiggsfield/icons";
+import { CheckIcon } from "./icons";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
 import type { ShotInput } from "@/studio/schemas";
 import type { Take } from "@/studio/types";

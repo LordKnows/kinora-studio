@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { uploadMedia } from "@/generation/upload";
-import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "@/openhiggsfield/icons";
+import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
+import { uploadMedia } from "./upload";
 
 import { ApiError, describe, usd } from "./api";
 

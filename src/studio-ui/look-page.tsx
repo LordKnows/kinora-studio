@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from "react";
 
-import { ratioBox } from "@/openhiggsfield/data";
-import { CheckIcon } from "@/openhiggsfield/icons";
 import { planDurations } from "@/studio/editing";
 import type { LookSettings } from "@/studio/schemas";
 
@@ -122,21 +120,14 @@ export function LookPage() {
         <div className="st-stack">
           <div className="st-card st-stack">
             <span className="st-label">Aspect ratio</span>
-            <div className="ohf-opts" role="group" style={{ maxHeight: 260 }}>
+            <div className="st-ratios" role="group">
               {RATIOS.map((r) => {
-                const box = ratioBox(r);
-                const active = look.aspectRatio === r;
+                const [w, h] = r.split(":").map(Number) as [number, number];
+                const scale = 28 / Math.max(w, h);
                 return (
-                  <button key={r} type="button" className="ohf-opt" aria-pressed={active} onClick={() => set("aspectRatio", r)}>
-                    <span className="ohf-opt-ratio" aria-hidden>
-                      <span className="ohf-opt-box" style={box ?? undefined} />
-                    </span>
-                    <span className="ohf-opt-label">{r}</span>
-                    {active && (
-                      <span className="ohf-opt-check" aria-hidden>
-                        <CheckIcon size={12} />
-                      </span>
-                    )}
+                  <button key={r} type="button" className="st-ratio" aria-pressed={look.aspectRatio === r} onClick={() => set("aspectRatio", r)}>
+                    <span className="st-ratio-box" style={{ width: Math.max(10, Math.round(w * scale)), height: Math.max(10, Math.round(h * scale)) }} />
+                    {r}
                   </button>
                 );
               })}

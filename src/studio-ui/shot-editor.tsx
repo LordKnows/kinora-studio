@@ -1,6 +1,6 @@
 "use client";
 
-import { CloseIcon } from "@/openhiggsfield/icons";
+import { CloseIcon } from "./icons";
 import { CINEMA, type CinemaCategoryKey } from "@/studio/cinematography";
 import { EDIT_GRAMMAR, type LinkType } from "@/studio/editing";
 import { CAMERA_MOVES, SHOT_MODES, type ShotInput } from "@/studio/schemas";

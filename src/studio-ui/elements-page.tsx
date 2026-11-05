@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { CheckIcon } from "@/openhiggsfield/icons";
+import { CheckIcon } from "./icons";
 import type { Asset, Element } from "@/studio/types";
 
 import { del, get, patch, post } from "./api";

@@ -1,20 +1,6 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { LorasPage } from "@/studio-ui/loras-page";
-import { inter } from "@/studio-ui/font";
-
-import "@/openhiggsfield/openhiggsfield.css";
-import "@/studio-ui/studio.css";
-
-export const metadata: Metadata = {
-  title: "LoRAs",
-  alternates: { canonical: "/loras" },
-};
-
+/* The LoRA library moved into the Library page. */
 export default function LorasRoute() {
-  return (
-    <div className={`ohf ${inter.variable}`} style={{ minHeight: "100dvh" }}>
-      <LorasPage />
-    </div>
-  );
+  redirect("/library");
 }

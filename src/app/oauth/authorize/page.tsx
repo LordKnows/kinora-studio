@@ -4,8 +4,6 @@ import { authenticateWeb } from "@/auth/access";
 import { parseAuthorize } from "@/oauth/server";
 import { StudioError } from "@/studio/errors";
 
-import "@/openhiggsfield/openhiggsfield.css";
-import "@/studio-ui/studio.css";
 
 /* The OAuth consent page: the only place an agent's connector gets a token,
    and it needs a signed-in web user. Behind Cloudflare Access in production. */
@@ -23,23 +21,23 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
     problem = caught instanceof StudioError ? caught.message : "invalid authorization request";
   }
   return (
-    <main className="ohf" style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
-      <form method="post" action="/api/oauth/authorize" className="ohf-consent">
-        <h1 className="ohf-consent-title">Connect to Cinema Studio</h1>
+    <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
+      <form method="post" action="/api/oauth/authorize" className="st-consent">
+        <h1 className="st-consent-title">Connect to Cinema Studio</h1>
         {problem ? (
-          <p className="ohf-consent-problem">{problem}</p>
+          <p className="st-consent-problem">{problem}</p>
         ) : !actor ? (
-          <p className="ohf-consent-problem">Sign in to the studio first, then retry the connection from your chat client.</p>
+          <p className="st-consent-problem">Sign in to the studio first, then retry the connection from your chat client.</p>
         ) : (
           <>
-            <p className="ohf-consent-copy">
+            <p className="st-consent-copy">
               <strong>{params!.clientName}</strong> wants to act as the director on your projects: write scripts, build shotlists, and request renders. Every paid action still asks for confirmation.
             </p>
-            <p className="ohf-consent-meta">Signed in as {actor.user}</p>
+            <p className="st-consent-meta">Signed in as {actor.user}</p>
             {Object.entries(sp).map(([k, v]) => (typeof v === "string" ? <input key={k} type="hidden" name={k} value={v} /> : null))}
-            <div className="ohf-consent-actions">
-              <button type="submit" name="decision" value="deny" className="ohf-btn ohf-btn--quiet">Cancel</button>
-              <button type="submit" name="decision" value="allow" className="ohf-btn ohf-btn--primary">Allow</button>
+            <div className="st-consent-actions">
+              <button type="submit" name="decision" value="deny" className="st-btn st-btn--quiet">Cancel</button>
+              <button type="submit" name="decision" value="allow" className="st-btn st-btn--primary">Allow</button>
             </div>
           </>
         )}

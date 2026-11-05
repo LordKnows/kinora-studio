@@ -1,160 +1,72 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
-import directorGuide from "@/mcp/guide";
-
-import { get, post } from "./api";
-import { Button, CopyRow, Empty, ErrorBanner, Lamp, Section, Stars, useAction } from "./common";
-import { GpuSection } from "./gpu-panel";
+import { del, patch } from "./api";
+import { Button, ErrorBanner, Field, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
-type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imageGeneration: string };
-
+/* Project settings: what belongs to this film only. The pod, the library
+   and the MCP connection are global pages. */
 export function SettingsPage() {
-  const { projectId } = useProjectContext();
-  const [me, setMe] = useState<Me | null>(null);
-  const [origin, setOrigin] = useState("");
-  const [showGuide, setShowGuide] = useState(false);
-
+  const { projectId, view, reload } = useProjectContext();
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [cap, setCap] = useState("");
   useEffect(() => {
-    setOrigin(window.location.origin);
-    void get<Me>("/api/me").then(setMe).catch(() => setMe(null));
-  }, []);
-
+    if (view) {
+      setName(view.project.name);
+      setCap(String(view.project.budgetCapUsd));
+    }
+  }, [view]);
+  const save = useAction(async () => {
+    await patch(`/api/projects/${projectId}`, { name: name.trim(), budgetCapUsd: Number(cap) || 0 });
+    await reload();
+  });
+  const remove = useAction(async () => {
+    if (!window.confirm(`Delete "${view?.project.name}" and everything in it? This cannot be undone.`)) return;
+    await del(`/api/projects/${projectId}`);
+    router.push("/");
+  });
   return (
-    <div className="st-page">
+    <div className="st-page st-page--narrow">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Settings</h1>
-          <p className="st-subtitle">Backends, the MCP connection for your director agent, and the blind evaluation mode.</p>
+          <h1 className="st-title">Project settings</h1>
+          <p className="st-subtitle">Name and budget. The GPU, the library and the director connection live under Machine, Library and Connect.</p>
         </div>
       </div>
-
-      <Section title="Backends">
-        <div className="st-card">
-          {me ? (
-            <dl className="st-kv">
-              <dt>Signed in</dt>
-              <dd>
-                {me.user} <span className="st-muted">({me.authMode === "dev" ? "dev mode, no auth" : "Cloudflare Access"})</span>
-              </dd>
-              <dt>RunPod H3</dt>
-              <dd>
-                <Lamp state={me.runpodConfigured ? "approved" : "draft"} label={me.runpodConfigured ? "configured" : "missing RUNPOD_* env"} />
-              </dd>
-              <dt>R2 storage</dt>
-              <dd>
-                <Lamp state={me.r2Configured ? "approved" : "draft"} label={me.r2Configured ? "configured" : "missing R2_* env"} />
-              </dd>
-              <dt>Image models</dt>
-              <dd>
-                <Lamp state="draft" label="disabled for now — upload references and hero frames (TODO)" />
-              </dd>
-            </dl>
-          ) : (
-            <span className="st-muted">Loading…</span>
-          )}
+      <ErrorBanner error={save.error ?? remove.error} onDismiss={() => { save.dismiss(); remove.dismiss(); }} />
+      <div className="st-card st-stack">
+        <div className="st-fields">
+          <Field label="Project name">
+            <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Budget cap (USD)" hint="Takes, 2K passes and exports are refused once reservations would cross it.">
+            <input className="st-input" type="number" min={0} step={1} value={cap} onChange={(e) => setCap(e.target.value)} />
+          </Field>
         </div>
-      </Section>
-
-      <Section title="GPU pod">
-        <GpuSection />
-      </Section>
-
-      <Section title="Connect your director agent (MCP)">
-        <div className="st-card st-stack">
-          <CopyRow label="MCP endpoint" value={`${origin}/mcp`} />
-          <CopyRow label="OAuth metadata" value={`${origin}/.well-known/oauth-authorization-server`} />
-          <p className="st-muted">
-            <strong>Claude:</strong> Settings → Connectors → Add custom connector, paste the MCP endpoint, sign in on the consent page that opens. <strong>Grok:</strong> grok.com → Connectors → New Connector → Custom, paste the same endpoint and complete the sign-in. Then paste the director guide below into the chat’s project or custom instructions and say “start a new film”.
-          </p>
-          <div className="st-row">
-            <Button size="sm" onClick={() => setShowGuide((s) => !s)}>
-              {showGuide ? "Hide director guide" : "Show director guide"}
-            </Button>
-            <Button size="sm" kind="quiet" onClick={() => void navigator.clipboard.writeText(directorGuide)}>
-              Copy guide
-            </Button>
-          </div>
-          {showGuide && <pre className="st-pre">{directorGuide}</pre>}
+        <div className="st-row st-row--between">
+          <span className="st-muted st-num">spent so far {view ? `$${view.project.spentUsd.toFixed(3)}` : "…"}</span>
+          <Button kind="primary" busy={save.busy} onClick={() => void save.fire()}>Save</Button>
         </div>
-      </Section>
-
-      <Section title="Evaluation mode">
-        <EvalPanel projectId={projectId} />
-      </Section>
-    </div>
-  );
-}
-
-type Pair = { shotId: string; intent: string; a: { id: string; url: string }; b: { id: string; url: string } } | null;
-
-function EvalPanel({ projectId }: { projectId: string }) {
-  const [pair, setPair] = useState<Pair | undefined>(undefined);
-  const [winner, setWinner] = useState<"a" | "b" | "tie" | null>(null);
-  const [scores, setScores] = useState({ consistency: 0, action: 0, camera: 0, audio: 0 });
-  const [count, setCount] = useState(0);
-
-  const next = useCallback(async () => {
-    const { pair } = await get<{ pair: Pair }>(`/api/projects/${projectId}/eval/pairs`);
-    setPair(pair);
-    setWinner(null);
-    setScores({ consistency: 0, action: 0, camera: 0, audio: 0 });
-  }, [projectId]);
-
-  useEffect(() => {
-    void next().catch(() => setPair(null));
-  }, [next]);
-
-  const vote = useAction(async () => {
-    if (!pair || !winner) return;
-    await post("/api/eval/votes", { takeA: pair.a.id, takeB: pair.b.id, winner, scores });
-    setCount((c) => c + 1);
-    await next();
-  });
-
-  if (pair === undefined) return <span className="st-muted">Loading…</span>;
-  if (pair === null) return <Empty title="Nothing to compare" hint="Evaluation needs at least two completed takes of the same shot. Blind pairs are shown in random order." />;
-  const complete = winner && Object.values(scores).every((v) => v > 0);
-  return (
-    <div className="st-card st-stack">
-      <ErrorBanner error={vote.error} onDismiss={vote.dismiss} />
-      <p className="st-muted">
-        Shot intent: <strong style={{ color: "var(--tx)" }}>{pair.intent}</strong> · {count} votes this session
-      </p>
-      <div className="st-eval">
-        {(["a", "b"] as const).map((side) => (
-          <div key={side} className="st-stack st-stack--tight">
-            <video className="st-video" src={pair[side].url} controls preload="metadata" />
-            <Button kind={winner === side ? "primary" : "default"} onClick={() => setWinner(side)}>
-              {side.toUpperCase()} is better
-            </Button>
-          </div>
-        ))}
       </div>
-      <div className="st-row">
-        <Button kind={winner === "tie" ? "primary" : "quiet"} size="sm" onClick={() => setWinner("tie")}>
-          Tie
-        </Button>
+      <div className="st-card st-stack" style={{ marginTop: 20 }}>
+        <span className="st-h2">Elsewhere</span>
+        <div className="st-row">
+          <Link className="st-btn" href="/machine">Machine</Link>
+          <Link className="st-btn" href="/library">Library</Link>
+          <Link className="st-btn" href="/connect">Connect</Link>
+        </div>
       </div>
-      <dl className="st-kv">
-        {(["consistency", "action", "camera", "audio"] as const).map((k) => (
-          <div key={k} style={{ display: "contents" }}>
-            <dt style={{ alignSelf: "center" }}>{k}</dt>
-            <dd>
-              <Stars value={scores[k] || undefined} onChange={(n) => setScores({ ...scores, [k]: n })} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-      <div className="st-row st-row--between">
-        <Button kind="quiet" size="sm" onClick={() => void next()}>
-          Skip pair
-        </Button>
-        <Button kind="primary" busy={vote.busy} disabled={!complete} onClick={() => void vote.fire()}>
-          Submit vote
-        </Button>
+      <div className="st-card st-card--quiet st-stack" style={{ marginTop: 20 }}>
+        <span className="st-h2">Danger zone</span>
+        <p className="st-muted">Deleting the project removes its script, elements, shotlist, takes and exports. Files already on R2 are not reclaimed automatically.</p>
+        <div>
+          <Button kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>Delete project</Button>
+        </div>
       </div>
     </div>
   );

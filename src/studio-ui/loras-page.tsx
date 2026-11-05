@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { OpenOutIcon } from "@/openhiggsfield/icons";
+import { OpenOutIcon } from "./icons";
 import { LORA_KINDS, type LoraInput } from "@/studio/schemas";
 import type { Lora } from "@/studio/types";
 
@@ -36,7 +35,7 @@ function hfLabel(url: string): string {
   }
 }
 
-export function LorasPage() {
+export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
   const [loras, setLoras] = useState<Lora[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Lora | "new" | null>(null);
@@ -61,16 +60,13 @@ export function LorasPage() {
   });
 
   return (
-    <div className="st-page">
-      <div className="st-page-head">
+    <div className={embedded ? "st-stack" : "st-page"}>
+      <div className="st-page-head" style={embedded ? { marginBottom: 4 } : undefined}>
         <div>
-          <h1 className="st-title">LoRAs</h1>
-          <p className="st-subtitle">Speed LoRAs cut the step count; style and effect LoRAs shape the look. Pick project defaults on each project’s Look page; shots can override.</p>
+          {!embedded && <h1 className="st-title">LoRAs</h1>}
+          <p className="st-subtitle">Speed LoRAs cut the step count; style and effect LoRAs shape the look. Projects pick defaults on Brief & style; a shot can override.</p>
         </div>
         <div className="st-actions">
-          <Link className="st-btn st-btn--quiet" href="/">
-            Projects
-          </Link>
           <Button kind="primary" onClick={() => setEditing("new")}>
             Add LoRA
           </Button>
