@@ -41,8 +41,8 @@
   --shadow-3: 0 8px 24px rgba(0, 0, 0, 0.4), 0 32px 88px rgba(0, 0, 0, 0.52);
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --ease-slide: cubic-bezier(0.16, 1, 0.3, 1);
-  --font-ui: var(--font-studio-sans), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
-  --font-mono: var(--font-studio-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-ui: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", Menlo, monospace;
   --r-ctl: 8px;
   --r-card: 12px;
   --r-panel: 16px;
