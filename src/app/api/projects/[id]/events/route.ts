@@ -12,6 +12,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const { id } = await ctx.params;
     await repo.getProject(id);
     const encoder = new TextEncoder();
+    /* One Worker invocation carries one stream; its CPU budget is per
+       invocation, so the stream is ended every couple of minutes and the
+       browser's EventSource reconnects into a fresh one. */
+    const openedAt = Date.now();
+    const MAX_STREAM_MS = 120_000;
     let last = "";
     let timer: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
@@ -46,6 +51,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           } catch {
             stop();
             try {
+              controller.close();
+            } catch {
+              /* already closed */
+            }
+            return;
+          }
+          if (Date.now() - openedAt > MAX_STREAM_MS) {
+            stop();
+            try {
+              controller.enqueue(encoder.encode("retry: 1000\n: rotate\n\n"));
               controller.close();
             } catch {
               /* already closed */
