@@ -399,3 +399,36 @@ def test_progress_watcher_turns_comfy_messages_into_stages():
     assert seen[-1]["stage"] == "decoding"
     w.handle({"type": "execution_success", "data": {"prompt_id": "p1"}})
     assert seen[-1]["stage"] == "finishing"
+
+
+def test_download_image_rejects_html_and_accepts_real_images(tmp_path):
+    class Res:
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, n):
+            yield self.body
+
+    class Session:
+        body = b""
+
+        def get(self, url, stream=False, timeout=0):
+            return Res(Session.body)
+
+    Session.body = b"<!DOCTYPE html><html><body>Sign in</body></html>"
+    with pytest.raises(h.JobError, match="HTML page"):
+        h.download_image("https://studio/media/a.png", tmp_path / "ref_0.png", Session())
+    Session.body = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    assert h.download_image("https://studio/media/a.png", tmp_path / "ref_1.png", Session()).name == "ref_1.png"
+    Session.body = b"RIFF\x00\x00\x00\x00WEBPVP8 "
+    assert h.sniff_image(h.download_image("https://studio/media/a.webp", tmp_path / "ref_2.webp", Session())) == "webp"
+    assert h.sniff_image(tmp_path / "nope") is None

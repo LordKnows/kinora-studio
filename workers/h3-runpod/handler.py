@@ -530,6 +530,54 @@ def download(url: str, dest: Path, session: requests.Session | None = None) -> P
     return dest
 
 
+IMAGE_MAGIC = {
+    b"\x89PNG": "png", b"\xff\xd8\xff": "jpg", b"GIF8": "gif", b"BM": "bmp",
+}
+
+
+def sniff_image(path: Path) -> str | None:
+    """'png' / 'jpg' / 'webp' / 'gif' / 'bmp' / 'heic' / 'avif' / 'html' / 'json' / None."""
+    head = path.read_bytes()[:64] if path.exists() else b""
+    for magic, kind in IMAGE_MAGIC.items():
+        if head.startswith(magic):
+            return kind
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        return "avif" if brand.startswith(b"avi") else "heic"
+    lowered = head.lstrip().lower()
+    if lowered.startswith(b"<!doctype") or lowered.startswith(b"<html"):
+        return "html"
+    if lowered.startswith(b"{") or lowered.startswith(b"["):
+        return "json"
+    return None
+
+
+def download_image(url: str, dest: Path, session: requests.Session | None = None) -> Path:
+    """download() plus a check that what came back is an image ComfyUI can
+    open; HEIC/AVIF are converted with ffmpeg, HTML (a login page in front
+    of the media URL) and other junk raise a JobError that names the cause."""
+    download(url, dest, session)
+    kind = sniff_image(dest)
+    size = dest.stat().st_size
+    if kind in ("png", "jpg", "webp", "gif", "bmp"):
+        return dest
+    if kind == "html":
+        raise JobError(f"image URL answered with an HTML page, not an image ({url}): the pod is not logged in — put /media/* (or wherever the assets live) on the Cloudflare Access bypass list")
+    if kind == "json":
+        raise JobError(f"image URL answered with JSON, not an image ({url}): {dest.read_bytes()[:200]!r}")
+    if kind in ("heic", "avif") or kind is None:
+        converted = dest.with_suffix(".png")
+        if converted == dest:
+            converted = dest.with_name(dest.stem + "_conv.png")
+        proc = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", str(dest), "-frames:v", "1", str(converted)], capture_output=True, text=True)
+        if proc.returncode == 0 and converted.exists() and sniff_image(converted) == "png":
+            return converted
+        raise JobError(f"image at {url} is not a format ComfyUI can read ({kind or 'unknown'}, {size} bytes) and ffmpeg could not convert it: upload PNG, JPEG or WebP ({proc.stderr.strip()[:200]})")
+    return dest
+
+
 def ext_of(url: str, fallback: str) -> str:
     tail = url.split("?", 1)[0].rsplit("/", 1)[-1]
     return tail.rsplit(".", 1)[-1].lower() if "." in tail else fallback
@@ -599,7 +647,7 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     inputs.mkdir(exist_ok=True)
     files: dict[str, Any] = {"reference": []}
     for i, img in enumerate(params["images"]):
-        local = download(img["url"], inputs / f"{img['role']}{i}.{ext_of(img['url'], 'png')}", comfy.http)
+        local = download_image(img["url"], inputs / f"{img['role']}{i}.{ext_of(img['url'], 'png')}", comfy.http)
         name = comfy.upload_image(local)
         if img["role"] == "reference":
             files["reference"].append(name)
