@@ -77,9 +77,13 @@ export const STUDIO_TRANSITIONS = ["cut", "dissolve"] as const;
 export const LOCAL_TRANSITIONS = ["cut", "dissolve", "fade_black", "fade_white", "flash_white", "iris", "wipe"] as const;
 export type LocalTransition = (typeof LOCAL_TRANSITIONS)[number];
 
-/** Duration snapping on the H3 frame grid (from the Studio guide). */
+/**
+ * Duration snapping on the H3 frame grid. `compile_prompt` reports the exact
+ * `effectiveSeconds`; these are the values measured so far (5 → 5.2, 10 → 10.13,
+ * 12 → 12.25, 15 → 15.1). Other lengths fall back to the requested seconds, a
+ * lower bound that keeps `cutOnBeats` safe.
+ */
+const MEASURED_GRID: Record<number, number> = { 5: 5.2, 10: 10.13, 12: 12.25, 15: 15.1 };
 export function effectiveSeconds(durationS: number): number {
-  if (durationS <= 5) return 5.2;
-  if (durationS <= 10) return 10.1;
-  return 15.1;
+  return MEASURED_GRID[durationS] ?? durationS;
 }

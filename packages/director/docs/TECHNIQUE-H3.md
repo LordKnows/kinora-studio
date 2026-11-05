@@ -5,7 +5,8 @@ The implementation half of the guide. Nothing here is a directing rule; it is wh
 ## Resolution, frame grid, durations
 
 - 1344×768 at 24 fps is the verified resolution (the turbo LoRAs are 768p models). Other aspect ratios are untested.
-- Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.1 s, 15 s → 15.1 s (`compile_prompt` reports `effectiveSeconds`). Stay on 5–15 s per shot; chain with `continuous` or `bridge` for longer action.
+- Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.13 s, 12 s → 12.25 s, 15 s → 15.1 s (`compile_prompt` reports the exact `effectiveSeconds`). Stay on 5–15 s per shot; chain with `continuous` or `bridge` for longer action.
+- One shot is one generation. Beats are time-stamped sub-descriptions inside that single prompt (`0–6s: … 6–12s: …`); a beat with `cut: true` asks the model for a hard cut inside the same clip (at most 3). Separate generations come only from separate shots and their links.
 - Native stereo audio is generated with the picture from the sound fields (`sfx`, `ambience`, `music`).
 
 ## Modes and base models
