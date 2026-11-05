@@ -316,3 +316,27 @@ def test_sampling_profile_patches_sampler_scheduler_and_shift():
     assert patched["7"]["inputs"]["strength_model"] == 0.0
     with pytest.raises(h.JobError):
         h.validate_input(good_input(sampling={"sampler": "rm -rf"}))
+
+
+def test_wait_stops_comfy_when_the_job_is_cancelled():
+    posted: list[tuple[str, dict | None]] = []
+
+    class FakeHTTP:
+        def get(self, url, **kw):
+            class R:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {}
+            return R()
+
+        def post(self, url, json=None, **kw):  # noqa: A002
+            posted.append((url, json))
+
+    comfy = h.ComfyClient()
+    comfy.http = FakeHTTP()
+    with pytest.raises(h.JobError, match="cancelled"):
+        comfy.wait("p1", timeout_s=5, poll_s=0.01, should_cancel=lambda: True)
+    assert [u.rsplit("/", 1)[-1] for u, _ in posted] == ["queue", "interrupt"]
+    assert posted[0][1] == {"delete": ["p1"]}

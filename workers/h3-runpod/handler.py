@@ -26,7 +26,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Callable, Any
 
 import requests
 
@@ -344,9 +344,24 @@ class ComfyClient:
             raise JobError("ComfyUI returned no prompt_id")
         return prompt_id
 
-    def wait(self, prompt_id: str, timeout_s: float = 1800, poll_s: float = 2.0) -> dict[str, Any]:
+    def interrupt(self) -> None:
+        """Stop whatever ComfyUI is executing right now."""
+        self.http.post(f"{self.base}/interrupt", timeout=10)
+
+    def dequeue(self, prompt_id: str) -> None:
+        """Drop a prompt that is still waiting in ComfyUI's queue."""
+        self.http.post(f"{self.base}/queue", json={"delete": [prompt_id]}, timeout=10)
+
+    def wait(self, prompt_id: str, timeout_s: float = 1800, poll_s: float = 2.0, should_cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
+            if should_cancel and should_cancel():
+                for stop in (lambda: self.dequeue(prompt_id), self.interrupt):
+                    try:
+                        stop()
+                    except requests.RequestException:
+                        pass
+                raise JobError("cancelled")
             res = self.http.get(f"{self.base}/history/{prompt_id}", timeout=30)
             res.raise_for_status()
             entry = res.json().get(prompt_id)
@@ -444,8 +459,9 @@ class R2Uploader:
 # ---------- job ----------
 
 
-def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None) -> dict[str, Any]:
+def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None, should_cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
     started = time.monotonic()
+    cancelled = should_cancel or (lambda: False)
     mapping = mapping or load_mapping()
     entry = mapping.get(params["workflow"])
     if not entry:
@@ -468,9 +484,11 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
 
     if params.get("loras"):
         ensure_loras(params["loras"], session=comfy.http)
+    if cancelled():
+        raise JobError("cancelled")
     filled = fill_graph(graph, entry, {**params, "files": files})
     prompt_id = comfy.queue(filled)
-    history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 1800)))
+    history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 1800)), should_cancel=cancelled)
     out_dir = workdir / "out"
     out_dir.mkdir(exist_ok=True)
     video = comfy.fetch_output(history, entry.get("output_node", ""), out_dir)
@@ -516,7 +534,7 @@ def health(comfy: ComfyClient) -> dict[str, Any]:
     return {"ok": True, "comfy": comfy.health(), "models": models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
-def handler(event: dict[str, Any]) -> dict[str, Any]:
+def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
     """RunPod entry point. Returning {"error": ...} marks the job FAILED."""
     raw = event.get("input") or {}
     comfy = ComfyClient()
@@ -525,7 +543,7 @@ def handler(event: dict[str, Any]) -> dict[str, Any]:
     try:
         params = validate_input(raw)
         with tempfile.TemporaryDirectory(prefix="h3-") as tmp:
-            return run_job(params, comfy, R2Uploader(), Path(tmp))
+            return run_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel)
     except JobError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 — surface everything to the Studio

@@ -107,3 +107,31 @@ def test_assemble_and_cancel(running):
     assert status == 200 and cancelled["status"] in ("CANCELLED", "IN_PROGRESS", "COMPLETED")
     wait_done(port, first["id"])
     assert call(port, "GET", "/status/nope")[0] == 404
+
+
+def test_cancel_running_job_interrupts_comfy_and_ends_cancelled():
+    interrupts: list[int] = []
+
+    def run_video(inp, should_cancel=None):
+        for _ in range(200):
+            if should_cancel and should_cancel():
+                return {"error": "cancelled"}
+            time.sleep(0.01)
+        return {"url": "https://r2/late.mp4"}
+
+    server = JobServer(run_video, lambda inp, c=None: {}, token="t0k", interrupt=lambda: interrupts.append(1), post=lambda *a, **k: None)
+    httpd = server.serve("127.0.0.1", 0)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        _, job = call(port, "POST", "/run", {"input": {"output": {"key": "x.mp4"}}})
+        for _ in range(100):
+            if call(port, "GET", f"/status/{job['id']}")[1]["status"] == "IN_PROGRESS":
+                break
+            time.sleep(0.01)
+        status, answer = call(port, "POST", f"/cancel/{job['id']}")
+        assert status == 200 and answer.get("cancelRequested") is True
+        assert interrupts == [1]
+        assert wait_done(port, job["id"])["status"] == "CANCELLED"
+    finally:
+        httpd.shutdown()

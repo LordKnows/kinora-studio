@@ -29,7 +29,8 @@ from typing import Any, Callable
 
 import requests
 
-Runner = Callable[[dict[str, Any]], dict[str, Any]]
+# A runner takes the job input and a should_cancel() probe it may poll.
+Runner = Callable[..., dict[str, Any]]
 
 MAX_JOBS_KEPT = 200
 
@@ -62,10 +63,12 @@ class JobStore:
 
 
 class JobServer:
-    def __init__(self, run_video: Runner, run_assemble: Runner, token: str, health: Callable[[], dict[str, Any]] | None = None, post: Callable[..., Any] | None = None) -> None:
+    def __init__(self, run_video: Runner, run_assemble: Runner, token: str, health: Callable[[], dict[str, Any]] | None = None, post: Callable[..., Any] | None = None, interrupt: Callable[[], Any] | None = None) -> None:
         self.runners = {"video": run_video, "assemble": run_assemble}
         self.token = token
         self.health = health or (lambda: {"ok": True})
+        # Called when a running job is cancelled: tells ComfyUI to stop sampling.
+        self.interrupt = interrupt or (lambda: None)
         self.post = post or requests.post
         self.store = JobStore()
         self.queue: "queue.Queue[str]" = queue.Queue()
@@ -95,6 +98,15 @@ class JobServer:
         if job["status"] == "IN_QUEUE":
             self.cancelled.add(job_id)
             return self.public(self.store.update(job_id, status="CANCELLED") or job)
+        if job["status"] == "IN_PROGRESS":
+            # The runner polls should_cancel(); ComfyUI is interrupted right away
+            # so the GPU stops now rather than at the end of the sampling loop.
+            self.cancelled.add(job_id)
+            try:
+                self.interrupt()
+            except Exception as exc:  # noqa: BLE001 — the job still ends as cancelled
+                print(f"[jobs] interrupt failed: {exc}", file=sys.stderr)
+            return {**self.public(job), "cancelRequested": True}
         return self.public(job)
 
     def _loop(self) -> None:
@@ -107,12 +119,21 @@ class JobServer:
                 continue
             self.store.update(job_id, status="IN_PROGRESS", started_at=time.time())
             started = time.monotonic()
+            should_cancel = lambda jid=job_id: jid in self.cancelled  # noqa: E731
+            runner = self.runners[job["kind"]]
             try:
-                output = self.runners[job["kind"]](job["input"])
+                try:
+                    output = runner(job["input"], should_cancel)
+                except TypeError as exc:
+                    if "positional argument" not in str(exc):
+                        raise
+                    output = runner(job["input"])  # a runner that does not poll for cancellation
             except Exception as exc:  # noqa: BLE001 — anything else is a FAILED job
                 output = {"error": f"{type(exc).__name__}: {exc}"}
             elapsed = int((time.monotonic() - started) * 1000)
-            if isinstance(output, dict) and "error" in output:
+            if job_id in self.cancelled:
+                done = self.store.update(job_id, status="CANCELLED", executionTime=elapsed)
+            elif isinstance(output, dict) and "error" in output:
                 done = self.store.update(job_id, status="FAILED", error=output["error"], executionTime=elapsed)
             else:
                 done = self.store.update(job_id, status="COMPLETED", output=output, executionTime=elapsed)
@@ -211,10 +232,11 @@ def main() -> int:
         return 2
     comfy = h3.ComfyClient()
     server = JobServer(
-        run_video=lambda inp: h3.handler({"input": inp}),
-        run_assemble=lambda inp: asm.handler({"input": inp}),
+        run_video=lambda inp, should_cancel=None: h3.handler({"input": inp}, should_cancel),
+        run_assemble=lambda inp, should_cancel=None: asm.handler({"input": inp}),
         token=token,
         health=lambda: h3.health(comfy),
+        interrupt=comfy.interrupt,
     )
     port = int(os.environ.get("STUDIO_PORT", "8000"))
     httpd = server.serve("0.0.0.0", port)
