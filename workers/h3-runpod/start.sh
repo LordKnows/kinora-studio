@@ -110,6 +110,10 @@ studio_volume:
 YAML
     export MODELS_DIR="$MODELS_SRC"
     export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
+    if [ "${REGEN_2K:-1}" = "1" ] && [ ! -s "$MODELS_SRC/loras/open_h3_regenerate_2k_lora.safetensors" ]; then
+      echo "[start] downloading Open-H3-Regenerate-2K (~21 GB) onto the volume in the background; see /app/download_regen.log"
+      (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1; echo "[start] regen download finished: $(tail -1 /app/download_regen.log)") &
+    fi
     # The image's installer may replace models/ while it copies ComfyUI in;
     # keep re-applying the links. ComfyUI re-reads a folder whose mtime
     # changed, so a late link is picked up without a restart.
