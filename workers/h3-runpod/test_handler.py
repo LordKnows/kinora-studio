@@ -432,3 +432,17 @@ def test_download_image_rejects_html_and_accepts_real_images(tmp_path):
     Session.body = b"RIFF\x00\x00\x00\x00WEBPVP8 "
     assert h.sniff_image(h.download_image("https://studio/media/a.webp", tmp_path / "ref_2.webp", Session())) == "webp"
     assert h.sniff_image(tmp_path / "nope") is None
+
+
+def test_fill_graph_drops_unused_reference_slots():
+    mapping = h.load_mapping()["R2VA"]
+    graph = h.load_workflow("R2VA")
+    params = h.validate_input(good_input(workflow="R2VA", images=[{"url": "https://r2/a.png", "role": "reference"}]))
+    filled = h.fill_graph(graph, mapping, {**params, "files": {"reference": ["reference0.png"]}})
+    assert filled["201"]["inputs"]["image"] == "reference0.png"
+    assert "202" not in filled
+    assert "ref_images.ref_image_1" not in filled["104"]["inputs"]
+    assert filled["104"]["inputs"]["ref_images.ref_image_0"] == ["201", 0]
+    # two references: both slots used, nothing dropped
+    two = h.fill_graph(h.load_workflow("R2VA"), mapping, {**params, "files": {"reference": ["a.png", "b.png"]}})
+    assert two["202"]["inputs"]["image"] == "b.png" and two["104"]["inputs"]["ref_images.ref_image_1"] == ["202", 0]

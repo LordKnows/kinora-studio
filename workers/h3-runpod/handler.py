@@ -256,6 +256,24 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
             targets.append([node_id, "image"])
     for target, name in zip(targets, refs):
         put(target, name, True, "reference_images")
+    # Fewer references than the template has slots: the spare LoadImage nodes
+    # still carry the handoff's placeholder names (ref_1.png…), which ComfyUI
+    # rejects at validation. Unwire and drop them; the H3 node takes 0–8
+    # ref_images.ref_image_N keys, so a missing key is simply "no image".
+    if len(refs) < len(targets):
+        target_node = str(extra["target_node"]) if extra else None
+        for i in range(len(refs), len(targets)):
+            node_id = str(targets[i][0])
+            if target_node and target_node in graph:
+                for key, value in list(graph[target_node]["inputs"].items()):
+                    if isinstance(value, list) and value and str(value[0]) == node_id:
+                        del graph[target_node]["inputs"][key]
+            else:
+                for other in graph.values():
+                    for key, value in list(other.get("inputs", {}).items()):
+                        if isinstance(value, list) and value and str(value[0]) == node_id:
+                            del other["inputs"][key]
+            graph.pop(node_id, None)
     if files.get("video"):
         put(mapping.get("video"), files["video"], True, "video")
 
