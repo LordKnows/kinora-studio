@@ -1,0 +1,106 @@
+{
+  "slug": "cel-anime-80s",
+  "en": "80s Cel Anime",
+  "cn": "80 年代赛璐璐动画",
+  "category": "Cartoon & Anime",
+  "category_cn": "卡通与动画",
+  "line": "Painted backgrounds, flat hard-shadow cels, light glowing through the frame, played back from tape.",
+  "line_cn": "手绘背景、硬阴影赛璐璐、透过画面的光，从录像带回放。",
+  "uses": ["Music videos", "Game and tech trailers", "Nostalgia", "City-at-night stories"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "Four layers in contrast: airbrushed painted background, flat cel with hard-edged shadow, backlit glow, VHS playback.",
+    "Outlines are coloured, never pure black; shadows are one hard shape per form.",
+    "Characters step at 12 fps while the camera and light move smoothly.",
+    "Night cities, wet streets, neon reflections and window gold.",
+    "Stillness as drama: a held close-up with a light band sweeping across it."
+  ],
+  "not": [
+    "Not modern digital anime: no gradients inside cels, no clean 60 fps.",
+    "Not moe: no giant eyes, no blush hatching.",
+    "Not a film-print pastiche: tape noise, not gate weave."
+  ],
+  "materials": [
+    "Background: painted gouache and airbrush, soft gradients, glowing windows.",
+    "Cel: flat fills, one hard shadow shape, coloured line.",
+    "Playback: chroma bleed, faint scanlines, darkened corners."
+  ],
+  "colour": {
+    "rules": [
+      "Each hour has its own colour model: night city (indigo, violet, magenta, cyan, window gold); seaside noon (cobalt, white, sand, coral).",
+      "The protagonist has one accent colour that pops in every set.",
+      "Skin keeps its own colour under coloured light; never tint the whole frame."
+    ],
+    "examplePalette": "indigo #1c1f4a, violet #5a3c8a, neon magenta #ff3fa4, cyan #3fd6ff, window gold #f2c14e"
+  },
+  "type": {
+    "titleFont": "a condensed geometric sans with a chrome or glow treatment",
+    "subtitleFont": "sans, white with a thin dark edge",
+    "placement": "subtitles in the lower 120 px band kept clear of cels; titles as backlit cards",
+    "rules": ["Titles can be a white flash card in the assembler."]
+  },
+  "motion": {
+    "rules": [
+      "Cels on twos; camera and light on ones.",
+      "Speed lines and a one-beat freeze before impact.",
+      "Cut on bars; a white flash is the loudest transition."
+    ],
+    "stepping": "twos",
+    "neverMoves": ["the painted background's brushwork"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "pedestal", "note": "multiplane crane over a tall painted plate", "expresses": "a world revealed layer by layer", "serves": ["arriving", "descending into a place", "rising above it"] },
+      { "move": "tracking", "note": "side tracking with three parallax layers", "expresses": "steady momentum", "serves": ["a journey", "a chase", "progress"] },
+      { "move": "static", "note": "held bust with light bands", "expresses": "speed or tension without animation", "serves": ["a drive", "waiting", "a decision"] },
+      { "move": "push_in", "note": "through a window or screen", "expresses": "entering another world", "serves": ["a flashback", "a broadcast", "a dream"] },
+      { "move": "pan", "note": "slow, across a painted still", "expresses": "awe, a held breath", "serves": ["a peak", "a memory", "a landscape"] },
+      { "move": "pov", "note": "rear view into a pseudo-3D road", "expresses": "speed, pressure ahead", "serves": ["a race", "a tunnel", "a countdown"] }
+    ],
+    "framing": ["Cels readable against the plate; the protagonist's accent colour visible in every shot.", "Keep the lower band clear for subtitles."],
+    "transitions": ["cut", "flash_white", "fade_black"],
+    "forbiddenTransitions": ["dissolves", "wipes"],
+    "preferredLinks": ["cut", "reverse", "insert_return", "montage", "jump_cut"]
+  },
+  "sound": {
+    "instruments": ["saxophone or synth brass lead", "FM electric piano", "slap bass", "gated-reverb snare", "arpeggiated analog synth", "FM bells"],
+    "foley": ["engines from an RPM curve", "rain and tyre hiss", "cassette clicks", "door buzzers", "footsteps on wet pavement"],
+    "ambience": "night city: distant traffic, rain, a radio through a wall",
+    "silence": "one beat of true silence before the chorus or the impact",
+    "voice": "an English-dub feel, short lines; a second voice through a phone band-pass",
+    "musicDefault": "city pop with synth brass lead and gated snare",
+    "bpmRange": [100, 128]
+  },
+  "nativeMoves": [
+    { "name": "Small flat hero in a huge painted world", "what": "A tiny cel figure under a vast painted plate.", "build": "els size, pedestal or tracking move, reference mode for the character.", "fits": ["a first day in a big company", "a child in a museum hall", "a lone researcher at an observatory"] },
+    { "name": "Light-band sweep on a held cel", "what": "A held close-up; only a band of light moves across it.", "build": "cu, camera static, beats: 'a band of passing light sweeps across the face'.", "fits": ["a night train", "a scanner reading a page", "a heartbeat quickening"] },
+    { "name": "Speed grammar", "what": "Speed lines, looping plate, a freeze frame on impact.", "build": "pace frantic, vfx freeze on the last beat, montage link.", "fits": ["a sprint final", "a data packet crossing the world", "a kitchen rush"] },
+    { "name": "Colour-model change", "what": "The same place at another hour.", "build": "jump_cut from the anchor with the new palette named in the beat.", "fits": ["a day in a shop", "a farm's seasons", "before and after a renovation"] },
+    { "name": "Tape artefacts as punctuation", "what": "A tracking tear marks a cut in time.", "build": "assembler glitch over a cut, or vfx glitch on one beat.", "fits": ["found home video", "a rewind", "an interrupted broadcast"] }
+  ],
+  "pitfalls": [
+    { "problem": "The model produces modern smooth anime with gradients.", "fix": "Say 'flat cel colours, one hard shadow shape, coloured outline, 1980s OVA' in the beat suffix; texture vhs." },
+    { "problem": "Faces become moe.", "fix": "Describe 'narrow realistic eyes, long faces, 1980s character design'." },
+    { "problem": "Neon tints skin pink.", "fix": "Name skin colour explicitly in character elements." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "1980s cel anime OVA, city at night, synth-pop melancholy",
+      "palette": "indigo and violet night, neon magenta and cyan spill, window gold, one accent per hero",
+      "camera": "multiplane cranes and side tracking, held busts with light bands",
+      "lens": "normal, painted depth, anamorphic flares on lights",
+      "lighting": "backlit practicals, neon spill, rim light on cels"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no gradients inside cels", "no moe faces", "no 3D rendering"],
+    "cinematography": { "animation": "anime", "grade": "cyberpunk", "texture": "vhs", "lens": "normal", "dof": "medium", "lighting": ["neon", "practicals", "rim"], "pace": "steady" },
+    "bySize": { "cu": { "lens": "portrait", "dof": "shallow" }, "els": { "lens": "wide", "dof": "deep" } },
+    "loras": [],
+    "beatSuffix": "Flat 1980s cel animation on twos over a painted background, coloured outlines, hard shadow shapes, VHS playback."
+  },
+  "variation": {
+    "decides": ["the hour and its colour model", "the hero's accent colour", "structure", "the signature freeze", "opening", "ending"],
+    "structures": ["one night drive in three songs", "a broadcast interrupted three times", "a day in a shop, dawn to shutters"],
+    "openings": ["a tape tracking in from static", "a held bust in a tunnel of light bands", "a crane down a painted tower"],
+    "endings": ["a freeze frame and a white flash", "the tape ejected", "the painted plate without the cel"]
+  }
+}

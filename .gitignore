@@ -12,3 +12,6 @@ tsconfig.tsbuildinfo
 
 .env*
 .idea
+
+# director package build output
+packages/director/dist

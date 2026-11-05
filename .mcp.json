@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "director": {
+      "command": "node",
+      "args": ["packages/director/dist/mcp.js"]
+    }
+  }
+}

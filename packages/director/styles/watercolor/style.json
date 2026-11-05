@@ -1,0 +1,104 @@
+{
+  "slug": "watercolor",
+  "en": "Watercolour Journal",
+  "cn": "水彩手账",
+  "category": "Hand-drawn & Painting",
+  "category_cn": "手绘与绘画",
+  "line": "A field journal that paints itself: translucent washes, dry-brush edges, hand-written notes beside what is painted.",
+  "line_cn": "一本自己画自己的手账：透明晕染、干笔飞白，画旁有手写注记。",
+  "uses": ["Nature and travel", "Science explainers", "Food and craft", "Gentle brand stories"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "One sheet of warm cotton paper under everything; light is unpainted paper.",
+    "Translucent washes that darken where they overlap; granulation and blooms at the edges.",
+    "A quiet annotation layer: pencil notes and leader lines beside the subject.",
+    "Things paint themselves in, structure before detail.",
+    "Tone: calm, curious, precise."
+  ],
+  "not": [
+    "Not ink wash: colour, not ink tones.",
+    "Not a children's crayon book: no outlines, no cute faces.",
+    "Not a photo with a watercolour filter: the paper must show through everywhere."
+  ],
+  "materials": [
+    "Cold-press paper texture visible in every wash.",
+    "Wet-into-wet skies and water; dry brush for grass, bark, stone.",
+    "Pencil underdrawing allowed to show; no black ink outlines."
+  ],
+  "colour": {
+    "rules": [
+      "Three to five hues per scene plus a warm near-black for notes.",
+      "Darker means more layers, never a darker pigment on top.",
+      "One accent (a vermilion, a rain blue) for one recurring thing."
+    ],
+    "examplePalette": "paper #f3ead8, sage #8ea860, straw #d9c27a, rain blue #3f7fa8, accent #c8442a"
+  },
+  "type": {
+    "titleFont": "an elegant serif (Cormorant Garamond)",
+    "subtitleFont": "serif italic, warm ink at 80 percent",
+    "placement": "centred bottom on paper, no box; notes in a handwriting face beside the subject",
+    "rules": ["Hold notes long enough to read: letters ÷ 15 + 1.5 s."]
+  },
+  "motion": {
+    "rules": [
+      "Painting-in is the main motion; finished things only sway.",
+      "Mist and washes drift slowly; nothing jitters.",
+      "A page turn or a mist wash is the chapter break."
+    ],
+    "stepping": "ones",
+    "neverMoves": ["the paper grain"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "truck", "note": "long lateral dolly over a continuous painted world", "expresses": "a gradient, a journey", "serves": ["a transect", "a route", "a timeline"] },
+      { "move": "tilt", "expresses": "scale, measurement", "serves": ["a tall tree", "a building", "a depth"] },
+      { "move": "static", "expresses": "study, attention", "serves": ["a specimen plate", "a recipe", "a diagram"] },
+      { "move": "push_in", "expresses": "the observer leaning in", "serves": ["a seed", "an insect", "a hand-written note"] },
+      { "move": "pull_out", "note": "to a painted map or diagram", "expresses": "the whole re-framed", "serves": ["where it all happened", "a system"] }
+    ],
+    "framing": ["Generous paper margins; one hero subject per view with its note.", "Labels never cover the subject."],
+    "transitions": ["cut", "dissolve", "fade_white", "wipe"],
+    "forbiddenTransitions": ["hard video cuts between unrelated pictures", "dissolves between unrelated pictures"],
+    "preferredLinks": ["continuous", "bridge", "jump_cut", "cut"]
+  },
+  "sound": {
+    "instruments": ["felt piano", "fingerpicked guitar", "woodwinds", "glockenspiel", "kalimba", "soft pads"],
+    "foley": ["paper brush rustle for each painting-in", "pencil scratch for notes", "page flips", "nature beds of the subject"],
+    "ambience": "the room where the journal is kept, plus the place being painted",
+    "silence": "the brush lifted: music out, only paper and room; it frames one painted moment",
+    "voice": "warm, unhurried documentary read, one line per idea",
+    "musicDefault": "gentle felt piano and fingerpicked guitar",
+    "bpmRange": [60, 96]
+  },
+  "nativeMoves": [
+    { "name": "Painting-in as reveal", "what": "A new thing appears stroke by stroke as it enters.", "build": "keyframe from a hero frame of the sketch; beats describe washes arriving in order (sky, ground, subject, note).", "fits": ["the stages of a building", "the ingredients of a dish", "the organs of a body"] },
+    { "name": "Palette as data", "what": "Sky, ground and background blend by a measured value.", "build": "continuous chain with camera truck; each shot's beats name the colour shift and the value it stands for.", "fits": ["pollution along a river", "temperature by altitude", "noise across a city"] },
+    { "name": "Mist erase", "what": "The world washes back to paper.", "build": "bridge to an end frame of blank paper; next shot a cut.", "fits": ["forgetting", "a dream ending", "a site demolished"] },
+    { "name": "Specimen and note", "what": "One hero object with a hand-written label.", "build": "static insert shot; the note is added by the local assembler as a caption, not by the model.", "fits": ["a tool kit", "a wine region's grapes", "parts of a bicycle"] }
+  ],
+  "pitfalls": [
+    { "problem": "The model paints opaque, gouache-like colour.", "fix": "Say 'translucent wash, paper showing through' in the beat suffix." },
+    { "problem": "Hand-written text comes out as gibberish.", "fix": "Never ask the model for notes; add them in the assembler as captions." },
+    { "problem": "Motion turns into a slideshow of stills.", "fix": "Give each beat a visible painting-in or a drift; keep camera moves slow but present." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "animated watercolour field journal, lyrical nature documentary",
+      "palette": "translucent washes on warm cotton paper, three to five hues, one small accent",
+      "camera": "slow lateral dollies over a painted world, locked specimen plates",
+      "lens": "normal, deep painted focus",
+      "lighting": "soft daylight read as unpainted paper; no cast shadows harder than a wash"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no black outlines", "no opaque paint", "no photoreal textures"],
+    "cinematography": { "animation": "watercolor", "grade": "pastel", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "slow" },
+    "bySize": { "insert": { "lens": "macro", "dof": "shallow" }, "els": { "lens": "wide" } },
+    "loras": [],
+    "beatSuffix": "Everything is translucent watercolour on textured paper, washes bleeding at the edges."
+  },
+  "variation": {
+    "decides": ["subject", "the gradient or list the film walks", "palette within the rules", "what is measured", "opening", "ending", "camera path"],
+    "structures": ["a journal over one year, one page per month", "anatomy of one object dissected into labelled parts", "a recipe painted top to bottom on one tall sheet"],
+    "openings": ["a finished painting watched being painted backwards", "a close-up of wet pigment spreading", "a hand-written question on blank paper"],
+    "endings": ["the page left unfinished", "a close-up of one detail as the rest fades to paper", "the sheet dries and is filed into a stack"]
+  }
+}

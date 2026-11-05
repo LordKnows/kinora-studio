@@ -101,6 +101,24 @@ Each generate is one object: `{ model, prompt, media, settings }`.
 
 ---
 
+## Director layer (`packages/director`)
+
+A local MCP server that sits beside the Cinema Studio MCP and adds the
+judgement the Studio does not check or render yet: 16 style presets in the
+eleven-section STYLE.md convention compiled into Studio fields, a treatment
+validator, a rhythm lint for shotlists, a cue map that snaps cuts to the beat,
+an extended timeline with J/L cuts, fades, titles, narration and ducking
+assembled locally with ffmpeg, subtitle reading-time rules, and a batch planner
+that orders renders and sums one estimate against the budget cap. Registered in
+`.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
+
+```bash
+pnpm --filter @openhiggsfield/director build
+pnpm --filter @openhiggsfield/director test
+```
+
+---
+
 ## Getting started
 
 ```bash
