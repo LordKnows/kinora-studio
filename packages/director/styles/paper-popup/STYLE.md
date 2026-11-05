@@ -48,6 +48,7 @@
 - The camera is the reader's eye: slow, close, over the gutter.
 - Stepping: on ones.
 - Never moves: the desk, the lamp.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
 
 ## 6. Camera grammar
 

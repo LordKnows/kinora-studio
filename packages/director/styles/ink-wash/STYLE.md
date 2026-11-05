@@ -51,6 +51,7 @@
 - Transitions grow inside the frame (an ink bloom, mist) instead of cutting.
 - Stepping: on ones.
 - Never moves: the paper grain, the seal once stamped.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
 
 ## 6. Camera grammar
 

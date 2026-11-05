@@ -128,6 +128,16 @@ export const StyleSchema = z.object({
     loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).default([]),
     /** Words appended to every beat so the medium reads in the prompt. */
     beatSuffix: z.string().max(200).optional(),
+    /**
+     * Shot-length guide for this style. `action`: shots with characters, dialogue,
+     * more than one beat or a brisk/frantic pace. `hold`: static one-beat holds
+     * (empty frames, mist, a locked page). Loops render one period and repeat.
+     */
+    durations: z.object({
+      action: z.number().int().min(5).max(15).default(5),
+      hold: z.number().int().min(5).max(15).default(10),
+      maxAction: z.number().int().min(5).max(15).default(8),
+    }).default({ action: 5, hold: 10, maxAction: 8 }),
   }),
 
   // §11 variation space

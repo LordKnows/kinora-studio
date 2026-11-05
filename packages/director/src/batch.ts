@@ -19,6 +19,16 @@ export interface BatchShot {
   estimateUsd?: number;
 }
 
+/**
+ * Rough cost when `compile_prompt` has not been called: measured on the
+ * self-hosted H3, a 10 s take cost about 32 GPU-seconds per output second and
+ * a 12 s take about 121, so the per-second price roughly quadruples above 10 s.
+ */
+export function fallbackEstimateUsd(durationS: number, perSecondUsd: number): number {
+  const factor = durationS > 10 ? 4 : 1;
+  return durationS * perSecondUsd * factor;
+}
+
 export interface BatchPlan {
   groups: { baseModel: "ref2va" | "fl2va"; shotIds: string[] }[];
   /** Shots that cannot render in this batch because their anchor has no take yet. */
@@ -29,6 +39,8 @@ export interface BatchPlan {
   remainingCapUsd: number;
   /** Passes needed: each pass renders what is unblocked; linked shots wait for their anchors. */
   passes: string[][];
+  estimates: { shotId: string; usd: number; source: "compile_prompt" | "fallback" }[];
+  warnings: string[];
 }
 
 const FRAME_LINKS = new Set<LinkType>(["continuous", "bridge", "insert_return", "reverse", "jump_cut", "match_cut"]);
@@ -68,7 +80,15 @@ export function planBatch(shots: BatchShot[], budget: { capUsd: number; spentUsd
     const last = groups[groups.length - 1];
     if (last && last.baseModel === bm) last.shotIds.push(id); else groups.push({ baseModel: bm, shotIds: [id] });
   }
-  const total = order.reduce((a, id) => { const s = byIndex.find((x) => x.shotId === id)!; return a + (s.estimateUsd ?? s.durationS * perSec) * takes; }, 0);
+  const estimates = order.map((id) => {
+    const s = byIndex.find((x) => x.shotId === id)!;
+    const usd = (s.estimateUsd ?? fallbackEstimateUsd(s.durationS, perSec)) * takes;
+    return { shotId: id, usd: +usd.toFixed(3), source: s.estimateUsd != null ? "compile_prompt" as const : "fallback" as const };
+  });
+  const total = estimates.reduce((a, e) => a + e.usd, 0);
   const remaining = budget.capUsd - budget.spentUsd;
-  return { groups, deferred, order, totalEstimateUsd: +total.toFixed(3), withinCap: total <= remaining, remainingCapUsd: +remaining.toFixed(3), passes };
+  const fallbacks = estimates.filter((e) => e.source === "fallback").length;
+  const warnings: string[] = [];
+  if (fallbacks) warnings.push(`${fallbacks} shot(s) estimated by the fallback curve; pass estimateUsd from compile_prompt for a real number before confirming`);
+  return { groups, deferred, order, totalEstimateUsd: +total.toFixed(3), withinCap: total <= remaining, remainingCapUsd: +remaining.toFixed(3), passes, estimates, warnings };
 }

@@ -58,8 +58,8 @@ Elements first: every character, location and prop with a concrete description w
 ## 7. Rhythm: the music grid comes first
 
 - Build the cue map (`check_cue_map`): tempo sections, hit points as bar and beat, silences. `cut_on_beats` turns it into clip boundaries.
-- **Vary the pace**: alternate fast and slow, include one clear acceleration or deceleration, give the audience one breath (a shot ≥ 12 s at pace still or slow). `lint_shotlist` warns when every shot has the same pace, length, size or move.
-- **Sequences before shots**: 3–6 sequences with a share of the running time, then 5–15 s shots inside each. Never start from N × 5 s.
+- **Vary the pace**: alternate fast and slow, include one clear acceleration or deceleration, give the audience one breath: a static one-beat hold of 10 s at pace still or slow, or a continuous chain of calm shots adding up to 10 s. `lint_shotlist` warns when every shot has the same pace, length, size or move.
+- **Sequences before shots**: 3–6 sequences with a share of the running time, then shots inside each. Never start from N × 5 s, but do start from 5 s for every shot that carries an action: H3 holds one action well for about 5 s and drifts, repeats or averages the turn in longer generations, and the cost per second roughly quadruples above 10 s. Chain 5 s shots with `continuous` for longer action; reserve 10 s for static one-beat holds (mist, an empty frame, a locked page) and render periodic motion as a `loop` of one period. 15 s is the least stable and most expensive length. `lint_shotlist` warns on long action shots (`duration.complex`); the style's `durations` guide sets the numbers.
 - **Pace for the viewer**: hold every subtitle ≥ 1.8 s and ≥ speech + 0.6 s; a 10 s shot holds about two lines; a title card ≥ 4 s. `check_subtitles` checks this.
 
 ## 8. Camera: every shot needs a reason

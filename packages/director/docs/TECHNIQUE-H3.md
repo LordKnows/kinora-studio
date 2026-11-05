@@ -6,6 +6,7 @@ The implementation half of the guide. Nothing here is a directing rule; it is wh
 
 - 1344×768 at 24 fps is the verified resolution (the turbo LoRAs are 768p models). Other aspect ratios are untested.
 - Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.13 s, 12 s → 12.25 s, 15 s → 15.1 s (`compile_prompt` reports the exact `effectiveSeconds`). Stay on 5–15 s per shot; chain with `continuous` or `bridge` for longer action.
+- Length and quality: one action per 5 s generation is the reliable unit; a two-beat 12 s shot asks one generation to carry a turn, which the model tends to average out. Measured cost: a 10 s take ran about 32 GPU-seconds per output second, a 12 s take about 121, so the per-second price roughly quadruples above 10 s. `plan_batch` uses `compile_prompt` estimates when given and this curve otherwise.
 - One shot is one generation. Beats are time-stamped sub-descriptions inside that single prompt (`0–6s: … 6–12s: …`); a beat with `cut: true` asks the model for a hard cut inside the same clip (at most 3). Separate generations come only from separate shots and their links.
 - Native stereo audio is generated with the picture from the sound fields (`sfx`, `ambience`, `music`).
 

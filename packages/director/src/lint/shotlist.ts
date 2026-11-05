@@ -1,5 +1,5 @@
 import { CORE_CINEMATOGRAPHY_KEYS, baseModelFor } from "../catalog.js";
-import type { Shotlist, Warning } from "../types.js";
+import type { Shot, Shotlist, Warning } from "../types.js";
 import { flatShots } from "../types.js";
 import { readingTimeS } from "../narration/srt.js";
 
@@ -62,6 +62,13 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
       if (shot.link.type === "montage" && shot.durationS > 5) W.push({ code: "montage.long", severity: "info", ...where, message: "montage beats are strongest at the minimum length (5 s)" });
     }
     if (shot.camera.move !== "static" && (c.pace === "still")) W.push({ code: "pace.still", severity: "info", ...where, message: "pace still with a moving camera; consider static" });
+
+    // Length vs. complexity: H3 is most reliable around 5 s; long generations drift and cost more per second.
+    const complex = shot.beats.length > 1 || c.pace === "brisk" || c.pace === "frantic" || (shot.characters?.length ?? 0) > 0 || (shot.dialogue?.length ?? 0) > 0;
+    if (shot.durationS > MAX_ACTION_S && complex && shot.link?.type !== "loop") {
+      W.push({ code: "duration.complex", severity: "warn", ...where, message: `${shot.durationS}s with ${shot.beats.length > 1 ? `${shot.beats.length} beats` : "action, characters or dialogue"}: H3 is most reliable around 5 s; split into 5 s shots chained with continuous, keep ≤ ${MAX_ACTION_S} s, or make it a static one-beat hold` });
+    }
+    if (shot.durationS >= 15 && shot.link?.type !== "loop") W.push({ code: "duration.15", severity: "info", ...where, message: "15 s is the most expensive and least stable length; prefer 10 s or a continuous chain" });
   }
 
   // Film-level rhythm
@@ -72,8 +79,7 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   const moves = new Set(shots.map((s) => s.shot.camera.move));
   if (n >= 6 && moves.size < 4) W.push({ code: "rhythm.moves", severity: "warn", message: `only ${moves.size} camera moves; use at least four different ones` });
   if (n >= 4 && !moves.has("static")) W.push({ code: "rhythm.static", severity: "info", message: "no static shot; a locked frame is the cheapest breath and H3 drifts least on it" });
-  const breath = shots.some((s) => s.shot.durationS >= 12 && (s.shot.cinematography?.pace === "still" || s.shot.cinematography?.pace === "slow"));
-  if (n >= 6 && !breath) W.push({ code: "rhythm.breath", severity: "warn", message: "no long slow shot (≥12 s, pace still/slow): give the audience one breath" });
+  if (n >= 6 && !hasBreath(shots.map((s) => s.shot))) W.push({ code: "rhythm.breath", severity: "warn", message: "no breath: give the audience one held moment, a calm one-beat shot of ≥ 10 s at pace still/slow, or a continuous chain of still/slow shots adding up to ≥ 10 s" });
   const durations = new Set(shots.map((s) => s.shot.durationS));
   if (n >= 6 && durations.size === 1) W.push({ code: "rhythm.durations", severity: "warn", message: `every shot is ${[...durations][0]}s; vary the length, never start from N × 5 s` });
   // Runs of the same link
@@ -95,6 +101,27 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   if (switches > 2) W.push({ code: "render.switches", severity: "info", message: `${switches} base-model switches in shotlist order; plan_batch groups R2VA shots first (~2 min per switch)` });
 
   return opts.errorsAndWarningsOnly ? W.filter((w) => w.severity !== "info") : W;
+}
+
+/** H3 holds one action well up to about this length; longer shots are for static holds and loops. */
+export const MAX_ACTION_S = 8;
+
+function isCalm(sh: Shot): boolean {
+  const p = sh.cinematography?.pace;
+  return p === "still" || p === "slow";
+}
+
+/** A breath: one calm one-beat shot ≥ 10 s, or a continuous chain of calm shots adding up to ≥ 10 s. */
+export function hasBreath(shots: Shot[]): boolean {
+  if (shots.some((sh) => sh.durationS >= 10 && isCalm(sh) && sh.beats.length === 1)) return true;
+  let run = 0;
+  for (let i = 0; i < shots.length; i++) {
+    const sh = shots[i];
+    const continues = i > 0 && sh.link?.type === "continuous" && isCalm(shots[i - 1]) && run > 0;
+    run = isCalm(sh) ? (continues ? run + sh.durationS : sh.durationS) : 0;
+    if (continues && run >= 10) return true;
+  }
+  return false;
 }
 
 function countBaseSwitches(models: string[]): number {

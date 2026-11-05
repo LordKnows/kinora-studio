@@ -95,6 +95,11 @@ export function applyStyle(style: Style, list: Shotlist, opts: ApplyOptions = {}
     if (shot.link && preferredLinks.size && !preferredLinks.has(shot.link.type) && shot.link.type !== "cut") {
       warnings.push({ code: "link.offstyle", severity: "info", scene: scene.slug, shot: index, message: `link "${shot.link.type}" is not among the ${style.slug} preferred links (${[...preferredLinks].join(", ")})` });
     }
+    const d = style.engine.durations;
+    const complex = shot.beats.length > 1 || (shot.characters?.length ?? 0) > 0 || (shot.dialogue?.length ?? 0) > 0 || merged.pace === "brisk" || merged.pace === "frantic";
+    if (complex && shot.durationS > d.maxAction && shot.link?.type !== "loop") {
+      warnings.push({ code: "duration.style", severity: "warn", scene: scene.slug, shot: index, message: `${shot.durationS}s action shot; ${style.slug} wants action shots at ${d.action} s (max ${d.maxAction} s) and holds at ${d.hold} s. Split into ${d.action} s shots chained with continuous.` });
+    }
     if (style.motion.stepping === "twos" && !/stepped|on twos|stop-motion|12 fps/i.test(shot.beats.map((b) => b.action).join(" "))) {
       warnings.push({ code: "motion.stepping", severity: "info", scene: scene.slug, shot: index, message: `${style.slug} steps on twos; say "stepped motion" in a beat so H3 renders it` });
     }

@@ -48,6 +48,7 @@
 - The camera moves slowly on an arc around the table.
 - Stepping: on twos (ask for stepped motion in the beats; the camera stays smooth).
 - Never moves: the table edge, the cardboard sky.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
 
 ## 6. Camera grammar
 

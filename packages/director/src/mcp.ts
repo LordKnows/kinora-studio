@@ -70,7 +70,7 @@ server.registerTool("compile_look", {
 }, async ({ style, ...o }) => {
   const s = findStyle(style);
   if (!s) return text({ error: `no style matches "${style}"` });
-  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions });
+  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations });
 });
 
 const ShotlistSchema = z.object({ scenes: z.array(z.object({ slug: z.string(), summary: z.string().optional(), location: z.string().optional(), shots: z.array(z.any()) })) });
@@ -130,7 +130,7 @@ server.registerTool("synthesize_narration", {
 });
 
 server.registerTool("plan_batch", {
-  description: "Order takes to render: R2VA shots first, then the fl2va family; linked shots after their anchors (passes); one total estimate against the budget cap so a single confirmation covers the batch.",
+  description: "Order takes to render: R2VA shots first, then the fl2va family; linked shots after their anchors (passes); one total estimate against the budget cap so a single confirmation covers the batch. Pass each shot's estimateUsd from compile_prompt; without it the estimate is a rough fallback (cost per second roughly quadruples above 10 s) and the plan says so.",
   inputSchema: {
     shots: z.array(z.object({ shotId: z.string(), index: z.number().int(), durationS: z.number(), mode: z.enum(["text", "keyframe", "reference", "edit"]), link: z.object({ type: z.string(), anchor: z.number().optional(), anchorShotId: z.string().optional() }).optional(), hasTake: z.boolean().optional(), estimateUsd: z.number().optional() })),
     capUsd: z.number(), spentUsd: z.number().default(0), perSecondUsd: z.number().optional(), takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true),

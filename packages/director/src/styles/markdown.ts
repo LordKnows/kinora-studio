@@ -45,6 +45,7 @@ export function styleToMarkdown(s: Style): string {
   for (const r of s.motion.rules) p(`- ${r}`);
   p(`- Stepping: on ${s.motion.stepping}${s.motion.stepping === "twos" ? " (ask for stepped motion in the beats; the camera stays smooth)" : ""}.`);
   if (s.motion.neverMoves?.length) p(`- Never moves: ${s.motion.neverMoves.join(", ")}.`);
+  p(`- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) ${s.engine.durations.action} s, at most ${s.engine.durations.maxAction} s, chained with \`continuous\` for longer action; static one-beat holds ${s.engine.durations.hold} s; periodic motion as a \`loop\` of one period.`);
   p("");
   p("## 6. Camera grammar");
   p("");

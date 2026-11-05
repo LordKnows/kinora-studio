@@ -4,12 +4,12 @@ import { loadStyles, findStyle, suggestStyles } from "../styles/index.js";
 import { styleToMarkdown } from "../styles/markdown.js";
 import { compileLook, applyStyle } from "../compile/look.js";
 import { validateTreatment, treatmentToMarkdown } from "../treatment.js";
-import { lintShotlist } from "../lint/shotlist.js";
+import { lintShotlist, hasBreath } from "../lint/shotlist.js";
 import { beatTime, cutOnBeats, checkCueMap, snapToGrid, type CueMap } from "../sound/cuemap.js";
 import { checkTimeline, toStudioTimeline, totalSeconds, type ExtTimeline } from "../timeline/extended.js";
 import { buildCommand } from "../timeline/assemble.js";
 import { readingTimeS, checkLines, placeLines, toSrt, spellNumbersForSpeech } from "../narration/srt.js";
-import { planBatch } from "../batch.js";
+import { planBatch, fallbackEstimateUsd } from "../batch.js";
 import type { Shotlist } from "../types.js";
 
 test("every library style parses and renders markdown with 11 sections", () => {
@@ -190,4 +190,45 @@ test("batch planning: R2VA first, anchors wait, cap check", () => {
   assert.equal(plan.deferred.length, 0);
   assert.equal(plan.withinCap, false);
   assert.equal(plan.groups[0].baseModel, "ref2va");
+});
+
+test("length rules: long action shots warn, holds and continuous chains count as a breath", () => {
+  const list = sample();
+  const w = lintShotlist(list, { totalSeconds: 60 });
+  // the 12 s two-beat shot in the sample is an action shot
+  assert.ok(w.some((x) => x.code === "duration.complex" && x.shot === 1), JSON.stringify(w));
+  // the 15 s calm one-beat push_in over mist is a breath; shorten it and it is not
+  const shots = list.scenes.flatMap((sc) => sc.shots);
+  assert.equal(hasBreath(shots), true);
+  shots[5].durationS = 8; shots[5].beats = [{ from: 0, to: 8, action: "mist" }];
+  shots[1].beats = [{ from: 0, to: 6, action: "a" }, { from: 6, to: 12, action: "b" }];
+  assert.equal(hasBreath(shots), false);
+  // chain of two calm 5 s continuous shots counts
+  const chain = [
+    { durationS: 5, mode: "text", intent: "a", beats: [{ from: 0, to: 5, action: "mist" }], camera: { move: "pan" }, link: { type: "cut" }, cinematography: { pace: "still" } },
+    { durationS: 5, mode: "keyframe", intent: "b", beats: [{ from: 0, to: 5, action: "mist" }], camera: { move: "pan" }, link: { type: "continuous" }, cinematography: { pace: "slow" } },
+  ] as any;
+  assert.equal(hasBreath(chain), true);
+  chain[0].cinematography.pace = "brisk";
+  assert.equal(hasBreath(chain), false);
+  chain[0].cinematography.pace = "still";
+  chain[1].link = { type: "cut" };
+  assert.equal(hasBreath(chain), false);
+  const s = findStyle("ink-wash")!.style;
+  const { warnings } = applyStyle(s, list);
+  assert.ok(warnings.some((x) => x.code === "duration.style" && x.shot === 1));
+  assert.equal(s.engine.durations.action, 5);
+});
+
+test("batch estimates: compile_prompt values win, fallback curve otherwise", () => {
+  assert.equal(fallbackEstimateUsd(10, 0.01), 0.1);
+  assert.equal(fallbackEstimateUsd(12, 0.01), 0.48);
+  const plan = planBatch([
+    { shotId: "a", index: 0, durationS: 10, mode: "text", link: { type: "cut" }, estimateUsd: 0.105 },
+    { shotId: "b", index: 1, durationS: 12, mode: "text", link: { type: "cut" } },
+  ], { capUsd: 5, spentUsd: 0 }, { perSecondUsd: 0.01 });
+  assert.equal(plan.estimates[0].source, "compile_prompt");
+  assert.equal(plan.estimates[1].source, "fallback");
+  assert.equal(plan.warnings.length, 1);
+  assert.ok(Math.abs(plan.totalEstimateUsd - 0.585) < 1e-9);
 });
