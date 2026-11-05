@@ -70,6 +70,22 @@ importers:
         specifier: ^4.157.0
         version: 4.157.0(@types/node@22.20.1)
 
+  packages/director:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.32.2
+        version: 1.32.2(zod@4.6.7)
+      zod:
+        specifier: ^4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
 packages:
 
   '@ast-grep/napi-darwin-arm64@0.45.3':

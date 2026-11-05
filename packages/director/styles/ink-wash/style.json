@@ -1,0 +1,118 @@
+{
+  "slug": "ink-wash",
+  "en": "Chinese Ink Wash",
+  "cn": "中国水墨",
+  "category": "Hand-drawn & Painting",
+  "category_cn": "手绘与绘画",
+  "line": "Black ink in five tones on warm rice paper, one vermilion seal, most of the frame left empty.",
+  "line_cn": "五色墨在宣纸上生长，唯一的朱红是印章，画面大半留白。",
+  "uses": ["Wuxia and legends", "Cultural brands", "Poetry and tea", "Calligraphy and craft"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "Ink only, from pale cool grey to warm full black, on warm fibrous paper that stays visible everywhere.",
+    "Forms are loaded brushstrokes whose dark edge is the contour; wet washes bleed, dry strokes leave flying white.",
+    "Sixty to eighty percent of every frame is empty paper: water, sky, mist, silence.",
+    "Things are painted into existence rather than cut to; motion is slow, weighted and unhurried.",
+    "One vermilion accent, used like a seal: at most one small object or mark per film."
+  ],
+  "not": [
+    "Not watercolour: no colour washes, no hue beyond ink and the single vermilion.",
+    "Not vector art with a brush texture: no flat fills, no closed outlines.",
+    "Not a calligraphy title sequence: characters stay on the paper, type never carries the story."
+  ],
+  "references": [
+    { "work": "Song-dynasty landscape handscrolls", "learn": "the far-to-near value order and how emptiness reads as water or air", "dontLearn": "any specific composition or inscription" },
+    { "work": "1960s Shanghai ink-animation shorts", "learn": "how a figure moves while staying a brushstroke", "dontLearn": "their characters, melodies or stories" }
+  ],
+  "materials": [
+    "Rice paper ground: warm, fibrous, slightly uneven; it is the white and never pure white.",
+    "Loaded strokes: a dark wet edge, a lighter body, paper showing through at speed.",
+    "Wet-into-wet washes for mist and water; dry brush for rock, bark and hair.",
+    "No photoreal detail: a face is three strokes, a tree is a trunk and five clumps."
+  ],
+  "colour": {
+    "rules": [
+      "Five ink tones carry everything: far is pale and soft, near is dark and textured.",
+      "One vermilion (seal red) for one recurring object or mark; never a red wash, never red light.",
+      "When a frame gets busy, remove ink rather than add tone."
+    ],
+    "examplePalette": "paper #efe6d3, pale ink #b8b2a6, mid ink #6f6a62, full ink #221f1c, vermilion #b02e22"
+  },
+  "type": {
+    "titleFont": "a brush-written display face or Noto Serif SC heavy",
+    "subtitleFont": "Noto Serif SC regular, warm near-black",
+    "placement": "lower third on bare paper, no box; a vertical colophon column is allowed top-right for titles",
+    "rules": ["Subtitles sit on paper, never over ink masses.", "Numbers as digits on screen, spelled out in narration."]
+  },
+  "motion": {
+    "rules": [
+      "Slow, weighted moves; a stroke lands and settles, nothing bounces.",
+      "Mist and water drift continuously; figures move in a few deliberate strokes.",
+      "Transitions grow inside the frame (an ink bloom, mist) instead of cutting."
+    ],
+    "stepping": "ones",
+    "neverMoves": ["the paper grain", "the seal once stamped"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "static", "expresses": "the page is the stage; things are painted in", "serves": ["a thing forming", "a line being read", "a decision held"] },
+      { "move": "pan", "note": "right to left, handscroll speed", "expresses": "time and distance as one painting", "serves": ["a journey", "a history", "a process"] },
+      { "move": "tilt", "note": "hanging-scroll: bottom to top", "expresses": "height, stages stacked", "serves": ["seasons", "a climb", "generations"] },
+      { "move": "tracking", "note": "lateral, lead room, slow far parallax", "expresses": "motion through a world", "serves": ["travel", "a pursuit", "a commute"] },
+      { "move": "push_in", "note": "into an ink bloom or mist", "expresses": "passing between states", "serves": ["memory", "a dream", "a season turning"] },
+      { "move": "pull_out", "note": "until the mark joins the whole", "expresses": "the part was inside something larger", "serves": ["a summing-up", "irony of scale", "an ending"] }
+    ],
+    "framing": [
+      "A tiny figure in a wide field of paper reads as solitude; keep the subject at least a third of frame height for emotion beats.",
+      "Dark foreground masses may pass along the frame bottom; never crowd the top."
+    ],
+    "transitions": ["cut", "dissolve", "fade_white"],
+    "forbiddenTransitions": ["wipes", "whip pans", "flash frames"],
+    "preferredLinks": ["cut", "continuous", "match_cut", "bridge"]
+  },
+  "sound": {
+    "instruments": ["guqin", "xiao (low bamboo flute)", "big drum for mass", "frame drum for steps", "a small gong for a seal"],
+    "foley": ["ink drop (a short tink and a wet thud)", "brush air (breathy, bristle grain)", "steps on water", "paper crackle"],
+    "ambience": "near-silent room, distant water or wind, no city",
+    "silence": "literal: the whole bed out, one sound at most inside it, placed where the story holds its breath",
+    "voice": "calm, few lines, like colophons that do not explain the picture",
+    "musicDefault": "sparse guqin, pentatonic, unmetred plucks",
+    "bpmRange": [48, 72]
+  },
+  "nativeMoves": [
+    { "name": "One stroke is everything", "what": "A single stroke becomes the subject.", "build": "keyframe mode from a hero frame of blank paper; beats: 'one dark stroke is drawn, it becomes…'; camera static.", "fits": ["a product born from one line", "a city from a single street", "a day from one bird"] },
+    { "name": "Ink bloom transition", "what": "The next scene grows inside a spreading drop.", "build": "bridge link: anchor last frame → end frame of the new scene; beats describe the drop spreading and the scene appearing inside it.", "fits": ["memories", "seasons", "one era giving way to the next"] },
+    { "name": "The handscroll", "what": "One long painting panned right to left, seen whole at last.", "build": "continuous chain of 10–15 s shots, camera pan slow, then a pull_out shot.", "fits": ["a history", "a supply chain from field to hand", "a day in a street"] },
+    { "name": "Emptiness is matter", "what": "Removing ink reveals what was there.", "build": "jump_cut from the anchor with beats 'the mist thins and reveals…'.", "fits": ["a door opening in a wall", "a crowd parting", "an absence"] },
+    { "name": "Flying white", "what": "One fast dry stroke across the frame, strongest out of a silence.", "build": "a 5 s montage shot, pace frantic, camera static, preceded by a still shot with no music.", "fits": ["a sprint finish", "a decision", "a comet"] }
+  ],
+  "pitfalls": [
+    { "problem": "The model adds colour to skies and water.", "fix": "Keep 'ink only' in every beat suffix and 'no colour except one vermilion' in negatives." },
+    { "problem": "Faces turn photoreal and lose the brush.", "fix": "Size cu at most, never ecu on a face; describe faces as 'a few strokes'." },
+    { "problem": "Empty paper fills with detail.", "fix": "Say 'most of the frame is bare paper' in the beat; prefer els/ls sizes." },
+    { "problem": "Static shots drift.", "fix": "camera.move static on every held page; H3 is told to lock off." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "Chinese ink-wash animation, sumi-e, contemplative wuxia poem",
+      "palette": "black ink in five tones on warm rice paper, one vermilion seal red, no other colour",
+      "camera": "painted handscroll, slow pans and tilts, locked pages",
+      "lens": "normal, deep focus, painted flatness",
+      "lighting": "no cast light; value carries depth, pale far and dark near"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour except one vermilion", "no photoreal faces", "no outlines"],
+    "cinematography": { "animation": "inkwash", "grade": "mono", "texture": "halftone", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "slow" },
+    "bySize": {
+      "cu": { "lens": "portrait", "dof": "medium" },
+      "els": { "lens": "wide", "pace": "still" }
+    },
+    "loras": [],
+    "beatSuffix": "Everything is brushed ink on rice paper; most of the frame stays empty paper."
+  },
+  "variation": {
+    "decides": ["subject", "structure", "what is painted first", "where the one vermilion goes", "opening", "ending", "camera path", "where the silence falls"],
+    "structures": ["a journal kept over one year, one page per season painted over the last", "anatomy of one object, each part a stroke close-up", "a pursuit across one long scroll that ends where it began"],
+    "openings": ["a finished painting we then watch undone to its first stroke", "a close-up of wet ink spreading, pulled back to show what it became", "a single seal stamped on blank paper"],
+    "endings": ["the page left unfinished, brush lifted", "a pull back until the figure is a dot in mist", "the seal stamped a second time, now with meaning"]
+  }
+}

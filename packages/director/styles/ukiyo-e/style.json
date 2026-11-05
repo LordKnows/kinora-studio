@@ -1,0 +1,104 @@
+{
+  "slug": "ukiyo-e",
+  "en": "Ukiyo-e Woodblock",
+  "cn": "浮世绘",
+  "category": "East Asian Traditions",
+  "category_cn": "东方传统",
+  "line": "A woodblock print in motion: flat colour fields, keyblock lines, Prussian-blue water and a gradient sky.",
+  "line_cn": "会动的浮世绘版画：平涂色块、墨线轮廓、普鲁士蓝的水和渐变的天。",
+  "uses": ["Travel and places", "Japanese culture", "Poetry and seasons", "Craft brands"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "Flat, unmodelled colour fields separated by a thin dark keyblock line.",
+    "Bokashi gradients in the sky and water; registration slightly imperfect at the edges.",
+    "Steep, stacked perspective: near things large and low, far things small and high, no vanishing point.",
+    "Patterns (waves, rain, textile) drawn as repeating marks, not textures.",
+    "Stillness with one moving thing: a wave, a traveller, rain."
+  ],
+  "not": [
+    "Not anime: no cel shading, no large eyes.",
+    "Not a photo with a print filter: no photographic depth of field.",
+    "Not Chinese ink wash: colour is flat and full, not tonal."
+  ],
+  "materials": [
+    "Washi paper ground with mulberry fibre; ink sits in it slightly.",
+    "Keyblock line, uniform width, warm black.",
+    "Colour blocks with bokashi gradients at horizon and water; small registration misfit allowed."
+  ],
+  "colour": {
+    "rules": [
+      "Five to seven flat colours per print; Prussian blue for water and distance.",
+      "The sky is a gradient band, the ground a flat field; mid-tones are rare.",
+      "One accent (a red lantern, an orange gate) placed once."
+    ],
+    "examplePalette": "washi #efe4cf, Prussian blue #1f3f6e, indigo #2c2c4a, vermilion #c5402b, ochre #d1a24a, pine #3f6b4f"
+  },
+  "type": {
+    "titleFont": "a vertical cartouche; Noto Serif JP bold",
+    "subtitleFont": "Noto Serif JP regular, warm black",
+    "placement": "a vertical cartouche top-left or right for titles; subtitles bottom on the paper",
+    "rules": ["Titles may sit inside a rectangular cartouche added by the assembler."]
+  },
+  "motion": {
+    "rules": [
+      "Most of the frame holds still; one element moves in a repeating pattern.",
+      "Motion is stepped and graphic, like a flip of printed sheets.",
+      "Rain and waves loop; people walk in two or three poses."
+    ],
+    "stepping": "twos",
+    "neverMoves": ["the keyblock line weight", "the paper"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "static", "expresses": "the print as object; one thing moves inside it", "serves": ["a wave", "rain on a bridge", "a traveller passing"] },
+      { "move": "pan", "note": "across a series of stations", "expresses": "a road, stage by stage", "serves": ["a pilgrimage", "a route", "a timeline"] },
+      { "move": "tilt", "expresses": "the vertical print, sky to foreground", "serves": ["a mountain", "a waterfall", "a tower"] },
+      { "move": "pull_out", "note": "from a detail to the full sheet", "expresses": "the detail belongs to a whole", "serves": ["a reveal", "an ending", "a map"] },
+      { "move": "truck", "note": "slow, parallax between stacked planes", "expresses": "travel through flat layers", "serves": ["a boat on water", "a procession", "a train"] }
+    ],
+    "framing": ["Stacked planes: foreground large and cropped, middle ground, a far mountain small and high.", "Leave a cartouche-sized rectangle clear for titles."],
+    "transitions": ["cut", "wipe", "fade_white"],
+    "forbiddenTransitions": ["dissolves", "zooms"],
+    "preferredLinks": ["cut", "loop", "jump_cut", "match_cut"]
+  },
+  "sound": {
+    "instruments": ["shamisen", "shakuhachi", "koto", "taiko", "a wooden clapper"],
+    "foley": ["rain on straw hats", "sandals on a wooden bridge", "oars", "wind in pines", "a paper door"],
+    "ambience": "the place of the print: shore, rain, a market, a mountain road",
+    "silence": "the clapper strikes once and everything stops; one held print",
+    "voice": "measured, like a travel diary read aloud",
+    "musicDefault": "shamisen and shakuhachi, sparse, pentatonic",
+    "bpmRange": [60, 90]
+  },
+  "nativeMoves": [
+    { "name": "The loop print", "what": "One thing repeats forever inside a still print: a wave, rain, a flag.", "build": "loop link, FL2VA with the hero frame as first and last frame, repeat on the timeline.", "fits": ["a shore", "a rainy bridge", "a mill wheel"] },
+    { "name": "Stations of a road", "what": "A series of prints, one per place, same sky band.", "build": "montage shots, 5 s each, static camera, consistent grade, cut on the beat.", "fits": ["a pilgrimage", "a delivery route", "a company's cities"] },
+    { "name": "Registration shift", "what": "The colour blocks slide off the keyblock and back.", "build": "assembler effect over a cut, or a beat 'the colours slip a little and settle'.", "fits": ["an earthquake", "a memory", "a mistake corrected"] },
+    { "name": "Cartouche title", "what": "The title appears inside a printed rectangle.", "build": "assembler title with a flat colour box; the model never draws text.", "fits": ["chapter names", "place names", "dates"] }
+  ],
+  "pitfalls": [
+    { "problem": "The model renders depth of field and soft shading.", "fix": "Say 'flat colour fields, no shading, thin dark outline' in the beat suffix; dof deep." },
+    { "problem": "Faces drift to anime.", "fix": "Keep figures small or in profile; describe faces as 'a few printed lines'." },
+    { "problem": "Perspective becomes photographic.", "fix": "Describe stacked planes: 'the far mountain sits high and small'." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "animated ukiyo-e woodblock print, Edo-period travel series",
+      "palette": "flat printed colour fields, Prussian blue water, bokashi gradient sky, one vermilion accent",
+      "camera": "static prints with one moving element, slow pans across stations",
+      "lens": "flat graphic perspective, stacked planes, no vanishing point",
+      "lighting": "no cast light; colour fields carry the hour"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no shading or gradients on figures", "no photographic depth of field"],
+    "cinematography": { "animation": "comic", "grade": "muted", "texture": "halftone", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "still" },
+    "bySize": { "els": { "lens": "wide" }, "insert": { "lens": "macro" } },
+    "loras": [],
+    "beatSuffix": "Everything is a flat woodblock print with thin dark outlines and bokashi gradients on washi paper."
+  },
+  "variation": {
+    "decides": ["the place or road", "the one moving element", "the accent", "structure", "opening", "ending"],
+    "structures": ["stations along one road", "one view in four seasons", "one print whose single moving thing changes meaning three times"],
+    "openings": ["a blank washi sheet, the keyblock printed first", "a wave mid-break", "a cartouche with the title before any picture"],
+    "endings": ["the full sheet pulled out to show the series on a wall", "the moving thing stops", "the print lifted off the block"]
+  }
+}

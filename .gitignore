@@ -17,3 +17,6 @@ tsconfig.tsbuildinfo
 .wrangler
 __pycache__/
 .pytest_cache/
+
+# director package build output
+packages/director/dist

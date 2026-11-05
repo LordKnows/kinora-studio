@@ -1,0 +1,104 @@
+{
+  "slug": "newsreel",
+  "en": "1920s Newsreel",
+  "cn": "1920 年代新闻影片",
+  "category": "Edit & Documentary",
+  "category_cn": "剪辑与纪实",
+  "line": "A cinema newsreel: brisk monochrome actuality, title cards with a date, a brass band and a confident announcer.",
+  "line_cn": "影院新闻片：明快的黑白实况、带日期的字幕卡、铜管乐队和自信的播音员。",
+  "uses": ["History stories", "Fads and eras", "Anniversaries", "Tongue-in-cheek announcements"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "Monochrome actuality footage: crowds, streets, factories, parades, slightly fast.",
+    "Title cards with a dateline and a headline between items; an announcer over the picture.",
+    "Brisk cutting; every item short; a brass march underneath.",
+    "Print damage, flicker, a vignette; the camera mostly locked on a tripod.",
+    "Cheerful, authoritative, a little absurd."
+  ],
+  "not": [
+    "Not a silent comedy: there is a voice and music throughout.",
+    "Not a modern documentary: no interviews, no handheld.",
+    "Not sepia nostalgia: silver greys, high contrast."
+  ],
+  "materials": [
+    "35 mm nitrate look: grain, scratches, flicker, soft halation.",
+    "Period streets, crowds, machines, costume; painted signs allowed but illegible.",
+    "Tripod framing; a few pans."
+  ],
+  "colour": {
+    "rules": [
+      "Monochrome silver, high contrast, slight flicker.",
+      "No tinting; the cards are white on black.",
+      "Values: pale skies, dark crowds, bright faces."
+    ],
+    "examplePalette": "silver #d6d2c6, mid #85817a, black #171614"
+  },
+  "type": {
+    "titleFont": "a condensed Gothic or Art Deco display face, white on black with a border",
+    "subtitleFont": "not used; the announcer carries the words",
+    "placement": "a dateline card before each item; a headline card between items; by the assembler",
+    "rules": ["Cards are 3–4 s; never text over the picture."]
+  },
+  "motion": {
+    "rules": [
+      "Slightly fast (undercranked) action; crowds move briskly.",
+      "Cut every 3–6 s inside an item; items 10–20 s each.",
+      "The music drives the pace; the announcer never pauses."
+    ],
+    "stepping": "ones",
+    "neverMoves": ["the title card"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "static", "note": "tripod wide of the event", "expresses": "the actuality", "serves": ["a parade", "a launch", "a crowd"] },
+      { "move": "pan", "note": "slow, across a crowd or a line of machines", "expresses": "scale, numbers", "serves": ["a factory", "a stadium", "a fleet"] },
+      { "move": "static", "note": "medium of a demonstrator", "expresses": "the thing itself", "serves": ["a gadget", "a dance step", "a stunt"] },
+      { "move": "tilt", "note": "up a new building or machine", "expresses": "progress", "serves": ["a tower", "an airship", "a bridge"] },
+      { "move": "tracking", "note": "from a car or a train", "expresses": "the modern age", "serves": ["a motorcade", "a railway", "a city tour"] }
+    ],
+    "framing": ["Wide and medium tripod shots; people look at the camera sometimes.", "A card before every item."],
+    "transitions": ["cut", "fade_black"],
+    "forbiddenTransitions": ["dissolves", "wipes", "flashes"],
+    "preferredLinks": ["cut", "montage", "jump_cut"]
+  },
+  "sound": {
+    "instruments": ["brass band march", "snare rolls", "a xylophone for comedy items", "a fanfare for the opening"],
+    "foley": ["crowd murmur", "engines", "applause", "a whistle", "all thin and band-limited like optical sound"],
+    "ambience": "optical-track hiss and crackle under everything",
+    "silence": "none inside items; a beat of hiss on the card between items",
+    "voice": "a mid-Atlantic announcer, fast, confident, never pausing; band-limited",
+    "musicDefault": "brass band march, optical-track thin, continuous",
+    "bpmRange": [110, 130]
+  },
+  "nativeMoves": [
+    { "name": "The dateline card", "what": "A card with place and date opens every item.", "build": "assembler title card before the item's first shot; hiss on the card.", "fits": ["a city", "a factory", "a resort"] },
+    { "name": "The demonstration", "what": "A person shows the thing to the camera.", "build": "ms static shot, reference mode for the demonstrator, one action per beat.", "fits": ["a gadget", "a dance craze", "a diet"] },
+    { "name": "The crowd pan", "what": "A slow pan proves the numbers.", "build": "pan move, els, pace brisk, vfx none.", "fits": ["a rally", "a beach", "an opening day"] },
+    { "name": "The stunt", "what": "A brief daring act, cut short.", "build": "a 5 s montage shot, cut on the beat, undercranked.", "fits": ["a wing walker", "a flagpole sitter", "a record attempt"] }
+  ],
+  "pitfalls": [
+    { "problem": "The footage looks modern and clean.", "fix": "texture 8mm or 16mm, grade mono; 'scratched 1920s newsreel print, slightly fast' in the suffix." },
+    { "problem": "Lip-synced speech appears.", "fix": "No dialogue field; the announcer is a narration track added by the assembler." },
+    { "problem": "Legible modern signs appear.", "fix": "Negatives 'no readable text'; describe 'painted period signs'." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "1920s cinema newsreel, monochrome actuality, brisk and upbeat",
+      "palette": "high-contrast silver monochrome, flicker, pale skies, no tint",
+      "camera": "tripod wides and mediums, slow crowd pans, a tracking shot from a car",
+      "lens": "normal, deep focus, period glass",
+      "lighting": "daylight actuality, arc-lamp interiors"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour", "no modern clothes or cars", "no handheld"],
+    "cinematography": { "grade": "mono", "texture": "16mm", "lens": "normal", "dof": "deep", "lighting": ["harshsun"], "pace": "brisk" },
+    "bySize": { "els": { "lens": "wide" } },
+    "loras": [],
+    "beatSuffix": "A flickering 1920s newsreel print, slightly fast crowds, tripod framing."
+  },
+  "variation": {
+    "decides": ["the items and their order", "the announcer's angle", "which item is the stunt", "the opening fanfare", "ending"],
+    "structures": ["three items in rising absurdity", "one event covered from three cities", "a fad's rise and fall in four cards"],
+    "openings": ["the fanfare and the newsreel's own title card", "a crowd pan with the announcer already talking", "a stunt in progress"],
+    "endings": ["the band's last chord on a card", "a demonstrator tipping a hat", "the print burning out"]
+  }
+}

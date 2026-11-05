@@ -174,3 +174,18 @@ The cost model (`RUNPOD_SECONDS_PER_OUTPUT_SECOND`, `RUNPOD_GPU_USD_PER_SECOND`)
 and the prompt rules in `agent/director.md` carry placeholders until the P0
 measurements in the design doc §9 are done on your endpoint. The settings page
 has an eval mode for blind A/B scoring of takes.
+
+## Director layer (`packages/director`)
+
+A local stdio MCP server that sits beside the Studio MCP and adds judgement
+the Studio does not check or render yet: 16 style presets (eleven-section
+`STYLE.md` convention) compiled into Studio fields, a treatment validator, a
+rhythm lint for shotlists, a cue map that snaps cuts to the beat, an extended
+timeline (J/L cuts, fades, titles, narration, ducking) assembled locally with
+ffmpeg, subtitle reading-time rules and a batch planner. Registered in
+`.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
+
+```bash
+pnpm --filter @openhiggsfield/director build
+pnpm --filter @openhiggsfield/director test
+```

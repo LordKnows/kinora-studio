@@ -1,0 +1,104 @@
+{
+  "slug": "paper-popup",
+  "en": "Paper Pop-up Book",
+  "cn": "纸艺立体书",
+  "category": "Materials & 3D",
+  "category_cn": "材质与 3D",
+  "line": "A pop-up book opening page by page: layered card, fold lines, paper cities rising under a lamp.",
+  "line_cn": "一页页打开的立体书：层叠卡纸、折痕、台灯下升起的纸城。",
+  "uses": ["Children's stories", "Brand origin stories", "Game and fantasy trailers", "Places and travel"],
+  "lineage": "Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline.",
+  "essence": [
+    "Everything is cut card: layered flat shapes with visible edges, fold lines and tabs.",
+    "Scenes rise as a page opens and fold flat as it closes.",
+    "A real desk lamp lights the book; paper casts soft shadows on paper.",
+    "Characters are paper puppets on tabs, moving in slides and flips.",
+    "Warm, tactile, handmade."
+  ],
+  "not": [
+    "Not flat 2D: the layers have real depth and shadow.",
+    "Not origami: cut and glued card, not folded sculpture.",
+    "Not CGI paper: edges are fibrous, glue is visible."
+  ],
+  "materials": [
+    "Coloured card with visible fibre at the cut edge; printed textures on the card.",
+    "Fold lines, tabs, a central gutter; a book on a wooden desk.",
+    "Lamp light from one side; soft paper shadows."
+  ],
+  "colour": {
+    "rules": [
+      "Each page has its own card palette of four or five colours.",
+      "The book's ground is cream card; the desk is dark wood.",
+      "One accent character or object in a colour no other card uses."
+    ],
+    "examplePalette": "cream #f1e8d2, forest #3a6b4a, sky #a8cbe5, terracotta #c4663f, night #2c3350"
+  },
+  "type": {
+    "titleFont": "a storybook serif, printed on the page",
+    "subtitleFont": "a serif, cream on dark card",
+    "placement": "titles on the book's cover or a page corner; captions bottom",
+    "rules": ["Words are assembler captions; the page's printed text must be illegible decoration or absent."]
+  },
+  "motion": {
+    "rules": [
+      "Pages open and close at a reader's pace; the scene rises with the page.",
+      "Puppets slide along slots and flip; nothing walks naturally.",
+      "The camera is the reader's eye: slow, close, over the gutter."
+    ],
+    "stepping": "ones",
+    "neverMoves": ["the desk", "the lamp"]
+  },
+  "camera": {
+    "grammar": [
+      { "move": "tilt", "note": "over the gutter as the page opens", "expresses": "a world rising", "serves": ["a new place", "a chapter", "a morning"] },
+      { "move": "push_in", "note": "into one layer of the page", "expresses": "entering the story", "serves": ["a house", "a forest path", "a window"] },
+      { "move": "truck", "note": "along the layers for parallax", "expresses": "depth of the set", "serves": ["a journey", "a parade", "a river"] },
+      { "move": "static", "note": "the page held while puppets move", "expresses": "the scene plays", "serves": ["a meeting", "a gag", "a conversation"] },
+      { "move": "pull_out", "note": "to the whole open book on the desk", "expresses": "it was a book", "serves": ["an ending", "a reveal", "a chapter break"] }
+    ],
+    "framing": ["Low over the page so layers stack; the gutter line visible in wides.", "Puppets at least a third of frame height on emotional beats."],
+    "transitions": ["cut", "fade_black", "wipe"],
+    "forbiddenTransitions": ["dissolves", "flashes"],
+    "preferredLinks": ["continuous", "bridge", "cut", "insert_return"]
+  },
+  "sound": {
+    "instruments": ["music box", "celesta", "nylon guitar", "clarinet", "a soft string quartet"],
+    "foley": ["the page turning", "card popping up", "a puppet sliding in a slot", "paper rustle", "the book closing"],
+    "ambience": "a quiet room at night, a lamp hum, rain outside",
+    "silence": "the page half-open; everything holds; the next fold lands alone",
+    "voice": "a bedtime storyteller, close and warm",
+    "musicDefault": "music box and celesta, gentle, storybook",
+    "bpmRange": [66, 100]
+  },
+  "nativeMoves": [
+    { "name": "The page opens", "what": "A whole scene rises from flat card.", "build": "bridge link: anchor last frame (closed page) → end frame (open scene); tilt move.", "fits": ["a city founded", "a morning", "a new chapter"] },
+    { "name": "Layer parallax", "what": "Card layers slide against each other as the eye moves.", "build": "truck move, moderate amplitude, beats name the layers.", "fits": ["a journey", "a forest", "a harbour"] },
+    { "name": "The flip puppet", "what": "A character flips to show another state.", "build": "jump_cut with 'the paper puppet flips to its other side: now…'.", "fits": ["a mood change", "a disguise", "before and after"] },
+    { "name": "Close the book", "what": "The scene folds flat and the cover closes.", "build": "pull_out to the desk; last shot; assembler fade to black.", "fits": ["endings", "a secret kept", "goodnight"] }
+  ],
+  "pitfalls": [
+    { "problem": "Paper looks like CGI plastic.", "fix": "Say 'cut card with fibrous edges, visible glue tabs, lamp light' in the suffix." },
+    { "problem": "Characters move naturally.", "fix": "Describe 'paper puppets sliding on tabs, flipping'." },
+    { "problem": "The book disappears into a full 3D world.", "fix": "Keep 'the gutter and the desk visible' in wides; return with a pull_out." }
+  ],
+  "engine": {
+    "look": {
+      "genre": "paper pop-up storybook film, handmade, warm bedtime tone",
+      "palette": "coloured card, cream pages, dark wooden desk, one accent puppet colour",
+      "camera": "the reader's eye low over the page, tilts as pages open, slow trucks for parallax",
+      "lens": "macro to normal, shallow focus on card layers",
+      "lighting": "a single warm desk lamp from one side, soft paper shadows"
+    },
+    "negative": ["no on-screen text", "no logos", "no subtitles", "no hands", "no smooth CGI surfaces"],
+    "cinematography": { "animation": "stopmotion", "grade": "pastel", "texture": "digital", "lens": "macro", "dof": "shallow", "lighting": ["practicals", "rim"], "pace": "slow" },
+    "bySize": { "els": { "lens": "normal", "dof": "medium" } },
+    "loras": [],
+    "beatSuffix": "A paper pop-up book of layered cut card under a desk lamp, fold lines and tabs visible."
+  },
+  "variation": {
+    "decides": ["the pages and their order", "the accent puppet", "the card palette per page", "opening", "ending", "where the book closes"],
+    "structures": ["five pages, five places, one traveller", "one page opened three times, each time changed", "a story told from the back of the book forward"],
+    "openings": ["the closed book on the desk, the lamp switched on", "a page already open, the puppet asleep", "a hand-free pull of the first tab"],
+    "endings": ["the book closes", "the last page left open and the lamp off", "the pull-out to a shelf of books"]
+  }
+}
