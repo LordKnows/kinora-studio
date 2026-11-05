@@ -284,8 +284,11 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
   switch (status.state) {
     case "queued":
       return take.status === "queued" ? take : repo.updateTake(take.id, { status: "queued" });
-    case "running":
-      return take.status === "running" ? take : repo.updateTake(take.id, { status: "running" });
+    case "running": {
+      const changed = JSON.stringify(status.progress ?? null) !== JSON.stringify(take.progress ?? null);
+      if (take.status === "running" && !changed) return take;
+      return repo.updateTake(take.id, { status: "running", ...(status.progress ? { progress: status.progress } : {}) });
+    }
     case "completed": {
       const out = status.output;
       const url = str(out.url) ?? str(out.video_url);
@@ -298,7 +301,7 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
       const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
       const lastFrameUrl = str(out.last_frame_url);
       const updated = await repo.updateTake(take.id, {
-        status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null,
+        status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null, progress: null,
         gpuTypeId: pod?.gpuTypeId, gpuCostPerHr: pod?.costPerHr, outputSeconds: num(out.duration_s) ?? num(take.input.seconds),
       });
       if (costUsd) await repo.addSpent(take.projectId, costUsd);

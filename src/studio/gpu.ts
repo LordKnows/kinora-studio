@@ -77,7 +77,7 @@ export function bootstrapCommand(): string[] {
     "for i in 1 2 3 4 5 6; do echo [studio] fetching job server, attempt $i; if curl -fsSL -A Mozilla/5.0 -o /app/bundle.tgz $STUDIO_BUNDLE_URL; then break; fi; sleep 10; done",
     "if ! test -s /app/bundle.tgz; then echo [studio] cannot fetch the job server from $STUDIO_BUNDLE_URL - is /api/pod/ in the Access bypass list and STUDIO_WORKER_TOKEN the same as in the Studio; sleep 600; exit 1; fi",
     "tar xzf /app/bundle.tgz || (echo [studio] bundle is not a tarball; head -c 300 /app/bundle.tgz; sleep 600; exit 1)",
-    "python3 -m pip install -q requests boto3 >/dev/null 2>&1 || true",
+    "python3 -m pip install -q requests boto3 websocket-client >/dev/null 2>&1 || true",
     "(command -v ffmpeg >/dev/null 2>&1 && command -v aria2c >/dev/null 2>&1) || (apt-get update -qq && apt-get install -y -qq ffmpeg aria2 >/dev/null 2>&1) || true",
     "echo [studio] starting ComfyUI and the job server",
     "bash /app/h3-runpod/start.sh",

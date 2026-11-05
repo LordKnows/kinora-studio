@@ -16,6 +16,7 @@ a webhook was given, the job object is POSTed there (3 attempts).
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import queue
@@ -120,14 +121,11 @@ class JobServer:
             self.store.update(job_id, status="IN_PROGRESS", started_at=time.time())
             started = time.monotonic()
             should_cancel = lambda jid=job_id: jid in self.cancelled  # noqa: E731
+            report = lambda p, jid=job_id: self.store.update(jid, progress={**p, "at": time.time()})  # noqa: E731
             runner = self.runners[job["kind"]]
             try:
-                try:
-                    output = runner(job["input"], should_cancel)
-                except TypeError as exc:
-                    if "positional argument" not in str(exc):
-                        raise
-                    output = runner(job["input"])  # a runner that does not poll for cancellation
+                arity = len(inspect.signature(runner).parameters)
+                output = runner(*(job["input"], should_cancel, report)[: max(1, min(3, arity))])
             except Exception as exc:  # noqa: BLE001 — anything else is a FAILED job
                 output = {"error": f"{type(exc).__name__}: {exc}"}
             elapsed = int((time.monotonic() - started) * 1000)
@@ -154,7 +152,7 @@ class JobServer:
     @staticmethod
     def public(job: dict[str, Any]) -> dict[str, Any]:
         out = {"id": job["id"], "status": job["status"]}
-        for key in ("output", "error", "executionTime"):
+        for key in ("output", "error", "executionTime", "progress"):
             if key in job:
                 out[key] = job[key]
         return out
@@ -232,7 +230,7 @@ def main() -> int:
         return 2
     comfy = h3.ComfyClient()
     server = JobServer(
-        run_video=lambda inp, should_cancel=None: h3.handler({"input": inp}, should_cancel),
+        run_video=lambda inp, should_cancel=None, report=None: h3.handler({"input": inp}, should_cancel, report),
         run_assemble=lambda inp, should_cancel=None: asm.handler({"input": inp}),
         token=token,
         health=lambda: h3.health(comfy),

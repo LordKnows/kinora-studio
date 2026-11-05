@@ -1,5 +1,6 @@
 import { requireActor } from "@/auth/access";
 import { errorResponse } from "@/api/http";
+import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 
 /* SSE: a status snapshot of every take and export whenever it changes.
@@ -24,10 +25,16 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           if (closed) return;
           let busy = false;
           try {
-            const [takes, exports] = await Promise.all([repo.listProjectTakes(id), repo.listExports(id)]);
+            let [takes, exports] = await Promise.all([repo.listProjectTakes(id), repo.listExports(id)]);
+            /* Ask the pod about the takes in flight so their progress (stage, step, ETA) rides along. */
+            const inFlight = takes.filter((t) => (t.status === "queued" || t.status === "running") && t.requestId).slice(0, 4);
+            if (inFlight.length) {
+              await Promise.all(inFlight.map((t) => orch.refreshTake(t.id).catch(() => undefined)));
+              takes = await repo.listProjectTakes(id);
+            }
             busy = takes.some((t) => t.status === "queued" || t.status === "running") || exports.some((x) => x.status === "queued" || x.status === "running");
             const snapshot = JSON.stringify({
-              takes: takes.map((t) => ({ id: t.id, shotId: t.shotId, status: t.status, resultUrl: t.resultUrl, thumbUrls: t.thumbUrls, costUsd: t.costUsd })),
+              takes: takes.map((t) => ({ id: t.id, shotId: t.shotId, status: t.status, resultUrl: t.resultUrl, thumbUrls: t.thumbUrls, costUsd: t.costUsd, progress: t.progress })),
               exports: exports.map((x) => ({ id: x.id, status: x.status, resultUrl: x.resultUrl })),
             });
             if (snapshot !== last) {

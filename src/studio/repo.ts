@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeStatus, Timeline,
+  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeProgress, TakeStatus, Timeline,
 } from "./types";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
@@ -475,6 +475,7 @@ function mapTake(r: Row): Take {
     executionMs: opt(r.execution_ms, num), costUsd: opt(r.cost_usd, num), seed: opt(r.seed, num), error: opt(r.error, str),
     gpuTypeId: opt(r.gpu_type_id, str), gpuCostPerHr: opt(r.gpu_cost_per_hr, num), outputSeconds: opt(r.output_seconds, num),
     review: opt(r.review_json, (v) => json<Review | undefined>(v, undefined)),
+    progress: opt(r.progress_json, (v) => json<TakeProgress | undefined>(v, undefined)),
     createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
   };
 }
@@ -521,19 +522,20 @@ export async function findTakeByRequest(requestId: string): Promise<Take | undef
 export async function updateTake(id: string, patch: Partial<{
   requestId: string; status: TakeStatus; resultUrl: string; lastFrameUrl: string; thumbUrls: string[];
   executionMs: number; costUsd: number; error: string | null; review: Review; finishedAt: number; input: Record<string, unknown>;
-  gpuTypeId: string; gpuCostPerHr: number; outputSeconds: number;
+  gpuTypeId: string; gpuCostPerHr: number; outputSeconds: number; progress: TakeProgress | null;
 }>): Promise<Take> {
   const cur = await getTake(id);
   const v = <T>(n: T | undefined, c: T | undefined): T | null => (n === undefined ? (c ?? null) : n);
   await (await db()).run(
-    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ?, gpu_type_id = ?, gpu_cost_per_hr = ?, output_seconds = ? WHERE id = ?`,
+    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ?, gpu_type_id = ?, gpu_cost_per_hr = ?, output_seconds = ?, progress_json = ? WHERE id = ?`,
     [
       v(patch.requestId, cur.requestId), patch.status ?? cur.status, v(patch.resultUrl, cur.resultUrl), v(patch.lastFrameUrl, cur.lastFrameUrl),
       JSON.stringify(patch.thumbUrls ?? cur.thumbUrls), v(patch.executionMs, cur.executionMs), v(patch.costUsd, cur.costUsd),
       patch.error === undefined ? (cur.error ?? null) : patch.error,
       patch.review ? JSON.stringify(patch.review) : (cur.review ? JSON.stringify(cur.review) : null),
       v(patch.finishedAt, cur.finishedAt), JSON.stringify(patch.input ?? cur.input),
-      v(patch.gpuTypeId, cur.gpuTypeId), v(patch.gpuCostPerHr, cur.gpuCostPerHr), v(patch.outputSeconds, cur.outputSeconds), id,
+      v(patch.gpuTypeId, cur.gpuTypeId), v(patch.gpuCostPerHr, cur.gpuCostPerHr), v(patch.outputSeconds, cur.outputSeconds),
+      patch.progress === undefined ? (cur.progress ? JSON.stringify(cur.progress) : null) : patch.progress ? JSON.stringify(patch.progress) : null, id,
     ],
   );
   return getTake(id);

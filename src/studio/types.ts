@@ -85,6 +85,12 @@ export type TakeStatus = "queued" | "running" | "completed" | "failed" | "cancel
 
 export type Review = { score: number; notes: string; by: "human" | "agent"; at: number };
 
+/** What the pod reports while a take renders. */
+export type TakeProgress = {
+  stage: "inputs" | "queued" | "preparing" | "loading" | "sampling" | "decoding" | "finishing" | "uploading" | "error" | "interrupted" | string;
+  step?: number; total?: number; percent?: number; secondsPerStep?: number; etaSeconds?: number; node?: string; at?: number;
+};
+
 export type Take = {
   id: string;
   projectId: string;
@@ -107,6 +113,7 @@ export type Take = {
   outputSeconds?: number;
   error?: string;
   review?: Review;
+  progress?: TakeProgress;
   createdAt: number;
   finishedAt?: number;
 };

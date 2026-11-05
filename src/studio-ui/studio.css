@@ -1257,3 +1257,9 @@
 .ohf .st-roughcut-seg[data-active="true"] {
   background: var(--accent);
 }
+
+/* take progress */
+.st-progress { position: relative; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--fg, #fff) 12%, transparent); overflow: hidden; }
+.st-progress__fill { height: 100%; border-radius: 3px; background: var(--accent, #d1fe17); transition: width 0.6s ease; }
+.st-progress__fill[data-indeterminate="true"] { animation: st-progress-pulse 1.6s ease-in-out infinite; }
+@keyframes st-progress-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }

@@ -1,6 +1,8 @@
+import type { TakeProgress } from "../types";
+
 export type BackendStatus =
   | { state: "queued" }
-  | { state: "running" }
+  | { state: "running"; progress?: TakeProgress }
   | { state: "completed"; output: Record<string, unknown>; executionMs?: number }
   | { state: "failed"; error: string; executionMs?: number }
   | { state: "canceled" }

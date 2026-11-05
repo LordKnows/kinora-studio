@@ -461,6 +461,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             {take.executionMs ? ` · ${Math.round(take.executionMs / 1000)}s` : ""}
           </span>
         </div>
+        {active && <TakeProgressBar take={take} />}
         {take.error && (
           <div className="st-alert">
             <span>{take.error}</span>
@@ -510,6 +511,37 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+const STAGE_LABEL: Record<string, string> = {
+  inputs: "fetching inputs", queued: "queued on ComfyUI", preparing: "preparing", loading: "loading models", sampling: "sampling",
+  decoding: "decoding video", finishing: "finishing", uploading: "uploading to R2", error: "error", interrupted: "interrupted",
+};
+
+function eta(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+}
+
+/* Where a running take is: the pod reports stage and sampling step through
+   /status, the SSE snapshot carries it here. */
+function TakeProgressBar({ take }: { take: Take }) {
+  const p = take.progress;
+  if (take.status === "queued" && !take.requestId) return <p className="st-muted">Waiting for the GPU pod</p>;
+  if (!p) return <p className="st-muted">{take.status === "queued" ? "Queued on the pod" : "Running (no progress reported yet)"}</p>;
+  const percent = p.stage === "sampling" ? (p.percent ?? 0) : p.stage === "decoding" ? 92 : p.stage === "finishing" || p.stage === "uploading" ? 97 : p.stage === "loading" ? 5 : 2;
+  const detail = p.stage === "sampling" && p.total
+    ? `step ${p.step ?? 0}/${p.total}${p.secondsPerStep ? ` · ${p.secondsPerStep} s/step` : ""}${p.etaSeconds !== undefined ? ` · ~${eta(p.etaSeconds)} left` : ""}`
+    : "";
+  return (
+    <div className="st-stack st-stack--tight">
+      <div className="st-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+        <div className="st-progress__fill" style={{ width: `${percent}%` }} data-indeterminate={p.stage !== "sampling" ? "true" : undefined} />
+      </div>
+      <span className="st-muted st-num">{STAGE_LABEL[p.stage] ?? p.stage}{detail ? ` · ${detail}` : ""}</span>
     </div>
   );
 }

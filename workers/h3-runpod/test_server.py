@@ -135,3 +135,27 @@ def test_cancel_running_job_interrupts_comfy_and_ends_cancelled():
         assert wait_done(port, job["id"])["status"] == "CANCELLED"
     finally:
         httpd.shutdown()
+
+
+def test_status_carries_the_runner_progress():
+    def run_video(inp, should_cancel=None, report=None):
+        report({"stage": "sampling", "step": 3, "total": 8, "percent": 38})
+        time.sleep(0.2)
+        return {"url": "https://r2/x.mp4"}
+
+    server = JobServer(run_video, lambda inp: {}, token="t0k", post=lambda *a, **k: None)
+    httpd = server.serve("127.0.0.1", 0)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        _, job = call(port, "POST", "/run", {"input": {"output": {"key": "x.mp4"}}})
+        progress = None
+        for _ in range(50):
+            progress = call(port, "GET", f"/status/{job['id']}")[1].get("progress")
+            if progress:
+                break
+            time.sleep(0.01)
+        assert progress and progress["stage"] == "sampling" and progress["step"] == 3 and "at" in progress
+        assert wait_done(port, job["id"])["status"] == "COMPLETED"
+    finally:
+        httpd.shutdown()

@@ -379,3 +379,23 @@ def test_ensure_loras_resolves_a_repo_link_to_its_weight_file(tmp_path):
     paths = h.ensure_loras([{"file": "jojocodex_camera_motion.safetensors", "strength": 0.6, "hf_url": "https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora"}], lora_dir=tmp_path, session=Session())
     assert paths[0].name == "jojocodex_camera_motion.safetensors" and paths[0].read_bytes() == b"w"
     assert Session.calls[-1] == "https://huggingface.co/Jojocodex/minimax-h3-Camera-Motion-lora/resolve/main/camera_motion_v1_3000_pruned.safetensors"
+
+
+def test_progress_watcher_turns_comfy_messages_into_stages():
+    seen: list[dict] = []
+    w = h.ProgressWatcher("http://127.0.0.1:8188", "cid", {"6": "UNETLoader", "14": "SamplerCustomAdvanced", "10": "VAEDecode"}, seen.append)
+    w.prompt_id = "p1"
+    w.handle({"type": "executing", "data": {"node": "6", "prompt_id": "p1"}})
+    assert seen[-1]["stage"] == "loading"
+    w.handle({"type": "executing", "data": {"node": "14", "prompt_id": "other"}})  # another prompt: ignored
+    assert seen[-1]["stage"] == "loading"
+    w.handle({"type": "progress", "data": {"value": 1, "max": 8, "prompt_id": "p1"}})
+    w._steps[0] = (w._steps[0][0] - 60.0, 1)  # pretend a minute passed
+    w.handle({"type": "progress", "data": {"value": 2, "max": 8, "prompt_id": "p1"}})
+    last = seen[-1]
+    assert last["stage"] == "sampling" and last["step"] == 2 and last["total"] == 8 and last["percent"] == 25
+    assert 55 <= last["secondsPerStep"] <= 65 and 330 <= last["etaSeconds"] <= 390
+    w.handle({"type": "executing", "data": {"node": "10", "prompt_id": "p1"}})
+    assert seen[-1]["stage"] == "decoding"
+    w.handle({"type": "execution_success", "data": {"prompt_id": "p1"}})
+    assert seen[-1]["stage"] == "finishing"

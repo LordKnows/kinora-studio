@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -351,6 +352,93 @@ def ensure_loras(loras: list[dict[str, Any]], lora_dir: Path | None = None, sess
     return paths
 
 
+# ---------- progress ----------
+
+STAGE_BY_CLASS = {
+    "UNETLoader": "loading", "CLIPLoader": "loading", "VAELoader": "loading", "LoraLoaderModelOnly": "loading",
+    "SamplerCustomAdvanced": "sampling", "VAEDecode": "decoding", "VAEDecodeAudio": "decoding", "SaveVideo": "finishing", "CreateVideo": "finishing",
+}
+
+
+class ProgressWatcher:
+    """Follows one prompt on ComfyUI's websocket (the messages go to the
+    client id that queued it) and turns them into a small progress dict:
+    {stage, step, total, percent, secondsPerStep, etaSeconds, node}. Works
+    without a socket too: feed handle(message) in tests. Missing
+    websocket-client means no live progress, not a failed job."""
+
+    def __init__(self, base_url: str, client_id: str, node_classes: dict[str, str], report: Callable[[dict[str, Any]], Any] | None = None) -> None:
+        self.ws_url = base_url.replace("https://", "wss://").replace("http://", "ws://").rstrip("/") + f"/ws?clientId={client_id}"
+        self.node_classes = node_classes
+        self.report = report or (lambda p: None)
+        self.prompt_id: str | None = None
+        self.state: dict[str, Any] = {"stage": "queued"}
+        self._steps: list[tuple[float, int]] = []
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        try:
+            import websocket  # type: ignore  # websocket-client
+        except ImportError:
+            print("[progress] websocket-client is not installed; no live progress", file=sys.stderr)
+            return
+
+        def run() -> None:
+            while not self._stop.is_set():
+                try:
+                    ws = websocket.create_connection(self.ws_url, timeout=5)
+                    while not self._stop.is_set():
+                        try:
+                            raw = ws.recv()
+                        except websocket.WebSocketTimeoutException:
+                            continue
+                        if isinstance(raw, (bytes, bytearray)):
+                            continue  # binary previews
+                        try:
+                            self.handle(json.loads(raw))
+                        except (ValueError, TypeError):
+                            pass
+                    ws.close()
+                except Exception:  # noqa: BLE001 — reconnect until stopped
+                    time.sleep(1)
+
+        self._thread = threading.Thread(target=run, name="progress", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def _emit(self, **fields: Any) -> None:
+        self.state = {**self.state, **fields}
+        self.report(dict(self.state))
+
+    def handle(self, msg: dict[str, Any]) -> None:
+        kind, data = msg.get("type"), msg.get("data") or {}
+        if self.prompt_id and data.get("prompt_id") and data["prompt_id"] != self.prompt_id:
+            return
+        if kind == "executing":
+            node = data.get("node")
+            if node is None:
+                return
+            stage = STAGE_BY_CLASS.get(self.node_classes.get(str(node), ""), "preparing")
+            if stage != self.state.get("stage"):
+                self._emit(stage=stage, node=str(node))
+        elif kind == "progress":
+            value, total = int(data.get("value", 0)), int(data.get("max", 0)) or None
+            now = time.monotonic()
+            self._steps.append((now, value))
+            self._steps = self._steps[-8:]
+            per_step = None
+            if len(self._steps) >= 2 and self._steps[-1][1] > self._steps[0][1]:
+                per_step = (self._steps[-1][0] - self._steps[0][0]) / (self._steps[-1][1] - self._steps[0][1])
+            eta = round(per_step * (total - value)) if per_step and total else None
+            self._emit(stage="sampling", step=value, total=total, percent=round(100 * value / total) if total else None,
+                       secondsPerStep=round(per_step, 1) if per_step else None, etaSeconds=eta)
+        elif kind in ("execution_success", "execution_error", "execution_interrupted"):
+            self._emit(stage="finishing" if kind == "execution_success" else kind.replace("execution_", ""))
+
+
 # ---------- ComfyUI ----------
 
 
@@ -372,8 +460,8 @@ class ComfyClient:
         res.raise_for_status()
         return res.json().get("name", path.name)
 
-    def queue(self, graph: dict[str, Any]) -> str:
-        res = self.http.post(f"{self.base}/prompt", json={"prompt": graph, "client_id": uuid.uuid4().hex}, timeout=60)
+    def queue(self, graph: dict[str, Any], client_id: str | None = None) -> str:
+        res = self.http.post(f"{self.base}/prompt", json={"prompt": graph, "client_id": client_id or uuid.uuid4().hex}, timeout=60)
         if not res.ok:
             raise JobError(f"ComfyUI rejected the graph ({res.status_code}): {res.text[:500]}")
         prompt_id = res.json().get("prompt_id")
@@ -496,9 +584,11 @@ class R2Uploader:
 # ---------- job ----------
 
 
-def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None, should_cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
+def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None, should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
     started = time.monotonic()
     cancelled = should_cancel or (lambda: False)
+    report = report or (lambda p: None)
+    report({"stage": "inputs"})
     mapping = mapping or load_mapping()
     entry = mapping.get(params["workflow"])
     if not entry:
@@ -524,8 +614,17 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     if cancelled():
         raise JobError("cancelled")
     filled = fill_graph(graph, entry, {**params, "files": files})
-    prompt_id = comfy.queue(filled)
-    history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 1800)), should_cancel=cancelled)
+    client_id = uuid.uuid4().hex
+    watcher = ProgressWatcher(comfy.base, client_id, {nid: n.get("class_type", "") for nid, n in filled.items()}, report)
+    watcher.start()
+    try:
+        prompt_id = comfy.queue(filled, client_id)
+        watcher.prompt_id = prompt_id
+        report({"stage": "queued"})
+        history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 1800)), should_cancel=cancelled)
+    finally:
+        watcher.stop()
+    report({"stage": "uploading"})
     out_dir = workdir / "out"
     out_dir.mkdir(exist_ok=True)
     video = comfy.fetch_output(history, entry.get("output_node", ""), out_dir)
@@ -571,7 +670,7 @@ def health(comfy: ComfyClient) -> dict[str, Any]:
     return {"ok": True, "comfy": comfy.health(), "models": models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
-def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None) -> dict[str, Any]:
+def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
     """RunPod entry point. Returning {"error": ...} marks the job FAILED."""
     raw = event.get("input") or {}
     comfy = ComfyClient()
@@ -580,7 +679,7 @@ def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = No
     try:
         params = validate_input(raw)
         with tempfile.TemporaryDirectory(prefix="h3-") as tmp:
-            return run_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel)
+            return run_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
     except JobError as exc:
         return {"error": str(exc)}
     except Exception as exc:  # noqa: BLE001 — surface everything to the Studio

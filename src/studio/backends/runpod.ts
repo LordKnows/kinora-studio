@@ -1,6 +1,7 @@
 import { hmacHex, hmacVerify } from "@/auth/hmac";
 
 import { StudioError } from "../errors";
+import type { TakeProgress } from "../types";
 import type { BackendStatus, GenerationBackend } from "./types";
 
 /* RunPod Serverless: POST /run, GET /status/{id}, POST /cancel/{id},
@@ -16,6 +17,7 @@ type RunPodJob = {
   error?: unknown;
   executionTime?: number;
   delayTime?: number;
+  progress?: Record<string, unknown>;
 };
 
 export class RunPodBackend implements GenerationBackend {
@@ -73,7 +75,7 @@ export function mapRunPodStatus(job: RunPodJob): BackendStatus {
     case "IN_QUEUE":
       return { state: "queued" };
     case "IN_PROGRESS":
-      return { state: "running" };
+      return { state: "running", ...(job.progress && typeof job.progress.stage === "string" ? { progress: job.progress as TakeProgress } : {}) };
     case "COMPLETED":
       return { state: "completed", output: asRecord(job.output), executionMs: job.executionTime };
     case "FAILED":
