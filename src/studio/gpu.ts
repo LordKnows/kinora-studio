@@ -466,3 +466,28 @@ export function estimatedPodUsdPerHour(pod?: repo.GpuPod): number {
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
+
+/* VRAM of the GPU types the studio may run on, for choices that depend on it
+   (which H3 decoder a 2K pass can afford). Unknown types count as small. */
+const VRAM_GB: Array<[RegExp, number]> = [
+  [/H200/, 141], [/B200|B300/, 180], [/H100/, 80], [/A100.*80GB|A100-SXM4-80GB/, 80], [/A100-SXM4-40GB/, 40], [/RTX PRO 6000/, 96], [/RTX PRO 5000/, 72], [/RTX PRO 4500/, 32], [/RTX PRO 4000/, 24],
+  [/RTX 6000 Ada|A6000|L40/, 48], [/RTX 5000 Ada|A5000/, 24], [/RTX 5090/, 32], [/RTX 5080/, 16], [/RTX 4090|RTX 3090/, 24], [/MI300X/, 192],
+];
+
+export function gpuVramGb(gpuTypeId: string | undefined): number | undefined {
+  if (!gpuTypeId) return undefined;
+  for (const [re, gb] of VRAM_GB) if (re.test(gpuTypeId)) return gb;
+  return undefined;
+}
+
+/** The decoder for an Open-H3-Regenerate pass on the current pod: the
+    pack's fast decoder needs ~21 GB free beside the loaded models (45 GB
+    for 15 s clips), so only cards of 72 GB and up get it; REGEN_DECODER
+    forces either. */
+export async function regenDecoder(): Promise<"fast" | "core"> {
+  const forced = process.env.REGEN_DECODER;
+  if (forced === "fast" || forced === "core") return forced;
+  const pod = await repo.currentGpuPod();
+  const gb = gpuVramGb(pod?.gpuTypeId ?? pod?.gpuName);
+  return gb !== undefined && gb >= 72 ? "fast" : "core";
+}

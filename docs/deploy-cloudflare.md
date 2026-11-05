@@ -324,6 +324,12 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
 - 2K 文件存在 take 旁（`upscale_json`），Board 可切换 768p / 2K 播放；`export_project` 的 `master-upscaled`
   预设用 2K 文件，缺 2K 的片段回退 768p 并在返回里列出。
 - 显存：LoRA 本身 12.4 GB（节点内转 bf16 后 6.2 GB）加底模 21 GB，5090 32 GB 要靠卸载到内存，PRO 6000 宽裕。
+- 解码器：节点包自带的快速解码器 2K/5 秒要 21 GB 空闲显存，不够时它会退回到 ComfyUI 核心 VAE，而在
+  我们镜像的 ComfyUI 0.30 上这条退路把音视频合一的 latent 直接塞给 VAE 会报
+  `to() received an invalid combination of arguments - got (NestedTensor)`。所以 Studio 按 Pod 显存选解码器：
+  ≥72 GB 用快速解码器（不接退路），其他用我们自带的 `StudioH3VideoLatent` 节点取出视频半边再走核心 VAE
+  （显存不够自动分块）。`REGEN_DECODER=fast|core` 可强制。refine 之后解码失败时，作业服务会用节点包
+  在 `output/open_h3_latents/` 保存的 latent 只跑解码，不重做 refine。
 - 节点包在 ComfyUI 0.42 测试，我们的镜像是 0.30，第一次跑若节点导入失败，容器日志里会有
   `ComfyUI-Open-H3-Regenerate` 的 import error，把它贴出来。
 

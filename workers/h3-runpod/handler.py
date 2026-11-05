@@ -409,10 +409,13 @@ def validate_regen_input(raw: dict[str, Any]) -> dict[str, Any]:
     key = output.get("key") if isinstance(output, dict) else None
     if not isinstance(key, str) or not key.endswith(".mp4"):
         raise JobError("output.key must be an R2 key ending in .mp4")
+    decoder = str(raw.get("decoder", "core")).lower()
+    if decoder not in ("fast", "core"):
+        raise JobError("decoder must be 'fast' (StreamRender-H3, big GPUs) or 'core' (ComfyUI VAE, tiled)")
     return {
         "workflow": REGEN_WORKFLOW, "video": video, "prompt": prompt, "resolution": resolution, "start_sigma": float(start_sigma), "steps": steps,
         "seconds": float(seconds), "seed": seed, "sparse": bool(raw.get("sparse", False)), "input_size": str(raw.get("input_size", "768p")),
-        "output_key": key, "studio_take_id": raw.get("studio_take_id"),
+        "decoder": decoder, "output_key": key, "studio_take_id": raw.get("studio_take_id"),
     }
 
 
@@ -452,6 +455,13 @@ def fill_regen_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dic
     put(mapping["seed"], params["seed"])
     put(mapping["max_frames"], 0)  # all frames of the draft (the refine takes 5–15 s in one pass)
     put(mapping["input_size"], "576p (1024x576)" if params.get("input_size") == "576p" else "768p (1344x768)")
+    dec = mapping.get("decoder")
+    if dec:
+        use = params.get("decoder", "core")
+        keep, drop = (dec["fast"], [dec["core"], dec["split"]]) if use == "fast" else (dec["core"], [dec["fast"]])
+        graph[str(dec["finish"][0])]["inputs"][dec["finish"][1]] = [str(keep), 0]
+        for nid in drop:
+            graph.pop(str(nid), None)
     sparse = mapping.get("sparse_attention")
     if params.get("sparse") and sparse and node_classes and sparse["class"] in node_classes:
         # Insert the sparse-attention patch between the LoRA'd model and the guider;
@@ -503,19 +513,69 @@ def run_regen_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, wor
     client_id = uuid.uuid4().hex
     watcher = ProgressWatcher(comfy.base, client_id, {nid: n.get("class_type", "") for nid, n in filled.items()}, report)
     watcher.start()
+    job_started = time.time()
     try:
         prompt_id = comfy.queue(filled, client_id)
         watcher.prompt_id = prompt_id
         report({"stage": "queued"})
-        history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 2400)), should_cancel=cancelled)
+        try:
+            history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 2400)), should_cancel=cancelled)
+        except JobError as exc:
+            # The refine is the expensive part and the pack saves its latent
+            # before decoding: if that file exists, decode it (core path)
+            # rather than paying for the refine again.
+            saved = newest_saved_latent(job_started)
+            if "cancelled" in str(exc) or saved is None:
+                raise
+            print(f"[regen] prompt failed after the refine ({str(exc)[:160]}); decoding saved latent {saved}", file=sys.stderr, flush=True)
+            report({"stage": "decoding", "note": "rescue: decoding the saved latent"})
+            rescue = rescue_graph(graph, entry, saved)
+            prompt_id = comfy.queue(rescue, client_id)
+            watcher.prompt_id = prompt_id
+            history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 2400)), should_cancel=cancelled)
     finally:
         watcher.stop()
     report({"stage": "uploading"})
     out_dir = workdir / "out"
     out_dir.mkdir(exist_ok=True)
     video = comfy.fetch_output(history, entry.get("output_node", ""), out_dir)
+    return finish_regen(video, out_dir, params, started)
+
+
+def newest_saved_latent(since: float) -> str | None:
+    """Name of a refined latent the pack saved after `since`, if any."""
+    out_dir = Path(os.environ.get("COMFY_OUTPUT_DIR", str(Path(REGEN_NODE_DIR).parent.parent / "output")))
+    folder = out_dir / "open_h3_latents"
+    if not folder.is_dir():
+        return None
+    files = [p for p in folder.glob("*.safetensors") if p.stat().st_mtime >= since - 1]
+    if not files:
+        return None
+    return max(files, key=lambda p: p.stat().st_mtime).name
+
+
+def rescue_graph(graph: dict[str, Any], mapping: dict[str, Any], latent_file: str) -> dict[str, Any]:
+    """Decode-only graph: saved latent → video half → ComfyUI VAE → finish → video."""
+    dec = mapping["decoder"]
+    g = json.loads(json.dumps(graph))
+    g["40"] = {"class_type": "OpenH3LoadRefinedLatent", "inputs": {"latent_file": latent_file}, "_meta": {"title": "Load the refined latent"}}
+    g[str(dec["split"])] = {"class_type": "StudioH3VideoLatent", "inputs": {"samples": ["40", 0]}}
+    g[str(dec["core"])] = {"class_type": "VAEDecode", "inputs": {"samples": [str(dec["split"]), 0], "vae": ["7", 0]}}
+    finish = g[str(dec["finish"][0])]
+    finish["inputs"][dec["finish"][1]] = [str(dec["core"]), 0]
+    finish["inputs"]["frame_count"] = ["40", 1]
+    finish["inputs"]["audio"] = ["40", 2]
+    keep = {"7", "40", str(dec["split"]), str(dec["core"]), str(dec["finish"][0]), "27", "28"}
+    for nid in list(g):
+        if nid not in keep:
+            del g[nid]
+    return g
+
+
+def finish_regen(video: Path, out_dir: Path, params: dict[str, Any], started: float) -> dict[str, Any]:
     last, thumbs = extract_frames(video, out_dir)
     keys = derive_keys(params["output_key"])
+    uploader = R2Uploader()
     url = uploader.upload(video, keys["video"], "video/mp4")
     thumb_urls = [uploader.upload(t, k, "image/jpeg") for t, k in zip(thumbs, keys["thumbs"])]
     last_url = uploader.upload(last, keys["last_frame"], "image/png")

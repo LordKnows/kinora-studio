@@ -258,11 +258,7 @@
         0
       ],
       "vae_name": "fast_h3_vae_noncausal_24l.safetensors",
-      "keep_loaded": false,
-      "vae": [
-        "7",
-        0
-      ]
+      "keep_loaded": false
     },
     "_meta": {
       "title": "Decode \u2014 fast H3 VAE (StreamRender-H3)"
@@ -320,6 +316,34 @@
     },
     "_meta": {
       "title": "Save regenerated video"
+    }
+  },
+  "30": {
+    "class_type": "StudioH3VideoLatent",
+    "inputs": {
+      "samples": [
+        "24",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Cinema Studio \u00b7 video half of the AV latent"
+    }
+  },
+  "31": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "30",
+        0
+      ],
+      "vae": [
+        "7",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode \u2014 ComfyUI VAE (tiled on OOM)"
     }
   }
 }

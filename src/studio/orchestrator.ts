@@ -380,7 +380,7 @@ export async function submitUpscale(take: Take): Promise<Take> {
   const rp = config.runpod();
   try {
     const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, `regen:${take.id}`);
-    const { requestId } = await backend.submit(upscaleInput(take), { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+    const { requestId } = await backend.submit({ ...upscaleInput(take), decoder: await gpu.regenDecoder() }, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
     return await repo.updateTake(take.id, { upscale: { ...up, requestId, status: "queued", error: undefined } });
   } catch (caught) {
     const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);

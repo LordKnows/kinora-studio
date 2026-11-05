@@ -481,3 +481,28 @@ def test_regen_input_and_graph(tmp_path):
     assert sparse["22"]["inputs"]["model"] == ["4", 0]
     status = h.regen_status(tmp_path)
     assert status["ready"] is False and len(status["missing"]) == 4
+    # decoder choice: core (default) drops the fast decoder, fast drops the core pair
+    core = h.fill_regen_graph(graph, mapping, {**params, "files": {"video": "draft.mp4"}}, set())
+    assert core["26"]["inputs"]["images"] == ["31", 0] and "25" not in core and core["30"]["inputs"]["samples"] == ["24", 0]
+    fast = h.fill_regen_graph(graph, mapping, {**h.validate_input({**{"workflow": "REGEN", "video": "https://x/y.mp4", "prompt": "p", "output": {"key": "a.mp4"}}, "decoder": "fast"}), "files": {"video": "d.mp4"}}, set())
+    assert fast["26"]["inputs"]["images"] == ["25", 0] and "31" not in fast and "30" not in fast and "vae" not in fast["25"]["inputs"]
+    # rescue: decode-only graph from the saved latent
+    rescue = h.rescue_graph(graph, mapping, "open_h3_regen_00001.safetensors")
+    assert rescue["40"]["inputs"]["latent_file"] == "open_h3_regen_00001.safetensors"
+    assert rescue["26"]["inputs"] == {"images": ["31", 0], "frame_count": ["40", 1], "crop": "auto (1088 -> 1080, 2176 -> 2160)", "audio": ["40", 2]}
+    assert set(rescue) == {"7", "40", "30", "31", "26", "27", "28"}
+
+
+def test_studio_video_latent_node_keeps_the_video_half():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("studio_nodes", HERE / "studio_nodes" / "__init__.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    class Nested:
+        tensors = ["video", "audio"]
+
+    node = mod.StudioH3VideoLatent()
+    assert node.split({"samples": Nested()})[0]["samples"] == "video"
+    assert node.split({"samples": "plain"})[0]["samples"] == "plain"
+    assert "StudioH3VideoLatent" in mod.NODE_CLASS_MAPPINGS

@@ -14,6 +14,7 @@ for (const f of ["handler.py", "server.py", "start.sh", "requirements.txt", "mod
   cpSync(join(root, "workers/h3-runpod", f), join(stage, "h3-runpod", f));
 }
 cpSync(join(root, "workers/h3-runpod/workflows"), join(stage, "h3-runpod/workflows"), { recursive: true });
+cpSync(join(root, "workers/h3-runpod/studio_nodes"), join(stage, "h3-runpod/studio_nodes"), { recursive: true });
 cpSync(join(root, "workers/assembler/handler.py"), join(stage, "h3-runpod/assembler_handler.py"));
 const out = join(stage, "bundle.tgz");
 execFileSync("tar", ["-czf", out, "-C", stage, "h3-runpod"]);

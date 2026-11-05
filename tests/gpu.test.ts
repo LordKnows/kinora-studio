@@ -364,6 +364,10 @@ describe("gpu stats and loras", () => {
     expect(input.video).toBe("https://r2/x.mp4");
     expect(input.resolution).toBe("2k");
     expect(input.start_sigma).toBe(0.8);
+    expect(input.decoder).toBe("fast"); // the test pod is an H100 80 GB
+    expect(gpu.gpuVramGb("NVIDIA GeForce RTX 5090")).toBe(32);
+    expect(gpu.gpuVramGb("NVIDIA RTX PRO 6000 Blackwell Workstation Edition")).toBe(96);
+    expect(gpu.gpuVramGb("something new")).toBeUndefined();
     expect(String((run.body as { webhook: string }).webhook)).toContain("id=regen%3A");
     await expect(orch.regenerateTake(take.id, { resolution: "2k", startSigma: 0, confirm: true }, web)).rejects.toMatchObject({ code: "validation" });
     /* progress while running, then the 2K file lands beside the 768p one and is billed */

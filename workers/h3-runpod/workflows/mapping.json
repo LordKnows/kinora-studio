@@ -231,7 +231,7 @@
   },
   "REGEN": {
     "template": "REGEN",
-    "_comment": "Open-H3-Regenerate-2K (NVIDIA, via rdh9616/ComfyUI-Open-H3-Regenerate): a finished 768p take is re-generated at 1080p/2K/4K in 3 steps. Inputs are the draft video and the take's own prompt. sparse_attention is inserted between the LoRA and the guider when the pod has ComfyUI's BlockSparseAttention node and the job asks for it (ComfyUI issue 16382 reports artifacts with LoRAs, so it is off by default).",
+    "_comment": "Open-H3-Regenerate-2K (NVIDIA, via rdh9616/ComfyUI-Open-H3-Regenerate): a finished 768p take is re-generated at 1080p/2K/4K in 3 steps. Inputs are the draft video and the take's own prompt. sparse_attention is inserted between the LoRA and the guider when the pod has ComfyUI's BlockSparseAttention node and the job asks for it (ComfyUI issue 16382 reports artifacts with LoRAs, so it is off by default). decoder: 'fast' keeps the pack's StreamRender-H3 decoder (node 25, needs ~21 GB free at 2K/5 s, 45 GB at 15 s), 'core' decodes the video half through ComfyUI's own VAE (nodes 30+31, tiled when memory is short); the other path is removed from the graph. If the prompt fails after the refined latent was saved, the handler decodes that latent with the core path instead of re-running the refine.",
     "prompt": [
       "16",
       "text"
@@ -284,6 +284,15 @@
       ]
     },
     "output_node": "28",
-    "timeout_s": 2400
+    "timeout_s": 2400,
+    "decoder": {
+      "fast": "25",
+      "core": "31",
+      "finish": [
+        "26",
+        "images"
+      ],
+      "split": "30"
+    }
   }
 }

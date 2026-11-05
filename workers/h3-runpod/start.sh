@@ -192,6 +192,9 @@ if [ "${REGEN_2K:-1}" = "1" ]; then
     fi
   done
   export REGEN_NODE_DIR="$NODES_DIR/ComfyUI-Open-H3-Regenerate"
+  # Our own helper nodes (ship with the job server).
+  mkdir -p "$NODES_DIR/studio_nodes" && cp /app/h3-runpod/studio_nodes/__init__.py "$NODES_DIR/studio_nodes/__init__.py"
+  export COMFY_OUTPUT_DIR="$SLIM_DIR/output"
 fi
 
 echo "[start] ComfyUI: $COMFY_CMD"
