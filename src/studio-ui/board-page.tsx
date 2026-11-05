@@ -527,9 +527,30 @@ function eta(seconds: number): string {
 }
 
 /* Where a running take is: the pod reports stage and sampling step through
-   /status, the SSE snapshot carries it here. */
-function TakeProgressBar({ take }: { take: Take }) {
+   /status. The SSE snapshot carries it, and while the take is active the row
+   also asks /api/takes/:id itself every few seconds (that call refreshes the
+   take from the pod), so the bar does not depend on the event stream. */
+function TakeProgressBar({ take: fromView }: { take: Take }) {
+  const [live, setLive] = useState<Take>(fromView);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => setLive(fromView), [fromView]);
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const { take } = await get<{ take: Take }>(`/api/takes/${fromView.id}`);
+        if (!stopped) setLive(take);
+      } catch {
+        /* keep the last known state */
+      }
+      if (!stopped) setNow(Date.now());
+    };
+    const timer = window.setInterval(() => void tick(), 4000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [fromView.id]);
+  const take = live;
   const p = take.progress;
+  const ageS = p?.at ? Math.max(0, Math.round(now / 1000 - p.at)) : undefined;
   if (take.status === "queued" && !take.requestId) return <p className="st-muted">Waiting for the GPU pod</p>;
   if (!p) return <p className="st-muted">{take.status === "queued" ? "Queued on the pod" : "Running (no progress reported yet)"}</p>;
   const percent = p.stage === "sampling" ? (p.percent ?? 0) : p.stage === "decoding" ? 92 : p.stage === "finishing" || p.stage === "uploading" ? 97 : p.stage === "loading" ? 5 : 2;
@@ -541,7 +562,7 @@ function TakeProgressBar({ take }: { take: Take }) {
       <div className="st-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
         <div className="st-progress__fill" style={{ width: `${percent}%` }} data-indeterminate={p.stage !== "sampling" ? "true" : undefined} />
       </div>
-      <span className="st-muted st-num">{STAGE_LABEL[p.stage] ?? p.stage}{detail ? ` · ${detail}` : ""}</span>
+      <span className="st-muted st-num">{STAGE_LABEL[p.stage] ?? p.stage}{detail ? ` · ${detail}` : ""}{ageS !== undefined && ageS > 20 ? ` · updated ${ageS} s ago` : ""}</span>
     </div>
   );
 }

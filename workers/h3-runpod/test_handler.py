@@ -446,3 +446,12 @@ def test_fill_graph_drops_unused_reference_slots():
     # two references: both slots used, nothing dropped
     two = h.fill_graph(h.load_workflow("R2VA"), mapping, {**params, "files": {"reference": ["a.png", "b.png"]}})
     assert two["202"]["inputs"]["image"] == "b.png" and two["104"]["inputs"]["ref_images.ref_image_1"] == ["202", 0]
+
+
+def test_progress_watcher_reads_progress_state_messages():
+    seen: list[dict] = []
+    w = h.ProgressWatcher("http://127.0.0.1:8188", "cid", {"14": "SamplerCustomAdvanced"}, seen.append)
+    w.handle({"type": "progress_state", "data": {"prompt_id": "p", "nodes": {"14": {"state": "running", "value": 5, "max": 8}}}})
+    assert seen[-1]["stage"] == "sampling" and seen[-1]["step"] == 5 and seen[-1]["percent"] == 62
+    w.handle({"type": "progress_state", "data": {"prompt_id": "p", "nodes": {"14": {"state": "running", "value": 5, "max": 8}}}})
+    assert len(seen) == 1  # the same step again is not re-reported

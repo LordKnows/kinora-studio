@@ -429,7 +429,22 @@ class ProgressWatcher:
 
     def _emit(self, **fields: Any) -> None:
         self.state = {**self.state, **fields}
+        st = self.state
+        print(f"[progress] {st.get('stage')}" + (f" {st.get('step')}/{st.get('total')} eta={st.get('etaSeconds')}s" if st.get("stage") == "sampling" else ""), file=sys.stderr, flush=True)
         self.report(dict(self.state))
+
+    def _progress(self, value: int, total: int | None) -> None:
+        now = time.monotonic()
+        if self._steps and self._steps[-1][1] == value:
+            return
+        self._steps.append((now, value))
+        self._steps = self._steps[-8:]
+        per_step = None
+        if len(self._steps) >= 2 and self._steps[-1][1] > self._steps[0][1]:
+            per_step = (self._steps[-1][0] - self._steps[0][0]) / (self._steps[-1][1] - self._steps[0][1])
+        eta = round(per_step * (total - value)) if per_step and total else None
+        self._emit(stage="sampling", step=value, total=total, percent=round(100 * value / total) if total else None,
+                   secondsPerStep=round(per_step, 1) if per_step else None, etaSeconds=eta)
 
     def handle(self, msg: dict[str, Any]) -> None:
         kind, data = msg.get("type"), msg.get("data") or {}
@@ -443,16 +458,15 @@ class ProgressWatcher:
             if stage != self.state.get("stage"):
                 self._emit(stage=stage, node=str(node))
         elif kind == "progress":
-            value, total = int(data.get("value", 0)), int(data.get("max", 0)) or None
-            now = time.monotonic()
-            self._steps.append((now, value))
-            self._steps = self._steps[-8:]
-            per_step = None
-            if len(self._steps) >= 2 and self._steps[-1][1] > self._steps[0][1]:
-                per_step = (self._steps[-1][0] - self._steps[0][0]) / (self._steps[-1][1] - self._steps[0][1])
-            eta = round(per_step * (total - value)) if per_step and total else None
-            self._emit(stage="sampling", step=value, total=total, percent=round(100 * value / total) if total else None,
-                       secondsPerStep=round(per_step, 1) if per_step else None, etaSeconds=eta)
+            self._progress(int(data.get("value", 0)), int(data.get("max", 0)) or None)
+        elif kind == "progress_state":
+            # Newer ComfyUI: {"nodes": {id: {"state": "running", "value": v, "max": m, ...}}}
+            nodes = data.get("nodes") or {}
+            for nid, st in nodes.items():
+                if not isinstance(st, dict) or st.get("state") != "running":
+                    continue
+                if STAGE_BY_CLASS.get(self.node_classes.get(str(nid), ""), "") == "sampling" and st.get("max"):
+                    self._progress(int(st.get("value", 0)), int(st.get("max", 0)) or None)
         elif kind in ("execution_success", "execution_error", "execution_interrupted"):
             self._emit(stage="finishing" if kind == "execution_success" else kind.replace("execution_", ""))
 
