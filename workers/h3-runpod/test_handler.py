@@ -214,7 +214,7 @@ def test_handler_health_lists_templates(monkeypatch):
     monkeypatch.setattr(h, "WORKFLOW_DIR", HERE / "workflows")
     monkeypatch.setattr(h.ComfyClient, "health", lambda self: {"reachable": False})
     out = h.handler({"input": {"action": "health"}})
-    assert out["ok"] and out["workflows"] == ["FL2VA", "I2VA", "R2VA", "T2VA"]
+    assert out["ok"] and out["workflows"] == ["FL2VA", "I2VA", "R2VA", "REGEN", "T2VA"]
 
 
 # ---- LoRAs ----
@@ -455,3 +455,29 @@ def test_progress_watcher_reads_progress_state_messages():
     assert seen[-1]["stage"] == "sampling" and seen[-1]["step"] == 5 and seen[-1]["percent"] == 62
     w.handle({"type": "progress_state", "data": {"prompt_id": "p", "nodes": {"14": {"state": "running", "value": 5, "max": 8}}}})
     assert len(seen) == 1  # the same step again is not re-reported
+
+
+def test_regen_input_and_graph(tmp_path):
+    params = h.validate_input({"workflow": "REGEN", "video": "https://studio/media/t.mp4", "prompt": "a fox in the snow", "resolution": "2k", "start_sigma": 0.8, "output": {"key": "p/s/t_2k.mp4"}, "sparse": True})
+    assert params["workflow"] == "REGEN" and params["resolution"] == "2k" and params["seed"] == 1766580932
+    with pytest.raises(h.JobError):
+        h.validate_input({"workflow": "REGEN", "video": "nope", "prompt": "x", "output": {"key": "a.mp4"}})
+    with pytest.raises(h.JobError):
+        h.validate_input({"workflow": "REGEN", "video": "https://x/y.mp4", "prompt": "x", "resolution": "8k", "output": {"key": "a.mp4"}})
+    mapping = h.load_mapping()["REGEN"]
+    graph = h.load_workflow("REGEN")
+    # without the sparse node class on the pod: dense, guider reads the LoRA'd model
+    filled = h.fill_regen_graph(graph, mapping, {**params, "files": {"video": "draft.mp4"}}, set())
+    assert filled["9"]["inputs"]["file"] == "draft.mp4"
+    assert filled["16"]["inputs"]["text"] == "a fox in the snow"
+    assert filled["17"]["inputs"]["resolution"] == "2k (2560x1440)"
+    assert filled["19"]["inputs"]["start_sigma"] == 0.8 and filled["19"]["inputs"]["steps"] == 3
+    assert filled["11"]["inputs"]["max_frames"] == 0
+    assert filled["22"]["inputs"]["model"] == ["3", 0] and "4" not in filled
+    # with it: inserted between LoRA and guider, inputs named from object_info
+    h.node_classes_info["BlockSparseAttention"] = {"required": {"model": ["MODEL"], "method": [["sol-attn"]], "tau": ["FLOAT"], "min_keep": ["FLOAT"], "max_keep": ["FLOAT"], "dense_layers": ["STRING"], "block_q": ["INT"], "block_kv": ["INT"], "mode": [["exact_kv_and_rows"]], "enabled": ["BOOLEAN"]}}
+    sparse = h.fill_regen_graph(graph, mapping, {**params, "files": {"video": "draft.mp4"}}, {"BlockSparseAttention"})
+    assert sparse["4"]["class_type"] == "BlockSparseAttention" and sparse["4"]["inputs"]["model"] == ["3", 0] and sparse["4"]["inputs"]["tau"] == 1.2
+    assert sparse["22"]["inputs"]["model"] == ["4", 0]
+    status = h.regen_status(tmp_path)
+    assert status["ready"] is False and len(status["missing"]) == 4

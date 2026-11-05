@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeProgress, TakeStatus, Timeline,
+  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
@@ -476,6 +476,7 @@ function mapTake(r: Row): Take {
     gpuTypeId: opt(r.gpu_type_id, str), gpuCostPerHr: opt(r.gpu_cost_per_hr, num), outputSeconds: opt(r.output_seconds, num),
     review: opt(r.review_json, (v) => json<Review | undefined>(v, undefined)),
     progress: opt(r.progress_json, (v) => json<TakeProgress | undefined>(v, undefined)),
+    upscale: opt(r.upscale_json, (v) => json<TakeUpscale | undefined>(v, undefined)),
     createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
   };
 }
@@ -522,12 +523,12 @@ export async function findTakeByRequest(requestId: string): Promise<Take | undef
 export async function updateTake(id: string, patch: Partial<{
   requestId: string; status: TakeStatus; resultUrl: string; lastFrameUrl: string; thumbUrls: string[];
   executionMs: number; costUsd: number; error: string | null; review: Review; finishedAt: number; input: Record<string, unknown>;
-  gpuTypeId: string; gpuCostPerHr: number; outputSeconds: number; progress: TakeProgress | null;
+  gpuTypeId: string; gpuCostPerHr: number; outputSeconds: number; progress: TakeProgress | null; upscale: TakeUpscale | null;
 }>): Promise<Take> {
   const cur = await getTake(id);
   const v = <T>(n: T | undefined, c: T | undefined): T | null => (n === undefined ? (c ?? null) : n);
   await (await db()).run(
-    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ?, gpu_type_id = ?, gpu_cost_per_hr = ?, output_seconds = ?, progress_json = ? WHERE id = ?`,
+    `UPDATE takes SET request_id = ?, status = ?, result_url = ?, last_frame_url = ?, thumb_urls_json = ?, execution_ms = ?, cost_usd = ?, error = ?, review_json = ?, finished_at = ?, input_json = ?, gpu_type_id = ?, gpu_cost_per_hr = ?, output_seconds = ?, progress_json = ?, upscale_json = ? WHERE id = ?`,
     [
       v(patch.requestId, cur.requestId), patch.status ?? cur.status, v(patch.resultUrl, cur.resultUrl), v(patch.lastFrameUrl, cur.lastFrameUrl),
       JSON.stringify(patch.thumbUrls ?? cur.thumbUrls), v(patch.executionMs, cur.executionMs), v(patch.costUsd, cur.costUsd),
@@ -535,7 +536,8 @@ export async function updateTake(id: string, patch: Partial<{
       patch.review ? JSON.stringify(patch.review) : (cur.review ? JSON.stringify(cur.review) : null),
       v(patch.finishedAt, cur.finishedAt), JSON.stringify(patch.input ?? cur.input),
       v(patch.gpuTypeId, cur.gpuTypeId), v(patch.gpuCostPerHr, cur.gpuCostPerHr), v(patch.outputSeconds, cur.outputSeconds),
-      patch.progress === undefined ? (cur.progress ? JSON.stringify(cur.progress) : null) : patch.progress ? JSON.stringify(patch.progress) : null, id,
+      patch.progress === undefined ? (cur.progress ? JSON.stringify(cur.progress) : null) : patch.progress ? JSON.stringify(patch.progress) : null,
+      patch.upscale === undefined ? (cur.upscale ? JSON.stringify(cur.upscale) : null) : patch.upscale ? JSON.stringify(patch.upscale) : null, id,
     ],
   );
   return getTake(id);
@@ -877,6 +879,12 @@ export async function resetTakeForRetry(id: string): Promise<Take> {
 export async function setExportInput(id: string, input: Record<string, unknown>): Promise<ExportJob> {
   await (await db()).run("UPDATE export_jobs SET input_json = ? WHERE id = ?", [JSON.stringify(input), id]);
   return getExport(id);
+}
+
+/** Takes whose 2K pass is queued or running (the sweep submits and refreshes them). */
+export async function listActiveUpscales(): Promise<Take[]> {
+  const rows = await (await db()).all("SELECT * FROM takes WHERE upscale_json IS NOT NULL AND (upscale_json LIKE '%\"status\":\"queued\"%' OR upscale_json LIKE '%\"status\":\"running\"%') ORDER BY created_at");
+  return rows.map(mapTake).filter((t) => t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"));
 }
 
 export async function listPendingTakes(): Promise<Take[]> {

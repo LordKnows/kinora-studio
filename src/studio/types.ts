@@ -91,6 +91,25 @@ export type TakeProgress = {
   step?: number; total?: number; percent?: number; secondsPerStep?: number; etaSeconds?: number; node?: string; at?: number;
 };
 
+export const UPSCALE_RESOLUTIONS = ["1080p", "2k", "4k"] as const;
+export type UpscaleResolution = (typeof UPSCALE_RESOLUTIONS)[number];
+
+/** Open-H3-Regenerate-2K pass on a completed take. */
+export type TakeUpscale = {
+  status: "queued" | "running" | "completed" | "failed" | "canceled";
+  resolution: UpscaleResolution;
+  startSigma: number;
+  requestId?: string;
+  url?: string;
+  thumbUrls?: string[];
+  executionMs?: number;
+  costUsd?: number;
+  error?: string;
+  progress?: TakeProgress;
+  createdAt: number;
+  finishedAt?: number;
+};
+
 export type Take = {
   id: string;
   projectId: string;
@@ -114,6 +133,7 @@ export type Take = {
   error?: string;
   review?: Review;
   progress?: TakeProgress;
+  upscale?: TakeUpscale;
   createdAt: number;
   finishedAt?: number;
 };

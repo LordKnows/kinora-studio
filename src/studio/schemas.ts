@@ -260,3 +260,10 @@ export const EvalVote = z.object({
     audio: z.number().int().min(1).max(5),
   }),
 });
+
+export const UpscaleRequest = z.object({
+  resolution: z.enum(["1080p", "2k", "4k"]).default("2k").describe("Target of the Open-H3-Regenerate pass; 4K runs two passes"),
+  startSigma: z.number().min(0).max(1).default(0).describe("0 = the release 3-step grid (redraws more, sharper); 0.8 stays closer to the draft — use it for character shots"),
+  confirm: z.boolean().default(false),
+});
+export type UpscaleRequest = z.infer<typeof UpscaleRequest>;

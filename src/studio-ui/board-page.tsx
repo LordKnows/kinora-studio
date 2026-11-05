@@ -436,13 +436,27 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
     await post(`/api/takes/${take.id}/retry`, { confirm });
     await reload();
   });
-  const active = take.status === "queued" || take.status === "running";
+  const [resolution, setResolution] = useState<"1080p" | "2k" | "4k">("2k");
+  const [closeToDraft, setCloseToDraft] = useState(false);
+  const [show2k, setShow2k] = useState(true);
+  const regen = useAction(async (confirm) => {
+    await post(`/api/takes/${take.id}/regenerate`, { resolution, startSigma: closeToDraft ? 0.8 : 0, confirm });
+    await reload();
+  });
+  const cancelRegen = useAction(async () => {
+    await del(`/api/takes/${take.id}/regenerate`);
+    await reload();
+  });
+  const up = take.upscale;
+  const upActive = up?.status === "queued" || up?.status === "running";
+  const active = take.status === "queued" || take.status === "running" || Boolean(upActive);
+  const playUrl = up?.status === "completed" && up.url && show2k ? up.url : take.resultUrl;
   const selected = shot.selectedTakeId === take.id;
   return (
     <div className="st-take" data-selected={selected}>
       <div>
-        {take.resultUrl ? (
-          <video className="st-video" src={take.resultUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
+        {playUrl ? (
+          <video className="st-video" src={playUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
         ) : (
           <div className="st-video" style={{ display: "grid", placeItems: "center" }}>
             <Lamp state={take.status} label={statusLabel(take.status)} />
@@ -467,7 +481,36 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             <span>{take.error}</span>
           </div>
         )}
-        <ErrorBanner error={review.error ?? select.error ?? cancel.error ?? retry.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : undefined} onDismiss={() => { review.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); }} />
+        <ErrorBanner error={review.error ?? select.error ?? cancel.error ?? retry.error ?? regen.error ?? cancelRegen.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : regen.error ? () => void regen.confirm() : undefined} onDismiss={() => { review.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); regen.dismiss(); cancelRegen.dismiss(); }} />
+        {take.status === "completed" && (
+          <div className="st-row" style={{ flexWrap: "wrap", gap: 8 }}>
+            {up?.status === "completed" && up.url ? (
+              <>
+                <span className="st-chip" aria-pressed={show2k}>{up.resolution.toUpperCase()} ready{up.costUsd ? ` · ${usd(up.costUsd)}` : ""}</span>
+                <Button kind="quiet" size="sm" onClick={() => setShow2k((v) => !v)}>{show2k ? "Show 768p" : `Show ${up.resolution.toUpperCase()}`}</Button>
+              </>
+            ) : upActive ? (
+              <>
+                <span className="st-muted st-num">Regenerate {up!.resolution.toUpperCase()}: {up!.status}{up!.progress?.stage ? ` · ${STAGE_LABEL[up!.progress.stage] ?? up!.progress.stage}` : ""}{up!.progress?.stage === "sampling" && up!.progress.total ? ` ${up!.progress.step ?? 0}/${up!.progress.total}` : ""}</span>
+                <Button kind="quiet" size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire()}>Cancel</Button>
+              </>
+            ) : (
+              <>
+                <select className="st-input st-input--sm" value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} style={{ width: 90 }}>
+                  <option value="1080p">1080p</option>
+                  <option value="2k">2K</option>
+                  <option value="4k">4K</option>
+                </select>
+                <label className="st-row" style={{ gap: 4 }}>
+                  <input type="checkbox" checked={closeToDraft} onChange={(e) => setCloseToDraft(e.target.checked)} />
+                  <span className="st-muted">stay close to the draft</span>
+                </label>
+                <Button size="sm" busy={regen.busy} onClick={() => void regen.fire()} title="Open-H3-Regenerate-2K: three refine steps on the pod">Regenerate {resolution.toUpperCase()}</Button>
+                {up?.status === "failed" && <span className="st-danger">{up.error ?? "regeneration failed"}</span>}
+              </>
+            )}
+          </div>
+        )}
         {take.thumbUrls.length > 0 && (
           <div className="st-row" style={{ gap: 4 }}>
             {take.thumbUrls.map((u) => (
@@ -517,7 +560,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
 
 
 const STAGE_LABEL: Record<string, string> = {
-  inputs: "fetching inputs", queued: "queued on ComfyUI", preparing: "preparing", loading: "loading models", sampling: "sampling",
+  inputs: "fetching inputs", queued: "queued on ComfyUI", preparing: "preparing", loading: "loading models", encoding: "encoding the draft", upscaling: "upscaling the latent", sampling: "sampling",
   decoding: "decoding video", finishing: "finishing", uploading: "uploading to R2", error: "error", interrupted: "interrupted",
 };
 

@@ -32,6 +32,11 @@ from typing import Callable, Any
 import requests
 
 WORKFLOWS = ("T2VA", "I2VA", "FL2VA", "R2VA")
+# Open-H3-Regenerate-2K: a finished take re-generated at a higher resolution.
+REGEN_WORKFLOW = "REGEN"
+REGEN_RESOLUTIONS = {"768p": "768p (1344x768)", "1080p": "1080p (1920x1080)", "2k": "2k (2560x1440)", "4k": "4k (3840x2160)"}
+REGEN_FILES = [("loras", "open_h3_regenerate_2k_lora.safetensors"), ("loras", "sharp_curve_branches.safetensors"), ("vae", "fast_h3_vae_noncausal_24l.safetensors"), ("latent_upscale_models", "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors")]
+REGEN_NODE_DIR = os.environ.get("REGEN_NODE_DIR", "/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-Open-H3-Regenerate")
 ROLES = ("first_frame", "last_frame", "reference")
 HERE = Path(__file__).resolve().parent
 WORKFLOW_DIR = Path(os.environ.get("WORKFLOW_DIR", HERE / "workflows"))
@@ -60,6 +65,8 @@ def validate_input(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise JobError("input must be an object")
     workflow = raw.get("workflow")
+    if workflow == REGEN_WORKFLOW:
+        return validate_regen_input(raw)
     if workflow not in WORKFLOWS:
         raise JobError(f"workflow must be one of {', '.join(WORKFLOWS)}")
     prompt = raw.get("prompt")
@@ -370,11 +377,147 @@ def ensure_loras(loras: list[dict[str, Any]], lora_dir: Path | None = None, sess
     return paths
 
 
+# ---------- Open-H3-Regenerate-2K ----------
+
+
+def validate_regen_input(raw: dict[str, Any]) -> dict[str, Any]:
+    """{workflow: REGEN, video: url, prompt, resolution: 768p|1080p|2k|4k, start_sigma?, steps?, seed?, sparse?, output: {key}, studio_take_id?}"""
+    video = raw.get("video")
+    if not isinstance(video, str) or not video.startswith(("http://", "https://")):
+        raise JobError("regen needs the draft video url in `video`")
+    prompt = raw.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise JobError("prompt must be a non-empty string (the take's own compiled prompt)")
+    resolution = str(raw.get("resolution", "2k")).lower()
+    if resolution not in REGEN_RESOLUTIONS:
+        raise JobError(f"resolution must be one of {', '.join(REGEN_RESOLUTIONS)}")
+    start_sigma = raw.get("start_sigma", 0.0)
+    if not isinstance(start_sigma, (int, float)) or not 0 <= float(start_sigma) <= 1:
+        raise JobError("start_sigma must be between 0 (release grid) and 1")
+    steps = raw.get("steps", 3)
+    if not isinstance(steps, int) or not 1 <= steps <= 8:
+        raise JobError("steps must be an integer between 1 and 8")
+    seconds = raw.get("seconds", 5)
+    if not isinstance(seconds, (int, float)) or not 1 <= seconds <= 15:
+        raise JobError("seconds must be between 1 and 15")
+    seed = raw.get("seed")
+    if seed is None:
+        seed = 1766580932
+    elif not isinstance(seed, int):
+        raise JobError("seed must be an integer")
+    output = raw.get("output") or {}
+    key = output.get("key") if isinstance(output, dict) else None
+    if not isinstance(key, str) or not key.endswith(".mp4"):
+        raise JobError("output.key must be an R2 key ending in .mp4")
+    return {
+        "workflow": REGEN_WORKFLOW, "video": video, "prompt": prompt, "resolution": resolution, "start_sigma": float(start_sigma), "steps": steps,
+        "seconds": float(seconds), "seed": seed, "sparse": bool(raw.get("sparse", False)), "input_size": str(raw.get("input_size", "768p")),
+        "output_key": key, "studio_take_id": raw.get("studio_take_id"),
+    }
+
+
+def regen_status(models_dir: Path | None = None) -> dict[str, Any]:
+    """Whether the Open-H3-Regenerate-2K weights and node pack are on the pod."""
+    base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
+    missing = [f"{sub}/{name}" for sub, name in REGEN_FILES if not ((base / sub / name).is_file() and (base / sub / name).stat().st_size > 1_000_000)]
+    nodes = Path(REGEN_NODE_DIR).is_dir()
+    return {"ready": not missing and nodes, "missing": missing, "nodes": nodes, "dir": str(base)}
+
+
+def fill_regen_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str, Any], node_classes: set[str] | None = None) -> dict[str, Any]:
+    graph = json.loads(json.dumps(graph))
+
+    def put(target: Any, value: Any) -> None:
+        node_id, name = target
+        graph[str(node_id)]["inputs"][name] = value
+
+    put(mapping["prompt"], params["prompt"])
+    put(mapping["video"], params["files"]["video"])
+    put(mapping["resolution"], REGEN_RESOLUTIONS[params["resolution"]])
+    put(mapping["steps"], params["steps"])
+    put(mapping["start_sigma"], params["start_sigma"])
+    put(mapping["seed"], params["seed"])
+    put(mapping["max_frames"], 0)  # all frames of the draft (the refine takes 5–15 s in one pass)
+    put(mapping["input_size"], "576p (1024x576)" if params.get("input_size") == "576p" else "768p (1344x768)")
+    sparse = mapping.get("sparse_attention")
+    if params.get("sparse") and sparse and node_classes and sparse["class"] in node_classes:
+        # Insert the sparse-attention patch between the LoRA'd model and the guider;
+        # its input names come from the pod's own object_info, so a ComfyUI that
+        # names them differently still gets a valid node.
+        info = node_classes_info.get(sparse["class"]) if isinstance(node_classes_info, dict) else None
+        names = [k for k in (info or {}).get("required", {}) if k != "model"] if info else []
+        inputs: dict[str, Any] = {"model": [str(sparse["from"]), 0]}
+        for name, value in zip(names, sparse["widgets"]):
+            inputs[name] = value
+        if len(names) >= len(sparse["widgets"]) - 1:
+            graph["4"] = {"class_type": sparse["class"], "inputs": inputs, "_meta": {"title": "Model Sparse Attention (sol-attn)"}}
+            graph[str(sparse["to"][0])]["inputs"][sparse["to"][1]] = ["4", 0]
+    return graph
+
+
+node_classes_info: dict[str, Any] = {}
+
+
+def run_regen_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None, should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
+    started = time.monotonic()
+    cancelled = should_cancel or (lambda: False)
+    report = report or (lambda p: None)
+    status = regen_status()
+    if not status["ready"]:
+        raise JobError(f"Open-H3-Regenerate-2K is not ready on this pod: missing {status['missing'] or 'the node pack'} — the pod downloads it at boot when REGEN_2K=1")
+    mapping = mapping or load_mapping()
+    entry = mapping.get(REGEN_WORKFLOW)
+    if not entry:
+        raise JobError("mapping.json has no REGEN entry")
+    graph = load_workflow(entry.get("template", REGEN_WORKFLOW))
+    report({"stage": "inputs"})
+    inputs = workdir / "in"
+    inputs.mkdir(exist_ok=True)
+    local = download(params["video"], inputs / f"draft.{ext_of(params['video'], 'mp4')}", comfy.http)
+    name = comfy.upload_image(local)  # ComfyUI's upload endpoint takes any file into input/
+    if cancelled():
+        raise JobError("cancelled")
+    classes: set[str] = set()
+    if params.get("sparse"):
+        try:
+            res = comfy.http.get(f"{comfy.base}/object_info/{entry['sparse_attention']['class']}", timeout=30)
+            if res.ok:
+                node_classes_info.update(res.json())
+                classes = set(node_classes_info)
+        except requests.RequestException:
+            pass
+    filled = fill_regen_graph(graph, entry, {**params, "files": {"video": name}}, classes)
+    client_id = uuid.uuid4().hex
+    watcher = ProgressWatcher(comfy.base, client_id, {nid: n.get("class_type", "") for nid, n in filled.items()}, report)
+    watcher.start()
+    try:
+        prompt_id = comfy.queue(filled, client_id)
+        watcher.prompt_id = prompt_id
+        report({"stage": "queued"})
+        history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 2400)), should_cancel=cancelled)
+    finally:
+        watcher.stop()
+    report({"stage": "uploading"})
+    out_dir = workdir / "out"
+    out_dir.mkdir(exist_ok=True)
+    video = comfy.fetch_output(history, entry.get("output_node", ""), out_dir)
+    last, thumbs = extract_frames(video, out_dir)
+    keys = derive_keys(params["output_key"])
+    url = uploader.upload(video, keys["video"], "video/mp4")
+    thumb_urls = [uploader.upload(t, k, "image/jpeg") for t, k in zip(thumbs, keys["thumbs"])]
+    last_url = uploader.upload(last, keys["last_frame"], "image/png")
+    return {
+        "url": url, "thumb_urls": thumb_urls, "last_frame_url": last_url, "resolution": params["resolution"],
+        "execution_ms": int((time.monotonic() - started) * 1000), "studio_take_id": params.get("studio_take_id"), "duration_s": probe_duration(video),
+    }
+
+
 # ---------- progress ----------
 
 STAGE_BY_CLASS = {
     "UNETLoader": "loading", "CLIPLoader": "loading", "VAELoader": "loading", "LoraLoaderModelOnly": "loading",
     "SamplerCustomAdvanced": "sampling", "VAEDecode": "decoding", "VAEDecodeAudio": "decoding", "SaveVideo": "finishing", "CreateVideo": "finishing",
+    "OpenH3RegenLora": "loading", "VAEEncode": "encoding", "OpenH3RegenUpscale": "upscaling", "OpenH3RegenFastVAEDecode": "decoding", "OpenH3RegenFinish": "finishing",
 }
 
 
@@ -747,7 +890,7 @@ def models_status(models_dir: Path | None = None) -> dict[str, Any]:
 
 def health(comfy: ComfyClient) -> dict[str, Any]:
     loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem != "mapping")
-    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
+    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
 def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
@@ -759,6 +902,8 @@ def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = No
     try:
         params = validate_input(raw)
         with tempfile.TemporaryDirectory(prefix="h3-") as tmp:
+            if params["workflow"] == REGEN_WORKFLOW:
+                return run_regen_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
             return run_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
     except JobError as exc:
         return {"error": str(exc)}

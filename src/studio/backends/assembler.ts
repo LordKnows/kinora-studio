@@ -41,13 +41,16 @@ export function buildAssemblerInput(args: {
     const take = args.takes.get(clip.takeId);
     const shot = args.shots.get(clip.shotId);
     if (!take?.resultUrl || !shot) continue;
+    /* master-upscaled: the Open-H3-Regenerate-2K file when the take has one,
+       else the 768p file (the export response lists those). */
+    const upscaled = args.preset === "master-upscaled" && take.upscale?.status === "completed" && take.upscale.url ? take.upscale.url : undefined;
     /* The rendered file is the truth: H3 snaps to a frame grid, so the spec's
        duration can overshoot the take by a few frames. */
     const outS = Math.min(clip.outS, take.outputSeconds ?? shot.spec.durationS);
     const len = Math.max(0, outS - clip.inS);
     const repeat = clip.repeat ?? 1;
     clips.push({
-      url: take.resultUrl,
+      url: upscaled ?? take.resultUrl,
       in_s: clip.inS,
       out_s: outS,
       transition_in: clip.transition,

@@ -1,0 +1,5 @@
+# Open-H3-Regenerate-2K (NVIDIA Sana team): ComfyUI subdir<TAB>URL (≈21 GB). Downloaded after the core set when REGEN_2K=1.
+loras	https://huggingface.co/Efficient-Large-Model/Open-H3-Regenerate-2K/resolve/main/lora/open_h3_regenerate_2k_lora.safetensors
+loras	https://huggingface.co/Efficient-Large-Model/Open-H3-Regenerate-2K/resolve/main/lora/sharp_curve_branches.safetensors
+vae	https://huggingface.co/Efficient-Large-Model/Open-H3-Regenerate-2K/resolve/main/vae_fast/fast_h3_vae_noncausal_24l.safetensors
+latent_upscale_models	https://huggingface.co/Efficient-Large-Model/Open-H3-Regenerate-2K/resolve/main/latent_upsampler/minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors

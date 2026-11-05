@@ -60,3 +60,16 @@ function safeRunpod() {
 function round(n: number): number {
   return Math.round(n * 1000) / 1000;
 }
+
+/** Open-H3-Regenerate-2K: three refine steps plus decode. Measured on an RTX
+    PRO 5000: ~150 GPU-seconds for 5 s at 2K (dense attention, sparse is ~4×
+    faster); 4K runs two passes. REGEN_SECONDS_PER_OUTPUT_SECOND overrides. */
+export function estimateUpscale(durationS: number, resolution: "1080p" | "2k" | "4k", measured?: Measured): Estimate {
+  const rp = safeRunpod();
+  const base = Number(process.env.REGEN_SECONDS_PER_OUTPUT_SECOND ?? "30");
+  const factor = resolution === "4k" ? 2.2 : resolution === "1080p" ? 0.6 : 1;
+  const perOutputSecond = base * factor;
+  const usdPerGpuSecond = measured?.usdPerHr !== undefined ? measured.usdPerHr / 3600 : rp.gpuUsdPerSecond;
+  const gpuSeconds = durationS * perOutputSecond;
+  return { usd: round(gpuSeconds * usdPerGpuSecond), gpuSeconds, perOutputSecond, usdPerGpuSecond, steps: 3, source: measured?.usdPerHr !== undefined ? "measured" : "placeholder" };
+}

@@ -33,6 +33,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0006_adopted.sql` | `gpu_pods` 表加 `adopted` 列（手动建的 Pod 由 Studio 接管；只执行一次） |
 | `migrations/0007_seed_more_loras.sql` | 预置 7 个社区 LoRA（fal 写实人物、Jojocodex 运镜 / 物理、anime 风格等；幂等） |
 | `migrations/0008_take_progress.sql` | `takes` 表加 `progress_json`（生成进度：阶段、步数、预计剩余；只执行一次） |
+| `migrations/0009_take_upscale.sql` | `takes` 表加 `upscale_json`（Open-H3-Regenerate-2K 的 2K 版本；只执行一次） |
 
 ## 2. 建对象存储（R2）
 
@@ -306,6 +307,25 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   两张时 handler 会克隆 LoadImage 节点并接到 `ref_images.ref_image_N`（最多 9 张）。
 - Studio 经 RunPod 代理访问 Pod 时带浏览器 User-Agent（否则 Cloudflare 403）。
 - 交接原文和验证脚本存档在 `docs/handoff/`。
+
+## 11b. Regenerate 2K（Open-H3-Regenerate-2K）
+
+NVIDIA Sana 团队开源的 H3 高分辨率再生成阶段，集成为 Board 上完成 take 的 **Regenerate 1080p / 2K / 4K**
+按钮和 MCP 的 `regenerate_take`。Pod 开机时（`REGEN_2K=1`，默认开）会 clone 两个节点包
+（`rdh9616/ComfyUI-Open-H3-Regenerate`、`LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler`）并在核心模型之后
+下载约 21 GB 权重（`workers/h3-runpod/models-regen.txt`：refiner LoRA 12.4 GB、sharp 分支 1.2 GB、快速
+VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.ready` 说明是否就绪；没就绪时按钮
+会报错说明缺什么。
+
+- 它是"重画"不是"放大"：默认 `start_sigma = 0` 更锐但会改画面，勾选 **stay close to the draft**
+  （0.8）更贴近草稿，角色镜头建议勾选。
+- 耗时：5 秒片段 2K 约 150 GPU 秒（dense attention），4K 两遍约 2.2 倍。`REGEN_SPARSE_ATTN=1` 插入 ComfyUI
+  的 BlockSparseAttention（sol-attn）能快约 4 倍，但 ComfyUI issue 16382 报告它和 LoRA 一起用有伪影，默认关。
+- 2K 文件存在 take 旁（`upscale_json`），Board 可切换 768p / 2K 播放；`export_project` 的 `master-upscaled`
+  预设用 2K 文件，缺 2K 的片段回退 768p 并在返回里列出。
+- 显存：LoRA 本身 12.4 GB（节点内转 bf16 后 6.2 GB）加底模 21 GB，5090 32 GB 要靠卸载到内存，PRO 6000 宽裕。
+- 节点包在 ComfyUI 0.42 测试，我们的镜像是 0.30，第一次跑若节点导入失败，容器日志里会有
+  `ComfyUI-Open-H3-Regenerate` 的 import error，把它贴出来。
 
 ## 12. 第一次真机：验证顺序
 

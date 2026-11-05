@@ -4,6 +4,7 @@
 set -euo pipefail
 MODELS_DIR="${1:-/workspace/runpod-slim/ComfyUI/models}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+LIST="${2:-$HERE/models.txt}"
 AUTH=()
 [ -n "${HF_TOKEN:-}" ] && AUTH=(--header "Authorization: Bearer ${HF_TOKEN}")
 while IFS=$'\t' read -r subdir url; do
@@ -23,7 +24,7 @@ while IFS=$'\t' read -r subdir url; do
   fi
   secs=$(( $(date +%s) - start )); size=$(stat -c %s "$file")
   echo "got $(basename "$file") ($((size / 1048576)) MB in ${secs}s, $((size / 1048576 / (secs > 0 ? secs : 1))) MB/s)"
-done < "$HERE/models.txt"
+done < "$LIST"
 # the runpod/comfyui image reads diffusion models from models/unet
 if [ -d "$MODELS_DIR/diffusion_models" ] && [ ! -e "$MODELS_DIR/unet" ]; then ln -s "$MODELS_DIR/diffusion_models" "$MODELS_DIR/unet"; fi
 echo done

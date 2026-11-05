@@ -31,7 +31,15 @@ if [ "$VOLUME_PATH" != "/workspace" ] && ! mountpoint -q "$VOLUME_PATH" 2>/dev/n
   mkdir -p "$MODELS_DIR"
   if [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ]; then
     echo "[start] downloading the H3 models (~68 GB) in the background; see /app/download_models.log"
-    (bash /app/h3-runpod/download_models.sh "$MODELS_DIR" > /app/download_models.log 2>&1; echo "[start] model download finished: $(tail -1 /app/download_models.log)") &
+    (
+      bash /app/h3-runpod/download_models.sh "$MODELS_DIR" > /app/download_models.log 2>&1
+      echo "[start] model download finished: $(tail -1 /app/download_models.log)"
+      if [ "${REGEN_2K:-1}" = "1" ]; then
+        echo "[start] downloading Open-H3-Regenerate-2K (~21 GB); see /app/download_regen.log"
+        bash /app/h3-runpod/download_models.sh "$MODELS_DIR" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1
+        echo "[start] regen download finished: $(tail -1 /app/download_regen.log)"
+      fi
+    ) &
   fi
   DOWNLOAD_MODELS=0
   VOLUME_PATH=/workspace
@@ -159,6 +167,27 @@ if [ -n "${MODELS_LINK_FROM:-}" ] && [ -n "${MODELS_LINK_TO:-}" ]; then
     mkdir -p "$(dirname "$MODELS_LINK_TO")"
     rm -rf "$MODELS_LINK_TO" && ln -s "$MODELS_LINK_FROM" "$MODELS_LINK_TO"
   fi
+fi
+
+# Open-H3-Regenerate-2K node packs (rdh9616's nodes + LBH-123-AI's latent
+# upscaler). The container disk is fresh at every boot, so they are cloned
+# each time (a few MB); the image's installer keeps custom_nodes/ untouched.
+# Their Python deps go to the system site-packages, which the image's venv
+# sees. REGEN_2K=0 skips all of it.
+if [ "${REGEN_2K:-1}" = "1" ]; then
+  NODES_DIR="$SLIM_DIR/custom_nodes"
+  mkdir -p "$NODES_DIR"
+  for repo in https://github.com/rdh9616/ComfyUI-Open-H3-Regenerate https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler; do
+    name="$(basename "$repo")"
+    if [ ! -d "$NODES_DIR/$name" ]; then
+      echo "[start] installing node pack $name"
+      git clone -q --depth 1 "$repo" "$NODES_DIR/$name" || echo "[start] clone of $name failed; Regenerate 2K will report not ready"
+    fi
+    if [ -f "$NODES_DIR/$name/requirements.txt" ]; then
+      python3 -m pip install -q -r "$NODES_DIR/$name/requirements.txt" >/dev/null 2>&1 || echo "[start] pip install for $name failed"
+    fi
+  done
+  export REGEN_NODE_DIR="$NODES_DIR/ComfyUI-Open-H3-Regenerate"
 fi
 
 echo "[start] ComfyUI: $COMFY_CMD"

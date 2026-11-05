@@ -337,6 +337,54 @@ describe("gpu stats and loras", () => {
     process.env.RUNPOD_GPU_PRIORITY = "availability";
   });
 
+  it("regenerates a completed take at 2K through the pod and the master-upscaled export uses it", async () => {
+    const { mapRunPodStatus } = await import("@/studio/backends/runpod");
+    const project = await repo.createProject({ name: "Regen", budgetCapUsd: 50 });
+    const script = await repo.createScript(project.id, "x");
+    await repo.approveScript(script.id);
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "s", shots: [shot()] }] }));
+    await repo.setShotlistApproval(project.id, "approved");
+    const sid = view.scenes[0]!.shots[0]!.id;
+    scenario.podStatus = "RUNNING";
+    scenario.healthy = true;
+    await gpu.refreshGpu();
+    const { takes } = await orch.createTakes(sid, { n: 1, confirm: true }, web);
+    const take = await repo.getTake(takes[0]!.id);
+    await orch.applyTakeStatus(take, mapRunPodStatus({ id: take.requestId!, status: "COMPLETED", executionTime: 60_000, output: { url: "https://r2/x.mp4", duration_s: 5 } }));
+    /* not completed → refused; completed → queued and submitted as a REGEN job with the take's own prompt */
+    await expect(orch.regenerateTake(take.id, { resolution: "2k", startSigma: 0.8, confirm: false }, mcp)).rejects.toMatchObject({ code: "needs_confirm" });
+    const before = calls.length;
+    const { take: queued, estimate } = await orch.regenerateTake(take.id, { resolution: "2k", startSigma: 0.8, confirm: true }, mcp);
+    expect(estimate.usd).toBeGreaterThan(0);
+    expect(queued.upscale).toMatchObject({ status: "queued", resolution: "2k", startSigma: 0.8 });
+    expect(queued.upscale!.requestId).toMatch(/^job-/);
+    const run = calls.slice(before).find((c) => c.url.endsWith("/run"))!;
+    const input = (run.body as { input: Record<string, unknown> }).input;
+    expect(input.workflow).toBe("REGEN");
+    expect(input.video).toBe("https://r2/x.mp4");
+    expect(input.resolution).toBe("2k");
+    expect(input.start_sigma).toBe(0.8);
+    expect(String((run.body as { webhook: string }).webhook)).toContain("id=regen%3A");
+    await expect(orch.regenerateTake(take.id, { resolution: "2k", startSigma: 0, confirm: true }, web)).rejects.toMatchObject({ code: "validation" });
+    /* progress while running, then the 2K file lands beside the 768p one and is billed */
+    const running = await orch.applyUpscaleStatus(await repo.getTake(take.id), { state: "running", progress: { stage: "upscaling" } });
+    expect(running.upscale).toMatchObject({ status: "running", progress: { stage: "upscaling" } });
+    const spentBefore = (await repo.getProject(project.id)).spentUsd;
+    const done = await orch.applyUpscaleStatus(await repo.getTake(take.id), mapRunPodStatus({ id: queued.upscale!.requestId!, status: "COMPLETED", executionTime: 150_000, output: { url: "https://r2/x.2k.mp4", resolution: "2k", thumb_urls: ["https://r2/x.2k.thumbs/0.jpg"] } }));
+    expect(done.upscale).toMatchObject({ status: "completed", url: "https://r2/x.2k.mp4" });
+    expect(done.upscale!.costUsd).toBeCloseTo((150_000 / 3_600_000) * 2.5, 3);
+    expect((await repo.getProject(project.id)).spentUsd).toBeGreaterThan(spentBefore);
+    expect(done.resultUrl).toBe("https://r2/x.mp4");
+    /* the export preset picks the 2K file */
+    const { buildAssemblerInput } = await import("@/studio/backends/assembler");
+    const shotRow = await repo.getShot(sid);
+    const timeline = { clips: [{ shotId: sid, takeId: take.id, inS: 0, outS: 5, transition: "cut" as const }], music: undefined, mix: {} } as never;
+    const upscaled = buildAssemblerInput({ exportId: "e", projectId: project.id, preset: "master-upscaled", look: project.look, timeline, shots: new Map([[sid, shotRow]]), takes: new Map([[take.id, done]]), elementNames: new Map(), burnIn: false, videoSize: "1344x768" });
+    expect(upscaled.clips[0]!.url).toBe("https://r2/x.2k.mp4");
+    const plain = buildAssemblerInput({ exportId: "e", projectId: project.id, preset: "master-768p", look: project.look, timeline, shots: new Map([[sid, shotRow]]), takes: new Map([[take.id, done]]), elementNames: new Map(), burnIn: false, videoSize: "1344x768" });
+    expect(plain.clips[0]!.url).toBe("https://r2/x.mp4");
+  });
+
   it("applies project LoRAs, shot overrides, trigger words and the speed LoRA's step hint", async () => {
     const speed = await repo.createLora({ name: "H3 lightx2v 8-step", kind: "speed", filename: "h3_lightx2v_8step.safetensors", hfUrl: "https://huggingface.co/o/r/blob/main/h3_lightx2v_8step.safetensors", triggerWords: "", defaultStrength: 1, stepsHint: 8, workflows: [], notes: "" });
     const style = await repo.createLora({ name: "Neon noir", kind: "style", filename: "neon_noir.safetensors", triggerWords: "neon noir, wet asphalt", defaultStrength: 0.7, workflows: ["T2VA"], notes: "" });

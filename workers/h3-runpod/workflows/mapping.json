@@ -228,5 +228,62 @@
       "video": "shift_video",
       "audio": "shift_audio"
     }
+  },
+  "REGEN": {
+    "template": "REGEN",
+    "_comment": "Open-H3-Regenerate-2K (NVIDIA, via rdh9616/ComfyUI-Open-H3-Regenerate): a finished 768p take is re-generated at 1080p/2K/4K in 3 steps. Inputs are the draft video and the take's own prompt. sparse_attention is inserted between the LoRA and the guider when the pod has ComfyUI's BlockSparseAttention node and the job asks for it (ComfyUI issue 16382 reports artifacts with LoRAs, so it is off by default).",
+    "prompt": [
+      "16",
+      "text"
+    ],
+    "video": [
+      "9",
+      "file"
+    ],
+    "max_frames": [
+      "11",
+      "max_frames"
+    ],
+    "input_size": [
+      "11",
+      "size"
+    ],
+    "resolution": [
+      "17",
+      "resolution"
+    ],
+    "steps": [
+      "19",
+      "steps"
+    ],
+    "start_sigma": [
+      "19",
+      "start_sigma"
+    ],
+    "seed": [
+      "20",
+      "noise_seed"
+    ],
+    "sparse_attention": {
+      "class": "BlockSparseAttention",
+      "from": "3",
+      "to": [
+        "22",
+        "model"
+      ],
+      "widgets": [
+        "sol-attn",
+        1.2,
+        0.0,
+        0.9,
+        "0,1,49",
+        12288,
+        256,
+        "exact_kv_and_rows",
+        true
+      ]
+    },
+    "output_node": "28",
+    "timeout_s": 2400
   }
 }

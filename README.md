@@ -175,6 +175,15 @@ and the prompt rules in `agent/director.md` carry placeholders until the P0
 measurements in the design doc §9 are done on your endpoint. The settings page
 has an eval mode for blind A/B scoring of takes.
 
+## Regenerate 2K
+
+NVIDIA's open Open-H3-Regenerate-2K replaces MiniMax's API-only
+high-resolution stage: a completed 768p take is re-generated at 1080p / 2K /
+4K in three refine steps on the pod (Board button or `regenerate_take`), the
+file sits beside the take, and the `master-upscaled` export uses it. The pod
+installs the node packs and downloads the ~21 GB of weights at boot
+(`REGEN_2K=1`).
+
 ## Director layer (`packages/director`)
 
 Judgement helpers that sit beside the Studio's own tools. **They are served

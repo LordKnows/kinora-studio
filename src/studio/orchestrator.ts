@@ -2,7 +2,7 @@ import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } 
 import { CompileError, compileShot, effectiveLink, type CompiledJob } from "./compiler";
 import { grammarFor } from "./editing";
 import { config } from "./config";
-import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate } from "./cost";
+import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate, estimateUpscale } from "./cost";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
@@ -10,7 +10,7 @@ import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
 import type { ExportRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
-import { ShotInput as ShotInputSchema } from "./schemas";
+import { ShotInput as ShotInputSchema, UpscaleRequest } from "./schemas";
 import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Take, Timeline } from "./types";
 
 /* §4.3 — the server-side conductor. Everything that spends money or touches a
@@ -327,6 +327,7 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
     from a GET; the cron sweep does the same for everything at once. */
 export async function refreshTake(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
+  if (take.upscale && (take.upscale.status === "queued" || take.upscale.status === "running")) return refreshUpscale(takeId);
   if (take.status !== "queued" && take.status !== "running") return take;
   if (!take.requestId) return submitTake(take);
   try {
@@ -337,6 +338,112 @@ export async function refreshTake(takeId: string): Promise<Take> {
     if (caught instanceof StudioError && caught.code === "backend_error") return take;
     throw caught;
   }
+}
+
+/* ---------- Open-H3-Regenerate-2K ---------- */
+
+/** Queue a higher-resolution re-generation of a completed take. Same money
+    rules as a take: budget with reservations, confirm from MCP, the pod is
+    started when needed and the sweep submits once it is healthy. */
+export async function regenerateTake(takeId: string, req: UpscaleRequest, actor: Actor): Promise<{ take: Take; estimate: Estimate; gpu?: gpu.GpuState }> {
+  const take = await repo.getTake(takeId);
+  if (take.status !== "completed" || !take.resultUrl) throw new StudioError("validation", "only a completed take can be regenerated at a higher resolution");
+  if (take.upscale && (take.upscale.status === "queued" || take.upscale.status === "running")) throw new StudioError("validation", "a regeneration of this take is already in flight");
+  const project = await repo.getProject(take.projectId);
+  const seconds = take.outputSeconds ?? num(take.input.seconds) ?? 5;
+  const estimate = estimateUpscale(seconds, req.resolution, await gpu.measuredForEstimate());
+  assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
+  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `regenerate take ${take.n} at ${req.resolution}`);
+  const queued = await repo.updateTake(take.id, { upscale: { status: "queued", resolution: req.resolution, startSigma: req.startSigma, createdAt: Date.now() } });
+  let gpuState: gpu.GpuState | undefined;
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
+    gpuState = await gpu.startGpu(actor, true);
+    if (gpuState.status === "running") return { take: await submitUpscale(queued), estimate, gpu: gpuState };
+  }
+  return { take: queued, estimate, gpu: gpuState };
+}
+
+function upscaleInput(take: Take): Record<string, unknown> {
+  const stem = String(take.input.output && typeof take.input.output === "object" ? (take.input.output as { key?: string }).key ?? "" : "").replace(/\.mp4$/, "");
+  const key = `${stem || `projects/${take.projectId}/takes/${take.id}`}.${take.upscale?.resolution ?? "2k"}.mp4`;
+  return {
+    workflow: "REGEN", video: take.resultUrl, prompt: take.prompt, resolution: take.upscale?.resolution ?? "2k", start_sigma: take.upscale?.startSigma ?? 0,
+    seconds: take.outputSeconds ?? num(take.input.seconds) ?? 5, sparse: process.env.REGEN_SPARSE_ATTN === "1", output: { key }, studio_take_id: take.id,
+  };
+}
+
+export async function submitUpscale(take: Take): Promise<Take> {
+  const up = take.upscale;
+  if (!up || up.status !== "queued" || up.requestId) return take;
+  const backend = await videoBackend();
+  if (!backend) return take;
+  const rp = config.runpod();
+  try {
+    const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, `regen:${take.id}`);
+    const { requestId } = await backend.submit(upscaleInput(take), { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+    return await repo.updateTake(take.id, { upscale: { ...up, requestId, status: "queued", error: undefined } });
+  } catch (caught) {
+    const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);
+    if (unreachable) return take;
+    return repo.updateTake(take.id, { upscale: { ...up, status: "failed", error: caught instanceof Error ? caught.message : String(caught), finishedAt: Date.now() } });
+  }
+}
+
+export async function applyUpscaleStatus(take: Take, status: BackendStatus): Promise<Take> {
+  const up = take.upscale;
+  if (!up || up.status === "completed" || up.status === "failed" || up.status === "canceled") return take;
+  switch (status.state) {
+    case "queued":
+      return take;
+    case "running": {
+      const changed = up.status !== "running" || JSON.stringify(status.progress ?? null) !== JSON.stringify(up.progress ?? null);
+      return changed ? repo.updateTake(take.id, { upscale: { ...up, status: "running", ...(status.progress ? { progress: status.progress } : {}) } }) : take;
+    }
+    case "completed": {
+      const out = status.output;
+      const url = str(out.url);
+      if (!url) return repo.updateTake(take.id, { upscale: { ...up, status: "failed", error: "worker completed without a video url", finishedAt: Date.now() } });
+      const executionMs = status.executionMs ?? num(out.execution_ms);
+      const pod = config.runpodMode() === "pod" ? await repo.currentGpuPod() : undefined;
+      const costUsd = executionMs ? (pod?.costPerHr ? podTakeUsd(executionMs, pod.costPerHr) : actualTakeUsd(executionMs)) : undefined;
+      const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
+      const updated = await repo.updateTake(take.id, { upscale: { ...up, status: "completed", url, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: undefined, progress: undefined } });
+      if (costUsd) await repo.addSpent(take.projectId, costUsd);
+      return updated;
+    }
+    case "failed":
+      return repo.updateTake(take.id, { upscale: { ...up, status: "failed", error: status.error, finishedAt: Date.now(), progress: undefined } });
+    case "canceled":
+      return repo.updateTake(take.id, { upscale: { ...up, status: "canceled", finishedAt: Date.now(), progress: undefined } });
+    case "timeout":
+      return repo.updateTake(take.id, { upscale: { ...up, status: "failed", error: "timed out", finishedAt: Date.now(), progress: undefined } });
+  }
+}
+
+export async function refreshUpscale(takeId: string): Promise<Take> {
+  const take = await repo.getTake(takeId);
+  const up = take.upscale;
+  if (!up || (up.status !== "queued" && up.status !== "running")) return take;
+  if (!up.requestId) return submitUpscale(take);
+  try {
+    const backend = await videoBackend();
+    if (!backend) return take;
+    return await applyUpscaleStatus(take, await backend.status(up.requestId));
+  } catch (caught) {
+    if (caught instanceof StudioError && caught.code === "backend_error") return take;
+    throw caught;
+  }
+}
+
+export async function cancelUpscale(takeId: string): Promise<Take> {
+  const take = await repo.getTake(takeId);
+  const up = take.upscale;
+  if (!up || (up.status !== "queued" && up.status !== "running")) return take;
+  if (up.requestId) {
+    const backend = await videoBackend();
+    if (backend) await backend.cancel(up.requestId);
+  }
+  return repo.updateTake(take.id, { upscale: { ...up, status: "canceled", finishedAt: Date.now(), progress: undefined } });
 }
 
 export async function cancelTake(takeId: string): Promise<Take> {
@@ -398,7 +505,7 @@ export async function autoTimeline(projectId: string): Promise<Timeline> {
   return repo.setTimeline(projectId, { ...view.timeline, clips });
 }
 
-export async function createExportJob(projectId: string, req: ExportRequest, actor: Actor): Promise<{ job: ExportJob; estimateUsd: number }> {
+export async function createExportJob(projectId: string, req: ExportRequest, actor: Actor): Promise<{ job: ExportJob; estimateUsd: number; warnings: string[] }> {
   const view = await getProjectView(projectId);
   if (view.timeline.clips.length === 0) throw new StudioError("validation", "the timeline is empty; add clips or run auto timeline first");
   const takes = new Map<string, Take>();
@@ -427,18 +534,23 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
   await repo.setExportInput(exportRow.id, input as unknown as Record<string, unknown>);
   if (!runpodOrNull()) {
     const job = await repo.updateExport(exportRow.id, { status: "failed", error: "RunPod is not configured", finishedAt: Date.now() });
-    return { job, estimateUsd };
+    return { job, estimateUsd, warnings: [] };
   }
   if (config.runpodMode() === "pod") {
     const state = await gpu.startGpu(actor, true);
     if (state.status === "unavailable") {
       const job = await repo.updateExport(exportRow.id, { status: "failed", error: state.message ?? "no GPU available right now", finishedAt: Date.now() });
-      return { job, estimateUsd };
+      return { job, estimateUsd, warnings: [] };
     }
   }
   const job = await submitExport(await repo.getExport(exportRow.id));
   await gpu.touchGpuActivity();
-  return { job, estimateUsd };
+  const warnings: string[] = [];
+  if (req.preset === "master-upscaled") {
+    const without = view.timeline.clips.filter((c) => { const t = takes.get(c.takeId); return t && !(t.upscale?.status === "completed" && t.upscale.url); });
+    if (without.length) warnings.push(`${without.length} clip(s) have no Regenerate 2K pass yet and use the 768p take: ${without.map((c) => c.takeId).join(", ")}`);
+  }
+  return { job, estimateUsd, warnings };
 }
 
 export async function submitExport(job: ExportJob): Promise<ExportJob> {
@@ -503,7 +615,14 @@ export async function sweep(): Promise<{ takes: number; exports: number; gpu?: s
       gpuStatus = `refresh failed: ${caught instanceof Error ? caught.message : caught}`;
     }
   }
-  const [takes, exports] = await Promise.all([repo.listActiveTakes(), repo.listActiveExports()]);
+  const [takes, exports, upscales] = await Promise.all([repo.listActiveTakes(), repo.listActiveExports(), repo.listActiveUpscales()]);
+  for (const take of upscales.slice(0, 20)) {
+    try {
+      await refreshUpscale(take.id);
+    } catch {
+      /* next sweep */
+    }
+  }
   const timeoutMs = (() => {
     try {
       return config.runpod().executionTimeoutMs + 2 * 60 * 60_000;
