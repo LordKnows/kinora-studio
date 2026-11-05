@@ -3,6 +3,8 @@ import { CompileError, compileShot, effectiveLink, type CompiledJob } from "./co
 import { grammarFor } from "./editing";
 import { config } from "./config";
 import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate, estimateUpscale } from "./cost";
+import * as director from "@/director";
+
 import { StudioError } from "./errors";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
@@ -10,7 +12,7 @@ import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
 import type { ExportRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
-import { ShotInput as ShotInputSchema, UpscaleRequest } from "./schemas";
+import { ShotInput as ShotInputSchema, ShotlistInput as ShotlistInputSchema, UpscaleRequest } from "./schemas";
 import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Take, Timeline } from "./types";
 
 /* §4.3 — the server-side conductor. Everything that spends money or touches a
@@ -679,4 +681,76 @@ function str(v: unknown): string | undefined {
 
 function num(v: unknown): number | undefined {
   return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+
+/* ---------- the director layer applied to a project ---------- */
+
+/** The project's shotlist in save_shotlist shape (what the lint, the style
+    pass and the batch planner take). */
+export async function shotlistOf(projectId: string): Promise<{ view: ProjectView; shotlist: ShotlistInput }> {
+  const view = await getProjectView(projectId);
+  const shotlist = { scenes: view.scenes.map((s) => ({ slug: s.slug, summary: s.summary ?? "", location: s.locationElementId ?? undefined, shots: s.shots.map((sh) => sh.spec) })) } as ShotlistInput;
+  return { view, shotlist };
+}
+
+export type LintWarning = { code: string; message: string; scene?: string; shot?: number; severity: "error" | "warn" | "info" };
+
+/** Rhythm and craft lint over the saved shotlist, plus the Tier 2 / Tier 3
+    completeness the MCP save path reports. */
+export async function lintProject(projectId: string, opts?: { totalSeconds?: number }): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number } }> {
+  const { view, shotlist } = await shotlistOf(projectId);
+  if (shotlist.scenes.length === 0) return { warnings: [], counts: { error: 0, warn: 0, info: 0 } };
+  const warnings = director.lintShotlist(shotlist as never, { totalSeconds: opts?.totalSeconds ?? view.project.targetSeconds ?? undefined }) as LintWarning[];
+  for (const scene of view.scenes) {
+    scene.shots.forEach((sh, i) => {
+      const c = (sh.spec.cinematography ?? {}) as Record<string, unknown>;
+      const missing = ["size", "angle", "lens", "lighting", "grade"].filter((k) => c[k] === undefined || c[k] === null || (Array.isArray(c[k]) && (c[k] as unknown[]).length === 0));
+      if (missing.length) warnings.push({ code: "tier3.missing", severity: "warn", scene: scene.slug, shot: i + 1, message: `cinematography missing ${missing.join(", ")}` });
+      if (!sh.spec.link) warnings.push({ code: "tier2.link", severity: "warn", scene: scene.slug, shot: i + 1, message: "no link type (defaults to a hard cut)" });
+    });
+  }
+  const counts = { error: 0, warn: 0, info: 0 };
+  for (const w of warnings) counts[w.severity]++;
+  return { warnings, counts };
+}
+
+/** Fill every shot's cinematography with a style's defaults and save the
+    merged shotlist (takes are kept). */
+export async function applyStyleToProject(projectId: string, style: string, opts?: { beatSuffix?: boolean; musicForShotsWithScore?: boolean }): Promise<{ warnings: LintWarning[]; view: ProjectView }> {
+  const found = director.findStyle(style);
+  if (!found) throw new StudioError("not_found", `no style matches "${style}"`);
+  const { shotlist } = await shotlistOf(projectId);
+  if (shotlist.scenes.length === 0) throw new StudioError("validation", "the project has no shotlist yet");
+  const result = director.applyStyle(found.style, shotlist as never, { beatSuffix: opts?.beatSuffix ?? true, musicForShotsWithScore: opts?.musicForShotsWithScore ?? true });
+  const saved = await saveShotlist(projectId, ShotlistInputSchema.parse(result.shotlist));
+  const project = await repo.getProject(projectId);
+  await repo.setProjectLook(projectId, { ...project.look, style: found.style.slug });
+  return { warnings: result.warnings as LintWarning[], view: saved };
+}
+
+export type ProjectBatch = ReturnType<typeof director.planBatch> & { shots: Array<{ shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number }> };
+
+/** Order the shots still to render (R2VA first, anchors before linked
+    shots) with one estimate against the cap. Per-shot estimates come from
+    the compiler when the shot compiles; otherwise the planner's fallback. */
+export async function planProjectBatch(projectId: string, opts?: { takesPerShot?: number; onlyMissing?: boolean }): Promise<ProjectBatch> {
+  const view = await getProjectView(projectId);
+  const measured = await gpu.measuredForEstimate();
+  const flat = view.scenes.flatMap((s) => s.shots.map((sh) => ({ scene: s, shot: sh })));
+  const shots = [];
+  for (let index = 0; index < flat.length; index++) {
+    const { scene, shot } = flat[index]!;
+    const hasTake = Boolean(shot.selectedTake ?? shot.takes.find((t) => t.status === "completed"));
+    let estimateUsd: number | undefined;
+    try {
+      estimateUsd = (await compileForShot(shot.id)).estimate.usd;
+    } catch {
+      estimateUsd = undefined;
+    }
+    shots.push({ shotId: shot.id, index, durationS: shot.spec.durationS, mode: shot.spec.mode, link: shot.spec.link ? { type: shot.spec.link.type, anchor: shot.spec.link.anchor, anchorShotId: shot.spec.link.anchorShotId } : undefined, hasTake, estimateUsd, label: `${scene.slug} #${shot.index + 1} · ${shot.spec.intent}` });
+  }
+  const perSecondUsd = measured.secondsPerOutputSecond && measured.usdPerHr ? (measured.secondsPerOutputSecond * measured.usdPerHr) / 3600 : undefined;
+  const plan = director.planBatch(shots as never, { capUsd: view.project.budgetCapUsd, spentUsd: view.project.spentUsd }, { perSecondUsd, takesPerShot: opts?.takesPerShot ?? 1, onlyMissing: opts?.onlyMissing ?? true });
+  return { ...plan, shots: shots.map(({ index: _i, link, ...s }) => ({ ...s, link: link?.type })) };
 }

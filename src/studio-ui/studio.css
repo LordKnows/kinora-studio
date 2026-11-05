@@ -1769,3 +1769,74 @@
   color: var(--tx3);
   line-height: 1.4;
 }
+
+/* ---------- rendered markdown (scripts, style notes) ---------- */
+
+.studio .st-markdown {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--tx);
+  max-width: 72ch;
+}
+.studio .st-markdown h2 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 20px 0 8px;
+}
+.studio .st-markdown h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+.studio .st-markdown h4,
+.studio .st-markdown h5 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tx2);
+  margin: 16px 0 6px;
+}
+.studio .st-markdown p {
+  margin: 0 0 10px;
+}
+.studio .st-markdown ul {
+  margin: 0 0 10px;
+}
+.studio .st-markdown strong {
+  font-weight: 600;
+}
+.studio .st-markdown code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: var(--s3);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.studio .st-lint {
+  display: grid;
+  gap: 8px;
+}
+.studio .st-lint-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border-radius: var(--r-ctl);
+  background: var(--s2);
+  border: 1px solid var(--line);
+  font-size: 13px;
+}
+.studio .st-lint-row[data-severity="error"] {
+  border-color: var(--danger-line);
+}
+.studio .st-lint-row[data-severity="warn"] {
+  border-color: var(--warn-line);
+}
+.studio .st-lint-where {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--tx3);
+}

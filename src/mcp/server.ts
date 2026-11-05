@@ -102,6 +102,12 @@ export function createStudioServer(actor: Actor): McpServer {
     if (!s) throw new StudioError("not_found", `no style matches "${style}"`);
     return director.applyStyle(s.style, shotlist as never, { beatSuffix, musicForShotsWithScore });
   });
+  tool("lint_project", "Lint the project's saved shotlist (rhythm, variety, breath, link/mode sanity, render-order switches) plus Tier 2 / Tier 3 completeness per shot. Fix the errors and warnings with revise_shot before asking for approval.", z.object({ projectId: id }), async ({ projectId }) => orch.lintProject(projectId));
+  tool("apply_style_to_project", "Apply a style preset to the project's saved shotlist (cinematography defaults where unset, beat suffix, sound defaults) and save it; records the style on the Look.", z.object({ projectId: id, style: z.string().min(1), beatSuffix: z.boolean().default(true), musicForShotsWithScore: z.boolean().default(true) }), async ({ projectId, style, ...opts }) => {
+    const { warnings, view } = await orch.applyStyleToProject(projectId, style, opts);
+    return { warnings, approval: view.project.shotlistApproval };
+  });
+  tool("plan_project_batch", "The render plan for the project's shots without a finished take: R2VA first, anchors before linked shots, passes, one estimate against the cap (compiler estimates where the shot compiles). Then generate_take in that order.", z.object({ projectId: id, takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true) }), async ({ projectId, ...opts }) => orch.planProjectBatch(projectId, opts));
   tool("lint_shotlist", "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beat tiling, link/mode sanity, render-order switches. Run before save_shotlist and fix the errors and warnings.", z.object({ shotlist: ShotlistShape, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false) }), async ({ shotlist, totalSeconds, errorsAndWarningsOnly }) =>
     director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly }));
   tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {

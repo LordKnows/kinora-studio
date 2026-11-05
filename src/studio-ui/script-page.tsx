@@ -6,6 +6,7 @@ import type { Script } from "@/studio/types";
 
 import { get, post, when } from "./api";
 import { Button, Empty, ErrorBanner, Lamp, Section, useAction } from "./common";
+import { Markdown } from "./markdown";
 import { useProjectContext } from "./shell";
 
 export function ScriptPage() {
@@ -78,7 +79,7 @@ export function ScriptPage() {
       </div>
       <ErrorBanner error={save.error ?? approve.error} onDismiss={() => { save.dismiss(); approve.dismiss(); }} />
 
-      <div className="st-split" style={{ marginTop: 12 }}>
+      <div className="st-split" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.4fr)" }}>
         <div className="st-stack">
           <div className="st-card st-stack">
             <span className="st-label">New version</span>
@@ -124,7 +125,7 @@ export function ScriptPage() {
             <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : "Preview"}</span>
             {current && <Lamp state={current.approval} label={current.approval} />}
           </div>
-          {current ? <pre className="st-pre" style={{ maxHeight: 640 }}>{current.text}</pre> : <span className="st-muted">Select a version to read it.</span>}
+          {current ? <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div> : <span className="st-muted">Select a version to read it.</span>}
         </div>
       </div>
     </div>

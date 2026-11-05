@@ -34,3 +34,42 @@ describe("director layer in the connector", () => {
     expect(hits[0]!.t).toBeCloseTo(2, 5);
   });
 });
+
+describe("director layer on a saved project", () => {
+  it("lints, applies a style and plans a batch over the project's own shotlist", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { setDb } = await import("@/db");
+    type Db = import("@/db").Db;
+    const { migrate } = await import("@/db/migrate");
+    const sqlite = new Database(":memory:");
+    sqlite.pragma("foreign_keys = ON");
+    const db: Db = {
+      async all<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).all(...(params as never[])) as T[]; },
+      async get<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).get(...(params as never[])) as T | undefined; },
+      async run(sql: string, params: unknown[] = []) { return { changes: Number(sqlite.prepare(sql).run(...(params as never[])).changes) }; },
+      async exec(sql: string) { sqlite.exec(sql); },
+    };
+    await migrate(db);
+    setDb(db);
+    const repo = await import("@/studio/repo");
+    const orch = await import("@/studio/orchestrator");
+    const { ShotlistInput } = await import("@/studio/schemas");
+    const project = await repo.createProject({ name: "Styled", budgetCapUsd: 20 });
+    const bare = (i: number) => ({ durationS: 5, mode: "text", intent: `shot ${i}`, beats: [{ from: 0, to: 5, action: "The wind moves" }], camera: { move: "static" }, link: { type: "cut" } });
+    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [bare(1), bare(2), bare(3)] }] }));
+    const lint = await orch.lintProject(project.id, { totalSeconds: 15 });
+    expect(lint.warnings.some((w) => w.code === "tier3.missing" && w.scene === "a" && w.shot === 1)).toBe(true);
+    expect(lint.counts.warn).toBeGreaterThan(0);
+    const applied = await orch.applyStyleToProject(project.id, "ink-wash");
+    const spec = applied.view.scenes[0]!.shots[0]!.spec;
+    expect(spec.cinematography && Object.keys(spec.cinematography).length).toBeGreaterThan(0);
+    expect((await repo.getProject(project.id)).look.style).toBe("ink-wash");
+    /* a style sets its own cinematography defaults; whatever it leaves unset still shows in the lint */
+    expect((await orch.lintProject(project.id)).warnings.every((w) => w.code !== "tier3.missing" || !w.message.includes(Object.keys(spec.cinematography ?? {})[0] ?? "∅"))).toBe(true);
+    const plan = await orch.planProjectBatch(project.id);
+    expect(plan.order).toHaveLength(3);
+    expect(plan.passes[0]).toHaveLength(3);
+    expect(plan.shots[0]!.label).toContain("a #1");
+    expect(plan.totalEstimateUsd).toBeGreaterThan(0);
+  });
+});

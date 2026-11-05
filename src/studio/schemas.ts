@@ -48,6 +48,7 @@ export const LookSettings = z.object({
   upscale: z.boolean().default(false).describe("Upscale at export time (master-upscaled preset)"),
   negative: z.array(z.string().max(80)).max(10).default(["no on-screen text", "no logos", "no subtitles"]),
   loras: z.array(LoraRef).max(6).default([]).describe("Project-wide LoRAs (speed LoRA goes here); shots may override"),
+  style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
 

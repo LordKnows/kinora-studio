@@ -67,7 +67,7 @@ export function ElementsPage() {
               {list.map((el) => (
                 <button key={el.id} type="button" className="st-shot" aria-pressed={open === el.id} onClick={() => setOpen(el.id)}>
                   <div className="st-shot-media" style={{ aspectRatio: kind === "character" ? "3 / 4" : "16 / 9" }}>
-                    {el.refs[0] ? <img src={el.refs[0].url} alt={el.name} /> : <div className="st-placeholder" />}
+                    {el.refs[0] ? <img src={el.refs[0].url} alt={el.name} /> : <div className="st-placeholder"><span className="st-placeholder-initial">{el.name.slice(0, 1).toUpperCase()}</span></div>}
                     <span className="st-shot-status">
                       <span className="st-chip">{el.refs.length} ref{el.refs.length === 1 ? "" : "s"}</span>
                     </span>

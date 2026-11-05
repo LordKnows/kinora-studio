@@ -14,6 +14,24 @@ import { EDIT_GRAMMAR } from "@/studio/editing";
 
 import { ShotEditor, validateDraft, type ShotDraft } from "./shot-editor";
 
+type LintWarning = { code: string; message: string; scene?: string; shot?: number; severity: "error" | "warn" | "info" };
+type LintReport = { warnings: LintWarning[]; counts: { error: number; warn: number; info: number } };
+type BatchPlan = {
+  order: string[]; passes: string[][]; deferred: Array<{ shotId: string; waitingFor: string }>; totalEstimateUsd: number; withinCap: boolean; remainingCapUsd: number;
+  estimates: Array<{ shotId: string; usd: number; source: string }>; warnings: string[];
+  shots: Array<{ shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number }>;
+};
+
+/* Short codes for the card: ELS · HIGH · WIDE · NEON · TEAL. */
+function cineCodes(spec: ShotView["spec"]): string[] {
+  const c = (spec.cinematography ?? {}) as Record<string, unknown>;
+  const out: string[] = [];
+  for (const k of ["size", "angle", "lens"] as const) if (typeof c[k] === "string") out.push(String(c[k]).toUpperCase());
+  if (Array.isArray(c.lighting) && c.lighting[0]) out.push(String(c.lighting[0]).toUpperCase());
+  if (typeof c.grade === "string") out.push(String(c.grade).toUpperCase());
+  return out;
+}
+
 /* The Board: scenes, shot cards, and the drawer where a shot is edited,
    compiled, given a hero frame and rendered into takes. */
 
@@ -34,6 +52,48 @@ export function BoardPage() {
   const { projectId, view, reload } = useProjectContext();
   const [openId, setOpenId] = useState<string | null>(null);
   const [newScene, setNewScene] = useState("");
+  const [lint, setLint] = useState<LintReport | null>(null);
+  const [lintOpen, setLintOpen] = useState(false);
+  const [batch, setBatch] = useState<BatchPlan | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [styleNote, setStyleNote] = useState<string | null>(null);
+  const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
+  const refreshLint = useCallback(async () => {
+    try {
+      setLint(await get<LintReport>(`/api/projects/${projectId}/lint`));
+    } catch {
+      setLint(null);
+    }
+  }, [projectId]);
+  useEffect(() => {
+    void refreshLint();
+  }, [refreshLint, view?.project.shotlistApproval, view?.scenes.length]);
+  const lintByShot = useMemo(() => {
+    const m = new Map<string, LintWarning[]>();
+    for (const w of lint?.warnings ?? []) {
+      if (!w.scene || !w.shot) continue;
+      const k = `${w.scene}#${w.shot}`;
+      m.set(k, [...(m.get(k) ?? []), w]);
+    }
+    return m;
+  }, [lint]);
+  const applyStyle = useAction(async () => {
+    const style = view?.project.look.style;
+    if (!style) return;
+    const r = await post<{ warnings: LintWarning[] }>(`/api/projects/${projectId}/apply-style`, { style });
+    setStyleNote(`Style “${style}” applied to every shot${r.warnings.length ? `; ${r.warnings.length} note(s) in Lint` : ""}. The shotlist is back in draft until you approve it.`);
+    await reload();
+    await refreshLint();
+  });
+  const plan = useAction(async () => {
+    setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true }));
+    setBatchOpen(true);
+  });
+  const renderPass = useAction(async (confirm, ids: string[]) => {
+    for (const id of ids) await post(`/api/shots/${id}/takes`, { n: 1, confirm });
+    setBatchOpen(false);
+    await reload();
+  });
 
   const approve = useAction(async () => {
     await post(`/api/projects/${projectId}/shotlist/approve`);
@@ -79,15 +139,36 @@ export function BoardPage() {
           </p>
         </div>
         <div className="st-actions">
-          <Lamp state={view.project.shotlistApproval} label={approved ? "Shotlist approved" : "Shotlist draft"} />
+          <Lamp state={approved ? "ok" : "warn"} label={approved ? "Shotlist approved" : "Shotlist draft"} />
+          {shotCount > 0 && (
+            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title="Rhythm and craft lint of the shotlist">
+              Lint{lint ? ` · ${lint.counts.error + lint.counts.warn}` : ""}
+            </Button>
+          )}
+          {shotCount > 0 && view.project.look.style && (
+            <Button busy={applyStyle.busy} onClick={() => void applyStyle.fire()} title={`Fill every shot's cinematography from the style “${view.project.look.style}”`}>
+              Apply style
+            </Button>
+          )}
           {!approved && (
             <Button kind="primary" busy={approve.busy} disabled={shotCount === 0} onClick={() => void approve.fire()}>
               Approve shotlist
             </Button>
           )}
+          {approved && (
+            <Button kind="primary" busy={plan.busy} onClick={() => void plan.fire()} title="Order the shots without a take: R2VA first, anchors before linked shots, one estimate">
+              Render batch
+            </Button>
+          )}
         </div>
       </div>
-      <ErrorBanner error={error} projectId={projectId} onDismiss={() => { approve.dismiss(); addScene.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); }} />
+      <ErrorBanner error={error ?? applyStyle.error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addScene.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); applyStyle.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
+      {styleNote && (
+        <div className="st-alert st-alert--info" style={{ marginBottom: 16 }}>
+          <span>{styleNote}</span>
+          <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>Dismiss</Button>
+        </div>
+      )}
 
       {view.scenes.length === 0 && (
         <Empty title="No scenes yet" hint="Ask the director agent to save_shotlist, or add a scene below and build shots by hand." />
@@ -118,6 +199,7 @@ export function BoardPage() {
                   key={shot.id}
                   shot={shot}
                   index={i}
+                  lint={lintByShot.get(shotKey(scene.slug, i)) ?? []}
                   open={openId === shot.id}
                   onOpen={() => setOpenId(shot.id)}
                   onUp={i > 0 ? () => void reorder.fire(scene, i, i - 1) : undefined}
@@ -137,6 +219,76 @@ export function BoardPage() {
       </div>
 
       {open && <ShotDrawer key={open.id} shot={open} onClose={() => setOpenId(null)} />}
+      {lintOpen && (
+        <Drawer title={`Lint · ${lint ? `${lint.counts.error} errors, ${lint.counts.warn} warnings, ${lint.counts.info} notes` : "…"}`} onClose={() => setLintOpen(false)}>
+          {!lint ? (
+            <span className="st-muted">Loading…</span>
+          ) : lint.warnings.length === 0 ? (
+            <Empty title="Nothing to fix" hint="Rhythm, variety, breath, links and cinematography all pass." />
+          ) : (
+            <div className="st-lint">
+              {lint.warnings.map((w, i) => (
+                <div key={i} className="st-lint-row" data-severity={w.severity}>
+                  <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : "film"}</span>
+                  <span>
+                    <span className={w.severity === "error" ? "st-danger" : w.severity === "warn" ? "st-warn" : "st-muted"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginRight: 8 }}>{w.code}</span>
+                    {w.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Drawer>
+      )}
+      {batchOpen && batch && (
+        <Drawer title="Render batch" onClose={() => setBatchOpen(false)}>
+          <div className="st-stack">
+            <div className="st-card st-stack st-stack--tight">
+              <div className="st-row st-row--between">
+                <span className="st-h2">{batch.order.length} shot{batch.order.length === 1 ? "" : "s"} to render · {batch.passes.length} pass{batch.passes.length === 1 ? "" : "es"}</span>
+                <span className="st-num" style={{ color: batch.withinCap ? "var(--tx)" : "var(--danger)" }}>≈ {usd(batch.totalEstimateUsd)} · {usd(batch.remainingCapUsd)} left</span>
+              </div>
+              <span className="st-muted">R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.</span>
+              {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
+            </div>
+            {batch.passes.map((pass, pi) => (
+              <div key={pi} className="st-card st-card--pad0">
+                <table className="st-table">
+                  <thead>
+                    <tr>
+                      <th>Pass {pi + 1}</th>
+                      <th>Mode</th>
+                      <th>Link</th>
+                      <th className="st-num">Est.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pass.map((id) => {
+                      const sh = batch.shots.find((x) => x.shotId === id);
+                      const est = batch.estimates.find((x) => x.shotId === id);
+                      return (
+                        <tr key={id}>
+                          <td>{sh?.label ?? id}</td>
+                          <td className="st-num">{sh?.mode}</td>
+                          <td className="st-num">{sh?.link ?? "cut"}</td>
+                          <td className="st-num">{est ? `${usd(est.usd)}${est.source === "fallback" ? " ~" : ""}` : "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ))}
+            {batch.deferred.length > 0 && <span className="st-muted">Waiting for an anchor: {batch.deferred.map((d) => d.shotId).join(", ")}</span>}
+            <div className="st-row st-row--between">
+              <span className="st-muted">Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.</span>
+              <Button kind="primary" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
+                Render pass 1 ({batch.passes[0]?.length ?? 0})
+              </Button>
+            </div>
+          </div>
+        </Drawer>
+      )}
     </div>
   );
 }
@@ -148,16 +300,18 @@ function linkLabel(spec: ShotView["spec"]): string | null {
   return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
 }
 
-function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
+function ShotCard({ shot, index, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
   const latest = shot.takes[0];
   const cost = shot.takes.reduce((n, t) => n + (t.costUsd ?? 0), 0);
+  const codes = cineCodes(shot.spec);
+  const problems = lint.filter((w) => w.severity !== "info").length;
   return (
     <div className="st-shot" aria-pressed={open}>
       <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
         {(() => {
           /* Poster order: the selected take, else the newest completed take, else the hero frame. */
           const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
-          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder" />;
+          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : "no take yet"}</div>;
         })()}
         <span className="st-shot-index">{index + 1}</span>
         {latest && (
@@ -167,12 +321,16 @@ function ShotCard({ shot, index, open, onOpen, onUp, onDown }: { shot: ShotView;
         )}
       </button>
       <div className="st-shot-body">
+        <div className="st-shot-tags">
+          {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">no cinematography</span>}
+          {linkLabel(shot.spec) && <span className="st-chip st-chip--mono" aria-pressed="true">{linkLabel(shot.spec)}</span>}
+          {problems > 0 && <span className="st-chip st-chip--mono st-chip--warn" title={lint.map((w) => w.message).join("\n")}>⚠ {problems}</span>}
+        </div>
         <button type="button" className="st-shot-intent" onClick={onOpen} style={{ textAlign: "left" }}>
           {shot.spec.intent || "Untitled shot"}
         </button>
         <div className="st-shot-facts">
-          {shot.spec.durationS}s · {shot.spec.mode} · {shot.spec.camera.move.replace("_", " ")}
-          {linkLabel(shot.spec) && ` · ${linkLabel(shot.spec)}`}
+          {shot.spec.durationS} s · {shot.spec.mode} · {shot.spec.camera.move.replace("_", " ")}
           {shot.takes.length > 0 && ` · ${shot.takes.length} take${shot.takes.length === 1 ? "" : "s"} · ${usd(cost)}`}
         </div>
         <div className="st-row" style={{ gap: 4 }}>
