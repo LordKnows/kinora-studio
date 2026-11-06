@@ -232,3 +232,29 @@ test("batch estimates: compile_prompt values win, fallback curve otherwise", () 
   assert.equal(plan.warnings.length, 1);
   assert.ok(Math.abs(plan.totalEstimateUsd - 0.585) < 1e-9);
 });
+
+test("craft lint: dead frame, axis across the cut, unison reactions", () => {
+  const base = { durationS: 5, mode: "text" as const, intent: "x", camera: { move: "static" as const }, characters: ["a"] };
+  const list: Shotlist = { scenes: [{ slug: "s", shots: [
+    { ...base, motion: [], beats: [{ from: 0, to: 5, action: "Everyone looks up at the same time" }], blocking: [{ who: "a", from: "off_left", to: "off_right" }] },
+    { ...base, motion: ["subject"], beats: [{ from: 0, to: 5, action: "She walks on toward frame left" }], blocking: [{ who: "a", from: "right", to: "left" }] },
+  ] }] };
+  const codes = lintShotlist(list).map((w) => w.code);
+  for (const c of ["motion.dead", "performance.simultaneous", "blocking.axis"]) assert.ok(codes.includes(c), `missing ${c}`);
+  assert.ok(!codes.includes("wording.direction"), "frame-anchored direction is fine");
+});
+
+test("local assembly: speed shortens the clip, BT.601 sources convert to tagged BT.709", () => {
+  const t: ExtTimeline = { clips: [{ shotId: "a", takeId: "t", file: "/a.mp4", inS: 0, outS: 4, speed: 2 }, { shotId: "b", takeId: "u", file: "/b.mp4", inS: 0, outS: 2, sourceMatrix: "bt709" }] };
+  assert.equal(totalSeconds(t), 4);
+  const cmd = buildCommand(t, { out: "/tmp/x.mp4", dryRun: true });
+  assert.match(cmd.filterGraph, /setpts=\(PTS-STARTPTS\)\/2,colorspace=all=bt709:iall=bt601-6-525/);
+  assert.match(cmd.filterGraph, /setparams=colorspace=bt709/);
+  assert.match(cmd.filterGraph, /atempo=2/);
+  assert.ok(cmd.args.join(" ").includes("-colorspace bt709 -color_primaries bt709 -color_trc bt709"));
+});
+
+test("treatment markdown fills schema defaults for a minimal valid treatment", () => {
+  const md = treatmentToMarkdown({ title: "T", style: "s", totalSeconds: 10, logline: "a logline long enough", arc: { setup: "setup", turn: "turnn", ending: "endin" }, candidates: [], chosen: "", whyChosen: "", benchmark: [], hook: { description: "hook!", atSecond: 1 }, endingEcho: "", signatureShot: "", nativeMove: "", sequences: [], soundDesign: [] } as never);
+  assert.match(md, /# T/);
+});

@@ -4,10 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CheckIcon } from "./icons";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
-import type { ShotInput } from "@/studio/schemas";
+import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
 import type { Take } from "@/studio/types";
+import { uploadMedia } from "./upload";
 
-import { del, get, patch, post, usd } from "./api";
+import { del, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
@@ -19,7 +20,8 @@ type LintReport = { warnings: LintWarning[]; counts: { error: number; warn: numb
 type BatchPlan = {
   order: string[]; passes: string[][]; deferred: Array<{ shotId: string; waitingFor: string }>; totalEstimateUsd: number; withinCap: boolean; remainingCapUsd: number;
   estimates: Array<{ shotId: string; usd: number; source: string }>; warnings: string[];
-  shots: Array<{ shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number }>;
+  shots: Array<{ shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number; fragility?: number; fragile?: string[]; tier?: "turbo" | "careful" }>;
+  probe?: { shotIds: string[]; estimateUsd: number; why: string };
 };
 
 /* Short codes for the card: ELS · HIGH · WIDE · NEON · TEAL. */
@@ -54,6 +56,9 @@ export function BoardPage() {
   const [newScene, setNewScene] = useState("");
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintOpen, setLintOpen] = useState(false);
+  const [sketchOpen, setSketchOpen] = useState(false);
+  const [sketchGray, setSketchGray] = useState(false);
+  const [sketchKey, setSketchKey] = useState(0);
   const [batch, setBatch] = useState<BatchPlan | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
   const [styleNote, setStyleNote] = useState<string | null>(null);
@@ -117,6 +122,15 @@ export function BoardPage() {
     await post("/api/shots/reorder", { sceneId: scene.id, shotIds: ids });
     await reload();
   });
+  const editPalette = useAction(async (_c, scene: SceneView) => {
+    const current = scene.palette ? `${scene.palette.colors.join(" ")}${scene.palette.note ? ` | ${scene.palette.note}` : ""}` : "";
+    const raw = window.prompt(`Colour script for "${scene.slug}": hex colours darkest first, then | and a note. Empty clears it.\nExample: #1d2430 #3b4a5c #d9c7a3 #b23a2b | warm practicals against a cold window; red only on the scarf`, current);
+    if (raw === null) return;
+    const [cols, note] = raw.split("|");
+    const colors = (cols ?? "").match(/#[0-9a-fA-F]{6}/g) ?? [];
+    await put(`/api/scenes/${scene.id}/palette`, { palette: colors.length ? { colors: colors.slice(0, 6), ...(note?.trim() ? { note: note.trim() } : {}) } : null });
+    await reload();
+  });
   const removeScene = useAction(async (_c, scene: SceneView) => {
     if (!window.confirm(`Delete scene "${scene.slug}" and its ${scene.shots.length} shots?`)) return;
     await del(`/api/scenes/${scene.id}`);
@@ -127,7 +141,7 @@ export function BoardPage() {
   const open = view.scenes.flatMap((s) => s.shots).find((s) => s.id === openId) ?? null;
   const approved = view.project.shotlistApproval === "approved";
   const shotCount = view.scenes.reduce((n, s) => n + s.shots.length, 0);
-  const error = approve.error ?? addScene.error ?? addShot.error ?? reorder.error ?? removeScene.error;
+  const error = approve.error ?? addScene.error ?? addShot.error ?? reorder.error ?? removeScene.error ?? editPalette.error;
 
   return (
     <div className="st-page st-page--wide">
@@ -140,6 +154,11 @@ export function BoardPage() {
         </div>
         <div className="st-actions">
           <Lamp state={approved ? "ok" : "warn"} label={approved ? "Shotlist approved" : "Shotlist draft"} />
+          {shotCount > 0 && (
+            <Button kind="quiet" onClick={() => setSketchOpen(true)} title="Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes">
+              Sketch
+            </Button>
+          )}
           {shotCount > 0 && (
             <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title="Rhythm and craft lint of the shotlist">
               Lint{lint ? ` · ${lint.counts.error + lint.counts.warn}` : ""}
@@ -162,7 +181,7 @@ export function BoardPage() {
           )}
         </div>
       </div>
-      <ErrorBanner error={error ?? applyStyle.error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addScene.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); applyStyle.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
+      <ErrorBanner error={error ?? applyStyle.error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addScene.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); editPalette.dismiss(); applyStyle.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
       {styleNote && (
         <div className="st-alert st-alert--info" style={{ marginBottom: 16 }}>
           <span>{styleNote}</span>
@@ -180,8 +199,16 @@ export function BoardPage() {
             <div>
               <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
               {scene.summary && <span className="st-scene-summary"> · {scene.summary}</span>}
+              {scene.palette && (
+                <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? "scene palette"}>
+                  {scene.palette.colors.map((c) => <span key={c} style={{ width: 12, height: 12, borderRadius: 2, background: c, display: "inline-block" }} />)}
+                </span>
+              )}
             </div>
             <div className="st-row">
+              <Button size="sm" kind="quiet" onClick={() => void editPalette.fire(scene)} title="This scene's colour script; it compiles into every shot">
+                Palette
+              </Button>
               <Button size="sm" busy={addShot.busy} onClick={() => void addShot.fire(scene.id)}>
                 Add shot
               </Button>
@@ -219,6 +246,23 @@ export function BoardPage() {
       </div>
 
       {open && <ShotDrawer key={open.id} shot={open} onClose={() => setOpenId(null)} />}
+      {sketchOpen && (
+        <Drawer
+          title="Sketch · colour-block storyboard"
+          onClose={() => setSketchOpen(false)}
+          head={
+            <span className="st-row">
+              <Button size="sm" kind={sketchGray ? "default" : "quiet"} onClick={() => setSketchGray((g) => !g)} title="Black and white: does the subject separate from the background by value alone?">{sketchGray ? "Colour" : "Grayscale"}</Button>
+              <Button size="sm" kind="quiet" onClick={() => setSketchKey((k) => k + 1)}>Refresh</Button>
+              <a className="st-link" href={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}`} target="_blank" rel="noreferrer">Open</a>
+            </span>
+          }
+        >
+          <p className="st-muted">Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.</p>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt="Colour-block storyboard" style={{ width: "100%", height: "auto", borderRadius: 8 }} />
+        </Drawer>
+      )}
       {lintOpen && (
         <Drawer title={`Lint · ${lint ? `${lint.counts.error} errors, ${lint.counts.warn} warnings, ${lint.counts.info} notes` : "…"}`} onClose={() => setLintOpen(false)}>
           {!lint ? (
@@ -251,6 +295,12 @@ export function BoardPage() {
               <span className="st-muted">R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.</span>
               {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
             </div>
+            {batch.probe && batch.probe.shotIds.length > 0 && (
+              <div className="st-card st-row st-row--between">
+                <span><strong>Probe first.</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
+                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>Render probe ({batch.probe.shotIds.length})</Button>
+              </div>
+            )}
             {batch.passes.map((pass, pi) => (
               <div key={pi} className="st-card st-card--pad0">
                 <table className="st-table">
@@ -259,6 +309,7 @@ export function BoardPage() {
                       <th>Pass {pi + 1}</th>
                       <th>Mode</th>
                       <th>Link</th>
+                      <th title="Weak spots of AI video found in the shot (fragile.* in Lint)">Fragile</th>
                       <th className="st-num">Est.</th>
                     </tr>
                   </thead>
@@ -271,6 +322,7 @@ export function BoardPage() {
                           <td>{sh?.label ?? id}</td>
                           <td className="st-num">{sh?.mode}</td>
                           <td className="st-num">{sh?.link ?? "cut"}</td>
+                          <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? " · careful" : ""}` : "—"}</td>
                           <td className="st-num">{est ? `${usd(est.usd)}${est.source === "fallback" ? " ~" : ""}` : "—"}</td>
                         </tr>
                       );
@@ -498,8 +550,17 @@ function FramesPanel({ shot }: { shot: ShotView }) {
     await reload();
   });
 
-  /* Image generation is disabled for now (TODO): hero and end frames are
-     uploads, element references, or last frames of finished takes. */
+  const derive = useAction(async () => {
+    if (!shot.hero) return;
+    const x = shot.spec.composition?.subjectX === "left" ? 0.38 : shot.spec.composition?.subjectX === "right" ? 0.62 : 0.5;
+    const file = await cropForPushIn(shot.hero.url, 1.2, x);
+    const { assetId } = await uploadMedia(file, projectId);
+    await post(`/api/shots/${shot.id}/end-frame`, { assetId });
+    await reload();
+  });
+
+  /* The Studio has no image model: hero and end frames are uploads, images
+     the director imports (import_image), or last frames of finished takes. */
   const images = (view?.assets ?? []).filter((a) => a.kind === "image");
 
   const grid = (picked: string | undefined, onPick: (id: string) => void) => (
@@ -533,11 +594,95 @@ function FramesPanel({ shot }: { shot: ShotView }) {
       >
         {grid(shot.heroAssetId, (id) => void pickHero.fire(shot.heroAssetId === id ? null : id))}
       </Section>
-      <Section title="End frame (keyframe mode, optional)" aside={shot.endAssetId ? <Button size="sm" kind="quiet" onClick={() => void pickEnd.fire(null)}>Clear</Button> : undefined}>
+      <Section
+        title="End frame (keyframe mode, optional)"
+        aside={
+          <span className="st-row">
+            {shot.hero && (
+              <Button size="sm" kind="quiet" busy={derive.busy} onClick={() => void derive.fire()} title="Crop the hero frame toward the subject and scale it back up: the end frame of a push-in, so FL2VA has to push">
+                Derive end frame (push-in)
+              </Button>
+            )}
+            {shot.endAssetId && <Button size="sm" kind="quiet" onClick={() => void pickEnd.fire(null)}>Clear</Button>}
+          </span>
+        }
+      >
+        <ErrorBanner error={derive.error} projectId={projectId} onDismiss={derive.dismiss} />
         {grid(shot.endAssetId, (id) => void pickEnd.fire(shot.endAssetId === id ? null : id))}
       </Section>
+      {shot.hero && shot.end && <FrameCheck first={shot.hero.url} last={shot.end.url} />}
+      {shot.hero && <PhoneCheck url={shot.hero.url} />}
     </div>
   );
+}
+
+/* Overlay first and last frame: whatever should not change must cancel out
+   to black in difference mode (a wall that changes colour fades in the
+   video; a cup that grows, grows). */
+function FrameCheck({ first, last }: { first: string; last: string }) {
+  const [mode, setMode] = useState<"difference" | "onion">("difference");
+  const [mix, setMix] = useState(50);
+  return (
+    <Section
+      title="Frame check · first vs last"
+      aside={
+        <span className="st-row">
+          <Button size="sm" kind={mode === "difference" ? "default" : "quiet"} onClick={() => setMode("difference")}>Difference</Button>
+          <Button size="sm" kind={mode === "onion" ? "default" : "quiet"} onClick={() => setMode("onion")}>Onion skin</Button>
+        </span>
+      }
+    >
+      <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000", borderRadius: 6, overflow: "hidden" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={first} alt="first frame" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={last} alt="last frame" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", mixBlendMode: mode === "difference" ? "difference" : "normal", opacity: mode === "onion" ? mix / 100 : 1 }} />
+      </div>
+      {mode === "onion" && <input type="range" min={0} max={100} value={mix} onChange={(e) => setMix(Number(e.target.value))} style={{ width: "100%" }} aria-label="Last frame opacity" />}
+      <p className="st-muted">{mode === "difference" ? "Black = identical. Anything bright outside the action will drift during the shot: walls, furniture, prop sizes, the horizon." : "Slide between the frames: camera position, scale and background must stay put."}</p>
+    </Section>
+  );
+}
+
+/* Phone-size preview: is every important person still readable? */
+function PhoneCheck({ url }: { url: string }) {
+  return (
+    <Section title="Phone size">
+      <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt="hero frame at phone width" style={{ width: 180, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
+        <span className="st-muted">The hero frame at the width it plays in a feed. Faces and props that matter should still read here.</span>
+      </div>
+    </Section>
+  );
+}
+
+/** Crop toward the composition point and scale back to the hero frame's size. */
+async function cropForPushIn(url: string, zoom: number, subjectX: number): Promise<File> {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.src = url;
+  await img.decode();
+  const W = img.naturalWidth, H = img.naturalHeight;
+  const cw = Math.round(W / zoom), ch = Math.round(H / zoom);
+  const x = Math.round(Math.min(W - cw, Math.max(0, subjectX * W - cw / 2)));
+  const y = Math.round(Math.min(H - ch, Math.max(0, H * 0.45 - ch / 2)));
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("no canvas");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, x, y, cw, ch, 0, 0, W, H);
+  const blob = await new Promise<Blob | null>((resolve) => {
+    try {
+      canvas.toBlob(resolve, "image/png");
+    } catch {
+      resolve(null);
+    }
+  });
+  if (!blob) throw new Error("the image host does not allow the browser to read the frame (CORS); ask the director to run derive_end_frame instead");
+  return new File([blob], `end-pushin-${zoom}.png`, { type: "image/png" });
 }
 
 function TakesPanel({ shot }: { shot: ShotView }) {
@@ -577,9 +722,11 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   const { projectId, reload } = useProjectContext();
   const [notes, setNotes] = useState(take.review?.notes ?? "");
   const [score, setScore] = useState<number | undefined>(take.review?.score);
+  const [faults, setFaults] = useState<TakeFault[]>(take.review?.faults ?? []);
+  const [audioOk, setAudioOk] = useState<boolean | undefined>(take.review?.audioOk);
   const review = useAction(async () => {
     if (!score) return;
-    await post(`/api/takes/${take.id}/review`, { score, notes });
+    await post(`/api/takes/${take.id}/review`, { score, notes, faults, ...(audioOk !== undefined ? { audioOk } : {}) });
     await reload();
   });
   const select = useAction(async () => {
@@ -683,10 +830,29 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             Save review
           </Button>
         </div>
+        {take.status === "completed" && (
+          <details>
+            <summary className="st-muted">What went wrong (feeds the retro){faults.length ? ` · ${faults.length}` : ""}</summary>
+            <div className="st-chips" style={{ marginTop: 6 }}>
+              {TAKE_FAULTS.map((f) => (
+                <button key={f} type="button" className="st-chip" aria-pressed={faults.includes(f)} onClick={() => setFaults((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}>
+                  {f.replaceAll("_", " ")}
+                </button>
+              ))}
+            </div>
+            <label className="st-row" style={{ gap: 6, marginTop: 6 }}>
+              <input type="checkbox" checked={audioOk === false} onChange={(e) => setAudioOk(e.target.checked ? false : true)} />
+              <span className="st-muted">Sound unusable — mute this take's own audio on the timeline</span>
+            </label>
+          </details>
+        )}
         {take.review && (
           <span className="st-muted">
             Reviewed {take.review.score}/5 by {take.review.by}
             {take.review.notes ? ` — ${take.review.notes}` : ""}
+            {take.review.faults?.length ? ` · ${take.review.faults.join(", ").replaceAll("_", " ")}` : ""}
+            {take.review.audioOk === false ? " · audio muted" : ""}
+            {take.review.basis ? ` · basis: ${take.review.basis}` : ""}
           </span>
         )}
         <div className="st-row">

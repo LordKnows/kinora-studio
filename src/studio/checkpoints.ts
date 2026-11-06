@@ -18,6 +18,7 @@ export function assertBudget(project: Project, estimateUsd: number): void {
   if (project.spentUsd + estimateUsd > project.budgetCapUsd) {
     throw new StudioError("budget_exceeded", `This would exceed the project budget (${project.spentUsd.toFixed(2)} + ${estimateUsd.toFixed(2)} > ${project.budgetCapUsd.toFixed(2)} USD).`, {
       spentUsd: project.spentUsd, capUsd: project.budgetCapUsd, estimateUsd,
+      next: "Stop here and show the user what exists: rough_cut assembles the rendered takes in order and lists the shots still missing. Never raise the cap yourself.",
     });
   }
 }
@@ -31,6 +32,7 @@ export function assertConfirmed(confirm: boolean, estimateUsd: number, what: str
 /** Which shot fields reset the shotlist approval when changed (§3.2). */
 export const STRUCTURAL_SHOT_FIELDS = new Set([
   "durationS", "mode", "intent", "beats", "camera", "dialogue", "sound", "characters", "location", "props", "linkToPrev", "sourceTakeId", "editInstruction",
+  "blocking", "motion", "composition",
 ]);
 
 /** True when a structural field actually changed between two specs. The

@@ -53,3 +53,9 @@ export async function objectExists(key: string): Promise<boolean> {
 export async function getObject(key: string, range?: string | null): Promise<Response> {
   return s3().fetch(objectUrl(key), { method: "GET", headers: range ? { range } : {} });
 }
+
+/** Server-side write (an image the director imports by URL or as base64). */
+export async function putObject(key: string, body: ArrayBuffer | Uint8Array, contentType: string): Promise<void> {
+  const res = await s3().fetch(objectUrl(key), { method: "PUT", body: body as BodyInit, headers: { "content-type": contentType } });
+  if (!res.ok) throw new Error(`R2 PUT ${key} failed: ${res.status} ${await res.text().catch(() => "")}`);
+}

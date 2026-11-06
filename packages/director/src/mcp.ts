@@ -85,9 +85,9 @@ server.registerTool("apply_style", {
 });
 
 server.registerTool("lint_shotlist", {
-  description: "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beats tiling, link/mode sanity, render-order switches. Run before save_shotlist and fix the errors and warnings.",
-  inputSchema: { shotlist: ShotlistSchema, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false) },
-}, async ({ shotlist, totalSeconds, errorsAndWarningsOnly }) => text(lintShotlist(shotlist as any, { totalSeconds, errorsAndWarningsOnly })));
+  description: "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beats tiling, link/mode sanity, render-order switches; staging (blocking in screen terms, the 180° line, what moves, dead frames), wording the model misreads (loose directions, negations, unison reactions) and the pictures video models get wrong (fragile.*). Pass elements so names in the beats are checked against each shot. Run before save_shotlist and fix the errors and warnings.",
+  inputSchema: { shotlist: ShotlistSchema, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false), elements: z.array(z.object({ id: z.string(), name: z.string(), kind: z.enum(["character", "location", "prop"]), fixedFeatures: z.array(z.object({ feature: z.string(), where: z.string() })).optional() })).optional() },
+}, async ({ shotlist, totalSeconds, errorsAndWarningsOnly, elements }) => text(lintShotlist(shotlist as any, { totalSeconds, errorsAndWarningsOnly, elements })));
 
 server.registerTool("validate_treatment", {
   description: "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark learn/don't, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design table, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.",

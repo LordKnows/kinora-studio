@@ -12,6 +12,7 @@ import { STYLE_LIBRARY_RAW } from "./generated";
 export { compileLook, applyStyle } from "@director/compile/look";
 export { validateTreatment, treatmentToMarkdown } from "@director/treatment";
 export { lintShotlist } from "@director/lint/shotlist";
+export { lintCraft, shotFragility, fragileInText, screenDirection, type Fragility } from "@director/lint/craft";
 export { checkCueMap, cutOnBeats, hitTimes, type CueMap } from "@director/sound/cuemap";
 export { checkTimeline, toStudioTimeline, type ExtTimeline } from "@director/timeline/extended";
 export { checkLines, placeLines, toSrt, spellNumbersForSpeech, type Line } from "@director/narration/srt";

@@ -37,6 +37,16 @@ export const LoraInput = z.object({
 });
 export type LoraInput = z.infer<typeof LoraInput>;
 
+/* Prompt experiments for A/B tests on the self-hosted H3. Off by default:
+   each changes the compiled text, and none is verified on H3 yet. The take
+   records which were on, so pairs can be compared on the eval page. */
+export const PromptExperiments = z.object({
+  frameHolds: z.boolean().optional().describe("Add 'the first 0.2 s hold on the first frame' and 'the last 0.3 s settle exactly on the final frame' lines (frame-driven shots)"),
+  restateFrame: z.boolean().optional().describe("Keyframe shots: restate who and what the first frame shows (people, wardrobe, props, place) instead of trusting the frame alone"),
+  positiveCast: z.boolean().optional().describe("Frame-driven shots: 'only the people and objects of the first frame appear throughout' as a positive constraint"),
+});
+export type PromptExperiments = z.infer<typeof PromptExperiments>;
+
 export const LookSettings = z.object({
   genre: z.string().max(200).describe("Genre and tone, e.g. 'neo-noir thriller'"),
   palette: z.string().max(200).describe("Colour palette, e.g. 'teal and amber, crushed blacks'"),
@@ -49,6 +59,7 @@ export const LookSettings = z.object({
   negative: z.array(z.string().max(80)).max(10).default(["no on-screen text", "no logos", "no subtitles"]),
   loras: z.array(LoraRef).max(6).default([]).describe("Project-wide LoRAs (speed LoRA goes here); shots may override"),
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
+  experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
 
@@ -113,6 +124,34 @@ export const Cinematography = z.object({
 });
 export type Cinematography = z.infer<typeof Cinematography>;
 
+/* Staging, written in screen terms (the Eian Lu storyboard discipline): who
+   enters and leaves which side of the frame, what moves in the picture,
+   where the subject sits, and what the first and last frames show. */
+export const SCREEN_POSITIONS = ["off_left", "left", "center", "right", "off_right", "foreground", "background"] as const;
+export type ScreenPosition = (typeof SCREEN_POSITIONS)[number];
+export const Blocking = z.object({
+  who: z.string().min(1).max(80).describe("Element id, or a short name for an extra or an object"),
+  from: z.enum(SCREEN_POSITIONS).optional().describe("Where they start, in screen terms (off_left = enters from frame left)"),
+  to: z.enum(SCREEN_POSITIONS).optional().describe("Where they end (off_right = exits frame right)"),
+  note: z.string().max(160).optional().describe("Path or pace, e.g. 'walks behind the counter, stops at the till'"),
+});
+export type Blocking = z.infer<typeof Blocking>;
+
+export const MOTION_SOURCES = ["camera", "subject", "focus", "light", "foreground", "background", "weather", "prop"] as const;
+
+export const Composition = z.object({
+  subjectX: z.enum(["left", "center", "right"]).describe("Where the subject's eyes sit: left ≈ 38 % from the left edge, right ≈ 62 %; center only for deliberate symmetry"),
+  headroom: z.enum(["tight", "normal", "generous"]).optional(),
+  note: z.string().max(160).optional(),
+});
+export type Composition = z.infer<typeof Composition>;
+
+export const FramePlan = z.object({
+  first: z.string().max(500).optional().describe("What the first frame shows: who stands where, facing where, which props are visible"),
+  last: z.string().max(500).optional().describe("What the last frame shows"),
+});
+export type FramePlan = z.infer<typeof FramePlan>;
+
 export const ShotBase = z.object({
     durationS: z.number().int().min(5).max(15).describe("5–15 seconds; chain shots for longer takes"),
     mode: z.enum(SHOT_MODES).describe(
@@ -133,6 +172,11 @@ export const ShotBase = z.object({
     editInstruction: z.string().max(600).optional().describe("edit mode: only what changes"),
     promptOverride: z.string().max(7000).optional().describe("Replace the compiled prompt entirely"),
     loras: z.array(LoraRef).max(6).optional().describe("Override the project LoRAs for this shot; [] = none"),
+    blocking: z.array(Blocking).max(6).optional().describe("Who moves where, in screen terms (frame left / right). Compiles to screen-direction lines and lets the lint check the axis across cuts."),
+    motion: z.array(z.enum(MOTION_SOURCES)).max(4).optional().describe("What moves in the picture: camera, subject, focus, light, foreground (something crosses the lens), background (passers-by), weather, prop. At least one; a static camera with nothing moving is a dead frame."),
+    composition: Composition.optional().describe("Where the subject sits; compiles to a composition line"),
+    frames: FramePlan.optional().describe("First / last frame descriptions, written and reviewed before any frame is drawn"),
+    screenS: z.number().min(1).max(15).optional().describe("Planned time on screen; durationS should be ≥ screenS + 0.5 so the edit has handles"),
 });
 
 export const ShotInput = ShotBase.superRefine((shot, ctx) => {
@@ -164,10 +208,17 @@ export const ShotInput = ShotBase.superRefine((shot, ctx) => {
   });
 export type ShotInput = z.infer<typeof ShotInput>;
 
+export const ScenePalette = z.object({
+  colors: z.array(z.string().regex(/^#[0-9a-fA-F]{6}$/, "hex like #a1b2c3")).min(1).max(6).describe("Dominant colours, darkest to lightest; one accent at most"),
+  note: z.string().max(200).optional().describe("e.g. 'warm practicals against a cold window; red only on the scarf'"),
+});
+export type ScenePalette = z.infer<typeof ScenePalette>;
+
 export const SceneInput = z.object({
   slug: z.string().min(1).max(60).describe("Short handle, e.g. 'alley-chase'"),
   summary: z.string().max(400).default(""),
   location: z.string().optional().describe("Element id"),
+  palette: ScenePalette.optional().describe("This scene's colour script, set before any frame is drawn; compiles into every shot of the scene"),
   shots: z.array(ShotInput).min(1),
 });
 
@@ -179,24 +230,50 @@ export const ShotPatch = ShotBase.partial().extend({
 });
 export type ShotPatch = z.infer<typeof ShotPatch>;
 
+export const FixedFeature = z.object({
+  feature: z.string().min(1).max(80).describe("e.g. 'dragon tattoo', 'red beret'"),
+  where: z.string().min(1).max(120).describe("Exact place, with the character's own left/right, e.g. 'left forearm, inner side'"),
+});
+export type FixedFeature = z.infer<typeof FixedFeature>;
+
 export const ElementInput = z.object({
   kind: z.enum(ELEMENT_KINDS),
   name: z.string().min(1).max(80),
   description: z.string().max(1200).default("").describe("Visual description the compiler and image model use"),
+  fixedFeatures: z.array(FixedFeature).max(8).optional().describe("Details that must never move or vanish (a tattoo on the LEFT forearm, a hat, a scar). Restated in every shot the element appears in."),
 });
+
 export type ElementInput = z.infer<typeof ElementInput>;
+
+/* Which view a reference image shows, so R2VA can pick the one that matches
+   the shot's angle and size (a profile shot gets the side view). */
+export const REF_VIEWS = ["front", "three_quarter", "side", "back", "full_body", "expression", "detail"] as const;
+export type RefView = (typeof REF_VIEWS)[number];
+
+
 
 export const TakeRequest = z.object({
   n: z.number().int().min(1).max(4).default(1),
   steps: z.number().int().min(4).max(50).optional().describe("Sampling steps. Omit for the default: the speed LoRA's step count (8 for the lightx2v turbo LoRAs), or 20 with the base chain when no speed LoRA is active."),
   seed: z.number().int().optional(),
   confirm: z.boolean().default(false).describe("Must be true to spend budget"),
+  experiments: PromptExperiments.optional().describe("Prompt A/B switches for this take; recorded on the take"),
 });
 export type TakeRequest = z.infer<typeof TakeRequest>;
+
+/* Why a take failed, as tags, so the retro can count H3's failure modes. */
+export const TAKE_FAULTS = [
+  "identity_drift", "wardrobe_or_prop_lost", "object_appears", "count_changed", "wrong_direction", "simultaneous_motion",
+  "action_wrong", "action_timing", "camera_wrong", "weak_camera_move", "face_or_hand_artifact", "mouth_moves", "anthropomorphized",
+  "colour_drift", "tail_snap", "first_frame_pop", "text_artifact", "audio_music_leak", "audio_bad", "other",
+] as const;
+export type TakeFault = (typeof TAKE_FAULTS)[number];
 
 export const ReviewInput = z.object({
   score: z.number().int().min(1).max(5),
   notes: z.string().max(500).default(""),
+  faults: z.array(z.enum(TAKE_FAULTS)).max(8).default([]).describe("What went wrong, as tags (feeds the retro)"),
+  audioOk: z.boolean().optional().describe("false = mute the take's own audio on the timeline"),
 });
 export type ReviewInput = z.infer<typeof ReviewInput>;
 
@@ -208,6 +285,8 @@ export const TimelineClip = z.object({
   transition: z.enum(["cut", "dissolve"]).default("cut"),
   transitionS: z.number().min(0.2).max(1).optional(),
   repeat: z.number().int().min(1).max(120).default(1).describe("Play the clip this many times back to back (loops)"),
+  speed: z.number().min(0.5).max(2).default(1).describe("Retime the clip (0.8–1.25 is invisible) so an action lands on a beat instead of re-rendering"),
+  muteOwnAudio: z.boolean().default(false).describe("Drop the take's own audio (a take whose sound failed review)"),
 });
 export const TimelineInput = z.object({
   clips: z.array(TimelineClip).default([]),

@@ -23,6 +23,9 @@ export interface ExtClip extends Omit<StudioClip, "transition"> {
   muteOwnAudio?: boolean;
   /** Hold the last frame this many seconds (a freeze). */
   freezeS?: number;
+  /** YUV matrix the take was written with. Untagged H3 takes are BT.601 data
+      (PyAV's default RGB → YUV); the assembler converts to BT.709 and tags it. */
+  sourceMatrix?: "bt601" | "bt709";
 }
 
 export interface TitleCard {
@@ -75,7 +78,7 @@ export function toStudioTimeline(t: ExtTimeline): { timeline: StudioTimeline; dr
     const tr: "cut" | "dissolve" = c.transition === "dissolve" ? "dissolve" : "cut";
     if (c.transition && c.transition !== "cut" && c.transition !== "dissolve") dropped.push({ code: "studio.transition", severity: "info", shot: i, message: `transition ${c.transition} kept for the local assembler; the Studio gets a cut` });
     if (c.audioLeadS || c.audioTrailS) dropped.push({ code: "studio.jl", severity: "info", shot: i, message: "J/L cut only in the local assembler" });
-    const clip: StudioClip = { shotId: c.shotId, takeId: c.takeId, inS: c.inS ?? 0, outS: c.outS, repeat: c.repeat ?? 1, transition: tr };
+    const clip: StudioClip = { shotId: c.shotId, takeId: c.takeId, inS: c.inS ?? 0, outS: c.outS, repeat: c.repeat ?? 1, transition: tr, ...(c.speed && c.speed !== 1 ? { speed: c.speed } : {}), ...(c.muteOwnAudio ? { muteOwnAudio: true } : {}) };
     if (tr === "dissolve") clip.transitionS = Math.min(1, Math.max(0.2, c.transitionS ?? 0.5));
     return clip;
   });
@@ -91,7 +94,7 @@ export function clipStarts(t: ExtTimeline): { start: number; length: number }[] 
   const out: { start: number; length: number }[] = [];
   let cursor = 0;
   t.clips.forEach((c, i) => {
-    const len = ((c.outS - (c.inS ?? 0)) * (c.repeat ?? 1)) + (c.freezeS ?? 0);
+    const len = (((c.outS - (c.inS ?? 0)) / (c.speed ?? 1)) * (c.repeat ?? 1)) + (c.freezeS ?? 0);
     const overlap = i > 0 && c.transition && c.transition !== "cut" ? Math.min(1, Math.max(0.2, c.transitionS ?? 0.5)) : 0;
     const start = cursor - overlap;
     out.push({ start, length: len });
@@ -112,6 +115,8 @@ export function checkTimeline(t: ExtTimeline): Warning[] {
   t.clips.forEach((c, i) => {
     if (c.outS <= (c.inS ?? 0)) W.push({ code: "clip.range", severity: "error", shot: i, message: `outS ${c.outS} ≤ inS ${c.inS ?? 0}` });
     if (c.outS > 15.2) W.push({ code: "clip.long", severity: "error", shot: i, message: `outS ${c.outS} exceeds a take's length` });
+    if (c.speed !== undefined && (c.speed < 0.5 || c.speed > 2)) W.push({ code: "clip.speed", severity: "error", shot: i, message: `speed ${c.speed} is outside 0.5–2` });
+    else if (c.speed !== undefined && (c.speed < 0.8 || c.speed > 1.25)) W.push({ code: "clip.speed.visible", severity: "info", shot: i, message: `speed ${c.speed}: beyond 0.8–1.25 the retime shows` });
     if ((c.audioLeadS ?? 0) > 2 || (c.audioTrailS ?? 0) > 2) W.push({ code: "clip.jl", severity: "warn", shot: i, message: "J/L cuts over 2 s read as a mistake" });
     if (i === 0 && c.audioLeadS) W.push({ code: "clip.jl.first", severity: "warn", shot: 0, message: "the first clip cannot lead its audio" });
     if (c.transition === "dissolve" && i === 0) W.push({ code: "clip.dissolve.first", severity: "warn", shot: 0, message: "a dissolve on the first clip is a fade; use fadeInS" });

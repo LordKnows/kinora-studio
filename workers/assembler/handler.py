@@ -2,14 +2,15 @@
 
 Input (from `src/studio/backends/assembler.ts`, `AssemblerInput`):
     export_job_id, preset, video_size "WxH",
-    clips: [{url, in_s, out_s, transition_in: cut|dissolve, transition_s?}],
+    clips: [{url, in_s, out_s, transition_in: cut|dissolve, transition_s?, repeat?, speed?, mute?}],
     audio: {keep_clip_audio, music_url?, mix_db: {dialogue, sfx, music}, music_duck_under_dialogue},
     subtitles: {srt, burn_in},
     output: {key}
 
 Output: {url, srt_url?, duration_s, size_bytes}
 
-Steps: download → normalise each clip (size, 24 fps, h264/aac, trim) →
+Steps: download → normalise each clip (size, 24 fps, h264/aac, trim, retime,
+BT.709 colour) →
 concat (cuts) or xfade/acrossfade chain (dissolves) → music bed with ducking →
 optional burned-in subtitles → upload to R2.
 """
@@ -33,10 +34,17 @@ FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 FFPROBE = os.environ.get("FFPROBE", "ffprobe")
 FPS = 24
 AUDIO_RATE = 48000
+# Colour: every output is BT.709 and says so. A source without colour tags is
+# read with this matrix — PyAV/swscale encode RGB → YUV with BT.601 unless told
+# otherwise, so untagged H3 takes are BT.601 data. Override with bt709 if an
+# ffprobe of a take shows the pod already writes BT.709 without tagging it.
+UNTAGGED_MATRIX = os.environ.get("ASSEMBLER_UNTAGGED_MATRIX", "bt601")
+OUT_COLOR = ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"]
 
 PRESETS: dict[str, dict[str, Any]] = {
     "master-768p": {"size": None, "video_bitrate": "8M", "audio_bitrate": "192k"},
-    # TODO: route through the H3 worker's upscale + RIFE workflow before assembly.
+    # Uses each take's Open-H3-Regenerate file when it has one. No whole-clip
+    # frame interpolation: it smears motion and invents in-betweens on AI video.
     "master-upscaled": {"size": None, "video_bitrate": "8M", "audio_bitrate": "192k"},
     "social-9x16": {"size": (768, 1344), "video_bitrate": "6M", "audio_bitrate": "160k"},
     "preview-480p": {"size": (854, 480), "video_bitrate": "1500k", "audio_bitrate": "96k"},
@@ -55,6 +63,8 @@ class Clip:
     transition_in: str
     transition_s: float
     repeat: int = 1
+    speed: float = 1.0
+    mute: bool = False
 
 
 @dataclass
@@ -102,7 +112,10 @@ def validate_input(raw: Any) -> Params:
         repeat = c.get("repeat", 1)
         if not isinstance(repeat, int) or not 1 <= repeat <= 120:
             raise JobError("clip repeat must be an integer between 1 and 120")
-        clips.append(Clip(c["url"], in_s, out_s, transition, float(c.get("transition_s", 0.4)), repeat))
+        speed = float(c.get("speed", 1.0))
+        if not 0.5 <= speed <= 2.0:
+            raise JobError("clip speed must be between 0.5 and 2")
+        clips.append(Clip(c["url"], in_s, out_s, transition, float(c.get("transition_s", 0.4)), repeat, speed, bool(c.get("mute", False))))
     clips[0].transition_in = "cut"  # nothing to dissolve from
     audio = raw.get("audio") or {}
     mix = {"dialogue": 0.0, "sfx": -3.0, "music": -12.0}
@@ -150,15 +163,38 @@ def run(args: list[str]) -> None:
 
 def probe(path: Path) -> dict[str, Any]:
     out = subprocess.run(
-        [FFPROBE, "-v", "error", "-show_entries", "format=duration,size:stream=codec_type", "-of", "json", str(path)],
+        [FFPROBE, "-v", "error", "-show_entries", "format=duration,size:stream=codec_type,color_space,color_primaries,color_transfer", "-of", "json", str(path)],
         check=True, capture_output=True, text=True,
     ).stdout
     data = json.loads(out)
+    video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
     return {
         "duration": float(data.get("format", {}).get("duration", 0) or 0),
         "size": int(data.get("format", {}).get("size", 0) or 0),
         "codecs": [s.get("codec_type") for s in data.get("streams", [])],
+        "color_space": video.get("color_space"),
     }
+
+
+def source_matrix(color_space: str | None) -> str:
+    """The matrix a clip's YUV was written with, for the colorspace filter."""
+    if color_space in ("bt709",):
+        return "bt709"
+    if color_space in ("bt470bg", "smpte170m", "bt601"):
+        return "bt601-6-625" if color_space == "bt470bg" else "bt601-6-525"
+    return "bt601-6-525" if UNTAGGED_MATRIX == "bt601" else "bt709"
+
+
+def color_filter(color_space: str | None) -> str:
+    """Convert to BT.709 when the source is not; tag the frames either way."""
+    src = source_matrix(color_space)
+    if src == "bt709":
+        return "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
+    return f"colorspace=all=bt709:iall={src}:fast=1"
+
+
+def atempo_chain(speed: float) -> str:
+    return f"atempo={speed:.4f}" if 0.5 <= speed <= 2.0 else "atempo=1"
 
 
 def download(url: str, dest: Path) -> Path:
@@ -174,18 +210,23 @@ def download(url: str, dest: Path) -> Path:
 
 
 def normalize_clip(src: Path, dst: Path, p: Params, clip: Clip) -> float:
-    """Trim, scale-and-crop to the preset frame, 24 fps, h264 + aac stereo.
-    Clips without an audio stream get silence so every piece concats alike."""
+    """Trim, retime, scale-and-crop to the preset frame, 24 fps, BT.709,
+    h264 + aac stereo. Clips without an audio stream (or muted ones) get
+    silence so every piece concats alike."""
     info = probe(src)
-    has_audio = "audio" in info["codecs"]
-    vf = f"scale={p.width}:{p.height}:force_original_aspect_ratio=increase,crop={p.width}:{p.height},fps={FPS},setsar=1,format=yuv420p"
-    args = ["-ss", f"{clip.in_s:.3f}", "-t", f"{clip.out_s - clip.in_s:.3f}", "-i", str(src)]
+    has_audio = "audio" in info["codecs"] and not clip.mute
+    span = clip.out_s - clip.in_s
+    out_len = span / clip.speed
+    retime = f",setpts=PTS/{clip.speed:.4f}" if abs(clip.speed - 1) > 1e-3 else ""
+    vf = f"{color_filter(info.get('color_space'))}{retime},scale={p.width}:{p.height}:force_original_aspect_ratio=increase,crop={p.width}:{p.height},fps={FPS},setsar=1,format=yuv420p"
+    args = ["-ss", f"{clip.in_s:.3f}", "-t", f"{span:.3f}", "-i", str(src)]
     if not has_audio:
-        args += ["-f", "lavfi", "-t", f"{clip.out_s - clip.in_s:.3f}", "-i", f"anullsrc=r={AUDIO_RATE}:cl=stereo"]
+        args += ["-f", "lavfi", "-t", f"{out_len:.3f}", "-i", f"anullsrc=r={AUDIO_RATE}:cl=stereo"]
     gain = p.mix_db["dialogue"] if p.keep_clip_audio else -120.0
-    af = f"aresample={AUDIO_RATE},aformat=channel_layouts=stereo,volume={gain}dB"
+    tempo = f",{atempo_chain(clip.speed)}" if has_audio and abs(clip.speed - 1) > 1e-3 else ""
+    af = f"aresample={AUDIO_RATE},aformat=channel_layouts=stereo{tempo},volume={gain}dB"
     args += ["-map", "0:v:0", "-map", "0:a:0" if has_audio else "1:a:0", "-vf", vf, "-af", af,
-             "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, "-c:a", "aac", "-b:a", p.audio_bitrate, "-ar", str(AUDIO_RATE), "-ac", "2",
+             "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, *OUT_COLOR, "-c:a", "aac", "-b:a", p.audio_bitrate, "-ar", str(AUDIO_RATE), "-ac", "2",
              "-shortest", str(dst)]
     run(args)
     return probe(dst)["duration"]
@@ -219,7 +260,7 @@ def join_clips(parts: list[tuple[Path, float]], clips: list[Clip], dst: Path, p:
             timeline += parts[i][1]
         v_prev, a_prev = v_out, a_out
     run([*inputs, "-filter_complex", ";".join(filters), "-map", v_prev, "-map", a_prev,
-         "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, "-pix_fmt", "yuv420p", "-r", str(FPS),
+         "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, "-pix_fmt", "yuv420p", *OUT_COLOR, "-r", str(FPS),
          "-c:a", "aac", "-b:a", p.audio_bitrate, "-ar", str(AUDIO_RATE), str(dst)])
 
 
@@ -239,7 +280,7 @@ def add_music(video: Path, music: Path, dst: Path, p: Params, duration: float) -
 
 
 def burn_subtitles(video: Path, srt: Path, dst: Path, p: Params) -> None:
-    run(["-i", str(video), "-vf", f"subtitles={srt.as_posix()}", "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, "-c:a", "copy", str(dst)])
+    run(["-i", str(video), "-vf", f"subtitles={srt.as_posix()}", "-c:v", "libx264", "-preset", "medium", "-b:v", p.video_bitrate, *OUT_COLOR, "-c:a", "copy", str(dst)])
 
 
 # ---------- R2 ----------
@@ -267,6 +308,37 @@ class R2Uploader:
 
 Uploader = Any
 Downloader = Callable[[str, Path], Path]
+
+
+def cut_times(parts: list[tuple[Path, float]], clips: list[Clip]) -> list[float]:
+    """Where every join lands on the assembled picture (mid-dissolve for dissolves)."""
+    out: list[float] = []
+    t = parts[0][1] if parts else 0.0
+    for i in range(1, len(parts)):
+        clip = clips[i]
+        if clip.transition_in == "dissolve":
+            d = min(clip.transition_s, parts[i][1] / 2, parts[i - 1][1] / 2)
+            offset = max(0.0, t - d)
+            out.append(round(offset + d / 2, 3))
+            t = offset + parts[i][1]
+        else:
+            out.append(round(t, 3))
+            t += parts[i][1]
+    return out
+
+
+def cut_sheet(video: Path, cuts: list[float], dst: Path, width: int = 240) -> bool:
+    """One row per cut: the 3 frames before it and the 3 after, for a review
+    of jumps and colour breaks at every seam. False when there is nothing to show."""
+    if not cuts:
+        return False
+    picks: list[str] = []
+    for c in cuts[:60]:
+        n = int(round(c * FPS))
+        picks.append(f"between(n,{max(0, n - 3)},{n + 2})")
+    vf = f"select='{'+'.join(picks)}',scale={width}:-2,tile=6x{len(picks)}:padding=4:color=black"
+    run(["-i", str(video), "-vf", vf, "-frames:v", "1", "-fps_mode", "passthrough", str(dst)])
+    return dst.exists()
 
 
 def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloader = download) -> dict[str, Any]:
@@ -305,9 +377,19 @@ def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloade
     info = probe(current)
     url = uploader.upload(current, p.output_key, "video/mp4")
     srt_url = uploader.upload(srt_path, p.output_key[: -len(".mp4")] + ".srt", "application/x-subrip") if srt_path else None
+    cuts = cut_times(parts, joined_clips)
+    sheet_url = None
+    try:
+        sheet = workdir / "cuts.png"
+        if cut_sheet(current, cuts, sheet):
+            sheet_url = uploader.upload(sheet, p.output_key[: -len(".mp4")] + ".cuts.png", "image/png")
+    except JobError as err:  # a missing sheet never fails the export
+        print(f"[assembler] cut sheet skipped: {err}", file=sys.stderr)
     return {
         "url": url,
         "srt_url": srt_url,
+        "cut_sheet_url": sheet_url,
+        "cuts_s": cuts,
         "duration_s": round(info["duration"], 3),
         "size_bytes": info["size"],
         "execution_ms": int((time.monotonic() - started) * 1000),

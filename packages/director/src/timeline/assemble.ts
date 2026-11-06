@@ -53,8 +53,9 @@ export function buildCommand(t: ExtTimeline, o: AssembleOptions): BuiltCommand {
   // Picture per clip
   const vlabels: string[] = [];
   clips.forEach((c, i) => {
-    const inS = c.inS ?? 0, len = c.outS - inS;
-    const parts = [`[${clipIn[i]}:v]trim=start=${inS}:end=${c.outS},setpts=PTS-STARTPTS,fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`];
+    const inS = c.inS ?? 0, speed = c.speed ?? 1, len = (c.outS - inS) / speed;
+    const color = (c.sourceMatrix ?? "bt601") === "bt709" ? "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709" : "colorspace=all=bt709:iall=bt601-6-525:fast=1";
+    const parts = [`[${clipIn[i]}:v]trim=start=${inS}:end=${c.outS},setpts=(PTS-STARTPTS)/${speed},${color},fps=${fps},scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`];
     if ((c.repeat ?? 1) > 1) parts.push(`loop=loop=${(c.repeat ?? 1) - 1}:size=${Math.round(len * fps)}:start=0`);
     if (c.freezeS) parts.push(`tpad=stop_mode=clone:stop_duration=${c.freezeS}`);
     F.push(`${parts.join(",")}[v${i}]`);
@@ -125,7 +126,8 @@ export function buildCommand(t: ExtTimeline, o: AssembleOptions): BuiltCommand {
     const outS = c.outS + trail;
     const at = Math.max(0, starts[i].start - lead);
     const vol = c.gainDb ? `,volume=${db(c.gainDb)}` : "";
-    F.push(`[${clipIn[i]}:a]atrim=start=${inS}:end=${outS},asetpts=PTS-STARTPTS,aresample=48000${vol},adelay=${Math.round(at * 1000)}|${Math.round(at * 1000)}[a${i}]`);
+    const tempo = c.speed && c.speed !== 1 ? `,atempo=${c.speed}` : "";
+    F.push(`[${clipIn[i]}:a]atrim=start=${inS}:end=${outS},asetpts=PTS-STARTPTS,aresample=48000${tempo}${vol},adelay=${Math.round(at * 1000)}|${Math.round(at * 1000)}[a${i}]`);
     alabels.push(`a${i}`);
   });
   // Narration
@@ -162,7 +164,7 @@ export function buildCommand(t: ExtTimeline, o: AssembleOptions): BuiltCommand {
   const graph = F.join(";\n");
   const args: string[] = ["-y", "-hide_banner", "-loglevel", "error"];
   for (const f of inputs) args.push("-i", f);
-  args.push("-filter_complex", graph, "-map", `[${cur}]`, "-map", `[${aout}]`, "-r", String(fps), "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", o.out);
+  args.push("-filter_complex", graph, "-map", `[${cur}]`, "-map", `[${aout}]`, "-r", String(fps), "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-pix_fmt", "yuv420p", "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", "-shortest", o.out);
   return { args, durationS: total, filterGraph: graph };
 }
 

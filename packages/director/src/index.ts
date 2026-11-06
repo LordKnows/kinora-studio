@@ -5,6 +5,7 @@ export { styleToMarkdown } from "./styles/markdown.js";
 export { compileLook, applyStyle, type LookOverrides, type ApplyOptions } from "./compile/look.js";
 export { TreatmentSchema, validateTreatment, treatmentToMarkdown, type Treatment } from "./treatment.js";
 export { lintShotlist, type LintOptions } from "./lint/shotlist.js";
+export { lintCraft, shotFragility, fragileInText, screenDirection, FRAGILE_PATTERNS, type CraftOptions, type Fragility } from "./lint/craft.js";
 export * from "./sound/cuemap.js";
 export * from "./timeline/extended.js";
 export { buildCommand, assemble, type AssembleOptions } from "./timeline/assemble.js";

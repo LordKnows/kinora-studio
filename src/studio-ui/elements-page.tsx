@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CheckIcon } from "./icons";
 import type { Asset, Element } from "@/studio/types";
+import { REF_VIEWS, type FixedFeature, type RefView } from "@/studio/schemas";
 
 import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
@@ -150,6 +151,8 @@ function ElementEditor({
   const [name, setName] = useState(element?.name ?? "");
   const [description, setDescription] = useState(element?.description ?? "");
   const [selected, setSelected] = useState<string[]>(element?.refAssetIds ?? []);
+  const [features, setFeatures] = useState<FixedFeature[]>(element?.fixedFeatures ?? []);
+  const [views, setViews] = useState<Record<string, RefView>>(element?.refViews ?? {});
   /* Every image in the project is a candidate: uploads and last frames of
      finished takes. Image generation is disabled for now (TODO). */
   const [images, setImages] = useState<Asset[]>([]);
@@ -164,14 +167,15 @@ function ElementEditor({
   }, [loadImages]);
 
   const save = useAction(async () => {
-    if (element) await patch(`/api/elements/${element.id}`, { kind, name, description });
-    else await post(`/api/projects/${projectId}/elements`, { kind, name, description });
+    const fixedFeatures = features.filter((f) => f.feature.trim() && f.where.trim());
+    if (element) await patch(`/api/elements/${element.id}`, { kind, name, description, fixedFeatures });
+    else await post(`/api/projects/${projectId}/elements`, { kind, name, description, fixedFeatures });
     await onSaved();
   });
 
   const saveRefs = useAction(async () => {
     if (!element) return;
-    await post(`/api/elements/${element.id}/refs`, { assetIds: selected });
+    await post(`/api/elements/${element.id}/refs`, { assetIds: selected, views: Object.fromEntries(Object.entries(views).filter(([a]) => selected.includes(a))) });
     await onSaved();
   });
 
@@ -217,6 +221,20 @@ function ElementEditor({
         </div>
         <Field label="Visual description" hint="Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.">
           <textarea className="st-textarea" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} />
+        </Field>
+        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile.">
+          <div className="st-stack st-stack--tight">
+            {features.map((f, i) => (
+              <div key={i} className="st-line">
+                <input className="st-input st-input--sm" placeholder="feature (dragon tattoo)" value={f.feature} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, feature: e.target.value } : x)))} />
+                <input className="st-input st-input--sm" placeholder="where (left forearm, inner side)" value={f.where} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, where: e.target.value } : x)))} />
+                <Button size="sm" kind="quiet" onClick={() => setFeatures(features.filter((_, j) => j !== i))}>Remove</Button>
+              </div>
+            ))}
+            <div>
+              <Button size="sm" disabled={features.length >= 8} onClick={() => setFeatures([...features, { feature: "", where: "" }])}>Add feature</Button>
+            </div>
+          </div>
         </Field>
         <div className="st-row st-row--between">
           <div className="st-row">
@@ -267,6 +285,25 @@ function ElementEditor({
                     );
                   })}
                 </div>
+                {selected.length > 0 && (
+                  <div className="st-stack st-stack--tight" style={{ marginTop: 10 }}>
+                    <span className="st-muted">Which view does each reference show? Tagged views let a profile shot use the side view and a close-up the expression sheet.</span>
+                    {selected.map((id, k) => {
+                      const a = candidates.find((c) => c.id === id);
+                      return (
+                        <div key={id} className="st-row">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          {a && <img src={a.url} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4 }} />}
+                          <span className="st-muted st-num">#{k + 1}</span>
+                          <select className="st-select st-input--sm" value={views[id] ?? ""} onChange={(e) => setViews({ ...views, [id]: e.target.value as RefView })}>
+                            <option value="">view —</option>
+                            {REF_VIEWS.map((v) => <option key={v} value={v}>{v.replace("_", " ")}</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 <div className="st-row st-row--between" style={{ marginTop: 10 }}>
                   <span className="st-muted st-num">{selected.length} selected</span>
                   <Button kind="primary" size="sm" busy={saveRefs.busy} onClick={() => void saveRefs.fire()}>

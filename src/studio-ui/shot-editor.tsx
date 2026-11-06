@@ -3,7 +3,7 @@
 import { CloseIcon } from "./icons";
 import { CINEMA, type CinemaCategoryKey } from "@/studio/cinematography";
 import { EDIT_GRAMMAR, type LinkType } from "@/studio/editing";
-import { CAMERA_MOVES, SHOT_MODES, type ShotInput } from "@/studio/schemas";
+import { CAMERA_MOVES, MOTION_SOURCES, SCREEN_POSITIONS, SHOT_MODES, type ShotInput } from "@/studio/schemas";
 import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field } from "./common";
@@ -278,6 +278,77 @@ export function ShotEditor({
         <Field label="Note" hint="Free text; does not reset the approval.">
           <input className="st-input" value={value.camera.note ?? ""} onChange={(e) => set("camera", { ...value.camera, note: e.target.value || undefined })} />
         </Field>
+      </div>
+
+      <div className="st-card st-stack">
+        <span className="st-label" style={{ marginBottom: 0 }}>Staging</span>
+        <Field label="What moves" hint="At least one; a static camera with nothing moving is a dead frame.">
+          <div className="st-chips">
+            {MOTION_SOURCES.map((m) => {
+              const on = (value.motion ?? []).includes(m);
+              return (
+                <button key={m} type="button" className="st-chip st-chip--btn" aria-pressed={on} onClick={() => {
+                  const next = on ? (value.motion ?? []).filter((x) => x !== m) : [...(value.motion ?? []), m];
+                  set("motion", next.length ? next : undefined);
+                }}>{m}</button>
+              );
+            })}
+          </div>
+        </Field>
+        <div className="st-fields">
+          <Field label="Subject at" hint="Eyes on the 38 % or 62 % line; centre only for symmetry.">
+            <select className="st-select" value={value.composition?.subjectX ?? ""} onChange={(e) => set("composition", e.target.value ? { ...(value.composition ?? {}), subjectX: e.target.value as "left" | "center" | "right" } : undefined)}>
+              <option value="">—</option>
+              <option value="left">left third (38 %)</option>
+              <option value="center">centre</option>
+              <option value="right">right third (62 %)</option>
+            </select>
+          </Field>
+          <Field label="Headroom">
+            <select className="st-select" disabled={!value.composition} value={value.composition?.headroom ?? ""} onChange={(e) => value.composition && set("composition", { ...value.composition, headroom: (e.target.value || undefined) as "tight" | "normal" | "generous" | undefined })}>
+              <option value="">—</option>
+              <option value="tight">tight</option>
+              <option value="normal">normal</option>
+              <option value="generous">generous</option>
+            </select>
+          </Field>
+          <Field label="On screen (s)" hint="Render at least this + 0.5 s for handles.">
+            <input className="st-input st-input--sm" type="number" min={1} max={15} step={0.5} value={value.screenS ?? ""} onChange={(e) => set("screenS", e.target.value ? Number(e.target.value) : undefined)} />
+          </Field>
+        </div>
+        <div className="st-row st-row--between">
+          <span className="st-muted">Blocking — who enters, crosses or leaves which side of the frame</span>
+          <Button size="sm" disabled={(value.blocking?.length ?? 0) >= 6} onClick={() => set("blocking", [...(value.blocking ?? []), { who: characters[0]?.id ?? "someone", from: "off_left", to: "center" }])}>Add</Button>
+        </div>
+        {(value.blocking ?? []).map((b, i) => (
+          <div key={i} className="st-line">
+            <input className="st-input st-input--sm" list="st-blocking-who" placeholder="who" value={characters.find((c) => c.id === b.who)?.name ?? b.who} onChange={(e) => {
+              const hit = characters.find((c) => c.name === e.target.value);
+              set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, who: hit?.id ?? e.target.value } : x)));
+            }} style={{ width: 120 }} />
+            <select className="st-select st-input--sm" value={b.from ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, from: (e.target.value || undefined) as typeof x.from } : x)))}>
+              <option value="">from —</option>
+              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>from {p.replace("_", " ")}</option>)}
+            </select>
+            <select className="st-select st-input--sm" value={b.to ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, to: (e.target.value || undefined) as typeof x.to } : x)))}>
+              <option value="">to —</option>
+              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>to {p.replace("_", " ")}</option>)}
+            </select>
+            <input className="st-input st-input--sm" placeholder="path / pace" value={b.note ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value || undefined } : x)))} />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove" onClick={() => { const next = (value.blocking ?? []).filter((_, j) => j !== i); set("blocking", next.length ? next : undefined); }}>
+              <CloseIcon size={11} />
+            </button>
+          </div>
+        ))}
+        <datalist id="st-blocking-who">{characters.map((c) => <option key={c.id} value={c.name} />)}</datalist>
+        <div className="st-fields">
+          <Field label="First frame shows" hint="Who stands where, facing where, which props are visible. Reviewed before anyone draws it.">
+            <textarea className="st-textarea" rows={2} value={value.frames?.first ?? ""} onChange={(e) => set("frames", e.target.value || value.frames?.last ? { ...(value.frames ?? {}), first: e.target.value || undefined } : undefined)} />
+          </Field>
+          <Field label="Last frame shows">
+            <textarea className="st-textarea" rows={2} value={value.frames?.last ?? ""} onChange={(e) => set("frames", e.target.value || value.frames?.first ? { ...(value.frames ?? {}), last: e.target.value || undefined } : undefined)} />
+          </Field>
+        </div>
       </div>
 
       <div className="st-card st-stack">

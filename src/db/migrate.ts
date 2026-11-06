@@ -14,6 +14,7 @@ import adopted from "./migrations/0006_adopted";
 import seedMoreLoras from "./migrations/0007_seed_more_loras";
 import takeProgress from "./migrations/0008_take_progress";
 import takeUpscale from "./migrations/0009_take_upscale";
+import directorCraft from "./migrations/0010_director_craft";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -25,6 +26,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0007_seed_more_loras", sql: seedMoreLoras },
   { name: "0008_take_progress", sql: takeProgress },
   { name: "0009_take_upscale", sql: takeUpscale },
+  { name: "0010_director_craft", sql: directorCraft },
 ];
 
 export async function migrate(db: Db): Promise<void> {

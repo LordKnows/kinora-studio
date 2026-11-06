@@ -1,5 +1,6 @@
 import { CORE_CINEMATOGRAPHY_KEYS, baseModelFor } from "../catalog.js";
-import type { Shot, Shotlist, Warning } from "../types.js";
+import type { LintElement, Shot, Shotlist, Warning } from "../types.js";
+import { lintCraft } from "./craft.js";
 import { flatShots } from "../types.js";
 import { readingTimeS } from "../narration/srt.js";
 
@@ -8,6 +9,10 @@ export interface LintOptions {
   totalSeconds?: number;
   /** Treat `info` as noise and drop it. */
   errorsAndWarningsOnly?: boolean;
+  /** Project elements: names found in beats are checked against each shot's lists. */
+  elements?: LintElement[];
+  /** Animated film; defaults to true when any shot sets cinematography.animation. */
+  animated?: boolean;
 }
 
 /**
@@ -99,6 +104,10 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   // Render-order dependency hint
   const switches = countBaseSwitches(shots.map((s) => baseModelFor(s.shot.mode, s.shot.link?.type)));
   if (switches > 2) W.push({ code: "render.switches", severity: "info", message: `${switches} base-model switches in shotlist order; plan_batch groups R2VA shots first (~2 min per switch)` });
+
+  // Staging, wording and the pictures video models get wrong (lint/craft.ts)
+  const animated = opts.animated ?? shots.some((s) => !!s.shot.cinematography?.animation);
+  W.push(...lintCraft(list, { elements: opts.elements, animated }));
 
   return opts.errorsAndWarningsOnly ? W.filter((w) => w.severity !== "info") : W;
 }

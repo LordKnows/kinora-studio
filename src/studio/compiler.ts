@@ -1,7 +1,7 @@
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
-import { CAMERA_MOVES, type LookSettings, type ShotInput, type ShotLink } from "./schemas";
-import type { Asset, Element, Lora, Shot, Take } from "./types";
+import { CAMERA_MOVES, type Blocking, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink } from "./schemas";
+import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
    an H3 prompt in the community-documented format, with the project Look and
@@ -71,6 +71,10 @@ export type CompileContext = {
   seed?: number;
   /** How the sections are serialised for the model; defaults to H3_PROMPT_FORMAT. */
   format?: PromptFormat;
+  /** The shot's scene: its colour script compiles into the LOOK line. */
+  scene?: Scene;
+  /** Prompt A/B switches (take request over project default); all off by default. */
+  experiments?: PromptExperiments;
 };
 
 /* lightx2v trained the turbo LoRAs on a structured caption: fixed field names,
@@ -242,9 +246,11 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
   };
   const hero = shot.heroAssetId ? ctx.assets.get(shot.heroAssetId) : undefined;
   push(hero?.url, "hero frame");
+  const wanted = preferredViews(shot.spec);
   for (const id of shot.spec.characters) {
     const el = ctx.elements.get(id);
-    const ref = el?.refAssetIds[0] ? ctx.assets.get(el.refAssetIds[0]) : undefined;
+    const refId = el ? pickRefForViews(el, wanted) : undefined;
+    const ref = refId ? ctx.assets.get(refId) : undefined;
     push(ref?.url, el?.name ?? id);
   }
   if (shot.spec.location) {
@@ -259,6 +265,47 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
   }
   return out;
 }
+
+/* A character's reference images are tagged with the view they show; the
+   shot's angle and size decide which one R2VA gets (a profile shot gets the
+   side view, a close-up the front or an expression sheet). */
+export function preferredViews(spec: ShotInput): RefView[] {
+  const c = spec.cinematography ?? {};
+  if (c.angle === "profile") return ["side", "three_quarter", "front"];
+  const backs = (spec.blocking ?? []).some((b) => /\b(back to (the )?camera|from behind|walks away)\b/i.test(b.note ?? ""));
+  if (backs) return ["back", "three_quarter", "full_body"];
+  if (c.size === "ecu" || c.size === "cu") return ["expression", "front", "three_quarter"];
+  if (c.size === "mcu" || c.size === "ms" || c.size === "ots" || c.size === "twoshot") return ["front", "three_quarter", "full_body"];
+  if (c.size === "ls" || c.size === "els" || c.size === "mls") return ["full_body", "front", "three_quarter"];
+  return ["front", "three_quarter", "full_body"];
+}
+
+export function pickRefForViews(el: Element, wanted: RefView[]): string | undefined {
+  const views = el.refViews ?? {};
+  for (const v of wanted) {
+    const hit = el.refAssetIds.find((a) => views[a] === v);
+    if (hit) return hit;
+  }
+  return el.refAssetIds[0];
+}
+
+const SCREEN_WORDS: Record<ScreenPosition, string> = {
+  off_left: "outside frame left", left: "frame left", center: "frame centre", right: "frame right",
+  off_right: "outside frame right", foreground: "the foreground", background: "the background",
+};
+
+/** Blocking in screen terms: "Mia enters from frame left and crosses to frame right." */
+export function blockingLine(b: Blocking, name: (id: string) => string): string {
+  const side = (p?: ScreenPosition) => (p === "off_left" ? "frame left" : "frame right");
+  const parts: string[] = [];
+  if (b.from === "off_left" || b.from === "off_right") parts.push(`enters from ${side(b.from)}`);
+  else if (b.from) parts.push(`starts at ${SCREEN_WORDS[b.from]}`);
+  if (b.to === "off_left" || b.to === "off_right") parts.push(`exits ${side(b.to)}`);
+  else if (b.to) parts.push(`${parts.length ? "moves to" : "ends at"} ${SCREEN_WORDS[b.to]}`);
+  return `${name(b.who)} ${parts.join(", then ") || "holds position"}${b.note ? ` (${b.note})` : ""}.`;
+}
+
+const COMPOSITION_X = { left: "on the left third, about 38% from the left edge", center: "on the centre line, deliberately symmetrical", right: "on the right third, about 62% from the left edge" } as const;
 
 const LINK_LINES: Partial<Record<LinkType, string>> = {
   loop: "Seamless loop: exactly one period of the motion; the last frame is identical to the first so the clip can repeat without a visible seam.",
@@ -319,10 +366,13 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   if (refLines.length) blocks.push(`REFERENCES\n${refLines.join("\n")}`);
   const out: Sections = { references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [] };
 
-  /* LOOK — always; style LoRAs contribute their trigger words here. */
+  /* LOOK — always; style LoRAs contribute their trigger words here, the
+     scene's colour script its palette. */
   const lookParts = [look.genre, look.palette, [look.camera, look.lens].filter(Boolean).join(", "), look.lighting].filter((s) => s && s.trim());
   const triggers = loras.map((l) => l.triggerWords.trim()).filter(Boolean);
-  const lookLines = [...lookParts, ...(cinema.lookLine ? [cinema.lookLine] : []), ...triggers];
+  const pal = ctx.scene?.palette;
+  const paletteLine = pal ? `Scene palette ${pal.colors.join(", ")}${pal.note ? ` — ${pal.note}` : ""}` : undefined;
+  const lookLines = [...lookParts, ...(paletteLine ? [paletteLine] : []), ...(cinema.lookLine ? [cinema.lookLine] : []), ...triggers];
   if (lookLines.length) blocks.push(`LOOK\n${lookLines.join(". ")}.`);
   out.look = lookLines;
 
@@ -339,15 +389,28 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
       for (const id of spec.props) who.push(describe(id));
     } else if (spec.mode === "reference") {
       for (const id of spec.characters) who.push(`${name(id)} looks exactly as in the reference image.`);
+    } else if (spec.mode === "keyframe" && ctx.experiments?.restateFrame) {
+      /* A/B: restate what the first frame shows, so small details hold. */
+      if (spec.frames?.first) who.push(`The first frame shows: ${spec.frames.first}`);
+      for (const id of spec.characters) who.push(describe(id));
+      for (const id of spec.props) who.push(describe(id));
     }
-    /* keyframe: the frame already shows who and where — say nothing. */
+    /* keyframe (default): the frame already shows who and where — say nothing
+       but the details that must never move or vanish. */
+    for (const id of [...spec.characters, ...spec.props]) {
+      const el = ctx.elements.get(id);
+      if (el?.fixedFeatures?.length) who.push(`${el.name} always has ${el.fixedFeatures.map((f) => `${f.feature} on the ${f.where}`).join("; ")}, in every frame.`);
+    }
+    for (const b of spec.blocking ?? []) who.push(blockingLine(b, name));
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
     out.who = who;
 
+    const hasFirstFrame = images.some((i) => i.role === "first_frame");
     const beatLines = spec.beats.map((b) => `${fmt(b.from)}–${fmt(b.to)}s: ${b.cut ? "Hard cut. " : ""}${b.action}`);
     const linkLine = LINK_LINES[linkType];
     if (linkLine && images.some((i) => i.role === "first_frame" || i.label === "match frame")) beatLines.unshift(linkLine);
-    if (workflow === "FL2VA") beatLines.push(`The shot ends on the final frame provided.`);
+    if (ctx.experiments?.frameHolds && hasFirstFrame) beatLines.unshift("0–0.2s: the picture holds perfectly still, identical to the first frame.");
+    if (workflow === "FL2VA") beatLines.push(ctx.experiments?.frameHolds ? `Last 0.3s: everyone stops; the picture settles exactly on the final frame provided.` : `The shot ends on the final frame provided.`);
     blocks.push(`TIMELINE (${spec.durationS}s)\n${beatLines.join("\n")}`);
     out.timeline = beatLines;
   }
@@ -360,9 +423,11 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   blocks.push(`CAMERA\n${camLine}${cam.note ? ` ${cam.note}` : ""}`);
   out.camera = `${camLine}${cam.note ? ` ${cam.note}` : ""}`;
 
-  /* CINEMATOGRAPHY — Tier 3 keys rendered as prose. */
-  if (cinema.block) blocks.push(cinema.block);
-  out.cinematography = cinema.block ? cinema.block.split("\n").slice(1) : [];
+  /* CINEMATOGRAPHY — Tier 3 keys rendered as prose, plus the composition. */
+  const comp = spec.composition;
+  const compLine = comp ? `Composition: the subject's eyes sit ${COMPOSITION_X[comp.subjectX]}${comp.headroom ? `, ${comp.headroom} headroom` : ""}${comp.note ? `; ${comp.note}` : ""}` : undefined;
+  if (cinema.block || compLine) blocks.push([cinema.block || "CINEMATOGRAPHY", ...(compLine ? [compLine] : [])].join("\n"));
+  out.cinematography = [...(cinema.block ? cinema.block.split("\n").slice(1) : []), ...(compLine ? [compLine] : [])];
 
   /* DIALOGUE */
   if (spec.dialogue.length) {
@@ -377,7 +442,9 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
 
   /* CONSTRAINTS */
   const seen = new Set<string>();
-  const constraints = [...look.negative, spec.dialogue.length ? "No extra dialogue beyond the lines above" : "No dialogue", "No subtitles"].filter((c) => {
+  const castLine = ctx.experiments?.positiveCast && images.some((i) => i.role === "first_frame") && !(spec.blocking ?? []).some((b) => b.from === "off_left" || b.from === "off_right")
+    ? ["Only the people and objects already in the first frame appear, throughout"] : [];
+  const constraints = [...castLine, ...look.negative, spec.dialogue.length ? "No extra dialogue beyond the lines above" : "No dialogue", "No subtitles"].filter((c) => {
     const key = c.trim().toLowerCase().replace(/[.\s]+$/, "");
     if (!key || seen.has(key)) return false;
     seen.add(key);
