@@ -4,14 +4,20 @@ import { z } from "zod";
 import * as director from "@/director";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
+import { VIDEO_SIZES as VIDEO_SIZE_OF } from "@/studio/compiler";
 import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
 import { EDIT_GRAMMAR, TIMELINE_ONLY, planDurations } from "@/studio/editing";
 import { StudioError } from "@/studio/errors";
+import * as craft from "@/studio/craft";
+import { config } from "@/studio/config";
 import * as gpu from "@/studio/gpu";
+import { importImageFromBase64, importImageFromUrl } from "@/studio/images";
+import { paletteContrastWarnings, sketchBoardSvg } from "@/studio/sketch";
+import { presignPut, objectExists, publicUrl, uploadKey } from "@/studio/storage/r2";
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import {
-  ElementInput, ExportRequest, LookSettings, LoraInput, ProjectInput, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
+  ElementInput, ExportRequest, LookSettings, LoraInput, PresignRequest, ProjectInput, PromptExperiments, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -44,7 +50,7 @@ export function shotWarnings(label: string, spec: { link?: { type?: string }; li
 }
 
 export function createStudioServer(actor: Actor): McpServer {
-  const server = new McpServer({ name: "cinema-studio", version: "0.1.0" }, { instructions: "Cinema Studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first." });
+  const server = new McpServer({ name: "cinema-studio", version: "0.1.0" }, { instructions: "Cinema Studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first. Keep errors in front of the spend: record the user's requirements, have a fresh reviewer read the story, every shot before it renders and the cut (review_packet → record_review), and remember you see stills, never motion or sound." });
 
   const tool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<unknown>) => {
     const cb = async (args: unknown) => {
@@ -108,8 +114,10 @@ export function createStudioServer(actor: Actor): McpServer {
     return { warnings, approval: view.project.shotlistApproval };
   });
   tool("plan_project_batch", "The render plan for the project's shots without a finished take: R2VA first, anchors before linked shots, passes, one estimate against the cap (compiler estimates where the shot compiles). Then generate_take in that order.", z.object({ projectId: id, takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true) }), async ({ projectId, ...opts }) => orch.planProjectBatch(projectId, opts));
-  tool("lint_shotlist", "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beat tiling, link/mode sanity, render-order switches. Run before save_shotlist and fix the errors and warnings.", z.object({ shotlist: ShotlistShape, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false) }), async ({ shotlist, totalSeconds, errorsAndWarningsOnly }) =>
-    director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly }));
+  tool("lint_shotlist", "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beat tiling, link/mode sanity, render-order switches; staging (blocking in screen terms, the 180° line, what moves, dead frames), wording the model misreads (loose directions, negations, unison reactions) and the pictures video models get wrong (fragile.*). Shot numbers count across the film from 0. With projectId the project's elements are used to check names in the beats. Run before save_shotlist and fix the errors and warnings.", z.object({ shotlist: ShotlistShape, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false), projectId: id.optional() }), async ({ shotlist, totalSeconds, errorsAndWarningsOnly, projectId }) => {
+    const elements = projectId ? (await repo.listElements(projectId, true)).map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures })) : undefined;
+    return director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly, elements });
+  });
   tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {
     const s = style ? director.findStyle(style) : undefined;
     const r = director.validateTreatment(treatment, s?.style.nativeMoves.map((m) => m.name));
@@ -139,7 +147,8 @@ export function createStudioServer(actor: Actor): McpServer {
   }), async ({ name, brief, totalSeconds, shots, look, budgetCapUsd }) => {
     const project = await repo.createProject({ name, brief, targetSeconds: totalSeconds, look, budgetCapUsd });
     const plan = filmPlan({ brief, totalSeconds, shots });
-    return { project, ...plan, editingGrammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY, cinematography: CINEMA.map((c) => ({ key: c.key, label: c.label, multi: c.multi, terms: c.terms.map((x) => ({ key: x.key, label: x.label, use: x.use })) })), loras: await repo.listLoras(), nextSteps: ["save_script", "create_element for every character/location/prop", "save_shotlist with link + cinematography per shot", "ask the user to approve the script and the shotlist"] };
+    const ask = budgetCapUsd === undefined ? { ask: `No budget was given: the cap defaults to ${project.budgetCapUsd} USD. Ask the user for the total budget (and whether they want music and subtitles) before planning renders, then set it on the Settings page or pass budgetCapUsd.` } : {};
+    return { project, ...ask, ...plan, editingGrammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY, cinematography: CINEMA.map((c) => ({ key: c.key, label: c.label, multi: c.multi, terms: c.terms.map((x) => ({ key: x.key, label: x.label, use: x.use })) })), loras: await repo.listLoras(), nextSteps: ["save_script", "create_element for every character/location/prop", "save_shotlist with link + cinematography per shot", "ask the user to approve the script and the shotlist"] };
   });
   tool("plan_durations", "Split a running time into 5–15 s shots that tile it exactly (deterministic arithmetic; reshape it as the story needs).", z.object({ totalSeconds: z.number().int().min(5).max(3600), shots: z.number().int().min(1).max(120).optional() }), async ({ totalSeconds, shots }) => planDurations(totalSeconds, shots));
   tool("editing_grammar", "Tier 2 reference as data: every link type with its mechanism, default anchor, H3 workflow and when to use it.", z.object({}), async () => ({ grammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY }));
@@ -181,7 +190,8 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("update_element", "Patch an element's name, kind or description.", z.object({ elementId: id }).extend(ElementInput.partial().shape), async ({ elementId, ...patch }) => ({ element: await repo.updateElement(elementId, patch) }));
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
   tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Use the ids with select_element_refs / select_hero_frame / select_end_frame. Image generation is disabled for now: ask the user to upload references on the Elements page or hero frames on the Board.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
-  tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary).", z.object({ elementId: id, assetIds: z.array(id).max(6) }), async ({ elementId, assetIds }) => ({ element: await repo.updateElement(elementId, { refAssetIds: assetIds }) }));
+  tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary) and, optionally, which view each shows (front, three_quarter, side, back, full_body, expression, detail). Tagged views let R2VA pick the reference that matches the shot's angle and size.", z.object({ elementId: id, assetIds: z.array(id).max(6), views: z.record(z.string(), z.enum(REF_VIEWS)).optional().describe("asset id → view") }), async ({ elementId, assetIds, views }) => ({ element: await repo.updateElement(elementId, { refAssetIds: assetIds, ...(views ? { refViews: views } : {}) }) }));
+  tool("set_scene_palette", "Set a scene's colour script (2–6 hex colours, darkest first, one accent at most, and a note). It compiles into every shot of the scene; lint_project flags palettes whose subject and background merge in black and white. null clears it.", z.object({ sceneId: id, palette: ScenePalette.nullable() }), async ({ sceneId, palette }) => ({ scene: await repo.updateScene(sceneId, { palette }) }));
 
   tool("save_shotlist", "Merge the whole shotlist: scenes match by slug, shots by position, so existing takes and hero frames are kept. Refuses to drop shots that already have takes. Resets the shotlist approval; the user approves on the Board. Every shot should carry its Tier 2 link and Tier 3 cinematography (size, angle, lens, lighting, grade at least); the answer's warnings name the shots that do not.", z.object({ projectId: id }).extend(ShotlistInput.shape), async ({ projectId, scenes }) => {
     const view = await orch.saveShotlist(projectId, { scenes });
@@ -197,7 +207,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return { shot: saved, warnings: shotWarnings(saved.id, saved.spec) };
   });
   tool("revise_shot", "Patch a shot. Structural changes (beats, camera move, dialogue, mode…) reset the shotlist approval; promptOverride and camera.note do not.", z.object({ shotId: id, patch: ShotPatch }), async ({ shotId, patch }) => ({ shot: await orch.patchShot(shotId, patch) }));
-  tool("compile_prompt", "Preview the compiled H3 prompt, worker input, warnings and cost estimate for a shot.", z.object({ shotId: id, steps: z.number().int().min(4).max(50).optional() }), async ({ shotId, steps }) => orch.compileForShot(shotId, { steps }));
+  tool("compile_prompt", "Preview the compiled H3 prompt, worker input, warnings and cost estimate for a shot. experiments previews the prompt A/B switches (frameHolds, restateFrame, positiveCast).", z.object({ shotId: id, steps: z.number().int().min(4).max(50).optional(), experiments: PromptExperiments.optional() }), async ({ shotId, steps, experiments }) => orch.compileForShot(shotId, { steps, experiments }));
 
   tool("select_hero_frame", "Choose the hero frame (asset id) for a shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { heroAssetId: assetId }) }));
   tool("select_end_frame", "Choose an end frame (asset id) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: assetId }) }));
@@ -210,11 +220,78 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("regenerate_take", "Open-H3-Regenerate-2K: re-generate a completed take at 1080p / 2K / 4K in three refine steps (costs money; confirm). It redraws, not just upscales: start_sigma 0 is sharper, 0.8 stays closer to the draft (use for character shots). The 2K file sits beside the 768p take and the master-upscaled export uses it.", z.object({ takeId: id }).extend(UpscaleRequest.shape), async ({ takeId, ...req }) => orch.regenerateTake(takeId, req, actor));
   tool("select_take", "Mark a completed take as the shot's pick.", z.object({ shotId: id, takeId: id }), async ({ shotId, takeId }) => ({ shot: await orch.selectTake(shotId, takeId) }));
 
-  tool("auto_timeline", "Build the timeline from the selected (or latest completed) take of every shot.", z.object({ projectId: id }), async ({ projectId }) => ({ timeline: await orch.autoTimeline(projectId) }));
+  tool("auto_timeline", "Build the timeline from the selected (or latest completed) take of every shot. Every join is a hard cut (continuous shots start on their anchor's last frame; a dissolve would double the picture); frame-driven takes drop their first 2 frames (the input image, a duplicate and a sharpness pop); shots with screenS keep the rest as handles; takes whose audio failed review are muted. tailTrimS trims FL2VA tails where the model snaps onto the end frame (check a take first).", z.object({ projectId: id, tailTrimS: z.number().min(0).max(1).optional(), headFrames: z.number().int().min(0).max(6).optional() }), async ({ projectId, tailTrimS, headFrames }) => ({ timeline: await orch.autoTimeline(projectId, { tailTrimS, headFrames }), seams: await orch.checkSeams(projectId) }));
   tool("get_timeline", "The project's timeline.", z.object({ projectId: id }), async ({ projectId }) => ({ timeline: await repo.getTimeline(projectId) }));
   tool("save_timeline", "Replace the timeline (clips with in/out and transitions, music asset, mix).", z.object({ projectId: id, timeline: TimelineInput }), async ({ projectId, timeline }) => ({ timeline: await repo.setTimeline(projectId, timeline) }));
   tool("export_project", "Assemble the timeline into a file (costs money; confirm).", z.object({ projectId: id }).extend(ExportRequest.shape), async ({ projectId, ...req }) => orch.createExportJob(projectId, req, actor));
   tool("get_export", "Status and url of an export.", z.object({ exportId: id }), async ({ exportId }) => ({ export: await orch.refreshExport(exportId) }));
+
+  /* ---- the cold reader, requirements, decisions, the envelope ---- */
+  const Stage = z.enum(["story", "shot", "film"]);
+  tool("review_packet", "The cold-reader packet for one stage: story (the script text only), shot (the compiled prompt, the frames, the element sheets, neighbours — everything about to be sent to the GPU), film (the export and its cut times). Hand reviewerPrompt to a FRESH reviewer that has seen nothing else (a subagent, a new chat), let it find faults without editing, then record_review. generate_take warns until the shot has a passing review of this exact prompt and these frames.", z.object({ projectId: id, stage: Stage, shotId: id.optional() }), async ({ projectId, stage, shotId }) => craft.reviewPacket(projectId, stage, shotId));
+  tool("record_review", "Store a reviewer's verdict for a stage against what the packet shows now (revise the shot or swap a frame and it lapses). reviewer: fresh_agent (independent), self (you — tell the user), human. basis: what was actually looked at. findings verbatim.", z.object({
+    projectId: id, stage: Stage, shotId: id.optional(), verdict: z.enum(["pass", "fail"]), reviewer: z.enum(["fresh_agent", "self", "human"]), basis: z.string().min(3).max(400),
+    findings: z.array(z.object({ where: z.string().max(200), problem: z.string().max(600), fix: z.string().max(600).optional(), sure: z.boolean().optional(), severity: z.enum(["blocker", "minor"]).optional() })).max(60).default([]),
+  }), async ({ projectId, ...input }) => craft.recordReview(projectId, input));
+  tool("list_reviews", "Stage reviews of the project, newest first.", z.object({ projectId: id, stage: Stage.optional(), shotId: id.optional() }), async ({ projectId, stage, shotId }) => ({ reviews: await craft.listStageReviews(projectId, stage, shotId) }));
+  tool("add_requirements", "Record what the user asked for, one item each, in their words (length, ratio, must-have shots, things to avoid, tone…). The list rides along in every shot review and lint_project reminds you of open items. Duplicates are skipped.", z.object({ projectId: id, items: z.array(z.object({ text: z.string().min(2).max(400), source: z.string().max(200).optional().describe("where the user said it") })).min(1).max(40) }), async ({ projectId, items }) => ({ added: await craft.addRequirements(projectId, items) }));
+  tool("set_requirement", "Mark a requirement met, dropped (with the user's say-so) or open again.", z.object({ requirementId: id, status: z.enum(["open", "met", "dropped"]), note: z.string().max(300).optional() }), async ({ requirementId, status, note }) => ({ requirement: await craft.setRequirement(requirementId, status, note) }));
+  tool("list_requirements", "The requirements list with status.", z.object({ projectId: id }), async ({ projectId }) => ({ requirements: await repo.listNotes(projectId, "requirement") }));
+  tool("log_decision", "Write a judgement call to the decision log the user reviews (a link type chosen, a take passed over, a shot cut): what, why, how sure, what else was considered. The user can overturn any decision on the web; read list_decisions before acting on an old one.", z.object({ projectId: id, decision: z.string().min(3).max(400), why: z.string().min(3).max(800), confidence: z.enum(["low", "medium", "high"]), shotId: id.optional(), alternatives: z.array(z.string().max(200)).max(5).optional() }), async ({ projectId, ...input }) => ({ decision: await craft.logDecision(projectId, input, actor) }));
+  tool("list_decisions", "The decision log, oldest first; status 'overturned' means the user reversed it.", z.object({ projectId: id }), async ({ projectId }) => ({ decisions: await repo.listNotes(projectId, "decision") }));
+  tool("get_autopilot", "The spend envelope the user granted on the web (Settings). Inside it, generate_take without confirm renders a shot that has a passing review and no identical rejected take, and logs the decision; retry_take and regenerate_take on the picked take likewise. You cannot grant or widen it.", z.object({ projectId: id }), async ({ projectId }) => craft.autopilotSummary(await repo.getProject(projectId)));
+  tool("get_delegation", "Whether the user lets you pass the checkpoints yourself (Settings → Director, web only). Off by default: then approve_script / approve_shotlist refuse and the user approves on the Script page and the Board.", z.object({ projectId: id }), async ({ projectId }) => craft.delegationSummary(await repo.getProject(projectId)));
+  const Approval = z.object({ projectId: id, why: z.string().min(10).max(800).describe("Why the user would approve it: their requirements met, what the reviewer found and what you changed"), confidence: z.enum(["low", "medium", "high"]).describe("low refuses: leave it to the user") });
+  tool("approve_script", "Approve the latest script on the user's behalf — only when the user switched on delegated approval for the script, and only with a passing story review of the current text by a fresh reviewer (or the user). Logged as a decision; if the user overturns it, the script goes back to draft. Tell the user you approved it.", Approval, async ({ projectId, why, confidence }) => craft.agentApproveScript(projectId, { why, confidence }, actor));
+  tool("approve_shotlist", "Approve the shotlist on the user's behalf — only when the user switched on delegated approval for the shotlist, the script is approved and lint_project has no errors. Show sketch_board first. Logged as a decision; if the user overturns it, the shotlist goes back to draft. Tell the user you approved it.", Approval, async ({ projectId, why, confidence }) => craft.agentApproveShotlist(projectId, { why, confidence }, actor));
+  tool("review_take", "Score a take as the agent. You see stills, not motion, and hear nothing: basis must say what you inspected (e.g. '6 stills; motion and sound not checked'). faults tag what went wrong (they feed the retro). The pick (select_take) stays the user's.", z.object({ takeId: id, basis: z.string().min(3).max(200) }).extend(ReviewInput.shape), async ({ takeId, score, notes, faults, audioOk, basis }) => ({ take: await orch.reviewTake(takeId, score, notes, actor, { faults, audioOk, basis }) }));
+  tool("rough_cut", "Assemble what is rendered, in order, and list the shots still missing (with their place in the film). Use it when the budget runs out or before the last takes are in, then export preview-480p so the user sees the film so far.", z.object({ projectId: id }), async ({ projectId }) => orch.roughCut(projectId));
+  tool("check_seams", "Seams that can no longer match: a linked shot rendered from a take its anchor no longer uses, or a continuous cut whose anchor's tail is trimmed.", z.object({ projectId: id }), async ({ projectId }) => ({ warnings: await orch.checkSeams(projectId) }));
+  tool("sketch_board", "The colour-block storyboard: one 16:9 card per shot from the shotlist alone (subject size from the shot size, place on the 38 % / 62 % guides, blocking arrows, scene palette, 'dead frame' where nothing moves). Show it to the user before asking for the shotlist approval; gray: true is the black-and-white value check. Returns the URL on the Studio and the palette contrast warnings; includeSvg returns the SVG text too.", z.object({ projectId: id, gray: z.boolean().default(false), includeSvg: z.boolean().default(false) }), async ({ projectId, gray, includeSvg }) => {
+    const view = await orch.getProjectView(projectId);
+    return { url: `${config.publicUrl()}/api/projects/${projectId}/sketch${gray ? "?gray=1" : ""}`, board: `${config.publicUrl()}/p/${projectId}/board`, contrast: paletteContrastWarnings(view), ...(includeSvg ? { svg: sketchBoardSvg(view, { gray }) } : {}) };
+  });
+  tool("get_retro", "The retro as Markdown: faults by tag, takes and prompt revisions per shot, fragile shots and what they cost, experiments, requirements, decisions. Write it at delivery and carry its lessons into the next film.", z.object({ projectId: id }), async ({ projectId }) => ({ markdown: await craft.buildRetro(projectId) }));
+
+  /* ---- images the director draws with its own tools ---- */
+  tool("import_image", "Bring in an image your own tools made (an image model, Codex, a local file as base64): character sheets, hero frames, end frames. Give url (https) or data (base64, ≤ 20 MB). attach puts it to work at once: heroOf / endOf a shot, or as a reference of an element with its view. Check the aspect ratio matches the render (16:9 = 1344×768) before attaching a frame.", z.object({
+    projectId: id, url: z.string().url().optional(), data: z.string().optional().describe("base64 or a data: URL"), filename: z.string().max(120).default("image.png"),
+    attach: z.object({ heroOf: id.optional(), endOf: id.optional(), elementRef: z.object({ elementId: id, view: z.enum(REF_VIEWS).optional() }).optional() }).optional(),
+  }), async ({ projectId, url, data, filename, attach }) => {
+    if (!url && !data) throw new StudioError("validation", "give url or data");
+    const asset = url ? await importImageFromUrl(projectId, url, actor) : await importImageFromBase64(projectId, data!, filename, actor);
+    const attached: Record<string, unknown> = {};
+    if (attach?.heroOf) attached.hero = await repo.updateShot(attach.heroOf, { heroAssetId: asset.id });
+    if (attach?.endOf) attached.end = await repo.updateShot(attach.endOf, { endAssetId: asset.id });
+    if (attach?.elementRef) {
+      const el = await repo.getElement(attach.elementRef.elementId);
+      attached.element = await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds, asset.id], ...(attach.elementRef.view ? { refViews: { [asset.id]: attach.elementRef.view } } : {}) });
+    }
+    return { asset, ...attached };
+  });
+  tool("request_upload", "A presigned PUT URL (15 min) for a local file your client can send with an HTTP PUT (curl -T file 'url'); then commit_upload. For images import_image is simpler.", PresignRequest, async (input) => {
+    if (!config.r2Configured()) throw new StudioError("backend_error", "R2 is not configured");
+    const key = uploadKey(actor.user, input.filename);
+    return { key, ...(await presignPut(key, input.contentType, input.size)) };
+  });
+  tool("commit_upload", "Register an uploaded object as a project asset.", z.object({ projectId: id, key: z.string().min(1), kind: z.enum(["image", "video", "audio"]) }), async ({ projectId, key, kind }) => {
+    if (!key.startsWith("uploads/")) throw new StudioError("validation", "key must be under uploads/");
+    if (!(await objectExists(key))) throw new StudioError("validation", "object not found; PUT the file first");
+    await repo.getProject(projectId);
+    return { asset: await repo.createAsset({ projectId, url: publicUrl(key), kind, source: "upload", meta: { key } }) };
+  });
+  tool("derive_end_frame", "Plan the end frame of a push-in from its hero frame: a centred crop (zoom 1.1–1.4, toward the subject's composition point) scaled back to the render size, so FL2VA has to push. Returns the crop rectangle and an ffmpeg command; crop locally and import_image with attach.endOf, or ask the user to press 'Derive end frame' on the Board (Frames tab).", z.object({ shotId: id, zoom: z.number().min(1.05).max(1.6).default(1.2) }), async ({ shotId, zoom }) => {
+    const shot = await repo.getShot(shotId);
+    if (!shot.heroAssetId) throw new StudioError("validation", "the shot has no hero frame");
+    const hero = await repo.getAsset(shot.heroAssetId);
+    const project = await repo.getProject(shot.projectId);
+    const W = hero.width ?? 1344, H = hero.height ?? 768;
+    const fx = shot.spec.composition?.subjectX === "left" ? 0.38 : shot.spec.composition?.subjectX === "right" ? 0.62 : 0.5;
+    const cw = Math.round(W / zoom), ch = Math.round(H / zoom);
+    const x = Math.round(Math.min(W - cw, Math.max(0, fx * W - cw / 2))), y = Math.round(Math.min(H - ch, Math.max(0, H * 0.45 - ch / 2)));
+    const [rw, rh] = (VIDEO_SIZE_OF[project.look.aspectRatio] ?? "1344x768").split("x");
+    return { hero: hero.url, crop: { x, y, width: cw, height: ch }, outputSize: `${rw}x${rh}`, ffmpeg: `ffmpeg -i hero.png -vf "crop=${cw}:${ch}:${x}:${y},scale=${rw}:${rh}:flags=lanczos" end.png`, next: `import_image({projectId: "${project.id}", data: <end.png as base64>, attach: {endOf: "${shotId}"}})`, ...(hero.width ? {} : { note: "the hero frame's size is unknown; the crop assumes 1344×768" }) };
+  });
 
   server.registerResource("director-guide", "studio://guide/director", { title: "Director guide", description: "Workflow, the three tiers and H3 prompt rules", mimeType: "text/markdown" }, async (uri) => ({
     contents: [{ uri: uri.href, mimeType: "text/markdown", text: directorGuide }],
@@ -239,10 +316,11 @@ export function createStudioServer(actor: Actor): McpServer {
         type: "text",
         text: [
           `You are the director. Call start_film with name "${name ?? "Untitled film"}", this brief and totalSeconds ${totalSeconds}; read what it returns.`,
-          "Tier 1: write the Look from the brief (update_look) and the script (save_script); ask me to approve the script.",
+          "Before anything else ask me for the total budget and whether I want music and subtitles; record what I ask for with add_requirements.",
+          "Tier 1: write the Look from the brief (update_look) and the script (save_script) — every turn as problem → solution → the others' staggered reaction, nothing AI video gets wrong. Have a fresh reviewer read the script (review_packet stage story → record_review), then ask me to approve it (or approve_script yourself if get_delegation says I let you).",
           "Tier 2: build the shotlist that tiles the running time; choose a link type for every shot from the editing grammar; create every element first.",
-          "Tier 3: every shot gets cinematography (size, angle, lens, lighting, grade at least; animation on every shot if the film is animated), one camera move, verbatim dialogue and sound. Save Tier 2 and 3 together with save_shotlist, fix every warning it returns, then ask me to approve it.",
-          "Before any spend, show the estimate and wait for my confirm.",
+          "Tier 3: every shot gets cinematography (size, angle, lens, lighting, grade at least; animation on every shot if the film is animated), one camera move, blocking in screen terms, what moves, the composition, verbatim dialogue and sound; every scene a palette. Save Tier 2 and 3 together with save_shotlist, fix every warning it returns, show me sketch_board, then ask me to approve it.",
+          "Before any take, a fresh reviewer checks that shot (review_packet stage shot → record_review). Render the probe from plan_project_batch first. Before any spend, show the estimate and wait for my confirm (or stay inside the envelope I granted).",
           "",
           "Brief:",
           brief,

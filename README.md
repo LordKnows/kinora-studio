@@ -56,6 +56,16 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   grade, texture, VFX, animation style, pace) validated by the schema and
   rendered into the prompt. `agent/editing.md` and `agent/cinematography.md`
   are generated from the catalogs.
+- **Errors stop before the spend.** Each shot is staged in screen terms
+  (blocking, what moves, composition on the 38/62 lines, first and last
+  frame written before they are drawn), each scene has a colour script, and
+  a colour-block storyboard is drawn from the shotlist before any frame.
+  A fresh reviewer reads the story, every shot before it renders and the
+  cut (`review_packet` → `record_review`); `generate_take` warns until the
+  exact prompt and frames passed, and refuses to blindly re-render a
+  rejected input inside the spend envelope the user grants on the web. The
+  lint flags the pictures AI video gets wrong; the batch renders the most
+  fragile shots first; a retro counts what went wrong for the next film.
 - **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
   server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
   attach. `agent/director.md` is the director guide, served as a tool and a

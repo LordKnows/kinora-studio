@@ -5,8 +5,10 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Job, JobKind, JobStatus, Lora, LoraKind, Project, Review, Scene, Script, Shot, Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
+  Autopilot, Delegation, DirectorNote, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
+import type { FixedFeature, RefView, ScenePalette } from "./schemas";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
    No ORM: the SQL is small enough to read, and it runs unchanged on D1. */
@@ -41,6 +43,8 @@ function mapProject(r: Row): Project {
     targetSeconds: opt(r.target_seconds, num),
     shotlistApproval: str(r.shotlist_approval) as Approval,
     shotlistApprovedAt: opt(r.shotlist_approved_at, num),
+    autopilot: json<Autopilot | undefined>(r.autopilot_json, undefined),
+    delegation: json<Delegation | undefined>(r.delegation_json, undefined),
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
@@ -101,6 +105,18 @@ export async function setShotlistApproval(id: string, approval: Approval): Promi
   return getProject(id);
 }
 
+/** The spend envelope; only the web grants or revokes it (see orchestrator.grantAutopilot). */
+export async function setAutopilot(id: string, autopilot: Autopilot | null): Promise<Project> {
+  await (await db()).run("UPDATE projects SET autopilot_json = ?, updated_at = ? WHERE id = ?", [autopilot ? JSON.stringify(autopilot) : null, Date.now(), id]);
+  return getProject(id);
+}
+
+/** Which checkpoints the director may pass; only the web writes it. */
+export async function setDelegation(id: string, delegation: Delegation | null): Promise<Project> {
+  await (await db()).run("UPDATE projects SET delegation_json = ?, updated_at = ? WHERE id = ?", [delegation ? JSON.stringify(delegation) : null, Date.now(), id]);
+  return getProject(id);
+}
+
 export async function addSpent(id: string, usd: number): Promise<void> {
   await (await db()).run("UPDATE projects SET spent_usd = spent_usd + ?, updated_at = ? WHERE id = ?", [usd, Date.now(), id]);
 }
@@ -152,6 +168,12 @@ export async function createScript(projectId: string, text: string): Promise<Scr
 
 export async function approveScript(id: string): Promise<Script> {
   await (await db()).run("UPDATE scripts SET approval = 'approved', approved_at = ? WHERE id = ?", [Date.now(), id]);
+  return getScript(id);
+}
+
+/** Back to draft (an overturned delegated approval). */
+export async function unapproveScript(id: string): Promise<Script> {
+  await (await db()).run("UPDATE scripts SET approval = 'draft', approved_at = NULL WHERE id = ?", [id]);
   return getScript(id);
 }
 
@@ -211,8 +233,14 @@ function mapElement(r: Row): Element {
     id: str(r.id), projectId: r.project_id === null || r.project_id === undefined ? null : str(r.project_id),
     kind: str(r.kind) as ElementKind, name: str(r.name), description: str(r.description),
     refAssetIds: json<string[]>(r.ref_asset_ids_json, []), voiceAssetId: opt(r.voice_asset_id, str),
+    ...elementMeta(r.meta_json),
     createdAt: num(r.created_at), updatedAt: num(r.updated_at),
   };
+}
+
+function elementMeta(v: unknown): { fixedFeatures: FixedFeature[]; refViews: Record<string, RefView> } {
+  const m = json<{ fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView> }>(v, {});
+  return { fixedFeatures: Array.isArray(m.fixedFeatures) ? m.fixedFeatures : [], refViews: m.refViews && typeof m.refViews === "object" ? m.refViews : {} };
 }
 
 export async function listElements(projectId: string, includeLibrary = false): Promise<Element[]> {
@@ -246,25 +274,30 @@ export async function getElements(ids: string[]): Promise<Map<string, Element>> 
   return out;
 }
 
-export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[] }): Promise<Element> {
+export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView> }): Promise<Element> {
   const id = newId("ele");
   const now = Date.now();
   await (await db()).run(
-    "INSERT INTO elements (id, project_id, kind, name, description, ref_asset_ids_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, projectId, input.kind, input.name, input.description, JSON.stringify(input.refAssetIds ?? []), now, now],
+    "INSERT INTO elements (id, project_id, kind, name, description, ref_asset_ids_json, meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, projectId, input.kind, input.name, input.description, JSON.stringify(input.refAssetIds ?? []), JSON.stringify({ fixedFeatures: input.fixedFeatures ?? [], refViews: input.refViews ?? {} }), now, now],
   );
   if (projectId) await touchProject(projectId);
   return getElement(id);
 }
 
-export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null }>): Promise<Element> {
+export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView> }>): Promise<Element> {
   const current = await getElement(id);
+  const refAssetIds = patch.refAssetIds ?? current.refAssetIds;
+  /* Views follow the refs: a view for an asset that is no longer a ref is dropped. */
+  const views = { ...(current.refViews ?? {}), ...(patch.refViews ?? {}) };
+  const refViews = Object.fromEntries(Object.entries(views).filter(([a]) => refAssetIds.includes(a)));
   await (await db()).run(
-    "UPDATE elements SET kind = ?, name = ?, description = ?, ref_asset_ids_json = ?, voice_asset_id = ?, updated_at = ? WHERE id = ?",
+    "UPDATE elements SET kind = ?, name = ?, description = ?, ref_asset_ids_json = ?, voice_asset_id = ?, meta_json = ?, updated_at = ? WHERE id = ?",
     [
       patch.kind ?? current.kind, patch.name ?? current.name, patch.description ?? current.description,
-      JSON.stringify(patch.refAssetIds ?? current.refAssetIds),
+      JSON.stringify(refAssetIds),
       patch.voiceAssetId === undefined ? (current.voiceAssetId ?? null) : patch.voiceAssetId,
+      JSON.stringify({ fixedFeatures: patch.fixedFeatures ?? current.fixedFeatures ?? [], refViews }),
       Date.now(), id,
     ],
   );
@@ -278,7 +311,7 @@ export async function deleteElement(id: string): Promise<void> {
 /** Copy an element (and its refs) into another scope: library (null) or a project. */
 export async function copyElement(id: string, targetProjectId: string | null): Promise<Element> {
   const source = await getElement(id);
-  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds });
+  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews });
 }
 
 /* ---------- scenes & shots ---------- */
@@ -286,7 +319,7 @@ export async function copyElement(id: string, targetProjectId: string | null): P
 function mapScene(r: Row): Scene {
   return {
     id: str(r.id), projectId: str(r.project_id), index: num(r.idx), slug: str(r.slug), summary: str(r.summary),
-    locationElementId: opt(r.location_element_id, str), createdAt: num(r.created_at),
+    locationElementId: opt(r.location_element_id, str), palette: json<ScenePalette | undefined>(r.palette_json, undefined), createdAt: num(r.created_at),
   };
 }
 
@@ -311,21 +344,22 @@ export async function getScene(id: string): Promise<Scene> {
   return mapScene(row);
 }
 
-export async function createScene(projectId: string, input: { slug: string; summary?: string; location?: string; index?: number }): Promise<Scene> {
+export async function createScene(projectId: string, input: { slug: string; summary?: string; location?: string; index?: number; palette?: ScenePalette }): Promise<Scene> {
   const d = await db();
   const last = await d.get<{ i: number | null }>("SELECT MAX(idx) i FROM scenes WHERE project_id = ?", [projectId]);
   const id = newId("scn");
-  await d.run("INSERT INTO scenes (id, project_id, idx, slug, summary, location_element_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [
-    id, projectId, input.index ?? (last?.i ?? -1) + 1, input.slug, input.summary ?? "", input.location ?? null, Date.now(),
+  await d.run("INSERT INTO scenes (id, project_id, idx, slug, summary, location_element_id, palette_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+    id, projectId, input.index ?? (last?.i ?? -1) + 1, input.slug, input.summary ?? "", input.location ?? null, input.palette ? JSON.stringify(input.palette) : null, Date.now(),
   ]);
   return getScene(id);
 }
 
-export async function updateScene(id: string, patch: Partial<{ slug: string; summary: string; location: string | null }>): Promise<Scene> {
+export async function updateScene(id: string, patch: Partial<{ slug: string; summary: string; location: string | null; palette: ScenePalette | null }>): Promise<Scene> {
   const current = await getScene(id);
-  await (await db()).run("UPDATE scenes SET slug = ?, summary = ?, location_element_id = ? WHERE id = ?", [
+  const palette = patch.palette === undefined ? current.palette : patch.palette;
+  await (await db()).run("UPDATE scenes SET slug = ?, summary = ?, location_element_id = ?, palette_json = ? WHERE id = ?", [
     patch.slug ?? current.slug, patch.summary ?? current.summary,
-    patch.location === undefined ? (current.locationElementId ?? null) : patch.location, id,
+    patch.location === undefined ? (current.locationElementId ?? null) : patch.location, palette ? JSON.stringify(palette) : null, id,
   ]);
   return getScene(id);
 }
@@ -402,7 +436,7 @@ export type ShotlistMergeResult = { created: number; updated: number; deleted: n
     rendered for them; otherwise the caller gets the list and refuses. */
 export async function mergeShotlist(
   projectId: string,
-  scenes: Array<{ slug: string; summary: string; location?: string; shots: ShotInput[] }>,
+  scenes: Array<{ slug: string; summary: string; location?: string; palette?: ScenePalette; shots: ShotInput[] }>,
 ): Promise<ShotlistMergeResult> {
   const existingScenes = await listScenes(projectId);
   const bySlug = new Map(existingScenes.map((s) => [s.slug, s]));
@@ -413,9 +447,11 @@ export async function mergeShotlist(
   for (const [si, incoming] of scenes.entries()) {
     let scene = bySlug.get(incoming.slug);
     if (scene) {
-      await d.run("UPDATE scenes SET idx = ?, summary = ?, location_element_id = ? WHERE id = ?", [si, incoming.summary, incoming.location ?? null, scene.id]);
+      /* A palette left out keeps the one already set (it is often set on the Board). */
+      const palette = incoming.palette ?? scene.palette;
+      await d.run("UPDATE scenes SET idx = ?, summary = ?, location_element_id = ?, palette_json = ? WHERE id = ?", [si, incoming.summary, incoming.location ?? null, palette ? JSON.stringify(palette) : null, scene.id]);
     } else {
-      scene = await createScene(projectId, { slug: incoming.slug, summary: incoming.summary, location: incoming.location, index: si });
+      scene = await createScene(projectId, { slug: incoming.slug, summary: incoming.summary, location: incoming.location, index: si, palette: incoming.palette });
     }
     keepScenes.add(scene.id);
     const current = await listSceneShots(scene.id);
@@ -898,3 +934,66 @@ export async function listPendingExports(): Promise<ExportJob[]> {
 }
 
 export type { SqlValue };
+
+
+/* ---------- stage reviews (cold reader) ---------- */
+
+function mapReview(r: Row): StageReview {
+  return {
+    id: str(r.id), projectId: str(r.project_id), stage: str(r.stage) as ReviewStage, shotId: opt(r.shot_id, str),
+    subjectHash: str(r.subject_hash), verdict: str(r.verdict) as StageReview["verdict"], reviewer: str(r.reviewer) as StageReview["reviewer"],
+    basis: str(r.basis), findings: json<ReviewFinding[]>(r.findings_json, []), createdAt: num(r.created_at),
+  };
+}
+
+export async function insertReview(input: Omit<StageReview, "id" | "createdAt">): Promise<StageReview> {
+  const id = newId("rev");
+  await (await db()).run(
+    "INSERT INTO reviews (id, project_id, stage, shot_id, subject_hash, verdict, reviewer, basis, findings_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, input.projectId, input.stage, input.shotId ?? null, input.subjectHash, input.verdict, input.reviewer, input.basis, JSON.stringify(input.findings), Date.now()],
+  );
+  const row = await (await db()).get("SELECT * FROM reviews WHERE id = ?", [id]);
+  return mapReview(row!);
+}
+
+export async function listReviews(projectId: string, filter?: { stage?: ReviewStage; shotId?: string }): Promise<StageReview[]> {
+  const where = ["project_id = ?"];
+  const args: SqlValue[] = [projectId];
+  if (filter?.stage) { where.push("stage = ?"); args.push(filter.stage); }
+  if (filter?.shotId) { where.push("shot_id = ?"); args.push(filter.shotId); }
+  const rows = await (await db()).all(`SELECT * FROM reviews WHERE ${where.join(" AND ")} ORDER BY created_at DESC`, args);
+  return rows.map(mapReview);
+}
+
+/* ---------- requirements and decisions ---------- */
+
+function mapNote(r: Row): DirectorNote {
+  return {
+    id: str(r.id), projectId: str(r.project_id), kind: str(r.kind) as NoteKind, status: str(r.status),
+    body: json<Record<string, unknown>>(r.body_json, {}), createdAt: num(r.created_at), updatedAt: num(r.updated_at),
+  };
+}
+
+export async function insertNote(projectId: string, kind: NoteKind, status: string, body: Record<string, unknown>): Promise<DirectorNote> {
+  const id = newId(kind === "requirement" ? "req" : "dec");
+  const now = Date.now();
+  await (await db()).run("INSERT INTO director_notes (id, project_id, kind, status, body_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [id, projectId, kind, status, JSON.stringify(body), now, now]);
+  return getNote(id);
+}
+
+export async function getNote(id: string): Promise<DirectorNote> {
+  const row = await (await db()).get("SELECT * FROM director_notes WHERE id = ?", [id]);
+  if (!row) throw notFound("note", id);
+  return mapNote(row);
+}
+
+export async function updateNote(id: string, patch: { status?: string; body?: Record<string, unknown> }): Promise<DirectorNote> {
+  const cur = await getNote(id);
+  await (await db()).run("UPDATE director_notes SET status = ?, body_json = ?, updated_at = ? WHERE id = ?", [patch.status ?? cur.status, JSON.stringify({ ...cur.body, ...(patch.body ?? {}) }), Date.now(), id]);
+  return getNote(id);
+}
+
+export async function listNotes(projectId: string, kind: NoteKind): Promise<DirectorNote[]> {
+  const rows = await (await db()).all("SELECT * FROM director_notes WHERE project_id = ? AND kind = ? ORDER BY created_at", [projectId, kind]);
+  return rows.map(mapNote);
+}

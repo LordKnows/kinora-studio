@@ -4,7 +4,7 @@ import type { Shot, Take } from "../types";
 /* §4.4 — the input the assembler worker takes. Built here so the UI, the
    export endpoint and the tests agree on one shape. */
 
-export type AssemblerClip = { url: string; in_s: number; out_s: number; transition_in: "cut" | "dissolve"; transition_s?: number; repeat?: number };
+export type AssemblerClip = { url: string; in_s: number; out_s: number; transition_in: "cut" | "dissolve"; transition_s?: number; repeat?: number; speed?: number; mute?: boolean };
 
 export type AssemblerInput = {
   export_job_id: string;
@@ -47,8 +47,11 @@ export function buildAssemblerInput(args: {
     /* The rendered file is the truth: H3 snaps to a frame grid, so the spec's
        duration can overshoot the take by a few frames. */
     const outS = Math.min(clip.outS, take.outputSeconds ?? shot.spec.durationS);
-    const len = Math.max(0, outS - clip.inS);
+    const speed = clip.speed ?? 1;
+    const len = Math.max(0, outS - clip.inS) / speed;
     const repeat = clip.repeat ?? 1;
+    /* A take whose sound failed review plays silent. */
+    const mute = clip.muteOwnAudio || take.review?.audioOk === false;
     clips.push({
       url: upscaled ?? take.resultUrl,
       in_s: clip.inS,
@@ -56,6 +59,8 @@ export function buildAssemblerInput(args: {
       transition_in: clip.transition,
       ...(clip.transition === "dissolve" ? { transition_s: clip.transitionS ?? 0.4 } : {}),
       ...(repeat > 1 ? { repeat } : {}),
+      ...(speed !== 1 ? { speed } : {}),
+      ...(mute ? { mute: true } : {}),
     });
     /* Dialogue lines are spread evenly across the clip; good enough for a
        first SRT the editor can nudge. */

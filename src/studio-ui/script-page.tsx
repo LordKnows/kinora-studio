@@ -70,6 +70,9 @@ export function ScriptPage() {
           <Button kind="quiet" onClick={promptPack}>
             {copied ? "Copied" : "Copy prompt pack"}
           </Button>
+          {latest && latest.approval === "approved" && view?.delegated?.script && (
+            <span className="st-chip" title="Approved under delegated approval; overturn it in Settings → Director → Decisions">Approved by the director</span>
+          )}
           {latest && latest.approval !== "approved" && (
             <Button kind="primary" busy={approve.busy} onClick={() => void approve.fire(latest.id)}>
               Approve v{latest.version}

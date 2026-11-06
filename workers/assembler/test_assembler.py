@@ -112,3 +112,32 @@ def test_repeat_plays_a_loop_clip_n_times(tmp_path):
     (tmp_path / "work").mkdir()
     out = h.assemble(params, tmp_path / "work", uploader)
     assert abs(out["duration_s"] - 6.0) < 0.3
+
+
+def test_speed_mute_and_bt709_tags(tmp_path):
+    a = make_clip(tmp_path / "a.mp4", 3.0)
+    b = make_clip(tmp_path / "b.mp4", 3.0, freq=880)
+    p = h.validate_input(raw_input([
+        {"url": f"file://{a}", "in_s": 0, "out_s": 2.0, "speed": 2.0},
+        {"url": f"file://{b}", "in_s": 0, "out_s": 2.0, "mute": True},
+    ]))
+    assert p.clips[0].speed == 2.0 and p.clips[1].mute
+    up = FakeUploader()
+    out = h.assemble(p, tmp_path, up)
+    # 2 s at double speed is 1 s, plus 2 s
+    assert abs(out["duration_s"] - 3.0) < 0.25
+    assert out["cuts_s"] and abs(out["cuts_s"][0] - 1.0) < 0.1
+    assert out["cut_sheet_url"] and out["cut_sheet_url"].endswith(".cuts.png")
+    video = tmp_path / "check.mp4"
+    video.write_bytes(up.files[p.output_key][0])
+    tags = subprocess.run([h.FFPROBE, "-v", "error", "-select_streams", "v", "-show_entries", "stream=color_space,color_primaries,color_transfer", "-of", "csv=p=0", str(video)], capture_output=True, text=True, check=True).stdout.strip()
+    assert tags == "bt709,bt709,bt709"
+    with pytest.raises(h.JobError, match="speed"):
+        h.validate_input(raw_input([{"url": "x", "out_s": 1, "speed": 3}]))
+
+
+def test_untagged_source_is_read_as_bt601():
+    assert h.source_matrix(None) == "bt601-6-525"
+    assert h.source_matrix("bt709") == "bt709"
+    assert h.color_filter("bt709").startswith("setparams")
+    assert "iall=bt601" in h.color_filter(None)

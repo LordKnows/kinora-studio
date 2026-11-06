@@ -12,9 +12,12 @@ Ask once, in one message, then no more questions until a checkpoint:
 - the style, by name, or let `suggest_styles` propose two or three and have the user pick;
 - facts, names, products or logos that must appear; material of their own (reference images for elements, a voice, music);
 - the narration language (default: the language the user writes in);
+- the total budget, and whether they want music and subtitles;
 - whether they want to see a storyboard (hero frames) before takes are rendered (default: no).
 
 Defaults: 30–60 s; 16:9; one previz take per shot; narration and subtitles in the user's language. Longer than two minutes multiplies cost: say so.
+
+Record every answer with `add_requirements`, one item each in the user's words. Long sessions get summarised; the list does not.
 
 ## 2. Find a benchmark first
 
@@ -28,6 +31,11 @@ Before writing anything, pick one or two reference works that set the bar for th
 - **One native move** from the style's menu (`get_style` §8) at the emotional peak.
 - **Cut the extras.** One gag the audience reads at thumbnail size beats three they can't.
 - **Not the demo again.** The style's variation space lists three structures, openings and endings far from the obvious; the first idea that comes to mind for a style is usually its cliché.
+- **Ask every turn the way reality would.** Why does this happen? Where does the thing come from? Is it within reach? Would it really go like this?
+- **Every gag in three parts: problem → solution → the others' reaction.** Reactions are what make it read as real, and they come one after another — the father first, a beat later the grandmother, the girl last. People who react in the same second read as machine-made. Bodies flinch back when startled.
+- **Write what AI video can shoot.** Its fixed weak spots: people crossing, small objects in hands, readable text, mirrors and reflections, one-sided features (a tattoo on one arm), a light change inside one shot, one person doing three things, overhead shots that hide faces, crowds. Each raises the reroll rate; leave them out of the story rather than fixing them after the take.
+- **Prefer an episodic structure.** Shots that need not match each other are the safest; one continuous action across shots is where continuity breaks. Choose continuous only when the film needs it, and then lean on `continuous` / `bridge` links.
+- **Then let a stranger read it.** `review_packet` (story) gives the script alone to a fresh reviewer who finds faults and edits nothing. What it does not understand is not on the page.
 
 ## 4. Write the treatment (before the shotlist)
 
@@ -39,7 +47,8 @@ Before writing anything, pick one or two reference works that set the bar for th
 4. hook (≤ 3 s), signature shot, native move;
 5. 3–6 sequences with seconds and a pace each; the paces must vary and one must be slow or still;
 6. a sound design row per sequence (ambience, foley, music state);
-7. at least two silences and two audio bridges (J-cut, L-cut) for films over 30 s.
+7. at least two silences and two audio bridges (J-cut, L-cut) for films over 30 s;
+8. the turns: problem, solution, reaction, and why it can happen; and the structure (episodic or continuous).
 
 The script the user approves is this treatment plus the dialogue.
 
@@ -47,9 +56,24 @@ The script the user approves is this treatment plus the dialogue.
 
 Elements first: every character, location and prop with a concrete description written in the style's materials (a clay figure, a paper puppet, three ink strokes). The user uploads references; hero frames are chosen on the Board. If the user asked for a storyboard, stop after hero frames and wait.
 
+## 5b. Storyboard: staging, composition, colour
+
+The storyboard decides the film more than the plot does. Every shot says, in screen terms:
+
+- **size, angle, move, and who goes where** (`blocking`: enters from frame left, exits frame right). Keep a character's screen direction across the cut; someone who leaves frame right comes in frame left.
+- **what moves** (`motion`). At least one of: the camera, the subject, focus, light, something crossing the lens, a passer-by, weather, a prop. If nothing moves the frame is a photograph. A locked camera needs someone walking in it, far to near.
+- **why the camera moves**: to follow something (a letter flying, the camera goes with it), to push in for a close-up, to pull out from a detail. Move where it means something, hold still where it does not.
+- **a new angle every shot.** Straight-on eye level at most twice in the film; the rest high, low, from behind, over the shoulder, through something. No run of three shots of one size.
+- **every frame a still worth keeping.** Eyes on the 38 % or 62 % line, not the centre (`composition`).
+- **a colour script before the first image**: each scene's palette as hex colours (`palette`), one accent at most. In black and white the subject must still separate from the background; `sketch_board` with `gray` and `lint_project` (`palette.contrast`) check it.
+
+With a reference film, study it frame by frame for camera positions and how much of the frame people enter and leave by; without one, these rules stand in. `sketch_board` draws the whole board from these fields before any frame exists — show it before asking for the approval.
+
+Then the frames: write what the first and last frame show (`frames`), get it reviewed, and only then draw. Everything the action uses is already in the first frame; whoever reacts is already there, facing the camera; people never share one pose; leave room where things land and above heads; wind blows one way. Draw the richer frame first and derive the other from it; a push-in's end frame is a crop of the first.
+
 ## 6. Sound is half the film
 
-- **Every visible action has a sound**: fill `sfx` per shot from the style's foley list; match the material.
+- **Every visible action has a sound, and no sound without a visible cause**: fill `sfx` per shot from the style's foley list; match the material.
 - **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The Studio mixes the model's own audio; narration and score are added by the local assembler (`assemble_local`) with ducking.
 - **At least two real silences** before the turn or the peak; the first sound after a silence is one of the most important in the film.
 - **Use sound as a transition** at least twice: a J-cut (next clip's audio leads) or an L-cut (this clip's audio trails) on the extended timeline.
@@ -76,15 +100,22 @@ Elements first: every character, location and prop with a concrete description w
 - Characters change emotion inside the shot; say so in the beat.
 - Dialogue is unverified on H3: keep lines short or describe the vocal sound; put narration on the local track instead.
 - Identity: open every sequence with `reference` mode and pass identity by frame inside it (`continuous`, `reverse`, `insert_return`, `bridge`).
+- One clip is one shot: a reaction the beat needs is staged in the first frame, or it gets its own shot.
+- **Write what the model cannot misread**: screen directions, counts, unambiguous places, the cause of every movement and where the hands are; what happens rather than what must not; materials rather than "cartoon"; props with an obvious use kept out of action shots.
 
 ## 10. Rendering, cost and checkpoints
 
 - `plan_batch` orders takes (R2VA first, then the fl2va family, linked shots after their anchors) and sums one estimate against the cap: tell the user once, then confirm the batch.
 - Previz at the LoRA's step count, one take per shot. Raise steps or upscale only after the user is happy.
-- Review is human-only: the user cherry-picks takes on the Board. Revise with `revise_shot` and render a new take; stop after three attempts on one shot and ask.
-- `approve_script` and `approve_shotlist` are web-only; when a tool answers `not_approved`, say which page to open.
+- Before any take: the shot review (`review_packet` stage shot → fresh reviewer → `record_review`). It checks every sentence of the prompt against the frames, the element sheets, the palette and the neighbouring shots. Most rerolls are prompt mistakes, not model failures.
+- Probe first: `plan_project_batch` names the one or two most fragile shots; render those, and only then the rest.
+- Review is human-only: the user cherry-picks takes on the Board and tags what went wrong. You see stills, never motion or sound: say so whenever you judge a take.
+- A wrong take: trim it if the fault is at the head or tail; fix it in the edit if you can (retime, mute, freeze); only then revise the prompt or the frames and render a new take — never the same input again. Keep every take; a passed-over one can still give an insert. Stop after three attempts on one shot and ask.
+- Out of budget: stop, `rough_cut`, and show the user the film so far.
+- The script and the shotlist are the user's to approve; when a tool answers `not_approved`, say which page to open. If they switched on delegated approval (Settings → Director), `approve_script` (after a fresh reviewer passed the current text) and `approve_shotlist` (script approved, no lint errors) pass them for the user — with your reasons and confidence in the decision log, and a word to the user each time.
 
 ## 11. Assemble and deliver
 
 - `auto_timeline`, then the extended timeline (`check_timeline`): J/L cuts, fades, title cards, narration, music with ducking, silences, subtitles. `to_studio_timeline` keeps the Studio project valid; `assemble_local` renders the full version from the exported takes.
-- Deliver: the film, the `.srt` when there is narration, `TREATMENT.md` in the script, and one line to the user on what was left for a second round.
+- Before delivery a stranger watches it (`review_packet` stage film): the story it understood, what it did not, then shot by shot — repeated actions, prop counts, continuity, jumps and colour breaks at cuts (the export's cut sheet shows 3 frames each side), faces and hands — and what it could not check.
+- Deliver: the film, the `.srt` when there is narration, `TREATMENT.md` in the script, `get_retro` (what went wrong, which wording fixed it, which fragile pictures to avoid next time), and one line to the user on what was left for a second round.

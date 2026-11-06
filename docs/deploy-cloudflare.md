@@ -34,6 +34,11 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0007_seed_more_loras.sql` | 预置 7 个社区 LoRA（fal 写实人物、Jojocodex 运镜 / 物理、anime 风格等；幂等） |
 | `migrations/0008_take_progress.sql` | `takes` 表加 `progress_json`（生成进度：阶段、步数、预计剩余；只执行一次） |
 | `migrations/0009_take_upscale.sql` | `takes` 表加 `upscale_json`（Open-H3-Regenerate-2K 的 2K 版本；只执行一次） |
+| `migrations/0010_director_craft.sql` | 导演手艺层：场景色板、元素固定特征与参考图视角、预授权额度三列，`reviews`（冷读审核）与 `director_notes`（要求清单、决策日志）两张表（三条 ALTER 只执行一次） |
+| `migrations/0011_delegated_approvals.sql` | `projects` 表加 `delegation_json`（代理审批开关；只执行一次） |
+
+先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
+逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。
 
 ## 2. 建对象存储（R2）
 

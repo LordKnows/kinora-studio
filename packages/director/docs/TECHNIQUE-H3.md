@@ -40,14 +40,38 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - Dialogue: the verified clips used whispers and laughter; spoken lines are unverified. Keep them short or describe the vocal sound in `sound`.
 - On-screen text: never ask the model; the local assembler adds titles, captions and OSD.
 
+## Staging fields and what they compile to
+
+- `blocking` → "Mia enters from frame left, then moves to frame right." lines; `composition` → "the subject's eyes sit on the left third, about 38% from the left edge"; a scene `palette` → "Scene palette #…" in the LOOK; an element's `fixedFeatures` → "Mia always has a dragon tattoo on the left forearm, in every frame", in every mode including keyframe.
+- Reference images tagged with a view (`select_element_refs` views): R2VA picks the one matching the shot — profile → side, close-up → expression or front, long shot → full body.
+- Prompt experiments, off by default and recorded on the take (`studio_experiments`): `frameHolds` (0–0.2 s hold on the first frame, last 0.3 s settle on the end frame), `restateFrame` (keyframe shots restate the first frame's people and props), `positiveCast` ("only the people and objects already in the first frame appear"). Each changes text the turbo LoRAs were trained on; A/B them on one shot before a project default (`look.experiments`).
+
+## Frames
+
+- Frames must match the render: 1344×768 (16:9). `lint_project` flags hero / end frames of another aspect ratio or of different sizes (`frames.aspect`, `frames.size`); uploads and imports record their size.
+- First and last frame must agree outside the action: FL2VA interpolates every difference, so a wall that changes colour fades and a cup that grows, grows. The Board's frame check shows the difference.
+- A push-in from a hero frame with no end frame drifts; an end frame cropped from the hero frame (`derive_end_frame`, Board button) forces the push.
+- The Studio has no image model: frames and sheets come from uploads, from the director's own image tool (`import_image` by URL or base64, `request_upload` + `commit_upload` for files), or from last frames of finished takes.
+
+## Takes
+
+- The first frame of an I2VA / FL2VA take is the input image: on a `continuous` cut it duplicates the anchor's last frame, and it is sharper than the video after it. `auto_timeline` drops the first 2 frames of those takes.
+- FL2VA can snap onto the end frame in its last frames; check a take and set `tailTrimS` on `auto_timeline` when it does.
+- `check_seams`: a linked shot rendered from one take of its anchor no longer matches once the anchor's pick changes, and a continuous cut jumps when the anchor's tail is trimmed.
+- A re-render of an identical input (prompt, workflow, frames) differs only by seed; after a rejected take `generate_take` warns and the spend envelope refuses it.
+
 ## What the Studio assembler does today
 
-- Cuts and dissolves between clips, `repeat` for loops, a music asset and three mix sliders.
+- Cuts and dissolves between clips, `repeat` for loops, per-clip `speed` (0.5–2; 0.8–1.25 reads as natural) and `muteOwnAudio` (also set by a review with `audioOk: false`), a music asset and three mix sliders.
+- Colour: every source is read with its tagged matrix, an untagged one as BT.601 (PyAV's default RGB → YUV; `ASSEMBLER_UNTAGGED_MATRIX=bt709` overrides), converted to BT.709 and tagged. Untagged BT.601 shown as BT.709 shifts reds (measured: 200,49,50 displayed as 213,64,48).
+- A cut sheet with each export: 3 frames before and after every cut, one row per cut, for the film review.
+- No whole-clip frame interpolation: it smears motion on AI video. `master-upscaled` uses each take's Open-H3-Regenerate file.
 - Not yet: J/L cuts, fades, titles, narration, ducking, silences, burned subtitles.
 
 ## What the local assembler adds (`assemble_local`)
 
 - Transitions: dissolve, fade to black, fade to white, white flash, iris, wipe (ffmpeg `xfade`).
+- Per-clip `speed` and `sourceMatrix` (default `bt601`); output tagged BT.709.
 - J-cut (`audioLeadS`) and L-cut (`audioTrailS`) per clip; `freezeS` to hold a last frame; `muteOwnAudio`.
 - Title cards (full-frame) and overlays/captions (`drawtext`); OSD for found-footage styles.
 - A narration track (files from `synthesize_narration` or the user's recording) and a music file with ducking under narration, fades, and silences (whole bus out).
@@ -63,3 +87,5 @@ Do not describe what the anchor frame already shows; describe what happens next.
 
 - Every tool that spends money answers `needs_confirm` with an estimate first. `plan_batch` sums the batch so one confirmation covers it; keep inside `budgetCapUsd`.
 - Previz at the LoRA's step count, one take per shot; `master-upscaled` only at the end.
+- `plan_project_batch` gives each shot a fragility score (the `fragile.*` findings), suggests the careful tier (two takes, or the base chain) at 3 or more — unmeasured on H3, so treat it as a hint — and names a probe of the most fragile shots to render first.
+- A spend envelope (granted on the web, Settings) lets a reviewed shot render without a confirmation, inside the envelope, with a decision-log entry.

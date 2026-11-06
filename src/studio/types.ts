@@ -1,4 +1,4 @@
-import type { LookSettings, ShotInput, TimelineInput } from "./schemas";
+import type { FixedFeature, LookSettings, RefView, ScenePalette, ShotInput, TakeFault, TimelineInput } from "./schemas";
 
 export type Approval = "draft" | "approved";
 
@@ -12,8 +12,29 @@ export type Project = {
   targetSeconds?: number;
   shotlistApproval: Approval;
   shotlistApprovedAt?: number;
+  /** Spend envelope the user granted on the web; inside it the agent may render without asking each time. */
+  autopilot?: Autopilot;
+  /** Checkpoints the user lets the director pass (granted on the web only). */
+  delegation?: Delegation;
   createdAt: number;
   updatedAt: number;
+};
+
+export type Autopilot = {
+  envelopeUsd: number;
+  /** Spent against the envelope since it was granted. */
+  usedUsd: number;
+  grantedAt: number;
+  grantedBy: string;
+  expiresAt?: number;
+  note?: string;
+};
+
+export type Delegation = {
+  script: boolean;
+  shotlist: boolean;
+  grantedBy: string;
+  grantedAt: number;
 };
 
 export type Script = {
@@ -53,6 +74,10 @@ export type Element = {
   description: string;
   refAssetIds: string[];
   voiceAssetId?: string;
+  /** Details that must never move or vanish; restated in every shot. */
+  fixedFeatures?: FixedFeature[];
+  /** Which view each reference image shows, by asset id. */
+  refViews?: Record<string, RefView>;
   createdAt: number;
   updatedAt: number;
 };
@@ -64,6 +89,7 @@ export type Scene = {
   slug: string;
   summary: string;
   locationElementId?: string;
+  palette?: ScenePalette;
   createdAt: number;
 };
 
@@ -83,7 +109,30 @@ export type Shot = {
 
 export type TakeStatus = "queued" | "running" | "completed" | "failed" | "canceled" | "timeout";
 
-export type Review = { score: number; notes: string; by: "human" | "agent"; at: number };
+export type Review = {
+  score: number; notes: string; by: "human" | "agent"; at: number;
+  faults?: TakeFault[];
+  /** false = the take's own audio failed review; the timeline mutes it. */
+  audioOk?: boolean;
+  /** For agent reviews: what was actually inspected (stills only — motion and sound unchecked). */
+  basis?: string;
+};
+
+/** A cold-reader review of a stage, stored against a hash of what was reviewed. */
+export type ReviewStage = "story" | "shot" | "film";
+export type ReviewFinding = { where: string; problem: string; fix?: string; sure?: boolean; severity?: "blocker" | "minor" };
+export type StageReview = {
+  id: string; projectId: string; stage: ReviewStage; shotId?: string;
+  subjectHash: string; verdict: "pass" | "fail"; reviewer: "fresh_agent" | "self" | "human"; basis: string;
+  findings: ReviewFinding[]; createdAt: number;
+};
+
+/** The requirements list (everything the user asked for) and the decision log. */
+export type NoteKind = "requirement" | "decision";
+export type DirectorNote = {
+  id: string; projectId: string; kind: NoteKind; status: string;
+  body: Record<string, unknown>; createdAt: number; updatedAt: number;
+};
 
 /** What the pod reports while a take renders. */
 export type TakeProgress = {

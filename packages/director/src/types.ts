@@ -49,6 +49,31 @@ export interface Link {
   anchorShotId?: string;
 }
 
+export type ScreenPosition = "off_left" | "left" | "center" | "right" | "off_right" | "foreground" | "background";
+
+export interface Blocking {
+  who: string;
+  from?: ScreenPosition;
+  to?: ScreenPosition;
+  note?: string;
+}
+
+export type MotionSource = "camera" | "subject" | "focus" | "light" | "foreground" | "background" | "weather" | "prop";
+
+export interface Composition {
+  subjectX: "left" | "center" | "right";
+  headroom?: "tight" | "normal" | "generous";
+  note?: string;
+}
+
+/** An element as the lint needs it (names to find in beats, fixed features). */
+export interface LintElement {
+  id: string;
+  name: string;
+  kind: "character" | "location" | "prop";
+  fixedFeatures?: { feature: string; where: string }[];
+}
+
 /** A shot as `save_shotlist` takes it. */
 export interface Shot {
   id?: string;
@@ -67,6 +92,11 @@ export interface Shot {
   cinematography?: Cinematography;
   loras?: { id: string; strength?: number }[];
   promptOverride?: string;
+  blocking?: Blocking[];
+  motion?: MotionSource[];
+  composition?: Composition;
+  frames?: { first?: string; last?: string };
+  screenS?: number;
 }
 
 export interface Scene {
@@ -74,6 +104,7 @@ export interface Scene {
   slug: string;
   summary?: string;
   location?: string;
+  palette?: { colors: string[]; note?: string };
   shots: Shot[];
 }
 
@@ -90,6 +121,8 @@ export interface StudioClip {
   repeat?: number;
   transition?: "cut" | "dissolve";
   transitionS?: number;
+  speed?: number;
+  muteOwnAudio?: boolean;
 }
 
 export interface StudioTimeline {

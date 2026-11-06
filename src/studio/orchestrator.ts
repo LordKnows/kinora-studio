@@ -1,9 +1,11 @@
 import { assertBudget, assertCanGenerate, assertConfirmed, isStructuralChange } from "./checkpoints";
-import { CompileError, compileShot, effectiveLink, type CompiledJob } from "./compiler";
+import { CompileError, compileShot, effectiveLink, VIDEO_SIZES, type CompiledJob } from "./compiler";
 import { grammarFor } from "./editing";
 import { config } from "./config";
 import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate, estimateUpscale } from "./cost";
 import * as director from "@/director";
+import { autopilotCovers, consumeAutopilot, identicalTakes, renderHash, reviewState } from "./craft-core";
+import { paletteContrastWarnings } from "./sketch";
 
 import { StudioError } from "./errors";
 import * as repo from "./repo";
@@ -11,7 +13,7 @@ import { buildAssemblerInput } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
-import type { ExportRequest, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput } from "./schemas";
+import type { ExportRequest, PromptExperiments, ShotInput, ShotPatch, ShotlistInput, TakeFault, TakeRequest, TimelineInput } from "./schemas";
 import { ShotInput as ShotInputSchema, ShotlistInput as ShotlistInputSchema, UpscaleRequest } from "./schemas";
 import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Take, Timeline } from "./types";
 
@@ -77,11 +79,13 @@ export type ProjectView = {
   assets: Asset[];
   canGenerate: boolean;
   blockers: string[];
+  /** Checkpoints currently passed by the director under delegated approval. */
+  delegated: { script: boolean; shotlist: boolean };
 };
 
 export async function getProjectView(projectId: string): Promise<ProjectView> {
   const project = await repo.getProject(projectId);
-  const [script, elements, scenes, shots, takes, timeline, assets] = await Promise.all([
+  const [script, elements, scenes, shots, takes, timeline, assets, decisions] = await Promise.all([
     repo.latestScript(projectId),
     repo.listElements(projectId, true),
     repo.listScenes(projectId),
@@ -89,7 +93,13 @@ export async function getProjectView(projectId: string): Promise<ProjectView> {
     repo.listProjectTakes(projectId),
     repo.getTimeline(projectId),
     repo.listAssets(projectId),
+    repo.listNotes(projectId, "decision"),
   ]);
+  const standing = decisions.filter((d) => d.status === "standing" && d.body.approval);
+  const delegated = {
+    script: !!script && script.approval === "approved" && standing.some((d) => d.body.approval === "script" && d.body.scriptId === script.id),
+    shotlist: project.shotlistApproval === "approved" && standing.some((d) => d.body.approval === "shotlist" && Math.abs((project.shotlistApprovedAt ?? 0) - d.createdAt) <= 5_000),
+  };
   const assetById = new Map(assets.map((a) => [a.id, a]));
   const takesByShot = new Map<string, Take[]>();
   for (const take of takes) {
@@ -113,7 +123,7 @@ export async function getProjectView(projectId: string): Promise<ProjectView> {
   else if (script.approval !== "approved") blockers.push("Script not approved");
   if (shots.length === 0) blockers.push("No shots yet");
   else if (project.shotlistApproval !== "approved") blockers.push("Shotlist not approved");
-  return { project, script, elements, scenes: sceneViews, timeline, assets, canGenerate: blockers.length === 0, blockers };
+  return { project, script, elements, scenes: sceneViews, timeline, assets, canGenerate: blockers.length === 0, blockers, delegated };
 }
 
 /* ---------- shotlist ---------- */
@@ -163,9 +173,11 @@ export async function removeShot(shotId: string): Promise<void> {
 
 /* ---------- compile ---------- */
 
-async function compileContext(shotId: string, opts?: { steps?: number; seed?: number }) {
+async function compileContext(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }) {
   const shot = await repo.getShot(shotId);
   const project = await repo.getProject(shot.projectId);
+  const scene = await repo.getScene(shot.sceneId);
+  const experiments = { ...(project.look.experiments ?? {}), ...(opts?.experiments ?? {}) };
   const ids = [...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])];
   const elements = await repo.getElements(ids);
   const assetIds = new Set<string>();
@@ -200,10 +212,10 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     const lora = loraRows.get(r.id);
     return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
   });
-  return { shot, project, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, steps: opts?.steps, seed: opts?.seed };
+  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, steps: opts?.steps, seed: opts?.seed, experiments };
 }
 
-export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number }): Promise<CompiledJob & { estimate: Estimate }> {
+export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }): Promise<CompiledJob & { estimate: Estimate }> {
   const ctx = await compileContext(shotId, opts);
   try {
     const job = compileShot({ ...ctx, look: ctx.project.look });
@@ -217,7 +229,7 @@ export async function compileForShot(shotId: string, opts?: { steps?: number; se
 /* ---------- takes ---------- */
 
 export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[]; gpu?: gpu.GpuState }> {
-  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed });
+  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed, experiments: req.experiments });
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
   let compiled: CompiledJob;
@@ -230,7 +242,24 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   const estimate = estimateTake(ctx.shot.spec.durationS, compiled.input.steps, req.n, await gpu.measuredForEstimate());
   const reserved = reservedUsd(await repo.listProjectActiveTakes(ctx.project.id));
   assertBudget(ctx.project, estimate.usd + reserved);
-  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `${req.n} take(s) of ${ctx.shot.spec.durationS}s`);
+
+  /* Keep errors in front of the spend: a cold-reader review of this exact
+     prompt and these frames, and no blind re-render of a rejected input. */
+  const subject = renderHash(compiled.workflow, compiled.prompt, compiled.input.images);
+  const review = await reviewState(ctx.project.id, "shot", subject, shotId);
+  const same = identicalTakes(await repo.listShotTakes(shotId), subject);
+  const guards = preRenderGuards(review.state, same);
+  compiled.warnings.push(...guards);
+  if (actor.via === "mcp" && !req.confirm) {
+    const auto = review.state === "pass" && same.rejected.length === 0 && autopilotCovers(ctx.project, estimate.usd);
+    if (!auto) {
+      throw new StudioError("needs_confirm", `${req.n} take(s) of ${ctx.shot.spec.durationS}s costs about ${estimate.usd.toFixed(2)} USD. Call again with confirm: true.`, {
+        estimateUsd: estimate.usd, review: review.state, warnings: guards,
+        autopilot: ctx.project.autopilot ? { envelopeUsd: ctx.project.autopilot.envelopeUsd, usedUsd: ctx.project.autopilot.usedUsd, covers: autopilotCovers(ctx.project, estimate.usd), needs: "a passing shot review and no identical rejected take" } : undefined,
+      });
+    }
+    await consumeAutopilot(ctx.project, estimate.usd, `${req.n} take(s) of shot ${ctx.shot.index + 1} (${ctx.shot.spec.intent})`, `shot review passed (${review.review?.reviewer ?? "?"}); inside the envelope`, shotId);
+  }
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
 
@@ -249,10 +278,10 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
     const seed = req.seed !== undefined ? req.seed + i : Math.floor(Math.random() * 2 ** 31);
     const take = await repo.createTake({
       projectId: ctx.project.id, shotId, backend: "runpod", workflow: compiled.workflow, prompt: compiled.prompt,
-      input: { ...compiled.input, seed }, seed,
+      input: { ...compiled.input, seed, ...(onExperiments(ctx.experiments) ? { studio_experiments: ctx.experiments } : {}) }, seed,
     });
     const input = {
-      ...compiled.input,
+      ...take.input,
       seed,
       studio_take_id: take.id,
       output: { key: `projects/${ctx.project.id}/shots/${shotId}/takes/${take.id}.mp4` },
@@ -261,6 +290,22 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   }
   await gpu.touchGpuActivity();
   return { takes, estimate, warnings: compiled.warnings, gpu: gpuState };
+}
+
+function onExperiments(e: PromptExperiments | undefined): boolean {
+  return !!e && Object.values(e).some(Boolean);
+}
+
+/** Warnings before a render: the review state of this exact input, and
+    earlier takes that rendered the same thing. */
+export function preRenderGuards(state: "pass" | "fail" | "stale" | "none", same: { rejected: Take[]; any: Take[] }): string[] {
+  const out: string[] = [];
+  if (same.rejected.length) out.push(`same prompt and frames as rejected take ${same.rejected.map((t) => `#${t.n}`).join(", ")}: re-rendering the same input usually fails the same way — change the beats, wording or frames first (revise_shot), or pass a seed on purpose`);
+  else if (same.any.length) out.push(`same prompt and frames as take ${same.any.map((t) => `#${t.n}`).join(", ")}; only the seed differs`);
+  if (state === "none") out.push("no cold-reader review of this shot yet: review_packet(stage 'shot') → a fresh agent → record_review");
+  else if (state === "stale") out.push("the last shot review covered an earlier prompt or frame; review again before spending");
+  else if (state === "fail") out.push("the last shot review failed: fix its findings, then review again");
+  return out;
 }
 
 /** Hand a queued take to the backend. With no backend ready yet (pod still
@@ -355,7 +400,9 @@ export async function regenerateTake(takeId: string, req: UpscaleRequest, actor:
   const seconds = take.outputSeconds ?? num(take.input.seconds) ?? 5;
   const estimate = estimateUpscale(seconds, req.resolution, await gpu.measuredForEstimate());
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
-  if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `regenerate take ${take.n} at ${req.resolution}`);
+  const picked = (await repo.getShot(take.shotId)).selectedTakeId === take.id;
+  if (actor.via === "mcp" && !req.confirm && picked && autopilotCovers(project, estimate.usd)) await consumeAutopilot(project, estimate.usd, `regenerate take #${take.n} at ${req.resolution}`, "the user picked this take; inside the envelope", take.shotId);
+  else if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `regenerate take ${take.n} at ${req.resolution}`);
   const queued = await repo.updateTake(take.id, { upscale: { status: "queued", resolution: req.resolution, startSigma: req.startSigma, createdAt: Date.now() } });
   let gpuState: gpu.GpuState | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
@@ -466,7 +513,8 @@ export async function retryTake(takeId: string, actor: Actor, confirm: boolean):
   const project = await repo.getProject(take.projectId);
   const estimate = estimateTake(shot.spec.durationS, num(take.input.steps) ?? 8);
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
-  if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
+  if (actor.via === "mcp" && !confirm && autopilotCovers(project, estimate.usd)) await consumeAutopilot(project, estimate.usd, `retry take #${take.n}`, "the take failed on the backend, not on review; inside the envelope", shot.id);
+  else if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
   if (config.runpodMode() === "pod") {
     const state = await gpu.startGpu(actor, true);
     if (state.status === "unavailable") throw new StudioError("backend_error", state.message ?? "no GPU available right now", { noResources: true, gpu: state });
@@ -481,8 +529,15 @@ export async function retryTake(takeId: string, actor: Actor, confirm: boolean):
   return submitTake(reset);
 }
 
-export async function reviewTake(takeId: string, score: number, notes: string, actor: Actor): Promise<Take> {
-  return repo.updateTake(takeId, { review: { score, notes, by: actor.via === "mcp" ? "agent" : "human", at: Date.now() } });
+export async function reviewTake(takeId: string, score: number, notes: string, actor: Actor, extra?: { faults?: TakeFault[]; audioOk?: boolean; basis?: string }): Promise<Take> {
+  /* An agent sees stills, not motion, and hears nothing: its review says so. */
+  if (actor.via === "mcp" && !extra?.basis) throw new StudioError("validation", "an agent review needs basis: what you actually inspected (e.g. '6 stills; motion and sound not checked')");
+  return repo.updateTake(takeId, { review: {
+    score, notes, by: actor.via === "mcp" ? "agent" : "human", at: Date.now(),
+    ...(extra?.faults?.length ? { faults: extra.faults } : {}),
+    ...(extra?.audioOk !== undefined ? { audioOk: extra.audioOk } : {}),
+    ...(extra?.basis ? { basis: extra.basis } : {}),
+  } });
 }
 
 export async function selectTake(shotId: string, takeId: string): Promise<Shot> {
@@ -494,17 +549,96 @@ export async function selectTake(shotId: string, takeId: string): Promise<Shot> 
 
 /* ---------- timeline & export ---------- */
 
-export async function autoTimeline(projectId: string): Promise<Timeline> {
+/** Frames a frame-driven take loses at its head: its first frame is the
+    input image itself (a duplicate of the anchor's last frame on a continuous
+    cut, and sharper than the video after it). */
+export const HEAD_TRIM_FRAMES = 2;
+
+/**
+ * The timeline from the selected (or latest completed) take of every shot.
+ * Every join is a hard cut: a continuous / bridge / insert-return shot starts
+ * on its anchor's last frame, so a dissolve would only double the picture.
+ * Frame-driven takes drop their first frames; a shot with screenS plays that
+ * long and keeps the rest as handles; FL2VA takes can lose a tail where the
+ * model snaps onto the end frame (tailTrimS, off until measured).
+ */
+export async function autoTimeline(projectId: string, opts?: { tailTrimS?: number; headFrames?: number }): Promise<Timeline> {
   const view = await getProjectView(projectId);
   const clips: TimelineInput["clips"] = [];
+  const headS = (opts?.headFrames ?? HEAD_TRIM_FRAMES) / 24;
   for (const scene of view.scenes) {
     for (const shot of scene.shots) {
       const take = shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
       if (!take) continue;
-      clips.push({ shotId: shot.id, takeId: take.id, inS: 0, outS: shot.spec.durationS, transition: shot.spec.linkToPrev === "continuous" ? "dissolve" : "cut", transitionS: 0.3, repeat: 1 });
+      const fromFrame = take.workflow === "I2VA" || take.workflow === "FL2VA";
+      const length = Math.min(15, take.outputSeconds ?? shot.spec.durationS);
+      const inS = fromFrame ? round3(headS) : 0;
+      let outS = length - (take.workflow === "FL2VA" ? (opts?.tailTrimS ?? 0) : 0);
+      if (shot.spec.screenS) outS = Math.min(outS, inS + shot.spec.screenS);
+      clips.push({
+        shotId: shot.id, takeId: take.id, inS, outS: round3(Math.max(inS + 0.5, outS)), transition: "cut", repeat: 1, speed: 1,
+        muteOwnAudio: take.review?.audioOk === false,
+      });
     }
   }
   return repo.setTimeline(projectId, { ...view.timeline, clips });
+}
+
+function round3(x: number): number {
+  return Math.round(x * 1000) / 1000;
+}
+
+/**
+ * Out of budget, or before the last takes are in: assemble what exists, in
+ * order, and say what is missing — the user sees the film so far instead of
+ * an error.
+ */
+export async function roughCut(projectId: string): Promise<{ timeline: Timeline; missing: Array<{ shot: string; intent: string; seconds: number; atS: number }>; renderedS: number; plannedS: number; next: string }> {
+  const timeline = await autoTimeline(projectId);
+  const view = await getProjectView(projectId);
+  const missing: Array<{ shot: string; intent: string; seconds: number; atS: number }> = [];
+  let planned = 0;
+  for (const scene of view.scenes) for (const shot of scene.shots) {
+    const has = shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
+    if (!has) missing.push({ shot: `${scene.slug} #${shot.index + 1}`, intent: shot.spec.intent, seconds: shot.spec.screenS ?? shot.spec.durationS, atS: round3(planned) });
+    planned += shot.spec.screenS ?? shot.spec.durationS;
+  }
+  const rendered = timeline.clips.reduce((a, c) => a + (c.outS - c.inS) / (c.speed ?? 1), 0);
+  return {
+    timeline, missing, renderedS: round3(rendered), plannedS: round3(planned),
+    next: timeline.clips.length ? "export_project with preset preview-480p (cheap) to show the user this cut; list the missing shots and what finishing them would cost" : "nothing is rendered yet",
+  };
+}
+
+/**
+ * Seams that can no longer match: a linked shot was rendered from one take
+ * of its anchor, and the anchor's pick has changed since; or the timeline
+ * trims the anchor's tail, so the cut jumps by the trimmed time.
+ */
+export async function checkSeams(projectId: string): Promise<LintWarning[]> {
+  const view = await getProjectView(projectId);
+  const flat = view.scenes.flatMap((s) => s.shots.map((sh, i) => ({ scene: s, sh, i })));
+  const out: LintWarning[] = [];
+  const clipFor = new Map(view.timeline.clips.map((c) => [c.shotId, c]));
+  flat.forEach(({ scene, sh, i }, k) => {
+    const link = effectiveLink(sh.spec);
+    if (!["continuous", "bridge", "insert_return", "reverse", "jump_cut"].includes(link.type)) return;
+    const anchor = link.anchorShotId ? flat.find((x) => x.sh.id === link.anchorShotId) : flat[k + (link.anchor ?? grammarFor(link.type).defaultAnchor)];
+    const take = sh.selectedTake ?? sh.takes.find((t) => t.status === "completed");
+    if (!anchor || !take) return;
+    const first = (Array.isArray(take.input.images) ? (take.input.images as Array<{ url: string; role: string }>) : []).find((x) => x.role === "first_frame")?.url;
+    const pick = anchor.sh.selectedTake ?? anchor.sh.takes.find((t) => t.status === "completed");
+    const at = { scene: scene.slug, shot: i + 1 };
+    if (first && pick?.lastFrameUrl && first !== pick.lastFrameUrl) {
+      const from = anchor.sh.takes.find((t) => t.lastFrameUrl === first);
+      out.push({ code: "seam.anchor", severity: "warn", ...at, message: `rendered from ${from ? `take #${from.n}` : "another take"} of ${anchor.scene.slug} #${anchor.i + 1}, but that shot's pick is now take #${pick.n}: the ${link.type} seam will jump. Re-pick take #${from?.n ?? "?"} there, or re-render this shot` });
+    }
+    const ac = clipFor.get(anchor.sh.id);
+    if (link.type === "continuous" && ac && pick && (pick.outputSeconds ?? anchor.sh.spec.durationS) - ac.outS > 0.15) {
+      out.push({ code: "seam.trim", severity: "warn", ...at, message: `the timeline ends ${anchor.scene.slug} #${anchor.i + 1} ${((pick.outputSeconds ?? anchor.sh.spec.durationS) - ac.outS).toFixed(2)} s before its last frame, which is where this continuous shot starts: the cut jumps` });
+    }
+  });
+  return out;
 }
 
 export async function createExportJob(projectId: string, req: ExportRequest, actor: Actor): Promise<{ job: ExportJob; estimateUsd: number; warnings: string[] }> {
@@ -522,7 +656,7 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
       throw new StudioError("not_approved", `clip for shot ${clip.shotId} points at a take that is not completed`, { checkpoint: "timeline", takeId: clip.takeId });
     }
   }
-  const total = view.timeline.clips.reduce((n, c) => n + Math.max(0, c.outS - c.inS) * (c.repeat ?? 1), 0);
+  const total = view.timeline.clips.reduce((n, c) => n + (Math.max(0, c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1), 0);
   const estimateUsd = estimateExport(total, req.preset === "master-upscaled");
   assertBudget(view.project, estimateUsd);
   if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `exporting ${req.preset}`);
@@ -581,7 +715,10 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
       const url = str(status.output.url);
       if (!url) return repo.updateExport(job.id, { status: "failed", error: "assembler completed without a url", finishedAt: Date.now() });
       const updated = await repo.updateExport(job.id, { status: "completed", resultUrl: url, srtUrl: str(status.output.srt_url), finishedAt: Date.now() });
-      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset } });
+      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS: Array.isArray(status.output.cuts_s) ? status.output.cuts_s : undefined } });
+      /* 3 frames each side of every cut, for the film review. */
+      const sheet = str(status.output.cut_sheet_url);
+      if (sheet) await repo.createAsset({ projectId: job.projectId, url: sheet, kind: "image", source: "export", meta: { exportId: job.id, role: "cut-sheet" } });
       return updated;
     }
     case "failed":
@@ -690,7 +827,7 @@ function num(v: unknown): number | undefined {
     pass and the batch planner take). */
 export async function shotlistOf(projectId: string): Promise<{ view: ProjectView; shotlist: ShotlistInput }> {
   const view = await getProjectView(projectId);
-  const shotlist = { scenes: view.scenes.map((s) => ({ slug: s.slug, summary: s.summary ?? "", location: s.locationElementId ?? undefined, shots: s.shots.map((sh) => sh.spec) })) } as ShotlistInput;
+  const shotlist = { scenes: view.scenes.map((s) => ({ slug: s.slug, summary: s.summary ?? "", location: s.locationElementId ?? undefined, ...(s.palette ? { palette: s.palette } : {}), shots: s.shots.map((sh) => sh.spec) })) } as ShotlistInput;
   return { view, shotlist };
 }
 
@@ -701,18 +838,49 @@ export type LintWarning = { code: string; message: string; scene?: string; shot?
 export async function lintProject(projectId: string, opts?: { totalSeconds?: number }): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number } }> {
   const { view, shotlist } = await shotlistOf(projectId);
   if (shotlist.scenes.length === 0) return { warnings: [], counts: { error: 0, warn: 0, info: 0 } };
-  const warnings = director.lintShotlist(shotlist as never, { totalSeconds: opts?.totalSeconds ?? view.project.targetSeconds ?? undefined }) as LintWarning[];
+  const elements = view.elements.map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures }));
+  const raw = director.lintShotlist(shotlist as never, { totalSeconds: opts?.totalSeconds ?? view.project.targetSeconds ?? undefined, elements }) as LintWarning[];
+  /* The package numbers shots across the film from 0; the Board keys them
+     per scene from 1. */
+  const where = view.scenes.flatMap((s) => s.shots.map((_sh, i) => ({ scene: s.slug, shot: i + 1 })));
+  const warnings: LintWarning[] = raw.map((w) => (w.shot !== undefined && where[w.shot] ? { ...w, ...where[w.shot]! } : w));
+  const [w, h] = VIDEO_SIZES[view.project.look.aspectRatio].split("x").map(Number) as [number, number];
   for (const scene of view.scenes) {
     scene.shots.forEach((sh, i) => {
+      const at = { scene: scene.slug, shot: i + 1 };
       const c = (sh.spec.cinematography ?? {}) as Record<string, unknown>;
       const missing = ["size", "angle", "lens", "lighting", "grade"].filter((k) => c[k] === undefined || c[k] === null || (Array.isArray(c[k]) && (c[k] as unknown[]).length === 0));
-      if (missing.length) warnings.push({ code: "tier3.missing", severity: "warn", scene: scene.slug, shot: i + 1, message: `cinematography missing ${missing.join(", ")}` });
-      if (!sh.spec.link) warnings.push({ code: "tier2.link", severity: "warn", scene: scene.slug, shot: i + 1, message: "no link type (defaults to a hard cut)" });
+      if (missing.length) warnings.push({ code: "tier3.missing", severity: "warn", ...at, message: `cinematography missing ${missing.join(", ")}` });
+      if (!sh.spec.link) warnings.push({ code: "tier2.link", severity: "warn", ...at, message: "no link type (defaults to a hard cut)" });
+      warnings.push(...frameWarnings(sh, w, h).map((x) => ({ ...x, ...at })));
     });
   }
+  for (const p of paletteContrastWarnings(view)) warnings.push({ code: "palette.contrast", severity: "warn", scene: p.scene, message: p.message });
+  warnings.push(...(await checkSeams(projectId)));
+  const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
+  if (open.length) warnings.push({ code: "requirements.open", severity: "info", message: `${open.length} requirement(s) from the user still open: ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}` });
   const counts = { error: 0, warn: 0, info: 0 };
-  for (const w of warnings) counts[w.severity]++;
+  for (const x of warnings) counts[x.severity]++;
   return { warnings, counts };
+}
+
+/** First / last frame checks that need the assets: same size, the render's
+    aspect ratio, and a push-in that has no end frame to push into. */
+export function frameWarnings(sh: ShotView, videoW: number, videoH: number): Array<Omit<LintWarning, "scene" | "shot">> {
+  const out: Array<Omit<LintWarning, "scene" | "shot">> = [];
+  const target = videoW / videoH;
+  for (const [label, a] of [["hero frame", sh.hero], ["end frame", sh.end]] as const) {
+    if (a?.width && a.height && Math.abs(a.width / a.height - target) / target > 0.02) {
+      out.push({ code: "frames.aspect", severity: "warn", message: `${label} is ${a.width}×${a.height} (${(a.width / a.height).toFixed(3)}), the render is ${videoW}×${videoH} (${target.toFixed(3)}); crop it before rendering or the model reframes it` });
+    }
+  }
+  if (sh.hero?.width && sh.end?.width && (sh.hero.width !== sh.end.width || sh.hero.height !== sh.end.height)) {
+    out.push({ code: "frames.size", severity: "warn", message: `first frame ${sh.hero.width}×${sh.hero.height} and last frame ${sh.end.width}×${sh.end.height} differ; make them the same size` });
+  }
+  if (sh.spec.mode === "keyframe" && sh.spec.camera.move === "push_in" && sh.hero && !sh.end) {
+    out.push({ code: "frames.pushin", severity: "info", message: "push-in from a hero frame with no end frame: derive_end_frame crops the hero frame into the end frame, so FL2VA has to push" });
+  }
+  return out;
 }
 
 /** Fill every shot's cinematography with a style's defaults and save the
@@ -729,14 +897,24 @@ export async function applyStyleToProject(projectId: string, style: string, opts
   return { warnings: result.warnings as LintWarning[], view: saved };
 }
 
-export type ProjectBatch = ReturnType<typeof director.planBatch> & { shots: Array<{ shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number }> };
+export type BatchShotView = { shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number; fragility: number; fragile: string[]; tier: "turbo" | "careful" };
+export type ProjectBatch = ReturnType<typeof director.planBatch> & {
+  shots: BatchShotView[];
+  /** Render these first, on their own confirmation: the hardest shots tell whether the plan holds before the rest is spent. */
+  probe: { shotIds: string[]; estimateUsd: number; why: string };
+};
+
+/** Fragility at or above this suggests the careful tier (2 takes, or the base chain). */
+export const CAREFUL_FRAGILITY = 3;
 
 /** Order the shots still to render (R2VA first, anchors before linked
-    shots) with one estimate against the cap. Per-shot estimates come from
+    shots) with one estimate against the cap, a probe of the hardest shots to
+    render first, and a tier suggestion per shot. Per-shot estimates come from
     the compiler when the shot compiles; otherwise the planner's fallback. */
 export async function planProjectBatch(projectId: string, opts?: { takesPerShot?: number; onlyMissing?: boolean }): Promise<ProjectBatch> {
   const view = await getProjectView(projectId);
   const measured = await gpu.measuredForEstimate();
+  const elements = view.elements.map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures }));
   const flat = view.scenes.flatMap((s) => s.shots.map((sh) => ({ scene: s, shot: sh })));
   const shots = [];
   for (let index = 0; index < flat.length; index++) {
@@ -748,9 +926,27 @@ export async function planProjectBatch(projectId: string, opts?: { takesPerShot?
     } catch {
       estimateUsd = undefined;
     }
-    shots.push({ shotId: shot.id, index, durationS: shot.spec.durationS, mode: shot.spec.mode, link: shot.spec.link ? { type: shot.spec.link.type, anchor: shot.spec.link.anchor, anchorShotId: shot.spec.link.anchorShotId } : undefined, hasTake, estimateUsd, label: `${scene.slug} #${shot.index + 1} · ${shot.spec.intent}` });
+    const f = director.shotFragility(shot.spec as never, elements);
+    shots.push({
+      shotId: shot.id, index, durationS: shot.spec.durationS, mode: shot.spec.mode,
+      link: shot.spec.link ? { type: shot.spec.link.type, anchor: shot.spec.link.anchor, anchorShotId: shot.spec.link.anchorShotId } : undefined,
+      hasTake, estimateUsd, label: `${scene.slug} #${shot.index + 1} · ${shot.spec.intent}`,
+      fragility: f.score, fragile: f.reasons.map((r) => r.code), tier: (f.score >= CAREFUL_FRAGILITY ? "careful" : "turbo") as "turbo" | "careful",
+    });
   }
   const perSecondUsd = measured.secondsPerOutputSecond && measured.usdPerHr ? (measured.secondsPerOutputSecond * measured.usdPerHr) / 3600 : undefined;
   const plan = director.planBatch(shots as never, { capUsd: view.project.budgetCapUsd, spentUsd: view.project.spentUsd }, { perSecondUsd, takesPerShot: opts?.takesPerShot ?? 1, onlyMissing: opts?.onlyMissing ?? true });
-  return { ...plan, shots: shots.map(({ index: _i, link, ...s }) => ({ ...s, link: link?.type })) };
+  /* The probe: the one or two most fragile shots still to render that do
+     not wait on an anchor. If they come out, the rest of the plan holds. */
+  const pending = shots.filter((x) => !x.hasTake && (!x.link || ["cut", "montage", "match_cut", "loop"].includes(x.link.type)) && x.fragility > 0);
+  const probe = [...pending].sort((a, b) => b.fragility - a.fragility).slice(0, 2);
+  return {
+    ...plan,
+    shots: shots.map(({ index: _i, link, ...x }) => ({ ...x, link: link?.type })),
+    probe: {
+      shotIds: probe.map((x) => x.shotId),
+      estimateUsd: Math.round(probe.reduce((a, x) => a + (x.estimateUsd ?? 0), 0) * 100) / 100,
+      why: probe.length ? `render ${probe.map((x) => x.label.split(" · ")[0]).join(" and ")} first (${probe.map((x) => x.fragile.join(", ")).join(" / ")}); if they hold, confirm the rest` : "no fragile shot to probe",
+    },
+  };
 }

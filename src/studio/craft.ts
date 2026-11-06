@@ -1,0 +1,375 @@
+import * as director from "@/director";
+
+import { hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
+import { StudioError } from "./errors";
+import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
+import * as repo from "./repo";
+import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
+
+/*
+ * The cold reader. The agent that wrote the story and the shots has talked
+ * with the user for an hour and fills every gap from memory; a reviewer that
+ * has seen nothing else reads like a first-time viewer. A packet holds only
+ * the material of one stage (story, shot before render, finished film) and a
+ * checklist; the director hands it to a fresh subagent, which finds faults
+ * and edits nothing, and records the verdict. A verdict is stored against a
+ * hash of what was reviewed: revise the prompt or swap a frame and it lapses.
+ */
+
+const FRAGILE_LIST = "people crossing, small objects in hands, readable text, mirrors and reflections, one-sided features (a tattoo on one arm), a light change inside one shot, one person doing three things, overhead shots that hide faces, too many extras";
+
+const HOW_TO_RUN = [
+  "Hand `reviewerPrompt` (it already contains the material and the checklist) to a FRESH reviewer that has seen nothing else of this project:",
+  "Claude Code → spawn a subagent with only this text; claude.ai → a new chat; any client → a second model.",
+  "The reviewer only finds faults and changes nothing. Do not add your own explanation of what you meant: that is exactly the gap it is there to find.",
+  "Then call record_review with its verdict, its findings verbatim, reviewer 'fresh_agent', and basis = what it looked at.",
+  "If you cannot start a fresh reviewer, review it yourself, record reviewer 'self', and tell the user the review was not independent.",
+].join(" ");
+
+export type ReviewPacket = {
+  stage: ReviewStage;
+  shotId?: string;
+  subjectHash: string;
+  current: Awaited<ReturnType<typeof reviewState>>["state"];
+  howToRun: string;
+  reviewerPrompt: string;
+  materials: Record<string, unknown>;
+};
+
+/** The packet for one stage. */
+export async function reviewPacket(projectId: string, stage: ReviewStage, shotId?: string): Promise<ReviewPacket> {
+  if (stage === "story") return storyPacket(projectId);
+  if (stage === "shot") {
+    if (!shotId) throw new StudioError("validation", "stage 'shot' needs shotId");
+    return shotPacket(projectId, shotId);
+  }
+  return filmPacket(projectId);
+}
+
+/* ---- story: the script text and nothing else ---- */
+
+async function storyPacket(projectId: string): Promise<ReviewPacket> {
+  const project = await repo.getProject(projectId);
+  const script = await repo.latestScript(projectId);
+  if (!script) throw new StudioError("validation", "no script yet; save_script first");
+  const subjectHash = hashOf(script.text);
+  const reviewerPrompt = [
+    "You are reading a short film's script for the first time. You only find faults; you change nothing.",
+    project.targetSeconds ? `Running time: ${project.targetSeconds} s.` : "",
+    "",
+    "1. Read it in order, then write the story as you understood it, in three sentences.",
+    "2. Ask every turn the way reality would: why does this happen? Where does the thing come from? Is it within reach? Would it really go like this?",
+    "3. Can you say in one sentence what the film is about? Write that sentence, or say that you cannot.",
+    "4. Does the opening hook in the first three seconds? Is the most striking picture near the start?",
+    "5. Do the other people react like real people — one after another, not in unison, with bodies that flinch back when startled?",
+    `6. Which moments will an AI video model get wrong? (${FRAGILE_LIST})`,
+    "",
+    "For each finding write: where (scene / line), the problem, a suggested fix. Mark uncertain findings as 'maybe'.",
+    "End with exactly one word on its own line: PASS or FAIL.",
+    "",
+    "--- SCRIPT ---",
+    script.text,
+  ].filter((l) => l !== undefined).join("\n");
+  return { stage: "story", subjectHash, current: (await reviewState(projectId, "story", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { scriptVersion: script.version, targetSeconds: project.targetSeconds } };
+}
+
+/* ---- shot: everything that is about to be sent to the GPU ---- */
+
+function shotLabel(view: ProjectView, sh: ShotView): string {
+  const scene = view.scenes.find((s) => s.id === sh.sceneId);
+  return `${scene?.slug ?? "?"} #${sh.index + 1}`;
+}
+
+async function shotPacket(projectId: string, shotId: string): Promise<ReviewPacket> {
+  const view = await getProjectView(projectId);
+  const flat = view.scenes.flatMap((s) => s.shots);
+  const i = flat.findIndex((s) => s.id === shotId);
+  if (i < 0) throw new StudioError("not_found", `shot ${shotId} not in project ${projectId}`);
+  const sh = flat[i]!;
+  const scene = view.scenes.find((s) => s.id === sh.sceneId)!;
+  const compiled = await compileForShot(shotId);
+  const subjectHash = renderHash(compiled.workflow, compiled.prompt, compiled.input.images);
+  const ids = new Set([...sh.spec.characters, ...sh.spec.props, ...(sh.spec.location ? [sh.spec.location] : [])]);
+  const assetUrl = new Map(view.assets.map((a) => [a.id, a]));
+  const elements = view.elements.filter((e) => ids.has(e.id)).map((e) => ({
+    name: e.name, kind: e.kind, description: e.description, fixedFeatures: e.fixedFeatures ?? [],
+    refs: e.refAssetIds.map((a) => ({ url: assetUrl.get(a)?.url, view: e.refViews?.[a] })).filter((r) => r.url),
+  }));
+  const neighbour = (s?: ShotView) => s && ({
+    label: shotLabel(view, s), intent: s.spec.intent, frames: s.spec.frames, blocking: s.spec.blocking, link: s.spec.link?.type,
+    lastFrameOfPick: (s.selectedTake ?? s.takes.find((t) => t.status === "completed"))?.lastFrameUrl,
+  });
+  const requirements = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open").map((n) => n.body.text);
+  const images = compiled.input.images.map((img) => {
+    const asset = view.assets.find((a) => a.url === img.url);
+    return { role: img.role, label: img.label, url: img.url, size: asset?.width ? `${asset.width}×${asset.height}` : undefined };
+  });
+  const materials = {
+    shot: shotLabel(view, sh), workflow: compiled.workflow, seconds: compiled.effectiveSeconds, videoSize: compiled.input.video_size,
+    prompt: compiled.prompt, images, spec: {
+      intent: sh.spec.intent, beats: sh.spec.beats, camera: sh.spec.camera, cinematography: sh.spec.cinematography, blocking: sh.spec.blocking,
+      motion: sh.spec.motion, composition: sh.spec.composition, frames: sh.spec.frames, link: sh.spec.link, sound: sh.spec.sound,
+    },
+    elements, scenePalette: scene.palette, look: { genre: view.project.look.genre, palette: view.project.look.palette, style: view.project.look.style },
+    previous: neighbour(flat[i - 1]), next: neighbour(flat[i + 1]), compilerWarnings: compiled.warnings, openRequirements: requirements,
+  };
+  const reviewerPrompt = [
+    "You are the reviewer. Read only, change nothing. This shot is about to be sent to video generation, which costs real money.",
+    "Open every image and look closely (zoom in). The material is below as JSON.",
+    "",
+    "A. The frames",
+    "1. Everything the action uses must already be in the first frame (a cup that is picked up later must be visible now), or it appears from nowhere.",
+    "2. Reactions are staged in the first frame: one clip is one shot and cannot cut to someone else, so a person who reacts must already be there, facing the camera.",
+    "3. Several people never share one pose, or the model moves them all at once.",
+    "4. Room for the action: where something lands or drifts is empty; there is headroom above heads.",
+    "5. Wind and cloth agree (a scarf and a sheet blow the same way).",
+    "6. Shrink to phone size: is every important person still readable?",
+    "7. Zoom in for stray things: an extra kettle, a strange thin line, a sixth finger.",
+    "8. Overlay first and last frame: what should not change must be identical (a wall that changes colour fades in the video; a cup that grows, grows).",
+    "",
+    "B. The prompt against the frames",
+    "1. Does every sentence of the prompt match the images? Positions, left/right, colours, how many people, how many props, clothes, expressions.",
+    "2. Same camera position, scale and background in both frames?",
+    "3. Consistent with the element sheets (fixed features on the right side), the scene palette, the previous and next shot?",
+    "4. Is every movement physically caused and written so (wind lifts the bag — the hands never touch it)? Where are the hands?",
+    "5. Where could the model go wrong: simultaneous actions, things appearing, faces on objects, walking the wrong way, ambiguous words ('the old man behind the window' — which window?), counts not stated.",
+    "",
+    "For each finding write: where, the problem, the fix. Mark uncertain ones 'maybe'.",
+    "End with exactly one word on its own line: PASS or FAIL.",
+    "",
+    "--- MATERIAL ---",
+    JSON.stringify(materials, null, 2),
+  ].join("\n");
+  return { stage: "shot", shotId, subjectHash, current: (await reviewState(projectId, "shot", subjectHash, shotId)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials };
+}
+
+/* ---- film: the cut, watched like an audience ---- */
+
+async function filmPacket(projectId: string): Promise<ReviewPacket> {
+  const view = await getProjectView(projectId);
+  const exports = await repo.listExports(projectId);
+  const latest = exports.find((e) => e.status === "completed" && e.resultUrl);
+  if (!latest) throw new StudioError("validation", "no finished export yet; export_project first");
+  let t = 0;
+  const cuts = view.timeline.clips.map((c, k) => {
+    const len = ((c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1);
+    const row = { clip: k + 1, shotId: c.shotId, startS: Math.round(t * 100) / 100, endS: Math.round((t + len) * 100) / 100 };
+    t += len;
+    return row;
+  });
+  const subjectHash = hashOf({ export: latest.id, url: latest.resultUrl });
+  const sheet = view.assets.find((a) => a.meta.exportId === latest.id && a.meta.role === "cut-sheet")?.url;
+  const reviewerPrompt = [
+    `This is a finished short film: ${latest.resultUrl}. You are seeing it for the first time; nobody tells you what it means.`,
+    "1. Decode all of it. Take several full-resolution frames from every shot, and 3 frames on each side of every cut (cut times below).",
+    sheet ? `   A contact sheet of those cut frames is here (one row per cut, 3 before | 3 after): ${sheet}` : "",
+    "2. First write the story as you understood it, then list what you did not understand.",
+    "3. Check shot by shot: repeated actions, prop counts, continuity errors, jumps, colour jumps at cuts, deformed faces or hands, broken text.",
+    "4. Say plainly what you could not check (motion feel, sound) — do not guess about it.",
+    "For each finding write: time, frame number, problem; and sort them into 'blocker' and 'minor'.",
+    "End with exactly one word on its own line: PASS or FAIL.",
+    "",
+    "--- CUTS ---",
+    JSON.stringify(cuts, null, 2),
+  ].filter(Boolean).join("\n");
+  return { stage: "film", subjectHash, current: (await reviewState(projectId, "film", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { exportId: latest.id, url: latest.resultUrl, preset: latest.preset, cutSheet: sheet, cuts, totalS: Math.round(t * 100) / 100 } };
+}
+
+/** Store a verdict against the hash of what the packet showed now. */
+export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[] }): Promise<{ review: StageReview; note?: string }> {
+  const packet = await reviewPacket(projectId, input.stage, input.shotId);
+  const sure = input.findings.filter((f) => f.sure !== false);
+  if (input.verdict === "pass" && input.stage === "film" && input.findings.some((f) => f.severity === "blocker")) {
+    throw new StudioError("validation", "a film review with blocker findings cannot pass");
+  }
+  const review = await repo.insertReview({ projectId, stage: input.stage, shotId: input.shotId, subjectHash: packet.subjectHash, verdict: input.verdict, reviewer: input.reviewer, basis: input.basis, findings: input.findings });
+  const note = input.reviewer === "self" ? "Recorded as a self-review: tell the user it was not an independent read." : input.verdict === "pass" && sure.length ? "Passed with findings: fix the sure ones before rendering." : undefined;
+  return { review, ...(note ? { note } : {}) };
+}
+
+export async function listStageReviews(projectId: string, stage?: ReviewStage, shotId?: string): Promise<StageReview[]> {
+  return repo.listReviews(projectId, { stage, shotId });
+}
+
+/* ---- the requirements list: everything the user asked for ---- */
+
+export async function addRequirements(projectId: string, items: Array<{ text: string; source?: string }>): Promise<DirectorNote[]> {
+  await repo.getProject(projectId);
+  const existing = new Set((await repo.listNotes(projectId, "requirement")).map((n) => String(n.body.text).trim().toLowerCase()));
+  const out: DirectorNote[] = [];
+  for (const it of items) {
+    const key = it.text.trim().toLowerCase();
+    if (!key || existing.has(key)) continue;
+    existing.add(key);
+    out.push(await repo.insertNote(projectId, "requirement", "open", { text: it.text.trim(), source: it.source ?? "" }));
+  }
+  return out;
+}
+
+export async function setRequirement(id: string, status: "open" | "met" | "dropped", note?: string): Promise<DirectorNote> {
+  const cur = await repo.getNote(id);
+  if (cur.kind !== "requirement") throw new StudioError("validation", `${id} is not a requirement`);
+  return repo.updateNote(id, { status, body: note ? { note } : {} });
+}
+
+/* ---- the decision log ---- */
+
+export async function logDecision(projectId: string, input: { decision: string; why: string; confidence: "low" | "medium" | "high"; shotId?: string; alternatives?: string[] }, actor: Actor): Promise<DirectorNote> {
+  await repo.getProject(projectId);
+  return repo.insertNote(projectId, "decision", "standing", { ...input, by: actor.via === "mcp" ? "agent" : actor.user });
+}
+
+/** The user overturns a decision on the web; the agent reads it on its next
+    list. Overturning a delegated approval puts that checkpoint back in draft. */
+export async function overturnDecision(id: string, reason: string, actor: Actor): Promise<DirectorNote> {
+  const cur = await repo.getNote(id);
+  if (cur.kind !== "decision") throw new StudioError("validation", `${id} is not a decision`);
+  if (cur.status === "standing" && cur.body.approval === "script" && typeof cur.body.scriptId === "string") {
+    const script = await repo.getScript(cur.body.scriptId);
+    if (script.approval === "approved") await repo.unapproveScript(script.id);
+  }
+  if (cur.status === "standing" && cur.body.approval === "shotlist") {
+    const project = await repo.getProject(cur.projectId);
+    if (project.shotlistApproval === "approved" && (project.shotlistApprovedAt ?? 0) <= cur.createdAt + 5_000) await repo.setShotlistApproval(project.id, "draft");
+  }
+  return repo.updateNote(id, { status: "overturned", body: { overturnedBy: actor.user, overturnReason: reason, overturnedAt: Date.now() } });
+}
+
+/* ---- delegated approvals: the user may let the director pass a checkpoint ---- */
+
+export async function setDelegation(projectId: string, input: { script: boolean; shotlist: boolean }, actor: Actor): Promise<Project> {
+  if (actor.via !== "web") throw new StudioError("forbidden", "delegated approval is switched on the web only");
+  const project = await repo.getProject(projectId);
+  const before = project.delegation ?? { script: false, shotlist: false };
+  const next: Delegation | null = input.script || input.shotlist ? { script: input.script, shotlist: input.shotlist, grantedBy: actor.user, grantedAt: Date.now() } : null;
+  const updated = await repo.setDelegation(projectId, next);
+  if (before.script !== input.script || before.shotlist !== input.shotlist) {
+    const on = [input.script && "script", input.shotlist && "shotlist"].filter(Boolean).join(" and ");
+    await repo.insertNote(projectId, "decision", "standing", { decision: on ? `the director may approve the ${on}` : "delegated approval switched off", why: "", by: actor.user, confidence: "user" });
+  }
+  return updated;
+}
+
+export function delegationSummary(project: Project) {
+  const d = project.delegation;
+  return {
+    script: !!d?.script, shotlist: !!d?.shotlist, ...(d ? { grantedBy: d.grantedBy, grantedAt: d.grantedAt } : {}),
+    rule: "script: only with a passing story review by a fresh reviewer (or the user) of the current text; shotlist: only with the script approved and no lint errors. Every delegated approval is logged; overturning it puts the checkpoint back in draft.",
+  };
+}
+
+type ApprovalInput = { why: string; confidence: "low" | "medium" | "high" };
+
+/** The director passes checkpoint 1 on the user's behalf. */
+export async function agentApproveScript(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ script: Script; decision: DirectorNote }> {
+  const project = await repo.getProject(projectId);
+  if (!project.delegation?.script) throw new StudioError("forbidden", "approving the script is the user's: they can let you do it in Settings → Director (delegated approval). Ask them to approve on the Script page.", { checkpoint: "script" });
+  if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
+  const script = await repo.latestScript(projectId);
+  if (!script) throw new StudioError("validation", "no script yet");
+  if (script.approval === "approved") throw new StudioError("validation", `script v${script.version} is already approved`);
+  const review = await reviewStateForStory(projectId, script.text);
+  if (review !== "pass") throw new StudioError("not_approved", review === "self" ? "only your own review passed this script; a delegated approval needs a fresh reviewer (or the user)" : "the current script has no passing story review: review_packet stage story → a fresh reviewer → record_review", { checkpoint: "script", review });
+  const approved = await repo.approveScript(script.id);
+  const decision = await repo.insertNote(projectId, "decision", "standing", { decision: `approved script v${script.version} on the user's behalf`, why: input.why, confidence: input.confidence, by: actor.via === "mcp" ? "agent" : actor.user, approval: "script", scriptId: script.id });
+  return { script: approved, decision };
+}
+
+/** The director passes checkpoint 2 on the user's behalf. */
+export async function agentApproveShotlist(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ project: Project; decision: DirectorNote }> {
+  const project = await repo.getProject(projectId);
+  if (!project.delegation?.shotlist) throw new StudioError("forbidden", "approving the shotlist is the user's: they can let you do it in Settings → Director (delegated approval). Ask them to approve on the Board.", { checkpoint: "shotlist" });
+  if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
+  const script = await repo.latestScript(projectId);
+  if (!script || script.approval !== "approved") throw new StudioError("not_approved", "approve the script first", { checkpoint: "script" });
+  if ((await repo.listShots(projectId)).length === 0) throw new StudioError("validation", "nothing to approve: the shotlist is empty");
+  if (project.shotlistApproval === "approved") throw new StudioError("validation", "the shotlist is already approved");
+  const lint = await lintProject(projectId);
+  if (lint.counts.error > 0) throw new StudioError("validation", `the shotlist has ${lint.counts.error} lint error(s); fix them first`, { errors: lint.warnings.filter((w) => w.severity === "error") });
+  const updated = await repo.setShotlistApproval(projectId, "approved");
+  const decision = await repo.insertNote(projectId, "decision", "standing", { decision: "approved the shotlist on the user's behalf", why: input.why, confidence: input.confidence, by: actor.via === "mcp" ? "agent" : actor.user, approval: "shotlist", lintWarnings: lint.counts.warn });
+  return { project: updated, decision };
+}
+
+async function reviewStateForStory(projectId: string, text: string): Promise<"pass" | "self" | "none"> {
+  const reviews = (await repo.listReviews(projectId, { stage: "story" })).filter((r) => r.subjectHash === hashOf(text) && r.verdict === "pass");
+  if (reviews.some((r) => r.reviewer !== "self")) return "pass";
+  return reviews.length ? "self" : "none";
+}
+
+/* ---- the spend envelope: granted on the web only ---- */
+
+export async function grantAutopilot(projectId: string, input: { envelopeUsd: number; hours?: number; note?: string }, actor: Actor): Promise<Project> {
+  if (actor.via !== "web") throw new StudioError("forbidden", "the spend envelope is granted on the web only");
+  const project = await repo.getProject(projectId);
+  const remaining = Math.max(0, project.budgetCapUsd - project.spentUsd);
+  if (input.envelopeUsd > remaining + 1e-9) throw new StudioError("validation", `the envelope (${input.envelopeUsd} USD) exceeds the budget left (${remaining.toFixed(2)} USD)`);
+  const updated = await repo.setAutopilot(projectId, {
+    envelopeUsd: input.envelopeUsd, usedUsd: 0, grantedAt: Date.now(), grantedBy: actor.user,
+    ...(input.hours ? { expiresAt: Date.now() + input.hours * 3600_000 } : {}), ...(input.note ? { note: input.note } : {}),
+  });
+  await repo.insertNote(projectId, "decision", "standing", { decision: `granted a ${input.envelopeUsd} USD envelope${input.hours ? ` for ${input.hours} h` : ""}`, why: input.note ?? "", by: actor.user, confidence: "user" });
+  return updated;
+}
+
+export async function revokeAutopilot(projectId: string, actor: Actor): Promise<Project> {
+  if (actor.via !== "web") throw new StudioError("forbidden", "the spend envelope is revoked on the web");
+  return repo.setAutopilot(projectId, null);
+}
+
+export function autopilotSummary(project: Project) {
+  const a = project.autopilot;
+  if (!autopilotActive(a)) return { active: false as const, ...(a ? { lapsed: a } : {}) };
+  return { active: true as const, envelopeUsd: a.envelopeUsd, usedUsd: a.usedUsd, leftUsd: Math.max(0, a.envelopeUsd - a.usedUsd), expiresAt: a.expiresAt, rule: "inside the envelope, a take with a passing shot review and no identical rejected take renders without asking; everything is written to the decision log" };
+}
+
+/* ---- the retro: what this film taught, for the next one ---- */
+
+export async function buildRetro(projectId: string): Promise<string> {
+  const view = await getProjectView(projectId);
+  const [decisions, requirements, reviews] = await Promise.all([repo.listNotes(projectId, "decision"), repo.listNotes(projectId, "requirement"), repo.listReviews(projectId)]);
+  const L: string[] = [`# Retro — ${view.project.name}`, ""];
+  const takes = view.scenes.flatMap((s) => s.shots.flatMap((sh) => sh.takes));
+  const spent = takes.reduce((a, t) => a + (t.costUsd ?? 0), 0);
+  L.push(`Style: ${view.project.look.style ?? "—"} · ${view.scenes.reduce((a, s) => a + s.shots.length, 0)} shots · ${takes.length} takes · ${spent.toFixed(2)} USD on takes · ${view.project.spentUsd.toFixed(2)} USD spent of ${view.project.budgetCapUsd.toFixed(2)}`, "");
+
+  const faults = new Map<string, number>();
+  for (const t of takes) for (const f of t.review?.faults ?? []) faults.set(f, (faults.get(f) ?? 0) + 1);
+  L.push("## What went wrong on H3", "");
+  if (faults.size === 0) L.push("No take was tagged with faults. Tag rejected takes on the Board so the next film learns from this one.");
+  else for (const [f, n] of [...faults].sort((a, b) => b[1] - a[1])) L.push(`- ${f}: ${n}`);
+  L.push("");
+
+  L.push("## Shot by shot", "", "| Shot | Takes | Rejected | Prompt revisions | Faults | Experiments | Review |", "|---|---|---|---|---|---|---|");
+  for (const scene of view.scenes) for (const sh of scene.shots) {
+    const ts = [...sh.takes].sort((a, b) => a.n - b.n);
+    const revisions = new Set(ts.map(takeRenderHash)).size;
+    const f = [...new Set(ts.flatMap((t) => t.review?.faults ?? []))].join(", ");
+    const ex = [...new Set(ts.flatMap((t) => Object.entries((t.input.studio_experiments ?? {}) as Record<string, boolean>).filter(([, v]) => v).map(([k]) => k)))].join(", ");
+    const rv = reviews.find((r) => r.stage === "shot" && r.shotId === sh.id);
+    L.push(`| ${scene.slug} #${sh.index + 1} | ${ts.length} | ${ts.filter(isRejected).length} | ${revisions} | ${f || "—"} | ${ex || "—"} | ${rv ? `${rv.verdict} (${rv.reviewer})` : "—"} |`);
+  }
+  L.push("");
+
+  const fragile = view.scenes.flatMap((s) => s.shots.map((sh) => ({ label: `${s.slug} #${sh.index + 1}`, f: director.shotFragility(sh.spec as never), takes: sh.takes.length })));
+  const hard = fragile.filter((x) => x.f.score > 0).sort((a, b) => b.takes - a.takes).slice(0, 8);
+  if (hard.length) {
+    L.push("## Fragile shots and what they cost", "");
+    for (const h of hard) L.push(`- ${h.label}: ${h.takes} take(s); ${h.f.reasons.map((r) => r.code).join(", ")}`);
+    L.push("");
+  }
+
+  const pair = takes.filter((t) => t.input.studio_experiments);
+  if (pair.length) {
+    L.push("## Prompt experiments", "", `${pair.length} take(s) rendered with an experiment on. Compare them with their siblings on the eval page before turning one on by default.`, "");
+  }
+
+  L.push("## Requirements", "");
+  if (!requirements.length) L.push("None were recorded.");
+  for (const r of requirements) L.push(`- [${r.status === "met" ? "x" : r.status === "dropped" ? "-" : " "}] ${String(r.body.text)}${r.body.note ? ` — ${String(r.body.note)}` : ""}`);
+  L.push("", "## Decisions", "");
+  if (!decisions.length) L.push("None were logged.");
+  for (const d of decisions) L.push(`- ${new Date(d.createdAt).toISOString().slice(0, 16)} ${d.status === "overturned" ? "~~" : ""}${String(d.body.decision)}${d.status === "overturned" ? "~~ (overturned)" : ""} — ${String(d.body.why ?? "")}${d.body.confidence ? ` [${String(d.body.confidence)}]` : ""}`);
+  L.push("", "## Carry forward", "", "- The wordings that fixed a fault, with the fault tag they fixed.", "- The fragile pictures to avoid at the story stage next time.", "- Which experiment, if any, earned a default.", "");
+  return L.join("\n");
+}
