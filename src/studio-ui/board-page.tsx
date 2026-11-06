@@ -153,7 +153,7 @@ export function BoardPage() {
           </p>
         </div>
         <div className="st-actions">
-          <Lamp state={approved ? "ok" : "warn"} label={approved ? "Shotlist approved" : "Shotlist draft"} />
+          <Lamp state={approved ? "ok" : "warn"} label={approved ? (view.delegated?.shotlist ? "Shotlist approved by the director" : "Shotlist approved") : "Shotlist draft"} />
           {shotCount > 0 && (
             <Button kind="quiet" onClick={() => setSketchOpen(true)} title="Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes">
               Sketch

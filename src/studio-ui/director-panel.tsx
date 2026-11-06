@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import type { DirectorNote, StageReview } from "@/studio/types";
 
-import { del, get, patch, post, when } from "./api";
+import { del, get, patch, post, put, when } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
+type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
 /* What the director keeps for you: the spend envelope you grant it, the list
@@ -16,12 +17,14 @@ type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews:
 export function DirectorPanel({ projectId }: { projectId: string }) {
   const [ap, setAp] = useState<Autopilot | null>(null);
   const [notes, setNotes] = useState<Notes | null>(null);
+  const [deleg, setDeleg] = useState<Delegation | null>(null);
   const [envelope, setEnvelope] = useState("5");
   const [hours, setHours] = useState("12");
   const refresh = useCallback(async () => {
-    const [a, n] = await Promise.all([get<Autopilot>(`/api/projects/${projectId}/autopilot`), get<Notes>(`/api/projects/${projectId}/notes`)]);
+    const [a, n, d] = await Promise.all([get<Autopilot>(`/api/projects/${projectId}/autopilot`), get<Notes>(`/api/projects/${projectId}/notes`), get<Delegation>(`/api/projects/${projectId}/delegation`)]);
     setAp(a);
     setNotes(n);
+    setDeleg(d);
   }, [projectId]);
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -35,6 +38,14 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await del(`/api/projects/${projectId}/autopilot`);
     await refresh();
   });
+  const delegate = useAction(async (_c, next: { script: boolean; shotlist: boolean }) => {
+    if ((next.script && !deleg?.script) || (next.shotlist && !deleg?.shotlist)) {
+      const which = next.script && !deleg?.script ? "the script" : "the shotlist";
+      if (!window.confirm(`Let the director approve ${which} on your behalf? It still needs a fresh reviewer's pass (script) or a clean lint (shotlist), every approval is logged, and overturning it puts the checkpoint back in draft.`)) return;
+    }
+    await put(`/api/projects/${projectId}/delegation`, next);
+    await refresh();
+  });
   const setReq = useAction(async (_c, id: string, status: "open" | "met" | "dropped") => {
     await patch(`/api/notes/${id}`, { status });
     await refresh();
@@ -44,12 +55,12 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await post(`/api/notes/${id}/overturn`, { reason });
     await refresh();
   });
-  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error;
+  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error;
 
   return (
     <div className="st-card st-stack" style={{ marginTop: 20 }}>
       <span className="st-h2">Director</span>
-      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); }} />
+      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); }} />
 
       <div className="st-stack st-stack--tight">
         <strong>Spend envelope</strong>
@@ -72,6 +83,21 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
             <Button busy={grant.busy} onClick={() => void grant.fire()}>Grant</Button>
           </div>
         )}
+      </div>
+
+      <div className="st-stack st-stack--tight">
+        <strong>Delegated approval</strong>
+        <span className="st-muted">
+          Off by default: you approve the script and the shotlist yourself. Switched on, the director may approve for you — the script only after a fresh reviewer passed the current text, the shotlist only with the script approved and no lint errors. Each approval appears under Decisions; overturn it and the checkpoint goes back to draft.
+        </span>
+        <label className="st-row" style={{ gap: 8 }}>
+          <input type="checkbox" disabled={!deleg || delegate.busy} checked={!!deleg?.script} onChange={(e) => void delegate.fire({ script: e.target.checked, shotlist: !!deleg?.shotlist })} />
+          <span>Let the director approve the script</span>
+        </label>
+        <label className="st-row" style={{ gap: 8 }}>
+          <input type="checkbox" disabled={!deleg || delegate.busy} checked={!!deleg?.shotlist} onChange={(e) => void delegate.fire({ script: !!deleg?.script, shotlist: e.target.checked })} />
+          <span>Let the director approve the shotlist</span>
+        </label>
       </div>
 
       <div className="st-stack st-stack--tight">

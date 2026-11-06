@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Autopilot, DirectorNote, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Autopilot, Delegation, DirectorNote, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
@@ -44,6 +44,7 @@ function mapProject(r: Row): Project {
     shotlistApproval: str(r.shotlist_approval) as Approval,
     shotlistApprovedAt: opt(r.shotlist_approved_at, num),
     autopilot: json<Autopilot | undefined>(r.autopilot_json, undefined),
+    delegation: json<Delegation | undefined>(r.delegation_json, undefined),
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
@@ -110,6 +111,12 @@ export async function setAutopilot(id: string, autopilot: Autopilot | null): Pro
   return getProject(id);
 }
 
+/** Which checkpoints the director may pass; only the web writes it. */
+export async function setDelegation(id: string, delegation: Delegation | null): Promise<Project> {
+  await (await db()).run("UPDATE projects SET delegation_json = ?, updated_at = ? WHERE id = ?", [delegation ? JSON.stringify(delegation) : null, Date.now(), id]);
+  return getProject(id);
+}
+
 export async function addSpent(id: string, usd: number): Promise<void> {
   await (await db()).run("UPDATE projects SET spent_usd = spent_usd + ?, updated_at = ? WHERE id = ?", [usd, Date.now(), id]);
 }
@@ -161,6 +168,12 @@ export async function createScript(projectId: string, text: string): Promise<Scr
 
 export async function approveScript(id: string): Promise<Script> {
   await (await db()).run("UPDATE scripts SET approval = 'approved', approved_at = ? WHERE id = ?", [Date.now(), id]);
+  return getScript(id);
+}
+
+/** Back to draft (an overturned delegated approval). */
+export async function unapproveScript(id: string): Promise<Script> {
+  await (await db()).run("UPDATE scripts SET approval = 'draft', approved_at = NULL WHERE id = ?", [id]);
   return getScript(id);
 }
 

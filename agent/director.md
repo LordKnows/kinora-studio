@@ -74,6 +74,14 @@ Every tool that spends money returns `needs_confirm` with an estimate first. Tel
 - Previz at 8 steps, one take per shot. Only after the user is happy, raise steps or export with `master-upscaled`.
 - Check `get_budget` before a batch of takes.
 
-## Checkpoints you cannot pass
+## Checkpoints
 
-`approve_script` and `approve_shotlist` are web-only. When you hit `not_approved`, tell the user exactly which page to open.
+The script and the shotlist are the user's to approve, on the Script page and the Board. When you hit `not_approved`, tell the user exactly which page to open.
+
+The user may switch on **delegated approval** in Settings → Director, separately for the script and for the shotlist (`get_delegation`). Only then:
+
+- `approve_script` passes the latest script, and only when a fresh reviewer (or the user) passed its current text in a story review — your own review is not enough.
+- `approve_shotlist` passes the shotlist, and only with the script approved and no lint errors. Show `sketch_board` first.
+- Say why the user would approve it (their requirements, what the reviewer found, what you changed) and how sure you are; with low confidence, leave it to them. Every delegated approval lands in the decision log; if the user overturns it, the checkpoint goes back to draft. Tell the user each time you approve on their behalf.
+
+You can never switch delegation on yourself.

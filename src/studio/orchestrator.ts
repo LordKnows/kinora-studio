@@ -79,11 +79,13 @@ export type ProjectView = {
   assets: Asset[];
   canGenerate: boolean;
   blockers: string[];
+  /** Checkpoints currently passed by the director under delegated approval. */
+  delegated: { script: boolean; shotlist: boolean };
 };
 
 export async function getProjectView(projectId: string): Promise<ProjectView> {
   const project = await repo.getProject(projectId);
-  const [script, elements, scenes, shots, takes, timeline, assets] = await Promise.all([
+  const [script, elements, scenes, shots, takes, timeline, assets, decisions] = await Promise.all([
     repo.latestScript(projectId),
     repo.listElements(projectId, true),
     repo.listScenes(projectId),
@@ -91,7 +93,13 @@ export async function getProjectView(projectId: string): Promise<ProjectView> {
     repo.listProjectTakes(projectId),
     repo.getTimeline(projectId),
     repo.listAssets(projectId),
+    repo.listNotes(projectId, "decision"),
   ]);
+  const standing = decisions.filter((d) => d.status === "standing" && d.body.approval);
+  const delegated = {
+    script: !!script && script.approval === "approved" && standing.some((d) => d.body.approval === "script" && d.body.scriptId === script.id),
+    shotlist: project.shotlistApproval === "approved" && standing.some((d) => d.body.approval === "shotlist" && Math.abs((project.shotlistApprovedAt ?? 0) - d.createdAt) <= 5_000),
+  };
   const assetById = new Map(assets.map((a) => [a.id, a]));
   const takesByShot = new Map<string, Take[]>();
   for (const take of takes) {
@@ -115,7 +123,7 @@ export async function getProjectView(projectId: string): Promise<ProjectView> {
   else if (script.approval !== "approved") blockers.push("Script not approved");
   if (shots.length === 0) blockers.push("No shots yet");
   else if (project.shotlistApproval !== "approved") blockers.push("Shotlist not approved");
-  return { project, script, elements, scenes: sceneViews, timeline, assets, canGenerate: blockers.length === 0, blockers };
+  return { project, script, elements, scenes: sceneViews, timeline, assets, canGenerate: blockers.length === 0, blockers, delegated };
 }
 
 /* ---------- shotlist ---------- */

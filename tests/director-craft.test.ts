@@ -300,7 +300,7 @@ describe("remote MCP", () => {
     const client = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(a), client.connect(b)]);
     const names = (await client.listTools()).tools.map((t) => t.name);
-    for (const n of ["review_packet", "record_review", "list_reviews", "add_requirements", "set_requirement", "list_requirements", "log_decision", "list_decisions", "get_autopilot", "review_take", "rough_cut", "check_seams", "sketch_board", "get_retro", "import_image", "request_upload", "commit_upload", "derive_end_frame", "set_scene_palette"]) {
+    for (const n of ["approve_script", "approve_shotlist", "get_delegation", "review_packet", "record_review", "list_reviews", "add_requirements", "set_requirement", "list_requirements", "log_decision", "list_decisions", "get_autopilot", "review_take", "rough_cut", "check_seams", "sketch_board", "get_retro", "import_image", "request_upload", "commit_upload", "derive_end_frame", "set_scene_palette"]) {
       expect(names).toContain(n);
     }
     const p = await repo.createProject({ name: "MCP" });
@@ -309,5 +309,44 @@ describe("remote MCP", () => {
     const lint = await client.callTool({ name: "lint_shotlist", arguments: { shotlist: { scenes: [{ slug: "a", shots: [shot({ motion: [] })] }] } } });
     expect(JSON.stringify(lint.content)).toContain("motion.dead");
     await client.close();
+  });
+});
+
+describe("delegated approval", () => {
+  let projectId = "";
+
+  it("is off by default and switched on the web only", async () => {
+    const p = await repo.createProject({ name: "Delegate" });
+    projectId = p.id;
+    await repo.createScript(projectId, "EXT. PIER - DAWN\nA gull steals a chip.");
+    await expect(craft.agentApproveScript(projectId, { why: "the reviewer passed it", confidence: "high" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(craft.setDelegation(projectId, { script: true, shotlist: true }, mcp)).rejects.toMatchObject({ code: "forbidden" });
+    await craft.setDelegation(projectId, { script: true, shotlist: true }, web);
+    expect(craft.delegationSummary(await repo.getProject(projectId))).toMatchObject({ script: true, shotlist: true });
+  });
+
+  it("script: needs a fresh reviewer's pass of the current text, refuses low confidence, logs and can be overturned", async () => {
+    await expect(craft.agentApproveScript(projectId, { why: "looks good to me", confidence: "high" }, mcp)).rejects.toMatchObject({ code: "not_approved", details: { review: "none" } });
+    await craft.recordReview(projectId, { stage: "story", verdict: "pass", reviewer: "self", basis: "read it", findings: [] });
+    await expect(craft.agentApproveScript(projectId, { why: "looks good to me", confidence: "high" }, mcp)).rejects.toMatchObject({ details: { review: "self" } });
+    await craft.recordReview(projectId, { stage: "story", verdict: "pass", reviewer: "fresh_agent", basis: "script only", findings: [] });
+    await expect(craft.agentApproveScript(projectId, { why: "reviewer passed it", confidence: "low" }, mcp)).rejects.toMatchObject({ code: "validation" });
+    const { script, decision } = await craft.agentApproveScript(projectId, { why: "fresh reviewer passed; all requirements in", confidence: "high" }, mcp);
+    expect(script.approval).toBe("approved");
+    expect((await orch.getProjectView(projectId)).delegated.script).toBe(true);
+    await craft.overturnDecision(decision.id, "I want another pass", web);
+    expect((await repo.latestScript(projectId))!.approval).toBe("draft");
+    expect((await orch.getProjectView(projectId)).delegated.script).toBe(false);
+  });
+
+  it("shotlist: needs the script approved and a clean lint; overturning puts it back in draft", async () => {
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "pier", shots: [shot()] }] }));
+    await expect(craft.agentApproveShotlist(projectId, { why: "clean lint", confidence: "medium" }, mcp)).rejects.toMatchObject({ code: "not_approved" });
+    await repo.approveScript((await repo.latestScript(projectId))!.id);
+    const { project, decision } = await craft.agentApproveShotlist(projectId, { why: "clean lint, sketch shown", confidence: "medium" }, mcp);
+    expect(project.shotlistApproval).toBe("approved");
+    expect((await orch.getProjectView(projectId)).delegated.shotlist).toBe(true);
+    await craft.overturnDecision(decision.id, "not yet", web);
+    expect((await repo.getProject(projectId)).shotlistApproval).toBe("draft");
   });
 });

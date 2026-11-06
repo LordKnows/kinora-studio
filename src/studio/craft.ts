@@ -2,9 +2,9 @@ import * as director from "@/director";
 
 import { hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
 import { StudioError } from "./errors";
-import { compileForShot, getProjectView, type ProjectView, type ShotView } from "./orchestrator";
+import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
-import type { Actor, DirectorNote, Project, ReviewFinding, ReviewStage, StageReview } from "./types";
+import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
 /*
  * The cold reader. The agent that wrote the story and the shots has talked
@@ -219,11 +219,82 @@ export async function logDecision(projectId: string, input: { decision: string; 
   return repo.insertNote(projectId, "decision", "standing", { ...input, by: actor.via === "mcp" ? "agent" : actor.user });
 }
 
-/** The user overturns a decision on the web; the agent reads it on its next list. */
+/** The user overturns a decision on the web; the agent reads it on its next
+    list. Overturning a delegated approval puts that checkpoint back in draft. */
 export async function overturnDecision(id: string, reason: string, actor: Actor): Promise<DirectorNote> {
   const cur = await repo.getNote(id);
   if (cur.kind !== "decision") throw new StudioError("validation", `${id} is not a decision`);
+  if (cur.status === "standing" && cur.body.approval === "script" && typeof cur.body.scriptId === "string") {
+    const script = await repo.getScript(cur.body.scriptId);
+    if (script.approval === "approved") await repo.unapproveScript(script.id);
+  }
+  if (cur.status === "standing" && cur.body.approval === "shotlist") {
+    const project = await repo.getProject(cur.projectId);
+    if (project.shotlistApproval === "approved" && (project.shotlistApprovedAt ?? 0) <= cur.createdAt + 5_000) await repo.setShotlistApproval(project.id, "draft");
+  }
   return repo.updateNote(id, { status: "overturned", body: { overturnedBy: actor.user, overturnReason: reason, overturnedAt: Date.now() } });
+}
+
+/* ---- delegated approvals: the user may let the director pass a checkpoint ---- */
+
+export async function setDelegation(projectId: string, input: { script: boolean; shotlist: boolean }, actor: Actor): Promise<Project> {
+  if (actor.via !== "web") throw new StudioError("forbidden", "delegated approval is switched on the web only");
+  const project = await repo.getProject(projectId);
+  const before = project.delegation ?? { script: false, shotlist: false };
+  const next: Delegation | null = input.script || input.shotlist ? { script: input.script, shotlist: input.shotlist, grantedBy: actor.user, grantedAt: Date.now() } : null;
+  const updated = await repo.setDelegation(projectId, next);
+  if (before.script !== input.script || before.shotlist !== input.shotlist) {
+    const on = [input.script && "script", input.shotlist && "shotlist"].filter(Boolean).join(" and ");
+    await repo.insertNote(projectId, "decision", "standing", { decision: on ? `the director may approve the ${on}` : "delegated approval switched off", why: "", by: actor.user, confidence: "user" });
+  }
+  return updated;
+}
+
+export function delegationSummary(project: Project) {
+  const d = project.delegation;
+  return {
+    script: !!d?.script, shotlist: !!d?.shotlist, ...(d ? { grantedBy: d.grantedBy, grantedAt: d.grantedAt } : {}),
+    rule: "script: only with a passing story review by a fresh reviewer (or the user) of the current text; shotlist: only with the script approved and no lint errors. Every delegated approval is logged; overturning it puts the checkpoint back in draft.",
+  };
+}
+
+type ApprovalInput = { why: string; confidence: "low" | "medium" | "high" };
+
+/** The director passes checkpoint 1 on the user's behalf. */
+export async function agentApproveScript(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ script: Script; decision: DirectorNote }> {
+  const project = await repo.getProject(projectId);
+  if (!project.delegation?.script) throw new StudioError("forbidden", "approving the script is the user's: they can let you do it in Settings → Director (delegated approval). Ask them to approve on the Script page.", { checkpoint: "script" });
+  if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
+  const script = await repo.latestScript(projectId);
+  if (!script) throw new StudioError("validation", "no script yet");
+  if (script.approval === "approved") throw new StudioError("validation", `script v${script.version} is already approved`);
+  const review = await reviewStateForStory(projectId, script.text);
+  if (review !== "pass") throw new StudioError("not_approved", review === "self" ? "only your own review passed this script; a delegated approval needs a fresh reviewer (or the user)" : "the current script has no passing story review: review_packet stage story → a fresh reviewer → record_review", { checkpoint: "script", review });
+  const approved = await repo.approveScript(script.id);
+  const decision = await repo.insertNote(projectId, "decision", "standing", { decision: `approved script v${script.version} on the user's behalf`, why: input.why, confidence: input.confidence, by: actor.via === "mcp" ? "agent" : actor.user, approval: "script", scriptId: script.id });
+  return { script: approved, decision };
+}
+
+/** The director passes checkpoint 2 on the user's behalf. */
+export async function agentApproveShotlist(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ project: Project; decision: DirectorNote }> {
+  const project = await repo.getProject(projectId);
+  if (!project.delegation?.shotlist) throw new StudioError("forbidden", "approving the shotlist is the user's: they can let you do it in Settings → Director (delegated approval). Ask them to approve on the Board.", { checkpoint: "shotlist" });
+  if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
+  const script = await repo.latestScript(projectId);
+  if (!script || script.approval !== "approved") throw new StudioError("not_approved", "approve the script first", { checkpoint: "script" });
+  if ((await repo.listShots(projectId)).length === 0) throw new StudioError("validation", "nothing to approve: the shotlist is empty");
+  if (project.shotlistApproval === "approved") throw new StudioError("validation", "the shotlist is already approved");
+  const lint = await lintProject(projectId);
+  if (lint.counts.error > 0) throw new StudioError("validation", `the shotlist has ${lint.counts.error} lint error(s); fix them first`, { errors: lint.warnings.filter((w) => w.severity === "error") });
+  const updated = await repo.setShotlistApproval(projectId, "approved");
+  const decision = await repo.insertNote(projectId, "decision", "standing", { decision: "approved the shotlist on the user's behalf", why: input.why, confidence: input.confidence, by: actor.via === "mcp" ? "agent" : actor.user, approval: "shotlist", lintWarnings: lint.counts.warn });
+  return { project: updated, decision };
+}
+
+async function reviewStateForStory(projectId: string, text: string): Promise<"pass" | "self" | "none"> {
+  const reviews = (await repo.listReviews(projectId, { stage: "story" })).filter((r) => r.subjectHash === hashOf(text) && r.verdict === "pass");
+  if (reviews.some((r) => r.reviewer !== "self")) return "pass";
+  return reviews.length ? "self" : "none";
 }
 
 /* ---- the spend envelope: granted on the web only ---- */

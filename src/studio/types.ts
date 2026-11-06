@@ -14,6 +14,8 @@ export type Project = {
   shotlistApprovedAt?: number;
   /** Spend envelope the user granted on the web; inside it the agent may render without asking each time. */
   autopilot?: Autopilot;
+  /** Checkpoints the user lets the director pass (granted on the web only). */
+  delegation?: Delegation;
   createdAt: number;
   updatedAt: number;
 };
@@ -26,6 +28,13 @@ export type Autopilot = {
   grantedBy: string;
   expiresAt?: number;
   note?: string;
+};
+
+export type Delegation = {
+  script: boolean;
+  shotlist: boolean;
+  grantedBy: string;
+  grantedAt: number;
 };
 
 export type Script = {
