@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { get } from "./api";
 import { Lamp, Section } from "./common";
 import { GpuSection } from "./gpu-panel";
+import { PodImaging } from "./pod-imaging";
 
 type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imageGeneration: string };
 
@@ -25,6 +26,9 @@ export function MachinePage() {
       <div className="st-card">
         <GpuSection />
       </div>
+      <Section title="Images on the pod">
+        <PodImaging />
+      </Section>
       <Section title="Backends">
         <div className="st-card">
           {me ? (
@@ -36,7 +40,7 @@ export function MachinePage() {
               <dt>R2 storage</dt>
               <dd><Lamp state={me.r2Configured ? "ok" : "warn"} label={me.r2Configured ? "configured" : "missing R2_* secrets"} /></dd>
               <dt>Image models</dt>
-              <dd><Lamp state="draft" label="off — references and hero frames are uploads (TODO)" /></dd>
+              <dd><Lamp state="ok" label="GPT Image on the pod (Codex or the API), switched per project in Settings" /></dd>
             </dl>
           ) : (
             <span className="st-muted">Loading…</span>

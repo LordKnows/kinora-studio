@@ -16,6 +16,8 @@ export type Project = {
   autopilot?: Autopilot;
   /** Checkpoints the user lets the director pass (granted on the web only). */
   delegation?: Delegation;
+  /** GPT Image on this project: off unless switched on in Settings (web only). */
+  imaging?: Imaging;
   createdAt: number;
   updatedAt: number;
 };
@@ -28,6 +30,19 @@ export type Autopilot = {
   grantedBy: string;
   expiresAt?: number;
   note?: string;
+};
+
+export type Imaging = {
+  enabled: boolean;
+  /** codex = the user's ChatGPT plan through the Codex CLI on the pod; api = OPENAI_API_KEY, paid per call. */
+  backend: "codex" | "api";
+  maxImages: number;
+  usedImages: number;
+  quality: "low" | "medium" | "high";
+  grantedBy: string;
+  grantedAt: number;
+  /** Set when the plan or the account ran out of image quota; painting stops until it is cleared. */
+  stoppedReason?: string;
 };
 
 export type Delegation = {
@@ -119,7 +134,7 @@ export type Review = {
 };
 
 /** A cold-reader review of a stage, stored against a hash of what was reviewed. */
-export type ReviewStage = "story" | "shot" | "film";
+export type ReviewStage = "story" | "shot" | "film" | "frame";
 export type ReviewFinding = { where: string; problem: string; fix?: string; sure?: boolean; severity?: "blocker" | "minor" };
 export type StageReview = {
   id: string; projectId: string; stage: ReviewStage; shotId?: string;
@@ -233,7 +248,7 @@ export type ExportJob = {
   finishedAt?: number;
 };
 
-export type JobKind = "hero-frames" | "element-refs";
+export type JobKind = "hero-frames" | "element-refs" | "image";
 export type JobStatus = "queued" | "running" | "completed" | "failed";
 
 export type Job = {
@@ -247,6 +262,10 @@ export type Job = {
   assetIds: string[];
   costUsd?: number;
   error?: string;
+  /** What the job was asked to draw (image jobs). */
+  input: Record<string, unknown>;
+  /** What the pod answered (urls, size, attempts). */
+  output?: Record<string, unknown>;
   createdAt: number;
   finishedAt?: number;
 };

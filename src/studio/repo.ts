@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Autopilot, Delegation, DirectorNote, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
@@ -45,6 +45,7 @@ function mapProject(r: Row): Project {
     shotlistApprovedAt: opt(r.shotlist_approved_at, num),
     autopilot: json<Autopilot | undefined>(r.autopilot_json, undefined),
     delegation: json<Delegation | undefined>(r.delegation_json, undefined),
+    imaging: json<Imaging | undefined>(r.imaging_json, undefined),
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
@@ -108,6 +109,19 @@ export async function setShotlistApproval(id: string, approval: Approval): Promi
 /** The spend envelope; only the web grants or revokes it (see orchestrator.grantAutopilot). */
 export async function setAutopilot(id: string, autopilot: Autopilot | null): Promise<Project> {
   await (await db()).run("UPDATE projects SET autopilot_json = ?, updated_at = ? WHERE id = ?", [autopilot ? JSON.stringify(autopilot) : null, Date.now(), id]);
+  return getProject(id);
+}
+
+/** GPT Image state of a project (switch, quota, stop). */
+export async function setImaging(id: string, imaging: Imaging | null): Promise<Project> {
+  await (await db()).run("UPDATE projects SET imaging_json = ?, updated_at = ? WHERE id = ?", [imaging ? JSON.stringify(imaging) : null, Date.now(), id]);
+  return getProject(id);
+}
+
+/** Count one finished picture against the quota, atomically. */
+export async function bumpImagesUsed(id: string): Promise<Project> {
+  const p = await getProject(id);
+  if (p.imaging) await setImaging(id, { ...p.imaging, usedImages: p.imaging.usedImages + 1 });
   return getProject(id);
 }
 
@@ -197,6 +211,11 @@ export async function createAsset(input: {
     "INSERT INTO assets (id, project_id, url, kind, source, width, height, duration_s, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     [id, input.projectId, input.url, input.kind, input.source, input.width ?? null, input.height ?? null, input.durationS ?? null, JSON.stringify(input.meta ?? {}), Date.now()],
   );
+  return getAsset(id);
+}
+
+export async function updateAssetMeta(id: string, meta: Record<string, unknown>): Promise<Asset> {
+  await (await db()).run("UPDATE assets SET meta_json = ? WHERE id = ?", [JSON.stringify(meta), id]);
   return getAsset(id);
 }
 
@@ -724,16 +743,22 @@ function mapJob(r: Row): Job {
   return {
     id: str(r.id), projectId: str(r.project_id), kind: str(r.kind) as JobKind, targetId: str(r.target_id), backend: str(r.backend),
     requestId: opt(r.request_id, str), status: str(r.status) as JobStatus, assetIds: json<string[]>(r.asset_ids_json, []),
-    costUsd: opt(r.cost_usd, num), error: opt(r.error, str), createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
+    costUsd: opt(r.cost_usd, num), error: opt(r.error, str), input: json<Record<string, unknown>>(r.input_json, {}),
+    output: json<Record<string, unknown> | undefined>(r.output_json, undefined), createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
   };
 }
 
-export async function createJob(input: { projectId: string; kind: JobKind; targetId: string; backend: string }): Promise<Job> {
+export async function createJob(input: { projectId: string; kind: JobKind; targetId: string; backend: string; input?: Record<string, unknown> }): Promise<Job> {
   const id = newId("job");
-  await (await db()).run("INSERT INTO jobs (id, project_id, kind, target_id, backend, status, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?)", [
-    id, input.projectId, input.kind, input.targetId, input.backend, Date.now(),
+  await (await db()).run("INSERT INTO jobs (id, project_id, kind, target_id, backend, status, input_json, created_at) VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)", [
+    id, input.projectId, input.kind, input.targetId, input.backend, JSON.stringify(input.input ?? {}), Date.now(),
   ]);
   return getJob(id);
+}
+
+export async function listProjectJobs(projectId: string, limit = 100): Promise<Job[]> {
+  const rows = await (await db()).all("SELECT * FROM jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?", [projectId, limit]);
+  return rows.map(mapJob);
 }
 
 export async function getJob(id: string): Promise<Job> {
@@ -752,11 +777,12 @@ export async function listTargetJobs(targetId: string): Promise<Job[]> {
   return rows.map(mapJob);
 }
 
-export async function updateJob(id: string, patch: Partial<{ requestId: string; status: JobStatus; assetIds: string[]; costUsd: number; error: string | null; finishedAt: number }>): Promise<Job> {
+export async function updateJob(id: string, patch: Partial<{ requestId: string; status: JobStatus; assetIds: string[]; costUsd: number; error: string | null; finishedAt: number; output: Record<string, unknown> }>): Promise<Job> {
   const cur = await getJob(id);
-  await (await db()).run("UPDATE jobs SET request_id = ?, status = ?, asset_ids_json = ?, cost_usd = ?, error = ?, finished_at = ? WHERE id = ?", [
+  await (await db()).run("UPDATE jobs SET request_id = ?, status = ?, asset_ids_json = ?, cost_usd = ?, error = ?, finished_at = ?, output_json = ? WHERE id = ?", [
     patch.requestId ?? cur.requestId ?? null, patch.status ?? cur.status, JSON.stringify(patch.assetIds ?? cur.assetIds),
-    patch.costUsd ?? cur.costUsd ?? null, patch.error === undefined ? (cur.error ?? null) : patch.error, patch.finishedAt ?? cur.finishedAt ?? null, id,
+    patch.costUsd ?? cur.costUsd ?? null, patch.error === undefined ? (cur.error ?? null) : patch.error, patch.finishedAt ?? cur.finishedAt ?? null,
+    patch.output ? JSON.stringify(patch.output) : cur.output ? JSON.stringify(cur.output) : null, id,
   ]);
   return getJob(id);
 }

@@ -66,6 +66,15 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   rejected input inside the spend envelope the user grants on the web. The
   lint flags the pictures AI video gets wrong; the batch renders the most
   fragile shots first; a retro counts what went wrong for the next film.
+- **Pictures before takes (GPT Image).** With the per-project switch on,
+  character sheets, first and last frames, region edits and style frames
+  are drawn on the GPU pod — Codex on the user's ChatGPT plan (device-code
+  login on the Machine page) or the images API — by buttons on every page
+  and by the director, which follows a picture plan (reuse, crop, edit,
+  then draw) and has every picture reviewed before a take is built on it.
+- **Fix a take without rerolling it (Viggle Remake).** Paint one or two
+  frames right, say what changes, and the take is re-shot with its motion,
+  camera, timing and sound kept: props, wardrobe, faces, backgrounds.
 - **The agent calls us.** No LLM API keys anywhere: the studio is a remote MCP
   server with its own OAuth 2.1, so Claude's and Grok's custom connectors can
   attach. `agent/director.md` is the director guide, served as a tool and a

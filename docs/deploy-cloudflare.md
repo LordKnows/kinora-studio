@@ -36,6 +36,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0009_take_upscale.sql` | `takes` 表加 `upscale_json`（Open-H3-Regenerate-2K 的 2K 版本；只执行一次） |
 | `migrations/0010_director_craft.sql` | 导演手艺层：场景色板、元素固定特征与参考图视角、预授权额度三列，`reviews`（冷读审核）与 `director_notes`（要求清单、决策日志）两张表（三条 ALTER 只执行一次） |
 | `migrations/0011_delegated_approvals.sql` | `projects` 表加 `delegation_json`（代理审批开关；只执行一次） |
+| `migrations/0012_imaging.sql` | GPT Image：`projects` 表加 `imaging_json`（项目开关与额度），`jobs` 表加 `input_json`、`output_json`（生图作业；三条 ALTER 只执行一次） |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。
@@ -354,3 +355,21 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
 5. take 完成后卡片出现缩略图，Settings 的 GPU 统计表出现第一行；预估开始用实测速度。
 6. 15 分钟没有任务 Pod 自动停机；再点 Start 时若拿不到卡，Studio 自建的 Pod 会自动换型号或
    数据中心重建，接管的 Pod 只提示"暂时没资源"。
+
+
+## 10. GPT Image 与 Viggle Remake
+
+1. **数据库**：执行 `migrations/0012_imaging.sql`（见 1b）。
+2. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开
+   "device code sign-in for Codex"。然后启动 GPU Pod，在 Machine 页 **Images on the pod →
+   Log in with a device code**，按页面显示的网址和验证码在任意设备上批准。Codex CLI 由 Pod
+   开机时装到网络卷上（`<卷>/codex/bin/codex`），登录凭证也存在卷上（`<卷>/codex/home`），
+   换 Pod 不用重新登录；令牌刷新会写回卷上。
+3. **按项目开启**：项目 Settings → Director → GPT Image，打开开关、选后端（Codex / API）、
+   设图片上限。关闭时网页按钮置灰，导演的生图工具会拒绝。
+4. **可选：API 后端**：在 Worker 的 Settings → Variables 加 secret `OPENAI_API_KEY`
+   （可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。这些在**创建 Pod 时**传进去，已有的 Pod 要在
+   GPU 卡片上 Repair（重新应用启动参数）或重建后才生效。
+5. **Viggle Remake**：节点包在 Pod 开机时自动装好（约 12 KB）；模型在 Machine 页点
+   **Download models**，下载 edit 和 swap 两个 int8 文件到网络卷（各约 21 GB，确认卷的空间）。
+6. **新代码上 Pod**：Pod 每次开机从 Studio 拉作业服务，部署新版本后把 Pod Stop 再 Start 一次。

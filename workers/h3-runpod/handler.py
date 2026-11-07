@@ -37,6 +37,11 @@ REGEN_WORKFLOW = "REGEN"
 REGEN_RESOLUTIONS = {"768p": "768p (1344x768)", "1080p": "1080p (1920x1080)", "2k": "2k (2560x1440)", "4k": "4k (3840x2160)"}
 REGEN_FILES = [("loras", "open_h3_regenerate_2k_lora.safetensors"), ("loras", "sharp_curve_branches.safetensors"), ("vae", "fast_h3_vae_noncausal_24l.safetensors"), ("latent_upscale_models", "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetensors")]
 REGEN_NODE_DIR = os.environ.get("REGEN_NODE_DIR", "/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-Open-H3-Regenerate")
+# Viggle Remake: a finished take re-shot from 1-4 painted frames (edit / swap).
+REMAKE_WORKFLOW = "REMAKE"
+REMAKE_MODES = ("edit", "swap")
+REMAKE_FILES = {"edit": ("diffusion_models", "viggle_remake_edit_pruned_int8_convrot.safetensors"), "swap": ("diffusion_models", "viggle_remake_swap_pruned_int8_convrot.safetensors")}
+REMAKE_NODE_DIR = os.environ.get("REMAKE_NODE_DIR", "/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-Viggle-Remake")
 ROLES = ("first_frame", "last_frame", "reference")
 HERE = Path(__file__).resolve().parent
 WORKFLOW_DIR = Path(os.environ.get("WORKFLOW_DIR", HERE / "workflows"))
@@ -67,6 +72,8 @@ def validate_input(raw: Any) -> dict[str, Any]:
     workflow = raw.get("workflow")
     if workflow == REGEN_WORKFLOW:
         return validate_regen_input(raw)
+    if workflow == REMAKE_WORKFLOW:
+        return validate_remake_input(raw)
     if workflow not in WORKFLOWS:
         raise JobError(f"workflow must be one of {', '.join(WORKFLOWS)}")
     prompt = raw.get("prompt")
@@ -416,6 +423,139 @@ def validate_regen_input(raw: dict[str, Any]) -> dict[str, Any]:
         "workflow": REGEN_WORKFLOW, "video": video, "prompt": prompt, "resolution": resolution, "start_sigma": float(start_sigma), "steps": steps,
         "seconds": float(seconds), "seed": seed, "sparse": bool(raw.get("sparse", False)), "input_size": str(raw.get("input_size", "768p")),
         "decoder": decoder, "output_key": key, "studio_take_id": raw.get("studio_take_id"),
+    }
+
+
+def validate_remake_input(raw: dict[str, Any]) -> dict[str, Any]:
+    """{workflow: REMAKE, mode: edit|swap, video: url, prompt (six sections), refs: [url] 1-4, pins: [int] (none or one per ref),
+    frames: 17n+5 in 90..345, short_edge: 480|736, seed?, output: {key}, studio_take_id?}"""
+    mode = raw.get("mode", "edit")
+    if mode not in REMAKE_MODES:
+        raise JobError("mode must be edit or swap")
+    video = raw.get("video")
+    if not isinstance(video, str) or not video.startswith(("http://", "https://")):
+        raise JobError("remake needs the source take's video url in `video`")
+    prompt = raw.get("prompt")
+    if not isinstance(prompt, str) or "retention_analysis" not in prompt:
+        raise JobError("prompt must be the six-section Remake prompt (subject_definitions … non_diegetic_music)")
+    refs = raw.get("refs") or []
+    if not isinstance(refs, list) or not 1 <= len(refs) <= 4 or not all(isinstance(u, str) and u.startswith(("http://", "https://")) for u in refs):
+        raise JobError("refs must be 1-4 painted frame urls")
+    pins = raw.get("pins") or []
+    if not isinstance(pins, list) or not all(isinstance(p, int) and p >= 0 for p in pins) or len(pins) not in (0, len(refs)):
+        raise JobError("pins must be empty or one source frame index per ref")
+    frames = raw.get("frames", 124)
+    if not isinstance(frames, int) or not 90 <= frames <= 345 or (frames - 5) % 17:
+        raise JobError("frames must be 17n+5 between 90 and 345")
+    if any(p >= frames for p in pins):
+        raise JobError(f"pins must be below frames ({frames})")
+    short_edge = raw.get("short_edge", 736)
+    if short_edge not in (480, 736):
+        raise JobError("short_edge must be 480 (832x480) or 736 (1280x736)")
+    seed = raw.get("seed", 0)
+    if not isinstance(seed, int) or seed < 0:
+        raise JobError("seed must be a non-negative integer")
+    output = raw.get("output") or {}
+    key = output.get("key") if isinstance(output, dict) else None
+    if not isinstance(key, str) or not key.endswith(".mp4"):
+        raise JobError("output.key must be an R2 key ending in .mp4")
+    return {"workflow": REMAKE_WORKFLOW, "mode": mode, "video": video, "prompt": prompt, "refs": refs, "pins": pins, "frames": frames,
+            "short_edge": short_edge, "seed": seed, "output_key": key, "studio_take_id": raw.get("studio_take_id")}
+
+
+def remake_status(models_dir: Path | None = None) -> dict[str, Any]:
+    """Which Remake modes can run here: the merged int8 transformer on disk and the node pack installed."""
+    base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
+    modes = {}
+    for mode, (sub, name) in REMAKE_FILES.items():
+        dirs = [sub, "unet"] if sub == "diffusion_models" else [sub]
+        modes[mode] = any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs)
+    nodes = (Path(REMAKE_NODE_DIR) / "nodes.py").is_file()
+    log = Path("/app/download_remake.log")
+    phase, tail = "not started", ""
+    if log.exists():
+        lines = [l for l in log.read_text(errors="replace").splitlines() if l.strip()]
+        tail = lines[-1] if lines else ""
+        phase = "done" if tail.startswith("done") else "downloading"
+    return {"ready": nodes and any(modes.values()), "modes": modes, "nodes": nodes, "download": phase, "log": tail}
+
+
+def fill_remake_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    graph = json.loads(json.dumps(graph))
+
+    def put(target: Any, value: Any) -> None:
+        node_id, name = target
+        graph[str(node_id)]["inputs"][name] = value
+
+    put(mapping["unet"], mapping["unet_files"][params["mode"]])
+    put(mapping["sigmas"], mapping["sigmas_by_mode"][params["mode"]])
+    put(mapping["prompt"], params["prompt"])
+    put(mapping["pins"], ", ".join(str(p) for p in params["pins"]))
+    put(mapping["frames"], params["frames"])
+    put(mapping["short_edge"], params["short_edge"])
+    put(mapping["seed"], params["seed"])
+    put(mapping["video"], params["files"]["video"])
+    cond = graph[str(mapping["conditioning"])]["inputs"]
+    for i, target in enumerate(mapping["refs"]):
+        if i < len(params["files"]["refs"]):
+            put(target, params["files"]["refs"][i])
+        else:
+            graph.pop(str(target[0]), None)
+            cond.pop(f"ref_{i + 1}", None)
+    return graph
+
+
+def run_remake_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: Path, mapping: dict[str, Any] | None = None, should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
+    started = time.monotonic()
+    cancelled = should_cancel or (lambda: False)
+    report = report or (lambda p: None)
+    status = remake_status()
+    if not status["nodes"]:
+        raise JobError("the Viggle Remake node pack is not installed on this pod (start.sh fetches it at boot; restart the pod)")
+    if not status["modes"].get(params["mode"]):
+        raise JobError(f"the Remake {params['mode']} model is not on the volume; download it from the Machine page (download {status['download']})")
+    mapping = mapping or load_mapping()
+    entry = mapping.get(REMAKE_WORKFLOW)
+    if not entry:
+        raise JobError("mapping.json has no REMAKE entry")
+    graph = load_workflow(entry.get("template", REMAKE_WORKFLOW))
+    report({"stage": "inputs"})
+    inputs = workdir / "in"
+    inputs.mkdir(exist_ok=True)
+    src = download(params["video"], inputs / "source.mp4", comfy.http)
+    # Remake reads the clip at 24 fps as it comes; H3 takes already are
+    files: dict[str, Any] = {"video": comfy.upload_image(src), "refs": []}
+    for i, url in enumerate(params["refs"]):
+        local = download_image(url, inputs / f"ref{i + 1}.{ext_of(url, 'png')}", comfy.http)
+        files["refs"].append(comfy.upload_image(local))
+    if cancelled():
+        raise JobError("cancelled")
+    filled = fill_remake_graph(graph, entry, {**params, "files": files})
+    client_id = uuid.uuid4().hex
+    watcher = ProgressWatcher(comfy.base, client_id, {nid: n.get("class_type", "") for nid, n in filled.items()}, report)
+    watcher.start()
+    try:
+        prompt_id = comfy.queue(filled, client_id)
+        watcher.prompt_id = prompt_id
+        report({"stage": "queued"})
+        history = comfy.wait(prompt_id, timeout_s=float(entry.get("timeout_s", 3600)), should_cancel=cancelled)
+    finally:
+        watcher.stop()
+    report({"stage": "uploading"})
+    out_dir = workdir / "out"
+    out_dir.mkdir(exist_ok=True)
+    video = comfy.fetch_output(history, entry.get("output_node", ""), out_dir)
+    last, thumbs = extract_frames(video, out_dir)
+    keys = derive_keys(params["output_key"])
+    return {
+        "url": uploader.upload(video, keys["video"], "video/mp4"),
+        "last_frame_url": uploader.upload(last, keys["last_frame"], "image/png"),
+        "thumb_urls": [uploader.upload(t, k, "image/jpeg") for t, k in zip(thumbs, keys["thumbs"])],
+        "execution_ms": int((time.monotonic() - started) * 1000),
+        "seed": params["seed"],
+        "studio_take_id": params.get("studio_take_id"),
+        "duration_s": probe_duration(video),
+        "remake": {"mode": params["mode"], "frames": params["frames"], "pins": params["pins"]},
     }
 
 
@@ -963,7 +1103,7 @@ def models_status(models_dir: Path | None = None) -> dict[str, Any]:
 
 def health(comfy: ComfyClient) -> dict[str, Any]:
     loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem != "mapping")
-    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
+    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "remake": remake_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
 def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:
@@ -977,6 +1117,8 @@ def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = No
         with tempfile.TemporaryDirectory(prefix="h3-") as tmp:
             if params["workflow"] == REGEN_WORKFLOW:
                 return run_regen_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
+            if params["workflow"] == REMAKE_WORKFLOW:
+                return run_remake_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
             return run_job(params, comfy, R2Uploader(), Path(tmp), should_cancel=should_cancel, report=report)
     except JobError as exc:
         return {"error": str(exc)}

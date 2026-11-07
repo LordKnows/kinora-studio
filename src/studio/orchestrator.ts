@@ -745,7 +745,7 @@ export async function refreshExport(exportId: string): Promise<ExportJob> {
 
 /* ---------- sweep (cron) ---------- */
 
-export async function sweep(): Promise<{ takes: number; exports: number; gpu?: string; autoStopped?: boolean }> {
+export async function sweep(): Promise<{ takes: number; exports: number; images: number; gpu?: string; autoStopped?: boolean }> {
   let gpuStatus: string | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
     try {
@@ -798,16 +798,24 @@ export async function sweep(): Promise<{ takes: number; exports: number; gpu?: s
     const before = job.status;
     if ((await refreshExport(job.id)).status !== before) e++;
   }
+  /* image jobs (paint, crop, extract) on the pod */
+  let images = 0;
+  try {
+    const { sweepImageJobs } = await import("./imaging");
+    images = await sweepImageJobs();
+  } catch {
+    /* next sweep */
+  }
   let autoStopped: boolean | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
-    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0;
+    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveJobs()).some((j) => j.kind === "image");
     try {
       autoStopped = await gpu.autoStopIfIdle(stillBusy);
     } catch {
       autoStopped = false;
     }
   }
-  return { takes: t, exports: e, gpu: gpuStatus, autoStopped };
+  return { takes: t, exports: e, images, gpu: gpuStatus, autoStopped };
 }
 
 /* ---------- helpers ---------- */

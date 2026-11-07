@@ -9,6 +9,7 @@ import { REF_VIEWS, type FixedFeature, type RefView } from "@/studio/schemas";
 import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
 import { useProjectContext } from "./shell";
+import { ImageButton } from "./image-tools";
 
 type ElementRow = Element & { refs: Asset[] };
 
@@ -154,7 +155,7 @@ function ElementEditor({
   const [features, setFeatures] = useState<FixedFeature[]>(element?.fixedFeatures ?? []);
   const [views, setViews] = useState<Record<string, RefView>>(element?.refViews ?? {});
   /* Every image in the project is a candidate: uploads and last frames of
-     finished takes. Image generation is disabled for now (TODO). */
+     finished takes, imports and GPT Image pictures. */
   const [images, setImages] = useState<Asset[]>([]);
 
   const loadImages = useCallback(async () => {
@@ -254,13 +255,14 @@ function ElementEditor({
           </Button>
         </div>
 
+        {element && <SheetTools element={element} />}
         {element && (
           <Section
             title="Reference images"
             aside={<UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />}
           >
             {candidates.length === 0 ? (
-              <Empty title="No references yet" hint="Upload an image of this element. Generated references are coming later; for now every project image can be picked. The first pick is the primary reference." />
+              <Empty title="No references yet" hint="Upload an image, generate a sheet with GPT Image above, or pick any project image. The first pick is the primary reference." />
             ) : (
               <>
                 <div className="st-thumbs">
@@ -316,5 +318,33 @@ function ElementEditor({
         )}
       </div>
     </Drawer>
+  );
+}
+
+/* GPT Image: the element's reference sheet, one picture per view, tagged. */
+function SheetTools({ element }: { element: ElementRow }) {
+  const isChar = element.kind === "character";
+  const [views, setViews] = useState<RefView[]>(isChar ? ["front", "side", "back", "expression"] : ["front"]);
+  const have = new Set(Object.values(element.refViews ?? {}));
+  return (
+    <Section title="Generate with GPT Image">
+      <div className="st-stack st-stack--tight">
+        <span className="st-muted">
+          {isChar
+            ? "Front first: the other views take it as the identity reference. Fixed features and the project's style frame are part of every prompt."
+            : "One reference picture in the project's look."}
+        </span>
+        {isChar && (
+          <div className="st-chips">
+            {REF_VIEWS.map((v) => (
+              <button key={v} type="button" className="st-chip st-chip--btn" aria-pressed={views.includes(v)} onClick={() => setViews(views.includes(v) ? views.filter((x) => x !== v) : [...views, v])}>
+                {v.replace("_", " ")}{have.has(v) ? " ✓" : ""}
+              </button>
+            ))}
+          </div>
+        )}
+        <ImageButton label={isChar ? `Generate ${views.length} view${views.length === 1 ? "" : "s"}` : "Generate reference"} body={{ action: "element_sheet", elementId: element.id, views: isChar ? views : ["front"] }} kind="primary" />
+      </div>
+    </Section>
   );
 }

@@ -10,6 +10,7 @@ import { Button, Chips, ErrorBanner, Field, Lamp, useAction } from "./common";
 import { StyleGallery } from "./library-page";
 import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
+import { ImageButton } from "./image-tools";
 
 /* Brief & style — Tier 1. The brief and the running time the director
    reads first; a style preset compiled into the Look; the Look's fields,
@@ -78,6 +79,8 @@ export function LookPage() {
         </div>
       </div>
       <ErrorBanner error={save.error ?? saveBrief.error ?? compile.error} onDismiss={() => { save.dismiss(); saveBrief.dismiss(); compile.dismiss(); }} />
+
+      <StyleFrameCard />
 
       <div className="st-split st-split--wide-left">
         <div className="st-card st-stack">
@@ -168,6 +171,39 @@ export function LookPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* The style frame: one picture that sets the film's look. Once chosen, every
+   GPT Image sheet and frame takes it as a reference. */
+function StyleFrameCard() {
+  const { projectId, view, reload } = useProjectContext();
+  const current = view?.project.look.styleFrameAssetId;
+  const frames = (view?.assets ?? []).filter((a) => a.kind === "image" && (a.meta.purpose === "style_frame" || a.id === current));
+  const choose = useAction(async (_c, assetId: string | null) => {
+    await patch(`/api/projects/${projectId}/look`, { styleFrameAssetId: assetId ?? "" });
+    await reload();
+  });
+  return (
+    <div className="st-card st-stack" style={{ marginBottom: 16 }}>
+      <div className="st-row st-row--between">
+        <span className="st-h2">Style frame</span>
+        <ImageButton label={frames.length ? "Draw another" : "Generate a style frame"} body={{ action: "style_frame" }} />
+      </div>
+      <span className="st-muted">One picture that sets the look (from the brief and the Look). Choose one and every generated sheet and frame matches it.</span>
+      <ErrorBanner error={choose.error} onDismiss={choose.dismiss} />
+      {frames.length > 0 && (
+        <div className="st-thumbs">
+          {frames.map((a) => (
+            <button key={a.id} type="button" className="st-thumb" aria-pressed={current === a.id} onClick={() => void choose.fire(current === a.id ? null : a.id)} title={current === a.id ? "The style frame (click to clear)" : "Use as the style frame"}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt="" />
+              {current === a.id && <span className="st-thumb-tag">STYLE</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

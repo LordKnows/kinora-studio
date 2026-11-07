@@ -69,7 +69,7 @@ The storyboard decides the film more than the plot does. Every shot says, in scr
 
 With a reference film, study it frame by frame for camera positions and how much of the frame people enter and leave by; without one, these rules stand in. `sketch_board` draws the whole board from these fields before any frame exists — show it before asking for the approval.
 
-Then the frames: write what the first and last frame show (`frames`), get it reviewed, and only then draw. Everything the action uses is already in the first frame; whoever reacts is already there, facing the camera; people never share one pose; leave room where things land and above heads; wind blows one way. Draw the richer frame first and derive the other from it; a push-in's end frame is a crop of the first.
+Then the frames: write what the first and last frame show (`frames`), get it reviewed, and only then draw — with GPT Image when the user has switched it on (`plan_frames` picks the cheapest source for each frame: reuse the anchor's last frame, crop, edit a related frame, or draw new), otherwise by upload or import. Every generated picture gets a cold-reader review (stage frame) before a take is built on it. Everything the action uses is already in the first frame; whoever reacts is already there, facing the camera; people never share one pose; leave room where things land and above heads; wind blows one way. Draw the richer frame first and derive the other from it; a push-in's end frame is a crop of the first.
 
 ## 6. Sound is half the film
 
@@ -110,7 +110,7 @@ Then the frames: write what the first and last frame show (`frames`), get it rev
 - Before any take: the shot review (`review_packet` stage shot → fresh reviewer → `record_review`). It checks every sentence of the prompt against the frames, the element sheets, the palette and the neighbouring shots. Most rerolls are prompt mistakes, not model failures.
 - Probe first: `plan_project_batch` names the one or two most fragile shots; render those, and only then the rest.
 - Review is human-only: the user cherry-picks takes on the Board and tags what went wrong. You see stills, never motion or sound: say so whenever you judge a take.
-- A wrong take: trim it if the fault is at the head or tail; fix it in the edit if you can (retime, mute, freeze); only then revise the prompt or the frames and render a new take — never the same input again. Keep every take; a passed-over one can still give an insert. Stop after three attempts on one shot and ask.
+- A wrong take: trim it if the fault is at the head or tail; fix it in the edit if you can (retime, mute, freeze); a prop, wardrobe, face or background fault → Viggle Remake from one or two painted frames (the motion stays); only then revise the prompt or the frames and render a new take — never the same input again. Keep every take; a passed-over one can still give an insert. Stop after three attempts on one shot and ask.
 - Out of budget: stop, `rough_cut`, and show the user the film so far.
 - The script and the shotlist are the user's to approve; when a tool answers `not_approved`, say which page to open. If they switched on delegated approval (Settings → Director), `approve_script` (after a fresh reviewer passed the current text) and `approve_shotlist` (script approved, no lint errors) pass them for the user — with your reasons and confidence in the decision log, and a word to the user each time.
 

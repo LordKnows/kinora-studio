@@ -7,6 +7,8 @@ import type { SceneView, ShotView } from "@/studio/orchestrator";
 import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
 import type { Take } from "@/studio/types";
 import { uploadMedia } from "./upload";
+import { EditRegion, ImageButton, reviewChip } from "./image-tools";
+import { RemakePanel } from "./remake-panel";
 
 import { del, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
@@ -576,7 +578,7 @@ function FramesPanel({ shot }: { shot: ShotView }) {
           {a.source === "frame-extract" && <span className="st-thumb-tag">LAST FRAME</span>}
         </button>
       ))}
-      {images.length === 0 && <span className="st-muted">No images in this project yet. Upload one, or finish a take to get its last frame.</span>}
+      {images.length === 0 && <span className="st-muted">No images in this project yet. Upload one, generate it with GPT Image below, or finish a take to get its last frame.</span>}
     </div>
   );
 
@@ -610,9 +612,55 @@ function FramesPanel({ shot }: { shot: ShotView }) {
         <ErrorBanner error={derive.error} projectId={projectId} onDismiss={derive.dismiss} />
         {grid(shot.endAssetId, (id) => void pickEnd.fire(shot.endAssetId === id ? null : id))}
       </Section>
+      <FramePlanTools shot={shot} />
       {shot.hero && shot.end && <FrameCheck first={shot.hero.url} last={shot.end.url} />}
       {shot.hero && <PhoneCheck url={shot.hero.url} />}
     </div>
+  );
+}
+
+type PlanRow = { shotId: string; first: string | null; last: string | null; why: string; have: { first: boolean; last: boolean } };
+const METHOD_LABEL: Record<string, string> = {
+  none: "nothing to draw", sheets: "uses the element sheets", anchor: "the anchor take's last frame", edit_anchor: "edit the anchor's last frame",
+  new: "draw new", edit_from_last: "edit from the last frame", edit_from_previous: "edit the earlier shot's frame", crop_from_first: "crop the first frame", crop_from_last: "crop the last frame",
+};
+
+/* GPT Image for this shot's frames, by the plan (cheapest first). */
+function FramePlanTools({ shot }: { shot: ShotView }) {
+  const { projectId } = useProjectContext();
+  const [row, setRow] = useState<PlanRow | null>(null);
+  const [editing, setEditing] = useState<"first" | "last" | null>(null);
+  useEffect(() => {
+    void get<{ shots: PlanRow[] }>(`/api/projects/${projectId}/frame-plan`).then((p) => setRow(p.shots.find((r) => r.shotId === shot.id) ?? null)).catch(() => setRow(null));
+  }, [projectId, shot.id, shot.heroAssetId, shot.endAssetId]);
+  const drawable = (m: string | null) => !!m && !["none", "sheets", "anchor"].includes(m);
+  const paints = (m: string | null) => !!m && !m.startsWith("crop");
+  return (
+    <Section title="Frames with GPT Image">
+      <div className="st-stack st-stack--tight">
+        {row ? <span className="st-muted">{row.why}</span> : <span className="st-muted">Loading the plan…</span>}
+        {row && (["first", "last"] as const).map((which) => {
+          const m = which === "first" ? row.first : row.last;
+          if (!m) return null;
+          const asset = which === "first" ? shot.hero : shot.end;
+          return (
+            <div key={which} className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
+              <span>
+                <strong>{which === "first" ? "First" : "Last"} frame</strong> · {METHOD_LABEL[m] ?? m}
+                {asset && reviewChip(asset) ? <span className="st-chip" style={{ marginLeft: 6 }}>{reviewChip(asset)}</span> : null}
+              </span>
+              <span className="st-row" style={{ gap: 6 }}>
+                {drawable(m) && <ImageButton label={asset ? "Redraw" : "Generate"} paint={paints(m)} body={{ action: "shot_frame", shotId: shot.id, which }} />}
+                {asset && <Button size="sm" kind="quiet" onClick={() => setEditing(editing === which ? null : which)}>Edit a region</Button>}
+              </span>
+            </div>
+          );
+        })}
+        {editing && (editing === "first" ? shot.hero : shot.end) && (
+          <EditRegion asset={(editing === "first" ? shot.hero : shot.end)!} attach={editing === "first" ? { heroOf: shot.id } : { endOf: shot.id }} onClose={() => setEditing(null)} />
+        )}
+      </div>
+    </Section>
   );
 }
 
@@ -741,6 +789,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
     await post(`/api/takes/${take.id}/retry`, { confirm });
     await reload();
   });
+  const [remakeOpen, setRemakeOpen] = useState(false);
   const [resolution, setResolution] = useState<"1080p" | "2k" | "4k">("2k");
   const [closeToDraft, setCloseToDraft] = useState(false);
   const [show2k, setShow2k] = useState(true);
@@ -855,7 +904,16 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             {take.review.basis ? ` · basis: ${take.review.basis}` : ""}
           </span>
         )}
+        {take.workflow === "REMAKE" && typeof take.input.studio_remake === "object" && take.input.studio_remake ? (
+          <span className="st-muted">Remake ({String((take.input.studio_remake as { mode?: string }).mode)}) of take #{String((take.input.studio_remake as { sourceN?: number }).sourceN ?? "?")}</span>
+        ) : null}
+        {remakeOpen && take.status === "completed" && <RemakePanel take={take} onClose={() => setRemakeOpen(false)} />}
         <div className="st-row">
+          {take.status === "completed" && !remakeOpen && (
+            <Button size="sm" kind="quiet" onClick={() => setRemakeOpen(true)} title="Viggle Remake: fix props, wardrobe, a face or the background from painted frames, keeping the motion">
+              Fix with Remake
+            </Button>
+          )}
           {take.status === "completed" && !selected && (
             <Button size="sm" kind="primary" busy={select.busy} onClick={() => void select.fire()}>
               Use this take

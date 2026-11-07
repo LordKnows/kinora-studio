@@ -4,11 +4,14 @@ import { z } from "zod";
 import * as director from "@/director";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
-import { VIDEO_SIZES as VIDEO_SIZE_OF } from "@/studio/compiler";
 import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
 import { EDIT_GRAMMAR, TIMELINE_ONLY, planDurations } from "@/studio/editing";
 import { StudioError } from "@/studio/errors";
 import * as craft from "@/studio/craft";
+import { imageBlock } from "@/studio/image-content";
+import { ImageAction, runImageAction } from "@/studio/image-actions";
+import * as imaging from "@/studio/imaging";
+import { remakeTake } from "@/studio/remake";
 import { config } from "@/studio/config";
 import * as gpu from "@/studio/gpu";
 import { importImageFromBase64, importImageFromUrl } from "@/studio/images";
@@ -50,12 +53,32 @@ export function shotWarnings(label: string, spec: { link?: { type?: string }; li
 }
 
 export function createStudioServer(actor: Actor): McpServer {
-  const server = new McpServer({ name: "cinema-studio", version: "0.1.0" }, { instructions: "Cinema Studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first. Keep errors in front of the spend: record the user's requirements, have a fresh reviewer read the story, every shot before it renders and the cut (review_packet → record_review), and remember you see stills, never motion or sound." });
+  const server = new McpServer({ name: "cinema-studio", version: "0.1.0" }, { instructions: "Cinema Studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first. Keep errors in front of the spend: record the user's requirements, have a fresh reviewer read the story, every shot before it renders and the cut (review_packet → record_review), and remember you see stills, never motion or sound. With GPT Image on (image_status), pictures come before takes: plan_frames, generate_element_sheet, generate_shot_frame, each reviewed (stage frame); a prop, wardrobe, face or background fault in a take is fixed with remake_take." });
 
   const tool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<unknown>) => {
     const cb = async (args: unknown) => {
       try {
         return ok(await run(input.parse(args)));
+      } catch (caught) {
+        return fail(caught);
+      }
+    };
+    server.registerTool(name, { description, inputSchema: input }, cb as unknown as Parameters<typeof server.registerTool>[2]);
+  };
+
+  /* A tool whose answer carries pictures (MCP image content) beside its text. */
+  const pictureTool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<{ text: unknown; pictures: Array<{ label: string; url?: string }> }>) => {
+    const cb = async (args: unknown) => {
+      try {
+        const { text, pictures } = await run(input.parse(args));
+        const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{ type: "text", text: JSON.stringify(text, null, 2) }];
+        for (const p of pictures.slice(0, 8)) {
+          if (!p.url) continue;
+          const block = await imageBlock(p.url);
+          content.push({ type: "text", text: "error" in block ? `${p.label}: not inlined (${block.error}) — ${p.url}` : `${p.label}:` });
+          if (!("error" in block)) content.push(block);
+        }
+        return { content };
       } catch (caught) {
         return fail(caught);
       }
@@ -189,7 +212,7 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("create_element", "Create a character, location or prop with a concrete visual description.", z.object({ projectId: id }).extend(ElementInput.shape), async ({ projectId, ...input }) => ({ element: await repo.createElement(projectId, input) }));
   tool("update_element", "Patch an element's name, kind or description.", z.object({ elementId: id }).extend(ElementInput.partial().shape), async ({ elementId, ...patch }) => ({ element: await repo.updateElement(elementId, patch) }));
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
-  tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Use the ids with select_element_refs / select_hero_frame / select_end_frame. Image generation is disabled for now: ask the user to upload references on the Elements page or hero frames on the Board.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
+  tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Use the ids with select_element_refs / select_hero_frame / select_end_frame. With GPT Image on (image_status) draw them with generate_element_sheet / generate_shot_frame / edit_frame; otherwise the user uploads them, or import_image brings in what your own tools drew.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
   tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary) and, optionally, which view each shows (front, three_quarter, side, back, full_body, expression, detail). Tagged views let R2VA pick the reference that matches the shot's angle and size.", z.object({ elementId: id, assetIds: z.array(id).max(6), views: z.record(z.string(), z.enum(REF_VIEWS)).optional().describe("asset id → view") }), async ({ elementId, assetIds, views }) => ({ element: await repo.updateElement(elementId, { refAssetIds: assetIds, ...(views ? { refViews: views } : {}) }) }));
   tool("set_scene_palette", "Set a scene's colour script (2–6 hex colours, darkest first, one accent at most, and a note). It compiles into every shot of the scene; lint_project flags palettes whose subject and background merge in black and white. null clears it.", z.object({ sceneId: id, palette: ScenePalette.nullable() }), async ({ sceneId, palette }) => ({ scene: await repo.updateScene(sceneId, { palette }) }));
 
@@ -227,12 +250,29 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("get_export", "Status and url of an export.", z.object({ exportId: id }), async ({ exportId }) => ({ export: await orch.refreshExport(exportId) }));
 
   /* ---- the cold reader, requirements, decisions, the envelope ---- */
-  const Stage = z.enum(["story", "shot", "film"]);
-  tool("review_packet", "The cold-reader packet for one stage: story (the script text only), shot (the compiled prompt, the frames, the element sheets, neighbours — everything about to be sent to the GPU), film (the export and its cut times). Hand reviewerPrompt to a FRESH reviewer that has seen nothing else (a subagent, a new chat), let it find faults without editing, then record_review. generate_take warns until the shot has a passing review of this exact prompt and these frames.", z.object({ projectId: id, stage: Stage, shotId: id.optional() }), async ({ projectId, stage, shotId }) => craft.reviewPacket(projectId, stage, shotId));
-  tool("record_review", "Store a reviewer's verdict for a stage against what the packet shows now (revise the shot or swap a frame and it lapses). reviewer: fresh_agent (independent), self (you — tell the user), human. basis: what was actually looked at. findings verbatim.", z.object({
-    projectId: id, stage: Stage, shotId: id.optional(), verdict: z.enum(["pass", "fail"]), reviewer: z.enum(["fresh_agent", "self", "human"]), basis: z.string().min(3).max(400),
+  const Stage = z.enum(["story", "shot", "film", "frame"]);
+  pictureTool("review_packet", "The cold-reader packet for one stage: story (the script text only), shot (the compiled prompt, the frames, the element sheets, neighbours — everything about to be sent to the GPU), film (the export and its cut times), frame (one generated picture against what it was asked to be: pass assetId). The pictures come inline as images, so the reviewer sees them. Hand reviewerPrompt and the pictures to a FRESH reviewer that has seen nothing else (a subagent, a new chat), let it find faults without editing, then record_review. generate_take warns until the shot has a passing review of this exact prompt and these frames; remake_take and the envelope want a passing frame review of every keyframe.", z.object({ projectId: id, stage: Stage, shotId: id.optional(), assetId: id.optional().describe("stage frame: the generated picture"), includeImages: z.boolean().default(true) }), async ({ projectId, stage, shotId, assetId, includeImages }) => {
+    const packet = await craft.reviewPacket(projectId, stage, stage === "frame" ? assetId : shotId);
+    const m = packet.materials as Record<string, unknown>;
+    const pics: Array<{ label: string; url?: string }> = [];
+    if (includeImages) {
+      if (stage === "frame") {
+        pics.push({ label: "the picture", url: m.picture as string }, { label: "the base it was edited from", url: m.base as string | undefined }, { label: "difference to the base (black = unchanged)", url: m.diff as string | undefined });
+        const shotM = m.shot as { other?: string } | undefined;
+        if (shotM?.other) pics.push({ label: "the shot's other frame", url: shotM.other });
+        for (const s of (m.sheets as Array<{ name: string; refs: string[] }> | undefined) ?? []) if (s.refs[0]) pics.push({ label: `${s.name}'s sheet`, url: s.refs[0] });
+      } else if (stage === "shot") {
+        for (const img of (m.images as Array<{ role: string; label?: string; url: string }> | undefined) ?? []) pics.push({ label: `${img.role}${img.label ? ` (${img.label})` : ""}`, url: img.url });
+      } else if (stage === "film" && m.cutSheet) {
+        pics.push({ label: "cut sheet (3 frames before | after every cut)", url: m.cutSheet as string });
+      }
+    }
+    return { text: packet, pictures: pics };
+  });
+  tool("record_review", "Store a reviewer's verdict for a stage against what the packet shows now (revise the shot or swap a frame and it lapses). reviewer: fresh_agent (independent), self (you — tell the user), human. basis: what was actually looked at. findings verbatim. Stage frame: pass assetId; the picture is marked reviewed.", z.object({
+    projectId: id, stage: Stage, shotId: id.optional(), assetId: id.optional(), verdict: z.enum(["pass", "fail"]), reviewer: z.enum(["fresh_agent", "self", "human"]), basis: z.string().min(3).max(400),
     findings: z.array(z.object({ where: z.string().max(200), problem: z.string().max(600), fix: z.string().max(600).optional(), sure: z.boolean().optional(), severity: z.enum(["blocker", "minor"]).optional() })).max(60).default([]),
-  }), async ({ projectId, ...input }) => craft.recordReview(projectId, input));
+  }), async ({ projectId, assetId, ...input }) => craft.recordReview(projectId, { ...input, shotId: input.stage === "frame" ? assetId : input.shotId }));
   tool("list_reviews", "Stage reviews of the project, newest first.", z.object({ projectId: id, stage: Stage.optional(), shotId: id.optional() }), async ({ projectId, stage, shotId }) => ({ reviews: await craft.listStageReviews(projectId, stage, shotId) }));
   tool("add_requirements", "Record what the user asked for, one item each, in their words (length, ratio, must-have shots, things to avoid, tone…). The list rides along in every shot review and lint_project reminds you of open items. Duplicates are skipped.", z.object({ projectId: id, items: z.array(z.object({ text: z.string().min(2).max(400), source: z.string().max(200).optional().describe("where the user said it") })).min(1).max(40) }), async ({ projectId, items }) => ({ added: await craft.addRequirements(projectId, items) }));
   tool("set_requirement", "Mark a requirement met, dropped (with the user's say-so) or open again.", z.object({ requirementId: id, status: z.enum(["open", "met", "dropped"]), note: z.string().max(300).optional() }), async ({ requirementId, status, note }) => ({ requirement: await craft.setRequirement(requirementId, status, note) }));
@@ -280,17 +320,70 @@ export function createStudioServer(actor: Actor): McpServer {
     await repo.getProject(projectId);
     return { asset: await repo.createAsset({ projectId, url: publicUrl(key), kind, source: "upload", meta: { key } }) };
   });
-  tool("derive_end_frame", "Plan the end frame of a push-in from its hero frame: a centred crop (zoom 1.1–1.4, toward the subject's composition point) scaled back to the render size, so FL2VA has to push. Returns the crop rectangle and an ffmpeg command; crop locally and import_image with attach.endOf, or ask the user to press 'Derive end frame' on the Board (Frames tab).", z.object({ shotId: id, zoom: z.number().min(1.05).max(1.6).default(1.2) }), async ({ shotId, zoom }) => {
-    const shot = await repo.getShot(shotId);
-    if (!shot.heroAssetId) throw new StudioError("validation", "the shot has no hero frame");
-    const hero = await repo.getAsset(shot.heroAssetId);
-    const project = await repo.getProject(shot.projectId);
-    const W = hero.width ?? 1344, H = hero.height ?? 768;
-    const fx = shot.spec.composition?.subjectX === "left" ? 0.38 : shot.spec.composition?.subjectX === "right" ? 0.62 : 0.5;
-    const cw = Math.round(W / zoom), ch = Math.round(H / zoom);
-    const x = Math.round(Math.min(W - cw, Math.max(0, fx * W - cw / 2))), y = Math.round(Math.min(H - ch, Math.max(0, H * 0.45 - ch / 2)));
-    const [rw, rh] = (VIDEO_SIZE_OF[project.look.aspectRatio] ?? "1344x768").split("x");
-    return { hero: hero.url, crop: { x, y, width: cw, height: ch }, outputSize: `${rw}x${rh}`, ffmpeg: `ffmpeg -i hero.png -vf "crop=${cw}:${ch}:${x}:${y},scale=${rw}:${rh}:flags=lanczos" end.png`, next: `import_image({projectId: "${project.id}", data: <end.png as base64>, attach: {endOf: "${shotId}"}})`, ...(hero.width ? {} : { note: "the hero frame's size is unknown; the crop assumes 1344×768" }) };
+  tool("derive_end_frame", "The end frame of a push-in from its hero frame: a crop toward the subject's composition point (zoom 1.05–1.6) scaled back to the render size, so FL2VA has to push. Runs on the pod (not image generation: no GPT Image quota) and attaches it as the shot's end frame. pull_out works the other way: generate_shot_frame which 'first' method 'crop_from_last'.", z.object({ shotId: id, zoom: z.number().min(1.05).max(1.6).default(1.2), startPod: z.boolean().default(false) }), async ({ shotId, zoom, startPod }) =>
+    imaging.generateShotFrame(shotId, "last", actor, { method: "crop_from_first", zoom, startPod }));
+
+  /* ---- GPT Image and Viggle Remake ---- */
+  const startPod = z.boolean().default(false).describe("start the GPU pod if it is not running (it bills per hour); otherwise the job waits for it");
+  const quality = z.enum(["low", "medium", "high"]).optional().describe("low for drafts (default from Settings), medium for finals");
+  tool("image_status", "Whether GPT Image is on for this project (the user switches it in Settings, web only), the backend (codex = the user's ChatGPT plan on the pod; api = per call), the quota left, a stop after a quota error, and the pod's Codex login and Viggle Remake readiness. Check it before planning pictures.", z.object({ projectId: id }), async ({ projectId }) => {
+    const summary = imaging.imagingSummary(await repo.getProject(projectId));
+    const pod = await gpu.codexStatus().then((c) => ({ codex: c }), (e: unknown) => ({ codex: { error: e instanceof Error ? e.message : String(e) } }));
+    const remake = await gpu.remakeStatus().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+    return { ...summary, ...pod, remake };
+  });
+  tool("plan_frames", "The picture plan: for every shot where its first and last frame come from, cheapest first (nothing / the anchor's last frame / a crop / an edit of a related frame / a new picture), the order to make them in, and the element sheets the shots need. Follow it with generate_element_sheet, then generate_shot_frame in the order given, reviewing each picture (review_packet stage frame) before the next step uses it.", z.object({ projectId: id }), async ({ projectId }) => imaging.planFrames(await orch.getProjectView(projectId)));
+  const run = (projectId: string, a: ImageAction) => runImageAction(projectId, ImageAction.parse(a), actor);
+  tool("generate_element_sheet", "Draw an element's reference sheet with GPT Image: views of a character (front, three_quarter, side, back, full_body, expression, detail), one picture per view, each attached to the element with its view tag. With no picture yet only the front is queued; the other views follow once it is in (they take it as the identity reference). Uses the element's description, fixed features and the project's style frame. Needs GPT Image on.", z.object({ projectId: id, elementId: id, views: z.array(z.enum(REF_VIEWS)).max(7).default([]), quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "element_sheet", ...a }));
+  tool("generate_shot_frame", "Make a shot's first or last frame and attach it (hero / end frame). method defaults to the plan's (plan_frames): new (drawn from frames.first/last, blocking, composition, palette and the sheets), edit_from_last (the first frame edited from the last: same camera), edit_from_previous (same place and angle as an earlier shot: edit its frame), edit_anchor (jump cut: the anchor take's last frame, time passed), crop_from_first (push-in end frame), crop_from_last (pull-out first frame). Crops are not image generation. Needs GPT Image on for the others.", z.object({ projectId: id, shotId: id, which: z.enum(["first", "last"]), method: z.enum(["new", "edit_from_last", "edit_from_previous", "edit_anchor", "crop_from_first", "crop_from_last"]).optional(), instruction: z.string().max(600).optional().describe("for the edit methods: what differs, as a description"), zoom: z.number().min(1.05).max(1.6).optional(), quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "shot_frame", ...a }));
+  tool("edit_frame", "Edit a region of any project picture with GPT Image: describe the change; with region (fractions of the picture) only that box is pasted back, every other pixel stays the original's. Attach to a shot with heroOf / endOf; purpose remake_key for a Viggle Remake keyframe painted on an extracted take frame. Needs GPT Image on.", z.object({ projectId: id, assetId: id, instruction: z.string().min(5).max(800), region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().gt(0).max(1), h: z.number().gt(0).max(1) }).optional(), refAssetIds: z.array(id).max(4).optional(), heroOf: id.optional(), endOf: id.optional(), purpose: z.enum(["edit", "remake_key"]).optional(), quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "edit", ...a }));
+  tool("extract_frame", "One exact frame of a finished take as a project picture (0 = first frame, 24 per second): the frame a Remake keyframe repaints, or a still to look at. Runs on the pod; not image generation.", z.object({ projectId: id, takeId: id, frame: z.number().int().min(0).max(400), startPod }), async ({ projectId, ...a }) => run(projectId, { action: "extract", ...a }));
+  tool("generate_style_frame", "Draw a frame that sets the film's look from the brief and the Look. When the user approves it (set it on the Look page, or update_look styleFrameAssetId), every sheet and frame takes it as a reference. Needs GPT Image on.", z.object({ projectId: id, quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "style_frame", ...a }));
+  tool("get_image_job", "An image job's status, refreshed from the pod; with wait (seconds, up to 25) it polls until the job is done. When completed: the picture's asset id, url, preview and (for edits) the diff.", z.object({ jobId: id, wait: z.number().int().min(0).max(25).default(0) }), async ({ jobId, wait }) => {
+    const until = Date.now() + wait * 1000;
+    let job = await imaging.refreshImageJob(jobId);
+    while ((job.status === "queued" || job.status === "running") && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 2500));
+      job = await imaging.refreshImageJob(jobId);
+    }
+    const assets = await repo.getAssets(job.assetIds);
+    return { job, assets: job.assetIds.map((a) => assets.get(a)).filter(Boolean) };
+  });
+  tool("list_image_jobs", "The project's recent image jobs, newest first.", z.object({ projectId: id }), async ({ projectId }) => ({ jobs: await imaging.listImageJobs(projectId) }));
+  pictureTool("view_frames", "Look at pictures yourself: project images by asset id (generated ones come as their preview, with the diff to their base when there is one), and/or a take's thumbnails and last frame. You see stills only — never claim motion or sound.", z.object({ projectId: id, assetIds: z.array(id).max(6).default([]), takeId: id.optional(), diffs: z.boolean().default(true) }), async ({ projectId, assetIds, takeId, diffs }) => {
+    const pv = await orch.getProjectView(projectId);
+    const pics: Array<{ label: string; url?: string }> = [];
+    const listed: unknown[] = [];
+    for (const aid of assetIds) {
+      const a = pv.assets.find((x) => x.id === aid);
+      if (!a) { listed.push({ assetId: aid, error: "not in this project" }); continue; }
+      const m = a.meta as Record<string, unknown>;
+      listed.push({ assetId: a.id, url: a.url, size: a.width ? `${a.width}×${a.height}` : undefined, purpose: m.purpose, review: m.review, label: m.label });
+      pics.push({ label: `${a.id}${m.label ? ` (${String(m.label)})` : ""}`, url: (m.previewUrl as string | undefined) ?? a.url });
+      if (diffs && m.diffUrl) pics.push({ label: `${a.id}: difference to its base (black = unchanged)`, url: m.diffUrl as string });
+    }
+    if (takeId) {
+      const take = await repo.getTake(takeId);
+      listed.push({ takeId: take.id, n: take.n, workflow: take.workflow, thumbs: take.thumbUrls.length, note: "thumbnails are evenly spaced; extract_frame gets any exact frame" });
+      take.thumbUrls.forEach((u, k) => pics.push({ label: `take #${take.n} thumbnail ${k + 1}/${take.thumbUrls.length}`, url: u }));
+      if (take.lastFrameUrl) pics.push({ label: `take #${take.n} last frame`, url: take.lastFrameUrl });
+    }
+    return { text: { pictures: listed, basis: "stills only: motion and sound are not checked" }, pictures: pics };
+  });
+  tool("remake_take", "Viggle Remake: re-shoot a finished take from 1-4 painted keyframes, keeping its motion, camera, timing and sound; a new take of the same shot. mode edit (objects, props, wardrobe, background, weather, light, style) or swap (people). keyframes: painted pictures (extract_frame → edit_frame purpose remake_key) with the source frame each was painted from. changes: [{subject, target}] — subject precise enough to exclude everyone similar, target written as how the target video IS ('he wears a red wool beret in every frame, as in <Picture 1>'), never as an instruction; the six-section prompt is built from them and the shot (or pass prompt). Fixes props, wardrobe, identity and backgrounds; not motion, direction or timing (re-render those). Costs a render: needs_confirm unless every keyframe passed a frame review and the envelope covers it. dryRun returns the prompt without rendering.", z.object({
+    takeId: id, mode: z.enum(["edit", "swap"]), keyframes: z.array(z.object({ assetId: id, frame: z.number().int().min(0).max(344).optional() })).min(1).max(4),
+    changes: z.array(z.object({ subject: z.string().min(3).max(300), target: z.string().min(3).max(600), fate: z.enum(["changed", "removed"]).optional() })).max(6).optional(),
+    prompt: z.string().max(8000).optional(), shortEdge: z.union([z.literal(480), z.literal(736)]).optional(), seed: z.number().int().min(0).optional(), confirm: z.boolean().default(false), dryRun: z.boolean().default(false),
+  }), async ({ takeId, dryRun, ...input }) => {
+    if (dryRun) {
+      const { remakePrompt, remakeFrames } = await import("@/studio/remake");
+      const take = await repo.getTake(takeId);
+      const shot = await repo.getShot(take.shotId);
+      const frames = remakeFrames(take.outputSeconds ?? shot.spec.durationS);
+      const elements = await repo.getElements([...shot.spec.characters, ...shot.spec.props]);
+      return { frames, prompt: input.prompt ?? remakePrompt({ spec: shot.spec, elements, mode: input.mode, changes: input.changes ?? [], keyframes: input.keyframes.map((k) => ({ assetId: k.assetId, frame: k.frame ?? 0 })), frames }) };
+    }
+    return remakeTake(takeId, input, actor);
   });
 
   server.registerResource("director-guide", "studio://guide/director", { title: "Director guide", description: "Workflow, the three tiers and H3 prompt rules", mimeType: "text/markdown" }, async (uri) => ({
@@ -320,6 +413,7 @@ export function createStudioServer(actor: Actor): McpServer {
           "Tier 1: write the Look from the brief (update_look) and the script (save_script) — every turn as problem → solution → the others' staggered reaction, nothing AI video gets wrong. Have a fresh reviewer read the script (review_packet stage story → record_review), then ask me to approve it (or approve_script yourself if get_delegation says I let you).",
           "Tier 2: build the shotlist that tiles the running time; choose a link type for every shot from the editing grammar; create every element first.",
           "Tier 3: every shot gets cinematography (size, angle, lens, lighting, grade at least; animation on every shot if the film is animated), one camera move, blocking in screen terms, what moves, the composition, verbatim dialogue and sound; every scene a palette. Save Tier 2 and 3 together with save_shotlist, fix every warning it returns, show me sketch_board, then ask me to approve it.",
+          "Pictures before takes when image_status says GPT Image is on: plan_frames, then generate_element_sheet and generate_shot_frame in its order, each picture reviewed (review_packet stage frame) before anything is built on it.",
           "Before any take, a fresh reviewer checks that shot (review_packet stage shot → record_review). Render the probe from plan_project_batch first. Before any spend, show the estimate and wait for my confirm (or stay inside the envelope I granted).",
           "",
           "Brief:",
