@@ -38,8 +38,8 @@
     "RUNPOD_IDLE_STOP_MINUTES": "45",
     // The painter pod: a CPU pod created while pictures wait, terminated when
     // idle, on this network volume (keeps the Codex login) in its data center.
-    "PAINTER_POD_VOLUME_ID": "xo8dvjecz8",
-    "PAINTER_POD_DATACENTER": "US-CA-2",
+    "PAINTER_POD_VOLUME_ID": "0bw01a56t8",
+    "PAINTER_POD_DATACENTER": "EU-RO-1",
     "PAINTER_POD_CPU_FLAVORS": "cpu3c,cpu3g,cpu5c",
     "PAINTER_POD_VCPUS": "2",
     "PAINTER_IDLE_STOP_MINUTES": "10"
