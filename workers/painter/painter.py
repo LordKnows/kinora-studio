@@ -138,6 +138,7 @@ class Painter:
         return {
             "version": VERSION, "host": socket.gethostname()[:120], "backends": backends, "ops": ["paint", "crop", "extract"],
             "slots": self.slots, "running": running, "onPod": self.on_pod,
+            **({"runpodPodId": os.environ["RUNPOD_POD_ID"]} if os.environ.get("RUNPOD_POD_ID") else {}),
             "codex": {k: codex.get(k) for k in ("installed", "logged_in", "code_mode_host", "detail", "home", "bin")},
             **({"login": login} if login.get("state") not in (None, "idle") else {}),
             **({"lastError": self.last_error[:600]} if self.last_error else {}),

@@ -283,6 +283,20 @@ export type Job = {
   finishedAt?: number;
 };
 
+/** The RunPod CPU pod a painter runs in, started and stopped by the Studio. */
+export type PainterPod = {
+  id: string;
+  name: string;
+  status: "running" | "starting" | "stopping" | "stopped" | "unavailable";
+  message?: string;
+  costPerHr?: number;
+  startedAt?: number;
+  stoppedAt?: number;
+  lastActivityAt?: number;
+  accumulatedSeconds: number;
+  createdAt: number;
+};
+
 /** A machine that draws the Studio's pictures (workers/painter/painter.py). */
 export type Painter = {
   id: string;
@@ -296,6 +310,8 @@ export type Painter = {
     slots?: number;
     running?: string[];
     onPod?: boolean;
+    /** RUNPOD_POD_ID of the pod it runs in, when it runs on RunPod (links it to the painter pod). */
+    runpodPodId?: string;
     codex?: { installed?: boolean; logged_in?: boolean; code_mode_host?: boolean; detail?: string; home?: string; bin?: string; version?: string };
     login?: { state: string; url?: string; code?: string; lines?: string[]; error?: string };
     lastError?: string;

@@ -156,6 +156,17 @@ def test_an_access_login_page_is_named():
         raise AssertionError("expected a StudioError")
 
 
+def test_a_painter_on_runpod_says_which_pod_it_is(monkeypatch):
+    fake = FakeStudio()
+    p = painter.Painter(painter.Studio("https://studio.test", "tok", http=fake), "box-5", "box", login=FakeLogin(), http=fake)
+    monkeypatch.setenv("RUNPOD_POD_ID", "cpu-pod-1")
+    p.tick()
+    assert fake.claims[-1]["info"]["runpodPodId"] == "cpu-pod-1"
+    monkeypatch.delenv("RUNPOD_POD_ID")
+    p.tick()
+    assert "runpodPodId" not in fake.claims[-1]["info"]
+
+
 def test_painter_id_is_stable(tmp_path):
     a = painter.painter_id(tmp_path)
     assert a == painter.painter_id(tmp_path) and (tmp_path / "painter-id").read_text() == a

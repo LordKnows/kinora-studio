@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
@@ -877,6 +877,40 @@ export async function setPainterCommands(id: string, commands: Painter["commands
 
 export async function deletePainter(id: string): Promise<void> {
   await (await db()).run("DELETE FROM painters WHERE id = ?", [id]);
+}
+
+/* ---------- the painter pod ---------- */
+
+function mapPainterPod(r: Row): PainterPod {
+  return {
+    id: str(r.id), name: str(r.name), status: str(r.status) as PainterPod["status"], message: opt(r.message, str), costPerHr: opt(r.cost_per_hr, num),
+    startedAt: opt(r.started_at, num), stoppedAt: opt(r.stopped_at, num), lastActivityAt: opt(r.last_activity_at, num),
+    accumulatedSeconds: num(r.accumulated_seconds), createdAt: num(r.created_at),
+  };
+}
+
+export async function currentPainterPod(): Promise<PainterPod | undefined> {
+  const row = await (await db()).get("SELECT * FROM painter_pods ORDER BY created_at DESC LIMIT 1");
+  return row ? mapPainterPod(row) : undefined;
+}
+
+/** Take over a pod (the one before it is forgotten, never terminated). */
+export async function setPainterPod(input: { id: string; name: string; status: PainterPod["status"]; costPerHr?: number; startedAt?: number }): Promise<PainterPod> {
+  const d = await db();
+  await d.run("DELETE FROM painter_pods");
+  await d.run("INSERT INTO painter_pods (id, name, status, cost_per_hr, started_at, created_at) VALUES (?, ?, ?, ?, ?, ?)", [input.id, input.name, input.status, input.costPerHr ?? null, input.startedAt ?? null, Date.now()]);
+  return (await currentPainterPod())!;
+}
+
+export async function updatePainterPod(id: string, patch: Partial<{ status: PainterPod["status"]; message: string | null; costPerHr: number; startedAt: number | null; stoppedAt: number; lastActivityAt: number; accumulatedSeconds: number }>): Promise<void> {
+  const cols: Record<string, string> = { status: "status", message: "message", costPerHr: "cost_per_hr", startedAt: "started_at", stoppedAt: "stopped_at", lastActivityAt: "last_activity_at", accumulatedSeconds: "accumulated_seconds" };
+  const keys = Object.keys(patch).filter((k) => k in cols) as Array<keyof typeof patch>;
+  if (!keys.length) return;
+  await (await db()).run(`UPDATE painter_pods SET ${keys.map((k) => `${cols[k]} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => (patch[k] ?? null) as SqlValue), id]);
+}
+
+export async function deletePainterPods(): Promise<void> {
+  await (await db()).run("DELETE FROM painter_pods");
 }
 
 /* ---------- eval ---------- */

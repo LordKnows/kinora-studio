@@ -117,6 +117,10 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
   });
   const summary = await painter.runnerSummary(req.op, backend);
   if (summary.ready) return { job, runner: `queued; ${summary.drawers.join(" / ")} draws it`, painters: summary };
+  /* nobody can draw it now: wake the painter pod, if the Studio manages one */
+  const { wakeForWork } = await import("./painter-pod");
+  const woke = await wakeForWork();
+  if (woke) return { job, runner: `queued; ${woke}`, painters: { ...summary, note: woke } };
   if (opts.startPod && config.painterOnPod() && gpu.gpuConfigured()) {
     const pod = await repo.currentGpuPod();
     if (!pod || pod.status !== "running") {

@@ -18,6 +18,7 @@ import directorCraft from "./migrations/0010_director_craft";
 import delegatedApprovals from "./migrations/0011_delegated_approvals";
 import imaging from "./migrations/0012_imaging";
 import paintersNames from "./migrations/0013_painters_names";
+import painterPod from "./migrations/0014_painter_pod";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -33,6 +34,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0011_delegated_approvals", sql: delegatedApprovals },
   { name: "0012_imaging", sql: imaging },
   { name: "0013_painters_names", sql: paintersNames },
+  { name: "0014_painter_pod", sql: painterPod },
 ];
 
 export async function migrate(db: Db): Promise<void> {

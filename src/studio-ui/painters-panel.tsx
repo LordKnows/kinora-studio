@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import type { Painter } from "@/studio/types";
+import type { Painter, PainterPod } from "@/studio/types";
 
-import { del, get, post, when } from "./api";
+import { del, get, post, usd, when } from "./api";
 import { Button, ErrorBanner, Lamp, useAction } from "./common";
 
 type Listed = Painter & { online: boolean };
 type Setup = { studioUrl: string; tokenSet: boolean; ownToken: boolean; painterOnPod: boolean };
+type PodState = { pod?: PainterPod & { painter?: { id: string; name: string; online: boolean; busy: number } }; idleStopMinutes: number; uptimeSeconds: number; sessionUsd: number; lifetimeUsd: number };
 type Remake = { ready: boolean; modes: { edit: boolean; swap: boolean }; nodes: boolean; download: string; log?: string };
 
 /* Painters: the machines that draw pictures away from the GPU (a small CPU
@@ -68,7 +69,7 @@ export function PaintersPanel() {
       </div>
       {painters && cpu.length === 0 && (
         <span className="st-warn">
-          No painter is online{online.length ? " except the GPU pod" : ""}: picture jobs wait in the queue{setup?.painterOnPod ? " (or until the GPU pod runs, which also draws)" : ""}. Start one on a small always-on machine — see “Add a painter”.
+          No painter is online{online.length ? " except the GPU pod" : ""}: picture jobs wait in the queue{setup?.painterOnPod ? " (or until the GPU pod runs, which also draws)" : ""}. With a painter pod below, the Studio starts it by itself when pictures are queued; otherwise start a painter on any small machine — see “Add a painter”.
         </span>
       )}
       {showHow && setup && (
@@ -82,6 +83,7 @@ export function PaintersPanel() {
           </span>
         </div>
       )}
+      <PainterPodCard onChange={refresh} />
       {(painters ?? []).map((p) => {
         const codex = p.info.codex;
         const l = p.info.login;
@@ -119,6 +121,82 @@ export function PaintersPanel() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function duration(s: number): string {
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+/* The painter's own RunPod CPU pod: taken over by id, started by the Studio
+   when pictures are queued, stopped after idling — billed only while it draws. */
+function PainterPodCard({ onChange }: { onChange: () => Promise<void> }) {
+  const [state, setState] = useState<PodState | null>(null);
+  const [podId, setPodId] = useState("");
+  const load = useCallback(async () => {
+    try {
+      setState(await get<PodState>("/api/painters/pod"));
+    } catch {
+      setState(null);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 10000);
+    return () => clearInterval(t);
+  }, [load]);
+  const act = useAction(async (_c, what: "adopt" | "start" | "stop" | "forget") => {
+    if (what === "adopt") setState(await post<PodState>("/api/painters/pod", { podId }));
+    else if (what === "forget") {
+      if (!window.confirm("Stop managing this pod? It is not stopped or deleted; start and stop it in RunPod yourself.")) return;
+      setState(await del<PodState>("/api/painters/pod"));
+    } else setState(await post<PodState>(`/api/painters/pod/${what}`));
+    await onChange();
+  });
+  if (!state) return null;
+  const pod = state.pod;
+  return (
+    <div className="st-card st-stack st-stack--tight">
+      <ErrorBanner error={act.error} onDismiss={act.dismiss} />
+      {!pod ? (
+        <>
+          <span>
+            <strong>Painter pod</strong> <span className="st-muted">— let the Studio start and stop a RunPod CPU pod, so it is billed only while it draws</span>
+          </span>
+          <span className="st-muted">
+            Create the CPU pod once in the RunPod console (2 vCPU, a volume at /workspace, STUDIO_URL and PAINTER_TOKEN, the start command from “Add a painter”), then paste its id. It starts when pictures are queued and no painter can draw them, and stops after {state.idleStopMinutes} idle minutes.
+          </span>
+          <span className="st-row">
+            <input className="st-input st-input--sm" placeholder="RunPod pod id" value={podId} onChange={(e) => setPodId(e.target.value)} style={{ width: 220 }} />
+            <Button size="sm" kind="primary" busy={act.busy} disabled={podId.trim().length < 6} onClick={() => void act.fire("adopt")}>Take over</Button>
+          </span>
+        </>
+      ) : (
+        <>
+          <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
+            <span className="st-row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <strong>Painter pod</strong>
+              <span className="st-muted st-num">{pod.name || pod.id}</span>
+              <Lamp state={pod.status === "running" ? "ok" : pod.status === "starting" || pod.status === "stopping" ? "warn" : pod.status === "unavailable" ? "danger" : "draft"} label={pod.status} />
+              {pod.painter && <Lamp state={pod.painter.online ? "ok" : "draft"} label={pod.painter.online ? `painter online · ${pod.painter.busy} drawing` : "painter offline"} />}
+            </span>
+            <span className="st-row">
+              {(pod.status === "stopped" || pod.status === "unavailable") && <Button size="sm" kind="primary" busy={act.busy} onClick={() => void act.fire("start")}>Start</Button>}
+              {(pod.status === "running" || pod.status === "starting") && <Button size="sm" busy={act.busy} onClick={() => void act.fire("stop")}>Stop</Button>}
+              <Button size="sm" kind="quiet" busy={act.busy} onClick={() => void act.fire("forget")}>Forget</Button>
+            </span>
+          </div>
+          <span className="st-muted st-num">
+            {pod.costPerHr ? `${usd(pod.costPerHr)}/h · ` : ""}
+            {state.uptimeSeconds ? `up ${duration(state.uptimeSeconds)} (${usd(state.sessionUsd)}) · ` : ""}
+            {usd(state.lifetimeUsd)} since taken over · stops after {state.idleStopMinutes} idle min
+          </span>
+          {pod.message && <span className="st-muted">{pod.message}</span>}
+        </>
+      )}
     </div>
   );
 }
