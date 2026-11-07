@@ -8,6 +8,7 @@ import { del, get, patch, post, put, when } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
+type ImagingSummary = { enabled: boolean; backend: "codex" | "api"; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; stoppedReason?: string; backendReady: boolean; note?: string };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
@@ -18,6 +19,8 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
   const [ap, setAp] = useState<Autopilot | null>(null);
   const [notes, setNotes] = useState<Notes | null>(null);
   const [deleg, setDeleg] = useState<Delegation | null>(null);
+  const [img, setImg] = useState<ImagingSummary | null>(null);
+  const [imgMax, setImgMax] = useState("40");
   const [envelope, setEnvelope] = useState("5");
   const [hours, setHours] = useState("12");
   const refresh = useCallback(async () => {
@@ -25,6 +28,9 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     setAp(a);
     setNotes(n);
     setDeleg(d);
+    const im = await get<ImagingSummary>(`/api/projects/${projectId}/imaging`);
+    setImg(im);
+    setImgMax(String(im.maxImages));
   }, [projectId]);
   useEffect(() => {
     void refresh().catch(() => undefined);
@@ -46,6 +52,11 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await put(`/api/projects/${projectId}/delegation`, next);
     await refresh();
   });
+  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; backend: "codex" | "api"; maxImages: number; quality: "low" | "medium" | "high"; clearStop: boolean }>) => {
+    if (next.enabled && !img?.enabled && !window.confirm("Switch GPT Image on for this project? The director and the buttons may then draw pictures with your ChatGPT plan (Codex on the pod) or the API, up to the image limit below.")) return;
+    await put(`/api/projects/${projectId}/imaging`, { enabled: next.enabled ?? img?.enabled ?? false, ...next });
+    await refresh();
+  });
   const setReq = useAction(async (_c, id: string, status: "open" | "met" | "dropped") => {
     await patch(`/api/notes/${id}`, { status });
     await refresh();
@@ -55,12 +66,51 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await post(`/api/notes/${id}/overturn`, { reason });
     await refresh();
   });
-  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error;
+  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error ?? setImaging.error;
 
   return (
     <div className="st-card st-stack" style={{ marginTop: 20 }}>
       <span className="st-h2">Director</span>
-      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); }} />
+      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); }} />
+
+      <div className="st-stack st-stack--tight">
+        <strong>GPT Image</strong>
+        <span className="st-muted">
+          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director. Codex uses your ChatGPT plan through the Codex CLI on the GPU pod (log it in once on the Machine page); API uses OPENAI_API_KEY and is paid per picture.
+        </span>
+        <label className="st-row" style={{ gap: 8 }}>
+          <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
+          <span>Allow image generation on this project</span>
+        </label>
+        {img?.enabled && (
+          <div className="st-row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <Field label="Backend">
+              <select className="st-select st-input--sm" value={img.backend} onChange={(e) => void setImaging.fire({ backend: e.target.value as "codex" | "api" })}>
+                <option value="codex">Codex (ChatGPT plan)</option>
+                <option value="api">OpenAI API (per picture)</option>
+              </select>
+            </Field>
+            <Field label="Quality">
+              <select className="st-select st-input--sm" value={img.quality} onChange={(e) => void setImaging.fire({ quality: e.target.value as "low" | "medium" | "high" })}>
+                <option value="low">low (drafts)</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </Field>
+            <Field label="Image limit">
+              <input className="st-input st-input--sm" type="number" min={1} max={2000} value={imgMax} onChange={(e) => setImgMax(e.target.value)} onBlur={() => Number(imgMax) !== img.maxImages && void setImaging.fire({ maxImages: Math.max(1, Number(imgMax) || 1) })} style={{ width: 90 }} />
+            </Field>
+            <span className="st-muted st-num">{img.usedImages} used · {img.leftImages} left</span>
+          </div>
+        )}
+        {img?.stoppedReason && (
+          <div className="st-row st-row--between">
+            <span className="st-warn">Stopped: {img.stoppedReason}</span>
+            <Button size="sm" onClick={() => void setImaging.fire({ clearStop: true })}>Resume</Button>
+          </div>
+        )}
+        {img?.enabled && img.note && <span className="st-muted">{img.note}</span>}
+      </div>
 
       <div className="st-stack st-stack--tight">
         <strong>Spend envelope</strong>

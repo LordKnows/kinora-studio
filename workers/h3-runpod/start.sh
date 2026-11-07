@@ -197,6 +197,44 @@ if [ "${REGEN_2K:-1}" = "1" ]; then
   export COMFY_OUTPUT_DIR="$SLIM_DIR/output"
 fi
 
+# Viggle Remake node pack (Apache-2.0, two small files from the model repo).
+# ComfyUI loads custom nodes at startup only, so it goes in before ComfyUI
+# starts; the models themselves are fetched on demand (POST /remake/install).
+if [ "${REMAKE_NODES:-1}" = "1" ]; then
+  RNODES="$SLIM_DIR/custom_nodes/ComfyUI-Viggle-Remake"
+  mkdir -p "$RNODES"
+  for f in __init__.py nodes.py; do
+    curl -fsSL -A Mozilla/5.0 -o "$RNODES/$f.part" "https://huggingface.co/Viggle/Viggle-Remake/resolve/main/comfyui/ComfyUI-Viggle-Remake/$f" && mv "$RNODES/$f.part" "$RNODES/$f" || echo "[start] Remake node $f not fetched; Remake will report not ready"
+  done
+  export REMAKE_NODE_DIR="$RNODES"
+fi
+
+# Image jobs (paint.py) need Pillow in the job server's Python.
+python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; image jobs will fail"
+
+# The Codex CLI draws with the user's ChatGPT plan (image_gen). The binary and
+# the login live on the volume when there is one, so the device-code login
+# is done once and a refreshed token survives a new pod. CODEX_INSTALL=0 skips.
+if [ "${CODEX_INSTALL:-1}" = "1" ]; then
+  CROOT="${STUDIO_VOLUME_PATH:-/root}/codex"
+  [ -d "${STUDIO_VOLUME_PATH:-/nonexistent}" ] || CROOT="/root/codex"
+  mkdir -p "$CROOT/bin" "$CROOT/home"
+  if [ ! -x "$CROOT/bin/codex" ] || [ "${CODEX_UPDATE:-0}" = "1" ]; then
+    (
+      set -e
+      tmp="$(mktemp -d)"
+      curl -fsSL -A Mozilla/5.0 -o "$tmp/codex.tgz" "${CODEX_RELEASE_URL:-https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz}"
+      tar xzf "$tmp/codex.tgz" -C "$tmp"
+      bin="$(find "$tmp" -type f -name 'codex*' ! -name '*.tgz' | head -1)"
+      install -m 0755 "$bin" "$CROOT/bin/codex"
+      rm -rf "$tmp"
+      echo "installed $("$CROOT/bin/codex" --version 2>/dev/null || echo codex)"
+    ) > /app/codex_install.log 2>&1 || echo "[start] Codex CLI install failed; see /app/codex_install.log"
+  fi
+  export CODEX_BIN="$CROOT/bin/codex"
+  export CODEX_HOME_MASTER="$CROOT/home"
+fi
+
 echo "[start] ComfyUI: $COMFY_CMD"
 bash -c "$COMFY_CMD" &
 COMFY_PID=$!

@@ -2,6 +2,7 @@ import * as director from "@/director";
 
 import { hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
 import { StudioError } from "./errors";
+import { VIDEO_SIZES } from "./compiler";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
@@ -37,13 +38,51 @@ export type ReviewPacket = {
 };
 
 /** The packet for one stage. */
-export async function reviewPacket(projectId: string, stage: ReviewStage, shotId?: string): Promise<ReviewPacket> {
+/** `targetId` is the shot (stage shot) or the generated picture (stage frame). */
+export async function reviewPacket(projectId: string, stage: ReviewStage, targetId?: string): Promise<ReviewPacket> {
   if (stage === "story") return storyPacket(projectId);
   if (stage === "shot") {
-    if (!shotId) throw new StudioError("validation", "stage 'shot' needs shotId");
-    return shotPacket(projectId, shotId);
+    if (!targetId) throw new StudioError("validation", "stage 'shot' needs shotId");
+    return shotPacket(projectId, targetId);
+  }
+  if (stage === "frame") {
+    if (!targetId) throw new StudioError("validation", "stage 'frame' needs assetId");
+    return framePacket(projectId, targetId);
   }
   return filmPacket(projectId);
+}
+
+/* ---- frame: one generated picture against what it was asked to be ---- */
+
+async function framePacket(projectId: string, assetId: string): Promise<ReviewPacket> {
+  const view = await getProjectView(projectId);
+  const asset = view.assets.find((a) => a.id === assetId);
+  if (!asset || asset.kind !== "image") throw new StudioError("not_found", `image ${assetId} not in project ${projectId}`);
+  const m = asset.meta as Record<string, unknown>;
+  const base = typeof m.baseAssetId === "string" ? view.assets.find((a) => a.id === m.baseAssetId) : undefined;
+  const shot = view.scenes.flatMap((s) => s.shots).find((sh) => sh.heroAssetId === asset.id || sh.endAssetId === asset.id);
+  const element = view.elements.find((e) => e.refAssetIds.includes(asset.id));
+  const sheets = shot ? view.elements.filter((e) => shot.spec.characters.includes(e.id) || shot.spec.props.includes(e.id)).map((e) => ({ name: e.name, fixedFeatures: e.fixedFeatures ?? [], refs: e.refAssetIds.filter((a) => a !== asset.id).map((a) => view.assets.find((x) => x.id === a)?.url).filter(Boolean) })) : [];
+  const materials = {
+    picture: asset.url, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
+    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
+    element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
+    sheets, renderSize: VIDEO_SIZES[view.project.look.aspectRatio],
+  };
+  const reviewerPrompt = [
+    "You are the reviewer of one generated picture. Read only, change nothing. Open every image named below and look closely.",
+    "1. Does it show what was asked (askedFor), nothing missing, nothing added? Count the people and the props.",
+    "2. Identity: does every character match their sheet (face, hair, build, clothes)? Is every fixed feature there, on the right side?",
+    "3. Base and region: if there is a base, is everything outside the edited region identical (the diff image is black there)? Did the edit stay inside it?",
+    "4. For a first/last frame: same camera, scale and background as the shot's other frame? Everything the action needs already visible? Room for the movement? People in different poses? Eyes on the composition line?",
+    "5. For a sheet view: the asked view (front, side, back, expressions), the whole figure, plain background, consistent with the other views?",
+    "6. Artefacts: extra fingers, melted objects, text or lettering, borders, a wrong aspect ratio (the render is " + materials.renderSize + ").",
+    "For each finding: where, the problem, the fix (what to change in the request or the region). End with exactly one word on its own line: PASS or FAIL.",
+    "",
+    "--- MATERIAL ---",
+    JSON.stringify(materials, null, 2),
+  ].join("\n");
+  return { stage: "frame", shotId: assetId, subjectHash: hashOf(asset.url), current: (await reviewState(projectId, "frame", hashOf(asset.url), assetId)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials };
 }
 
 /* ---- story: the script text and nothing else ---- */
@@ -183,6 +222,11 @@ export async function recordReview(projectId: string, input: { stage: ReviewStag
     throw new StudioError("validation", "a film review with blocker findings cannot pass");
   }
   const review = await repo.insertReview({ projectId, stage: input.stage, shotId: input.shotId, subjectHash: packet.subjectHash, verdict: input.verdict, reviewer: input.reviewer, basis: input.basis, findings: input.findings });
+  /* a frame review marks the picture itself, so the Board and the Remake gate can see it */
+  if (input.stage === "frame" && input.shotId) {
+    const a = await repo.getAsset(input.shotId).catch(() => undefined);
+    if (a) await repo.updateAssetMeta(a.id, { ...a.meta, review: input.verdict, reviewedBy: input.reviewer });
+  }
   const note = input.reviewer === "self" ? "Recorded as a self-review: tell the user it was not an independent read." : input.verdict === "pass" && sure.length ? "Passed with findings: fix the sure ones before rendering." : undefined;
   return { review, ...(note ? { note } : {}) };
 }

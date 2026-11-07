@@ -6,11 +6,17 @@ shape as RunPod Serverless, so the Studio's PodBackend can treat both alike:
     GET  /health            → {ok, comfy, workflows}
     POST /run               {input, webhook?}  → {id, status: IN_QUEUE}
     POST /assemble          {input, webhook?}  → {id, status: IN_QUEUE}
+    POST /paint             {input, webhook?}  → {id, status: IN_QUEUE}   (image jobs, own lane)
+    GET  /codex/status      → {installed, logged_in, login}
+    POST /codex/login       → {state, url, code}   (device-code login, once per volume)
+    POST /remake/install    {modes?}           → {started}  (Viggle Remake models onto the volume)
     GET  /status/<id>       → {id, status, output?, error?, executionTime?}
     POST /cancel/<id>       → {id, status}
 
 Every request must carry `X-Studio-Token`; the RunPod HTTP proxy is public.
-Jobs run one at a time on a worker thread (one GPU). When a job finishes and
+GPU jobs (video, assemble) run one at a time on a worker thread (one GPU);
+image jobs (paint) run on their own lane, PAINT_WORKERS at once (default 2),
+so drawing a frame never waits behind a render. When a job finishes and
 a webhook was given, the job object is POSTed there (3 attempts).
 """
 
@@ -63,19 +69,31 @@ class JobStore:
             return dict(job)
 
 
+LANE_OF = {"video": "gpu", "assemble": "gpu", "paint": "cpu"}
+
+
 class JobServer:
-    def __init__(self, run_video: Runner, run_assemble: Runner, token: str, health: Callable[[], dict[str, Any]] | None = None, post: Callable[..., Any] | None = None, interrupt: Callable[[], Any] | None = None) -> None:
+    def __init__(self, run_video: Runner, run_assemble: Runner, token: str, health: Callable[[], dict[str, Any]] | None = None, post: Callable[..., Any] | None = None, interrupt: Callable[[], Any] | None = None,
+                 run_paint: Runner | None = None, routes: dict[tuple[str, str], Callable[[dict[str, Any]], tuple[int, dict[str, Any]]]] | None = None, paint_workers: int | None = None) -> None:
         self.runners = {"video": run_video, "assemble": run_assemble}
+        if run_paint is not None:
+            self.runners["paint"] = run_paint
         self.token = token
         self.health = health or (lambda: {"ok": True})
         # Called when a running job is cancelled: tells ComfyUI to stop sampling.
         self.interrupt = interrupt or (lambda: None)
         self.post = post or requests.post
+        # Extra endpoints (codex login, remake install): (method, path) → handler(body) → (status, payload)
+        self.routes = routes or {}
         self.store = JobStore()
-        self.queue: "queue.Queue[str]" = queue.Queue()
+        self.queues: "dict[str, queue.Queue[str]]" = {"gpu": queue.Queue(), "cpu": queue.Queue()}
+        self.queue = self.queues["gpu"]
         self.cancelled: set[str] = set()
-        self._worker = threading.Thread(target=self._loop, name="jobs", daemon=True)
-        self._worker.start()
+        self._workers = [threading.Thread(target=self._loop, args=("gpu",), name="jobs", daemon=True)]
+        n = paint_workers if paint_workers is not None else int(os.environ.get("PAINT_WORKERS", "2"))
+        self._workers += [threading.Thread(target=self._loop, args=("cpu",), name=f"paint{i}", daemon=True) for i in range(max(1, n))]
+        for t in self._workers:
+            t.start()
 
     # ---- jobs ----
 
@@ -89,7 +107,7 @@ class JobServer:
             "queued_at": time.time(),
         }
         self.store.put(job)
-        self.queue.put(job["id"])
+        self.queues[LANE_OF.get(kind, "gpu")].put(job["id"])
         return self.public(job)
 
     def cancel(self, job_id: str) -> dict[str, Any] | None:
@@ -103,6 +121,8 @@ class JobServer:
             # The runner polls should_cancel(); ComfyUI is interrupted right away
             # so the GPU stops now rather than at the end of the sampling loop.
             self.cancelled.add(job_id)
+            if LANE_OF.get(job.get("kind", ""), "gpu") != "gpu":
+                return {**self.public(job), "cancelRequested": True}
             try:
                 self.interrupt()
             except Exception as exc:  # noqa: BLE001 — the job still ends as cancelled
@@ -110,9 +130,9 @@ class JobServer:
             return {**self.public(job), "cancelRequested": True}
         return self.public(job)
 
-    def _loop(self) -> None:
+    def _loop(self, lane: str = "gpu") -> None:
         while True:
-            job_id = self.queue.get()
+            job_id = self.queues[lane].get()
             if job_id in self.cancelled:
                 continue
             job = self.store.get(job_id)
@@ -189,7 +209,10 @@ class JobServer:
             def do_GET(self) -> None:  # noqa: N802
                 if not self._authed():
                     return
-                if self.path == "/health":
+                if ("GET", self.path) in server.routes:
+                    status, payload = server.routes[("GET", self.path)]({})
+                    self._send(status, payload)
+                elif self.path == "/health":
                     self._send(200, server.health())
                 elif self.path.startswith("/status/"):
                     job = server.store.get(self.path[len("/status/"):])
@@ -204,6 +227,11 @@ class JobServer:
                     self._send(200, server.enqueue("video", self._body()))
                 elif self.path == "/assemble":
                     self._send(200, server.enqueue("assemble", self._body()))
+                elif self.path == "/paint" and "paint" in server.runners:
+                    self._send(200, server.enqueue("paint", self._body()))
+                elif ("POST", self.path) in server.routes:
+                    status, payload = server.routes[("POST", self.path)](self._body())
+                    self._send(status, payload)
                 elif self.path.startswith("/cancel/"):
                     job = server.cancel(self.path[len("/cancel/"):])
                     self._send(200, job) if job else self._send(404, {"error": "unknown job"})
@@ -220,21 +248,61 @@ class JobServer:
         return httpd
 
 
+def remake_installer(models_dir: str, here: str, log_path: str = "/app/download_remake.log") -> Callable[[dict[str, Any]], tuple[int, dict[str, Any]]]:
+    """POST /remake/install {modes?: ["edit","swap"]}: fetch the merged int8 Remake transformers onto the volume in the background."""
+    state: dict[str, Any] = {"thread": None}
+
+    def install(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        modes = [m for m in (body.get("modes") or ["edit", "swap"]) if m in ("edit", "swap")]
+        if not modes:
+            return 400, {"error": "modes must name edit and/or swap"}
+        t = state["thread"]
+        if t is not None and t.is_alive():
+            return 200, {"started": False, "running": True}
+        listing = os.path.join(here, "models-remake.txt")
+        lines = [l for l in open(listing).read().splitlines() if l.strip() and not l.startswith("#") and any(f"viggle_remake_{m}_" in l for m in modes)]
+        chosen = os.path.join(here, "models-remake.selected.txt")
+        with open(chosen, "w") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+        def run() -> None:
+            import subprocess
+            with open(log_path, "w") as log:
+                subprocess.run(["bash", os.path.join(here, "download_models.sh"), models_dir, chosen], stdout=log, stderr=subprocess.STDOUT)
+
+        state["thread"] = threading.Thread(target=run, name="remake-download", daemon=True)
+        state["thread"].start()
+        return 200, {"started": True, "modes": modes, "log": log_path}
+
+    return install
+
+
 def main() -> int:
     import handler as h3
     import assembler_handler as asm
+    import paint
 
     token = os.environ.get("STUDIO_WORKER_TOKEN")
     if not token:
         print("STUDIO_WORKER_TOKEN is required", file=sys.stderr)
         return 2
     comfy = h3.ComfyClient()
+    login = paint.CodexLogin()
+    here = os.path.dirname(os.path.abspath(__file__))
+    models_dir = os.environ.get("MODELS_DIR", str(h3.LORA_DIR.parent))
     server = JobServer(
         run_video=lambda inp, should_cancel=None, report=None: h3.handler({"input": inp}, should_cancel, report),
         run_assemble=lambda inp, should_cancel=None: asm.handler({"input": inp}),
+        run_paint=lambda inp: paint.handler(inp),
         token=token,
-        health=lambda: h3.health(comfy),
+        health=lambda: {**h3.health(comfy), "codex": login.status()},
         interrupt=comfy.interrupt,
+        routes={
+            ("GET", "/codex/status"): lambda _b: (200, login.status()),
+            ("POST", "/codex/login"): lambda _b: (200, login.start()),
+            ("GET", "/remake/status"): lambda _b: (200, h3.remake_status()),
+            ("POST", "/remake/install"): remake_installer(models_dir, here),
+        },
     )
     port = int(os.environ.get("STUDIO_PORT", "8000"))
     httpd = server.serve("0.0.0.0", port)

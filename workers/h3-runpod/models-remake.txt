@@ -1,0 +1,4 @@
+# Viggle Remake (Viggle AI; MiniMax H3 Community License): ComfyUI subdir<TAB>URL. The base transformer with each mode's LoRA merged in, int8 (21 GB each).
+# Fetched on demand from the Machine page (POST /remake/install), onto the volume.
+diffusion_models	https://huggingface.co/Viggle/Viggle-Remake/resolve/main/int8/viggle_remake_edit_pruned_int8_convrot.safetensors
+diffusion_models	https://huggingface.co/Viggle/Viggle-Remake/resolve/main/int8/viggle_remake_swap_pruned_int8_convrot.safetensors

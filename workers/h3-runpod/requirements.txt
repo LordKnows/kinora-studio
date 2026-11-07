@@ -2,3 +2,4 @@ runpod>=1.7
 requests>=2.32
 boto3>=1.35
 websocket-client>=1.8
+pillow>=10

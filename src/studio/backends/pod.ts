@@ -7,7 +7,7 @@ import type { BackendStatus, GenerationBackend } from "./types";
    serverless API — /run, /status/{id}, /cancel/{id} — so the orchestrator's
    status mapping is shared. A shared token keeps the public proxy private. */
 
-export type PodBackendOptions = { hostUrl: string; token: string; fetch?: typeof fetch; kind?: "video" | "assemble" };
+export type PodBackendOptions = { hostUrl: string; token: string; fetch?: typeof fetch; kind?: "video" | "assemble" | "paint" };
 
 export class PodBackend implements GenerationBackend {
   private readonly fetchImpl: typeof fetch;
@@ -15,7 +15,12 @@ export class PodBackend implements GenerationBackend {
 
   constructor(private readonly opts: PodBackendOptions) {
     this.fetchImpl = opts.fetch ?? fetch;
-    this.runPath = opts.kind === "assemble" ? "/assemble" : "/run";
+    this.runPath = opts.kind === "assemble" ? "/assemble" : opts.kind === "paint" ? "/paint" : "/run";
+  }
+
+  /** Any other endpoint of the job server (codex login, remake install). */
+  async request(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+    return this.call(method, path, body);
   }
 
   private async call(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {

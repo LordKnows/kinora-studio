@@ -6,7 +6,7 @@ import * as repo from "@/studio/repo";
 import { REF_VIEWS } from "@/studio/schemas";
 
 /* GET lists the element's current references; POST replaces the chosen set.
-   Image generation is disabled for now (TODO): references are uploaded. */
+   References are uploads, imports, or GPT Image sheets (generate_element_sheet). */
 export const GET = route(["web", "mcp"], async (_req, { params }) => {
   const element = await repo.getElement(params.id!);
   const assets = await repo.getAssets(element.refAssetIds);

@@ -159,3 +159,39 @@ def test_status_carries_the_runner_progress():
         assert wait_done(port, job["id"])["status"] == "COMPLETED"
     finally:
         httpd.shutdown()
+
+
+def test_paint_lane_runs_beside_a_busy_gpu_and_extra_routes_answer():
+    release = threading.Event()
+
+    def run_video(inp):
+        release.wait(5)
+        return {"url": "https://r2/v.mp4"}
+
+    def run_paint(inp):
+        return {"url": "https://r2/p.png", "width": 1344, "height": 768}
+
+    server = JobServer(run_video, lambda inp: {}, token="t0k", post=lambda *a, **k: None, run_paint=run_paint,
+                       routes={("GET", "/codex/status"): lambda b: (200, {"installed": True, "logged_in": False}),
+                               ("POST", "/codex/login"): lambda b: (200, {"state": "pending", "code": "ABCD-1234"})}, paint_workers=1)
+    httpd = server.serve("127.0.0.1", 0)
+    port = httpd.server_address[1]
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        _, video = call(port, "POST", "/run", {"input": {}})
+        _, img = call(port, "POST", "/paint", {"input": {}})
+        deadline = time.time() + 3
+        status = {}
+        while time.time() < deadline:
+            _, status = call(port, "GET", f"/status/{img['id']}")
+            if status["status"] == "COMPLETED":
+                break
+            time.sleep(0.05)
+        assert status["status"] == "COMPLETED" and status["output"]["url"].endswith("p.png")
+        assert call(port, "GET", f"/status/{video['id']}")[1]["status"] == "IN_PROGRESS"
+        assert call(port, "GET", "/codex/status")[1] == {"installed": True, "logged_in": False}
+        assert call(port, "POST", "/codex/login", {})[1]["code"] == "ABCD-1234"
+        assert call(port, "GET", "/codex/status", token=None)[0] == 401
+    finally:
+        release.set()
+        httpd.shutdown()

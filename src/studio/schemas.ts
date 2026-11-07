@@ -60,6 +60,7 @@ export const LookSettings = z.object({
   loras: z.array(LoraRef).max(6).default([]).describe("Project-wide LoRAs (speed LoRA goes here); shots may override"),
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
   experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
+  styleFrameAssetId: z.string().optional().describe("The approved style frame (asset id): every generated sheet and frame takes it as a reference for the look"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
 

@@ -60,6 +60,21 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - `check_seams`: a linked shot rendered from one take of its anchor no longer matches once the anchor's pick changes, and a continuous cut jumps when the anchor's tail is trimmed.
 - A re-render of an identical input (prompt, workflow, frames) differs only by seed; after a rejected take `generate_take` warns and the spend envelope refuses it.
 
+## Pictures on the pod (GPT Image)
+
+- Off per project until the user switches it on (Settings → Director, web only), with an image limit; a quota error from Codex or the API stops painting until the user resumes it.
+- Image jobs run on the GPU pod beside the renders, on their own lane (`workers/h3-runpod/paint.py`). `codex`: one `codex exec` per picture with the image tool, the login on the network volume (device-code login on the Machine page, once), refs passed as paths (at most five pictures), the aspect ratio said in the prompt and checked after (one retry). `api`: an OpenAI-compatible images API (`OPENAI_API_KEY`, `IMAGE_MODEL`, default gpt-image-2), per call.
+- Edits with a `region` paste back only that box (soft edge inside it); every pixel outside is the base's. Each edit uploads a preview and a difference image (black = unchanged) for the review.
+- `crop` (push-in / pull-out frames) and `extract` (one exact frame of a take, 24 per second) are not painting: no quota.
+- Results are assets with what was asked in their meta (purpose, prompt, base, region, frame), attached where asked (sheet view, first / last frame, style frame).
+
+## Viggle Remake (fixing a take)
+
+- Two LoRAs on the H3 base, shipped merged into int8 transformers (21 GB each, downloaded onto the volume from the Machine page): `edit` (objects, props, wardrobe, background, weather, light, style) and `swap` (people). Node pack installed at pod boot.
+- Inputs: the take (motion, camera, timing and sound are copied), 1–4 painted frames each pinned to the source frame it was painted from, and MiniMax-H3's six-section prompt, written as a description of the target video; `retention_analysis` is obeyed literally. Pinned frames also fix the composition at that frame.
+- Length: 17n+5 frames between 90 and 345 (a 5.17 s take = 124, 10.13 s = 243, a 15.1 s take is cut to 345). Output 1280×736 (short edge 736) or 832×480; the assembler scales it to the export.
+- Known failures (Viggle): a non-humanoid character in one long take, small artefacts in fine detail, drift in a multi-shot clip without pins. It does not fix motion, direction or timing.
+
 ## What the Studio assembler does today
 
 - Cuts and dissolves between clips, `repeat` for loops, per-clip `speed` (0.5–2; 0.8–1.25 reads as natural) and `muteOwnAudio` (also set by a review with `audioOk: false`), a music asset and three mix sliders.

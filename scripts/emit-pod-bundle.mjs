@@ -10,7 +10,7 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const stage = mkdtempSync(join(tmpdir(), "pod-bundle-"));
 mkdirSync(join(stage, "h3-runpod"), { recursive: true });
-for (const f of ["handler.py", "server.py", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "download_models.sh"]) {
+for (const f of ["handler.py", "server.py", "paint.py", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "models-remake.txt", "download_models.sh"]) {
   cpSync(join(root, "workers/h3-runpod", f), join(stage, "h3-runpod", f));
 }
 cpSync(join(root, "workers/h3-runpod/workflows"), join(stage, "h3-runpod/workflows"), { recursive: true });
