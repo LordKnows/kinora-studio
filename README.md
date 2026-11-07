@@ -66,12 +66,20 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   rejected input inside the spend envelope the user grants on the web. The
   lint flags the pictures AI video gets wrong; the batch renders the most
   fragile shots first; a retro counts what went wrong for the next film.
-- **Pictures before takes (GPT Image).** With the per-project switch on,
-  character sheets, first and last frames, region edits and style frames
-  are drawn on the GPU pod — Codex on the user's ChatGPT plan (device-code
-  login on the Machine page) or the images API — by buttons on every page
-  and by the director, which follows a picture plan (reuse, crop, edit,
-  then draw) and has every picture reviewed before a take is built on it.
+- **Pictures before takes (GPT Image), off the GPU.** With the per-project
+  switch on, character sheets, first and last frames, region edits and style
+  frames are drawn by a **painter** — `workers/painter`, a small always-on
+  machine (a RunPod CPU pod, a VPS) that claims image jobs from the Studio —
+  with Codex on the user's ChatGPT plan (device-code login from the Machine
+  page) or the images API. Every picture is ready before the GPU pod starts;
+  the pod only draws as a fallback while it runs. Buttons on every page and
+  the director (following a picture plan: reuse, crop, edit, then draw) queue
+  them. Each picture comes back with pixel checks and a Codex self-check
+  (a blocker is redrawn once with the findings), then a fresh reviewer's
+  coded rubric decides before a take is built on it.
+- **Pictures have names.** Every picture has a handle (`IMG-12`) and a name,
+  so "redraw IMG-12" means one picture; the Pictures page lists them all with
+  where each is used, and any grid deletes a batch.
 - **Fix a take without rerolling it (Viggle Remake).** Paint one or two
   frames right, say what changes, and the take is re-shot with its motion,
   camera, timing and sound kept: props, wardrobe, faces, backgrounds.
@@ -143,11 +151,26 @@ cd workers/cron && wrangler deploy   # minute-by-minute sweep → /api/cron/swee
 Put the studio hostname behind **Cloudflare Access** (set `AUTH_MODE=access`,
 `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`) and add bypass rules for `/mcp`,
 `/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`,
-`/api/cron/sweep` and `/media/*` (unguessable keys), which carry their own
-auth (OAuth bearer, HMAC, secret). `AUTH_MODE` fails closed: anything but
+`/api/cron/sweep`, `/api/painter/*`, `/api/pod/*` and `/media/*` (unguessable
+keys), which carry their own auth (OAuth bearer, HMAC, secret, token). `AUTH_MODE` fails closed: anything but
 `dev` means Access.
 
-### 3. Connect the director
+### 3. A painter (pictures, off the GPU)
+
+Set the Worker secret `PAINTER_TOKEN` (or reuse `STUDIO_WORKER_TOKEN`), then on
+any small always-on Linux machine:
+
+```bash
+export STUDIO_URL=https://<studio> PAINTER_TOKEN=<the secret>
+mkdir -p ~/cinema-painter && curl -fsSL "$STUDIO_URL/api/pod/bundle?token=$PAINTER_TOKEN" | tar xz -C ~/cinema-painter
+bash ~/cinema-painter/h3-runpod/run_painter.sh
+```
+
+or `docker build -t cinema-painter workers/painter` and run it with a volume
+on `/data`. It appears on the Machine page; log Codex in there once. See
+`workers/painter/README.md`.
+
+### 4. Connect the director
 
 - **Claude**: Settings → Connectors → Add custom connector →
   `https://<studio>/mcp`. The OAuth consent page is the studio itself.
@@ -172,7 +195,8 @@ src/db/                  SQLite (Node) / D1 (Workers) and migrations
 src/studio-ui/           the studio pages' components and styles
 src/generation/          the original catalog + platform client (/playground only)
 src/openhiggsfield/      the original single-shot studio (/playground)
-workers/h3-runpod/       ComfyUI serverless handler for H3
+workers/h3-runpod/       ComfyUI handler for H3 and the pod's job server
+workers/painter/         the painter: draws pictures (Codex / images API), crops, extracts frames
 workers/assembler/       ffmpeg serverless handler
 workers/cron/            scheduled Worker that triggers the sweep
 src/studio/gpu.ts        pod lifecycle: create on the allow-list, start/stop, auto-stop, replace, per-GPU stats

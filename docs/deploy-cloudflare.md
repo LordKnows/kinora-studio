@@ -37,6 +37,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0010_director_craft.sql` | 导演手艺层：场景色板、元素固定特征与参考图视角、预授权额度三列，`reviews`（冷读审核）与 `director_notes`（要求清单、决策日志）两张表（三条 ALTER 只执行一次） |
 | `migrations/0011_delegated_approvals.sql` | `projects` 表加 `delegation_json`（代理审批开关；只执行一次） |
 | `migrations/0012_imaging.sql` | GPT Image：`projects` 表加 `imaging_json`（项目开关与额度），`jobs` 表加 `input_json`、`output_json`（生图作业；三条 ALTER 只执行一次） |
+| `migrations/0013_painters_names.sql` | 生图搬出 GPU：`painters` 表（画图机器的心跳），`jobs` 表加 `claimed_at`、`attempts`（租约）；图片编号与名字：`assets` 表加 `seq`、`name`，`projects` 表加 `picture_seq`，并给已有图片补编号（五条 ALTER 只执行一次） |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。
@@ -143,6 +144,8 @@ Worker 页面 → **Settings → Variables and Secrets**。
   - `studio.example.com/api/runpod/hook`
   - `studio.example.com/api/assembler/hook`
   - `studio.example.com/api/cron/sweep`
+  - `studio.example.com/api/painter/*`（画图机器的心跳、上传、回报，带 `PAINTER_TOKEN`）
+  - `studio.example.com/api/pod/*`（Pod 和画图机器开机拉代码包，带 token）
 - Policy：Action **Bypass**，Include → **Everyone**。
 - 注意 `/oauth/authorize`（同意页）**不要**加进 bypass，它必须登录。
 
@@ -359,19 +362,40 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
 
 ## 10. GPT Image 与 Viggle Remake
 
-1. **数据库**：执行 `migrations/0012_imaging.sql`（见 1b）。
-2. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开
-   "device code sign-in for Codex"。然后启动 GPU Pod，在 Machine 页 **Images on the pod →
-   Log in with a device code**，按页面显示的网址和验证码在任意设备上批准。Codex CLI 和它的
-   辅助程序 `codex-code-mode-host`（Codex 用它执行工具调用，单独发布）由 Pod 开机时装到网络卷上
-   （模型所在的同一个卷，通常是 `/workspace/codex/bin/`），登录凭证也存在卷上
-   （`/workspace/codex/home`），换 Pod 不用重新登录；令牌刷新会写回卷上。Machine 页会提示
-   凭证是否落在卷上。
-3. **按项目开启**：项目 Settings → Director → GPT Image，打开开关、选后端（Codex / API）、
-   设图片上限。关闭时网页按钮置灰，导演的生图工具会拒绝。
-4. **可选：API 后端**：在 Worker 的 Settings → Variables 加 secret `OPENAI_API_KEY`
-   （可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。这些在**创建 Pod 时**传进去，已有的 Pod 要在
-   GPU 卡片上 Repair（重新应用启动参数）或重建后才生效。
-5. **Viggle Remake**：节点包在 Pod 开机时自动装好（约 12 KB）；模型在 Machine 页点
-   **Download models**，下载 edit 和 swap 两个 int8 文件到网络卷（各约 21 GB，确认卷的空间）。
-6. **新代码上 Pod**：Pod 每次开机从 Studio 拉作业服务，部署新版本后把 Pod Stop 再 Start 一次。
+生图（角色设定图、首尾帧、局部重画、风格帧、Remake 关键帧、推镜裁剪、抽帧）**不在 GPU Pod 上跑**，
+由 **画图机器（painter）** 来画：一台常开的小机器（RunPod CPU Pod、任意 VPS），主动向 Studio 领任务。
+这样所有图都能在开 GPU 之前准备好，GPU 只为出片计费。GPU Pod 开着时也会兼职画图（兜底），
+在 Worker 上设 `PAINTER_ON_POD=0` 可关掉。
+
+1. **数据库**：执行 `migrations/0012_imaging.sql` 和 `migrations/0013_painters_names.sql`（见 1b）。
+2. **密钥**：Worker 加 secret `PAINTER_TOKEN`（随机长串；不设则沿用 `STUDIO_WORKER_TOKEN`）。
+   Access bypass 里加上 `/api/painter/*` 和 `/api/pod/*`（见第 6 步）。
+3. **起一台画图机器**（只出站，不需要开端口，也不需要 R2 密钥）：
+   ```bash
+   export STUDIO_URL=https://studio.zyhu.dev PAINTER_TOKEN=<上面的 secret>
+   mkdir -p ~/cinema-painter && curl -fsSL "$STUDIO_URL/api/pod/bundle?token=$PAINTER_TOKEN" | tar xz -C ~/cinema-painter
+   bash ~/cinema-painter/h3-runpod/run_painter.sh
+   ```
+   脚本会补装 ffmpeg、Pillow 和 Codex CLI，然后前台运行；用 `nohup`、`tmux` 或 systemd 保持常驻。
+   也可以 `docker build -t cinema-painter workers/painter`，再
+   `docker run -d --restart unless-stopped -v painter:/data -e STUDIO_URL=… -e PAINTER_TOKEN=… cinema-painter`。
+   **RunPod CPU Pod**：任意带 Python 的镜像，挂一个卷到 `/workspace`（Codex 登录和机器 id 存在
+   `/workspace/painter`，重启不丢），启动命令用上面三行。
+4. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开
+   "device code sign-in for Codex"。Machine 页 **Painters** 里找到这台机器 →
+   **Log in with a device code**，按页面显示的网址和验证码在任意设备上批准（机器在下一次心跳时
+   收到命令，验证码几秒后出现）。登录凭证存在机器的 `PAINTER_STATE_DIR`，令牌刷新会写回。
+   GPU Pod 兜底画图时用的是网络卷上自己的登录（`/workspace/codex/home`），需要的话同样在
+   Painters 里给 "GPU pod" 登录一次。
+5. **按项目开启**：项目 Settings → Director → GPT Image，打开开关、选后端（Codex / API）、
+   设图片上限。**Self-check every picture**（默认开）：每张图画完由一个全新的 Codex 会话对照
+   参考图和要求检查一遍（手、人数、长相、左右是否镜像、文字水印、构图、风格），发现硬伤
+   按 **Redraws on a blocker**（默认 1 次）带着问题重画；重画算图片额度，检查本身不算。
+6. **可选：API 后端**：在画图机器上设 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。
+   GPU Pod 兜底画图时用 Worker 上的同名 secret（建 Pod 时传入）。
+7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
+   **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
+8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。
+9. **图片的名字**：每张图有项目内编号（`IMG-12`，删了也不复用）和可改的名字。和导演说
+   “重画 IMG-12” 就能精确指代。项目里新增的 **Pictures** 页列出所有图、用在哪里、检查结果；
+   各图片网格的 **Select** 可以批量删除，正在使用的图会先确认，再从镜头、元素、风格帧上撤下。

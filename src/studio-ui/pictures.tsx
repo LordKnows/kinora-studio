@@ -26,9 +26,11 @@ export function pictureTitle(a: Asset): string {
 export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNode }) {
   return (
     <span className="st-pic-caption" title={pictureTitle(asset)}>
-      {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
-      <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
-      {extra}
+      <span className="st-pic-line">
+        {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
+        <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
+      </span>
+      {extra && <span className="st-pic-extra">{extra}</span>}
     </span>
   );
 }
@@ -185,7 +187,7 @@ export function PicturesPage() {
                   {sel.selecting && <SelectMark on={on} />}
                   {a.uses.length > 0 && <span className="st-thumb-tag">IN USE</span>}
                 </button>
-                <PictureCaption asset={a} extra={reviewChip(a) || chip ? <span className="st-muted"> · {reviewChip(a) ?? chip}</span> : undefined} />
+                <PictureCaption asset={a} extra={reviewChip(a) || chip ? <span className={chip?.includes("fail") ? "st-warn" : "st-muted"}>{[reviewChip(a), chip].filter(Boolean).join(" · ")}</span> : undefined} />
               </div>
             );
           })}

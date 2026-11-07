@@ -1061,13 +1061,25 @@
   gap: 4px;
   min-width: 0;
 }
+.studio .st-thumbs--named {
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
 .studio .st-pic-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.studio .st-pic-line {
   display: flex;
   gap: 6px;
   align-items: baseline;
   min-width: 0;
-  font-size: 12px;
-  line-height: 1.3;
+}
+.studio .st-pic-extra {
+  font-size: 11px;
 }
 .studio .st-pic-handle {
   flex: none;

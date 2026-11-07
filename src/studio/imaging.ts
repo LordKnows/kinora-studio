@@ -54,13 +54,14 @@ export async function setImaging(projectId: string, input: { enabled: boolean; b
 
 export function imagingSummary(project: Project) {
   const i = project.imaging;
-  const backendReady = !i ? false : i.backend === "api" ? Boolean(process.env.OPENAI_API_KEY) : true;
+  /* whether a painter can serve the backend right now is in runnerSummary (image_status, the button answers) */
+  const backendReady = !!i;
   return {
     enabled: !!i?.enabled, backend: i?.backend ?? "codex", maxImages: i?.maxImages ?? DEFAULT_IMAGING.maxImages, usedImages: i?.usedImages ?? 0,
     leftImages: Math.max(0, (i?.maxImages ?? DEFAULT_IMAGING.maxImages) - (i?.usedImages ?? 0)), quality: i?.quality ?? "low",
     selfCheck: i?.selfCheck ?? true, autoRedraws: i?.autoRedraws ?? 1,
     stoppedReason: i?.stoppedReason, backendReady,
-    note: i?.backend === "api" && !backendReady ? "OPENAI_API_KEY is not set on the Worker" : i?.backend === "codex" ? "Codex must be logged in on a painter (Machine page → Painters)" : undefined,
+    note: i?.backend === "api" ? "the painter needs OPENAI_API_KEY (paid per picture)" : i?.backend === "codex" ? "Codex must be logged in on a painter (Machine page → Painters)" : undefined,
   };
 }
 
@@ -71,7 +72,6 @@ async function assertCanPaint(project: Project): Promise<number> {
   if (i.stoppedReason) throw new StudioError("forbidden", `GPT Image stopped: ${i.stoppedReason}. The user clears it in Settings once the quota is back.`, { imaging: "stopped" });
   const active = (await repo.listProjectJobs(project.id, 200)).filter((j) => j.kind === "image" && (j.status === "queued" || j.status === "running") && j.input.op === "paint").length;
   if (i.usedImages + active >= i.maxImages) throw new StudioError("budget_exceeded", `the image quota of this project is used (${i.usedImages} done + ${active} running of ${i.maxImages}); the user raises it in Settings`, { imaging: "quota" });
-  if (i.backend === "api" && !process.env.OPENAI_API_KEY) throw new StudioError("backend_error", "GPT Image is set to the API backend but OPENAI_API_KEY is not set on the Worker");
   return i.maxImages - i.usedImages - active;
 }
 
