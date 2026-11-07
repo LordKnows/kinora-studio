@@ -478,7 +478,9 @@ def run_codex(prompt: str, pictures: list[Path], w: int, h: int, workdir: Path,
         message = _codex_message(prompt, [str(p.resolve()) for p in pictures], w, h, has_base=has_base)
         if attempt == 2 and why.startswith("aspect:"):
             message += f" This is a retry: the last picture came back {why[len('aspect:'):]}; the canvas MUST be {nearest_ratio(w, h)[0]}:{nearest_ratio(w, h)[1]}."
-        cmd = _codex_cmd(ws, pictures, "low", no_code_mode) + [message]
+        # `-i` takes several files: without `--` the prompt is read as one more picture
+        # and Codex falls back to reading the prompt from stdin ("No prompt provided")
+        cmd = _codex_cmd(ws, pictures, "low", no_code_mode) + ["--", message]
         try:
             r = runner(cmd, env={**os.environ, "CODEX_HOME": str(home)}, stdin=subprocess.DEVNULL,
                        capture_output=True, text=True, timeout=CODEX_TIMEOUT_S)
@@ -573,7 +575,7 @@ def review_with_codex(picture: Path, brief: str, refs: list[Path], workdir: Path
         cmd += ["-m", model]
     for p in attached:
         cmd += ["-i", str(p.resolve())]
-    cmd.append(message)
+    cmd += ["--", message]  # `-i` is greedy: end the options before the prompt
     try:
         r = runner(cmd, env={**os.environ, "CODEX_HOME": str(home)}, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=REVIEW_TIMEOUT_S)
     except (subprocess.TimeoutExpired, FileNotFoundError):

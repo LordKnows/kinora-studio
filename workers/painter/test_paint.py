@@ -147,6 +147,8 @@ def test_codex_paint_region_edit_copies_a_refreshed_login_back(tmp_path, codex_e
     # the pictures go in as attachments, in order (ref first, the picture to edit last), and the ratio is one the model knows
     pics = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-i"]
     assert len(pics) == 2 and pics[0].endswith("ref0.png") and pics[1].endswith("base.png")
+    # `-i` takes several values: the prompt must come after `--` or Codex reads it as a picture
+    assert cmd[-2] == "--" and cmd.index("--") > max(i for i, a in enumerate(cmd) if a == "-i")
     assert "16:9 aspect ratio" in cmd[-1] and "Image 2: the picture to edit." in cmd[-1]
     assert "checks" not in out or all(c["id"] != "cropped" for c in out["checks"])  # a region edit is pasted, not cropped
     assert json.loads((codex_env / "auth.json").read_text()) == {"tokens": "fresh"}
@@ -309,6 +311,7 @@ def test_self_review_redraws_a_blocker_once_with_the_findings(tmp_path, codex_en
             reviews.append(cmd)
             verdict = {"verdict": "fail", "summary": "six fingers", "findings": [{"code": "anatomy", "severity": "blocker", "where": "her left hand", "what": "six fingers", "fix": "five fingers on her left hand"}]} if len(reviews) == 1 else {"verdict": "pass", "summary": "ok", "findings": []}
             Path(cmd[cmd.index("-o") + 1]).write_text(json.dumps(verdict))
+            assert cmd[-2] == "--"
             assert cmd[cmd.index("-i", len(cmd) - 4) + 1].endswith(".png")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         draws.append(cmd[-1])
