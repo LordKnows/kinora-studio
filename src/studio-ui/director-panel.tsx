@@ -6,6 +6,7 @@ import type { DirectorNote, StageReview } from "@/studio/types";
 
 import { del, get, patch, post, put, when } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
+import { useProjectContext } from "./shell";
 
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
 type ImagingSummary = { enabled: boolean; backend: "codex" | "api"; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; stoppedReason?: string; backendReady: boolean; note?: string };
@@ -23,6 +24,8 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
   const [imgMax, setImgMax] = useState("40");
   const [envelope, setEnvelope] = useState("5");
   const [hours, setHours] = useState("12");
+  /* The project view every page shares (switches read it): refresh it with ours. */
+  const { reload } = useProjectContext();
   const refresh = useCallback(async () => {
     const [a, n, d] = await Promise.all([get<Autopilot>(`/api/projects/${projectId}/autopilot`), get<Notes>(`/api/projects/${projectId}/notes`), get<Delegation>(`/api/projects/${projectId}/delegation`)]);
     setAp(a);
@@ -31,7 +34,8 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     const im = await get<ImagingSummary>(`/api/projects/${projectId}/imaging`);
     setImg(im);
     setImgMax(String(im.maxImages));
-  }, [projectId]);
+    await reload();
+  }, [projectId, reload]);
   useEffect(() => {
     void refresh().catch(() => undefined);
   }, [refresh]);

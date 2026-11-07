@@ -31,16 +31,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           let busy = false;
           try {
             let [takes, exports] = await Promise.all([repo.listProjectTakes(id), repo.listExports(id)]);
+            /* Project-level state the pages read (GPT Image switch and quota, approvals, envelope, delegation) and image jobs. */
+            const [project, jobs] = await Promise.all([repo.getProject(id), repo.listProjectJobs(id, 30)]);
             /* Ask the pod about the takes in flight so their progress (stage, step, ETA) rides along. */
             const inFlight = takes.filter((t) => ((t.status === "queued" || t.status === "running") && t.requestId) || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"))).slice(0, 4);
             if (inFlight.length) {
               await Promise.all(inFlight.map((t) => orch.refreshTake(t.id).catch(() => undefined)));
               takes = await repo.listProjectTakes(id);
             }
-            busy = takes.some((t) => t.status === "queued" || t.status === "running" || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"))) || exports.some((x) => x.status === "queued" || x.status === "running");
+            busy = jobs.some((j) => j.status === "queued" || j.status === "running") || takes.some((t) => t.status === "queued" || t.status === "running" || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"))) || exports.some((x) => x.status === "queued" || x.status === "running");
             const snapshot = JSON.stringify({
               takes: takes.map((t) => ({ id: t.id, shotId: t.shotId, status: t.status, resultUrl: t.resultUrl, thumbUrls: t.thumbUrls, costUsd: t.costUsd, progress: t.progress, upscale: t.upscale ? { status: t.upscale.status, url: t.upscale.url, progress: t.upscale.progress } : undefined })),
               exports: exports.map((x) => ({ id: x.id, status: x.status, resultUrl: x.resultUrl })),
+              project: { updatedAt: project.updatedAt, shotlist: project.shotlistApproval, imaging: project.imaging, autopilot: project.autopilot, delegation: project.delegation },
+              jobs: jobs.map((j) => ({ id: j.id, status: j.status })),
             });
             if (snapshot !== last) {
               last = snapshot;
