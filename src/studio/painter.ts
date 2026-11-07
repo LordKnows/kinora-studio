@@ -205,6 +205,12 @@ export async function sweepImageLeases(now = Date.now()): Promise<number> {
       continue;
     }
     const pid = painterOfJob(job);
+    /* a job handed to the GPU pod's old /paint lane before painters existed: nobody reports it any more */
+    if (job.status === "running" && job.requestId && !pid && now - job.createdAt > 30 * 60_000) {
+      await repo.updateJob(job.id, { status: "failed", error: "sent to the GPU pod before pictures moved to painters; draw it again", finishedAt: now });
+      changed++;
+      continue;
+    }
     if (job.status !== "running" || !pid) continue;
     const p = painters.get(pid);
     if (!p || now - p.lastSeenAt > LEASE_LOST_MS) {

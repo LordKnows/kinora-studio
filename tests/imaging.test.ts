@@ -174,6 +174,11 @@ describe("GPT Image switch and jobs", () => {
     await painter.sweepImageLeases(Date.now() + painter.LEASE_LOST_MS + 1000);
     expect(await repo.getJob(job.id)).toMatchObject({ status: "failed" });
     expect((await repo.getJob(job.id)).error).toContain("given up after 3 tries");
+    /* a job the old pod path still holds is failed, not left running forever */
+    const old = await repo.createJob({ projectId: p.id, kind: "image", targetId: p.id, backend: "pod-codex", input: { op: "paint" } });
+    await repo.updateJob(old.id, { requestId: "pod-job-1", status: "running" });
+    await painter.sweepImageLeases(Date.now() + 31 * 60_000);
+    expect((await repo.getJob(old.id)).status).toBe("failed");
   });
 
   it("the Machine page asks a painter to log in to Codex", async () => {
