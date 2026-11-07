@@ -207,6 +207,37 @@ export class RunPodPodsClient {
     throw new StudioError("backend_error", `pod creation failed: ${attempts.join(" || ")}`, { attempts });
   }
 
+  /**
+   * A CPU pod (the painter): one flavor per request — the caller walks its
+   * list on "no resources" — a network volume, and the start command as an
+   * exec-form entrypoint (no shell splitting). v2: `cpu {id, vcpuCount}` and
+   * `mounts.network`; v1: computeType CPU, cpuFlavorIds, networkVolumeId.
+   */
+  async createCpuPod(input: { name: string; image: string; flavorId: string; vcpuCount: number; diskGb: number; env: Record<string, string>; entrypoint: string[]; dataCenterId?: string; networkVolumeId?: string; mountPath: string }): Promise<PodRecord> {
+    const body: Record<string, unknown> = this.v2()
+      ? {
+          name: input.name, image: input.image, cloud: "SECURE", cpu: { id: input.flavorId, vcpuCount: input.vcpuCount }, disk: input.diskGb, env: input.env,
+          entrypoint: input.entrypoint, ports: [],
+          ...(input.networkVolumeId ? { mounts: { network: [{ volumeId: input.networkVolumeId, path: input.mountPath }] } } : {}),
+          ...(input.dataCenterId ? { dataCenterIds: [input.dataCenterId] } : {}),
+        }
+      : {
+          name: input.name, imageName: input.image, computeType: "CPU", cpuFlavorIds: [input.flavorId], vcpuCount: input.vcpuCount, containerDiskInGb: input.diskGb, env: input.env,
+          dockerEntrypoint: input.entrypoint, cloudType: "SECURE", volumeInGb: 0,
+          ...(input.networkVolumeId ? { networkVolumeId: input.networkVolumeId, volumeMountPath: input.mountPath } : {}),
+          ...(input.dataCenterId ? { dataCenterIds: [input.dataCenterId] } : {}),
+        };
+    try {
+      return mapPod(this.v2() ? await this.callV2("POST", "/pods", body) : await this.call("POST", "/pods", body));
+    } catch (caught) {
+      if (caught instanceof StudioError && caught.code === "backend_error") {
+        const sent = { flavor: input.flavorId, vcpuCount: input.vcpuCount, dataCenterId: input.dataCenterId, networkVolumeId: input.networkVolumeId, keys: Object.keys(body) };
+        throw new StudioError("backend_error", `${caught.message} — sent ${JSON.stringify(sent)}`, { ...(caught.details as object), sent });
+      }
+      throw caught;
+    }
+  }
+
   async getPod(id: string): Promise<PodRecord | null> {
     try {
       return mapPod(this.v2() ? await this.callV2("GET", `/pods/${encodeURIComponent(id)}`) : await this.call("GET", `/pods/${encodeURIComponent(id)}`));

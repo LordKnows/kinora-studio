@@ -9,7 +9,15 @@ import { Button, ErrorBanner, Lamp, useAction } from "./common";
 
 type Listed = Painter & { online: boolean };
 type Setup = { studioUrl: string; tokenSet: boolean; ownToken: boolean; painterOnPod: boolean };
-type PodState = { pod?: PainterPod & { painter?: { id: string; name: string; online: boolean; busy: number } }; idleStopMinutes: number; uptimeSeconds: number; sessionUsd: number; lifetimeUsd: number };
+type PodState = {
+  configured: boolean;
+  why?: string;
+  settings: { volumeId?: string; dataCenterId?: string; image: string; flavors: string[]; vcpuCount: number; idleStopMinutes: number };
+  pod?: PainterPod & { live: boolean; painter?: { id: string; name: string; online: boolean; busy: number } };
+  uptimeSeconds: number;
+  sessionUsd: number;
+  lifetimeUsd: number;
+};
 type Remake = { ready: boolean; modes: { edit: boolean; swap: boolean }; nodes: boolean; download: string; log?: string };
 
 /* Painters: the machines that draw pictures away from the GPU (a small CPU
@@ -131,11 +139,11 @@ function duration(s: number): string {
   return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
-/* The painter's own RunPod CPU pod: taken over by id, started by the Studio
-   when pictures are queued, stopped after idling — billed only while it draws. */
+/* The painter pod: a RunPod CPU pod the Studio creates when pictures are
+   queued and terminates after idling, on the network volume that keeps the
+   Codex login — billed only while it draws. */
 function PainterPodCard({ onChange }: { onChange: () => Promise<void> }) {
   const [state, setState] = useState<PodState | null>(null);
-  const [podId, setPodId] = useState("");
   const load = useCallback(async () => {
     try {
       setState(await get<PodState>("/api/painters/pod"));
@@ -148,55 +156,51 @@ function PainterPodCard({ onChange }: { onChange: () => Promise<void> }) {
     const t = setInterval(() => void load(), 10000);
     return () => clearInterval(t);
   }, [load]);
-  const act = useAction(async (_c, what: "adopt" | "start" | "stop" | "forget") => {
-    if (what === "adopt") setState(await post<PodState>("/api/painters/pod", { podId }));
-    else if (what === "forget") {
-      if (!window.confirm("Stop managing this pod? It is not stopped or deleted; start and stop it in RunPod yourself.")) return;
-      setState(await del<PodState>("/api/painters/pod"));
-    } else setState(await post<PodState>(`/api/painters/pod/${what}`));
+  const act = useAction(async (_c, what: "start" | "stop") => {
+    setState(await post<PodState>(`/api/painters/pod/${what}`));
     await onChange();
   });
   if (!state) return null;
   const pod = state.pod;
+  const live = !!pod?.live;
+  const s = state.settings;
   return (
     <div className="st-card st-stack st-stack--tight">
       <ErrorBanner error={act.error} onDismiss={act.dismiss} />
-      {!pod ? (
-        <>
-          <span>
-            <strong>Painter pod</strong> <span className="st-muted">— let the Studio start and stop a RunPod CPU pod, so it is billed only while it draws</span>
-          </span>
-          <span className="st-muted">
-            Create the CPU pod once in the RunPod console (2 vCPU, a volume at /workspace, STUDIO_URL and PAINTER_TOKEN, the start command from “Add a painter”), then paste its id. It starts when pictures are queued and no painter can draw them, and stops after {state.idleStopMinutes} idle minutes.
-          </span>
+      <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
+        <span className="st-row" style={{ gap: 8, flexWrap: "wrap" }}>
+          <strong>Painter pod</strong>
+          {state.configured ? (
+            <Lamp state={!pod ? "draft" : pod.status === "running" ? "ok" : pod.status === "starting" ? "warn" : pod.status === "unavailable" ? "danger" : "draft"} label={!pod || pod.status === "terminated" ? "off" : pod.status} />
+          ) : (
+            <Lamp state="draft" label="not set up" />
+          )}
+          {live && pod?.painter && <Lamp state={pod.painter.online ? "ok" : "draft"} label={pod.painter.online ? `painter online · ${pod.painter.busy} drawing` : "painter not up yet"} />}
+        </span>
+        {state.configured && (
           <span className="st-row">
-            <input className="st-input st-input--sm" placeholder="RunPod pod id" value={podId} onChange={(e) => setPodId(e.target.value)} style={{ width: 220 }} />
-            <Button size="sm" kind="primary" busy={act.busy} disabled={podId.trim().length < 6} onClick={() => void act.fire("adopt")}>Take over</Button>
+            {!live && <Button size="sm" kind="primary" busy={act.busy} onClick={() => void act.fire("start")}>Start</Button>}
+            {live && <Button size="sm" busy={act.busy} onClick={() => void act.fire("stop")}>Stop</Button>}
           </span>
-        </>
+        )}
+      </div>
+      {state.configured ? (
+        <span className="st-muted">
+          Created by itself when pictures are queued and no painter can draw them, terminated after {s.idleStopMinutes} idle minutes — a new pod each time ({s.flavors.join(" / ")}, {s.vcpuCount} vCPU, {s.image}) in {s.dataCenterId}, with volume {s.volumeId} at /workspace keeping the Codex login.
+        </span>
       ) : (
-        <>
-          <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
-            <span className="st-row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <strong>Painter pod</strong>
-              <span className="st-muted st-num">{pod.name || pod.id}</span>
-              <Lamp state={pod.status === "running" ? "ok" : pod.status === "starting" || pod.status === "stopping" ? "warn" : pod.status === "unavailable" ? "danger" : "draft"} label={pod.status} />
-              {pod.painter && <Lamp state={pod.painter.online ? "ok" : "draft"} label={pod.painter.online ? `painter online · ${pod.painter.busy} drawing` : "painter offline"} />}
-            </span>
-            <span className="st-row">
-              {(pod.status === "stopped" || pod.status === "unavailable") && <Button size="sm" kind="primary" busy={act.busy} onClick={() => void act.fire("start")}>Start</Button>}
-              {(pod.status === "running" || pod.status === "starting") && <Button size="sm" busy={act.busy} onClick={() => void act.fire("stop")}>Stop</Button>}
-              <Button size="sm" kind="quiet" busy={act.busy} onClick={() => void act.fire("forget")}>Forget</Button>
-            </span>
-          </div>
-          <span className="st-muted st-num">
-            {pod.costPerHr ? `${usd(pod.costPerHr)}/h · ` : ""}
-            {state.uptimeSeconds ? `up ${duration(state.uptimeSeconds)} (${usd(state.sessionUsd)}) · ` : ""}
-            {usd(state.lifetimeUsd)} since taken over · stops after {state.idleStopMinutes} idle min
-          </span>
-          {pod.message && <span className="st-muted">{pod.message}</span>}
-        </>
+        <span className="st-muted">
+          Not set up: {state.why}. Set PAINTER_POD_VOLUME_ID and PAINTER_POD_DATACENTER (Worker variables, wrangler.jsonc) and the Studio creates a CPU pod only while pictures wait.
+        </span>
       )}
+      {(live || state.lifetimeUsd > 0) && (
+        <span className="st-muted st-num">
+          {pod?.costPerHr && live ? `${usd(pod.costPerHr)}/h · ` : ""}
+          {state.uptimeSeconds ? `up ${duration(state.uptimeSeconds)} (${usd(state.sessionUsd)}) · ` : ""}
+          {usd(state.lifetimeUsd)} so far
+        </span>
+      )}
+      {pod?.message && <span className={pod.status === "unavailable" ? "st-warn" : "st-muted"}>{pod.message}</span>}
     </div>
   );
 }

@@ -340,7 +340,7 @@ export function createStudioServer(actor: Actor): McpServer {
   const quality = z.enum(["low", "medium", "high"]).optional().describe("low for drafts (default from Settings), medium for finals");
   tool("image_status", "Whether GPT Image is on for this project (the user switches it in Settings, web only), the backend (codex = the user's ChatGPT plan; api = per call), the quota left, a stop after a quota error, which painters are online to draw (they run away from the GPU: pictures are made before the pod starts) and whether Codex is logged in there, and the pod's Viggle Remake readiness. Check it before planning pictures.", z.object({ projectId: id }), async ({ projectId }) => {
     const summary = imaging.imagingSummary(await repo.getProject(projectId));
-    const painters = { ...(await painterRunner(summary.backend)), pod: await import("@/studio/painter-pod").then((m) => m.painterPodState()).then((st) => (st.pod ? { status: st.pod.status, note: "starts by itself when pictures are queued; stops after idling" } : undefined)) };
+    const painters = { ...(await painterRunner(summary.backend)), pod: await import("@/studio/painter-pod").then((m) => m.painterPodState()).then((st) => (st.configured ? { status: st.pod?.live ? st.pod.status : "off", note: "a CPU pod is created by itself when pictures are queued (1–3 min) and terminated after idling" } : undefined)) };
     const remake = await gpu.remakeStatus().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     return { ...summary, painters, remake };
   });

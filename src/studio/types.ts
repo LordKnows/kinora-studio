@@ -283,11 +283,11 @@ export type Job = {
   finishedAt?: number;
 };
 
-/** The RunPod CPU pod a painter runs in, started and stopped by the Studio. */
+/** A RunPod CPU pod the Studio created for the painter: created when pictures wait, terminated when idle. */
 export type PainterPod = {
   id: string;
   name: string;
-  status: "running" | "starting" | "stopping" | "stopped" | "unavailable";
+  status: "running" | "starting" | "terminated" | "unavailable";
   message?: string;
   costPerHr?: number;
   startedAt?: number;
