@@ -875,6 +875,11 @@ export async function setPainterCommands(id: string, commands: Painter["commands
   await (await db()).run("UPDATE painters SET commands_json = ? WHERE id = ?", [JSON.stringify(commands), id]);
 }
 
+/** The pod a painter ran in is gone: it is offline now, not in 90 s when its heartbeats stop counting. */
+export async function markPaintersGone(runpodPodId: string): Promise<void> {
+  await (await db()).run("UPDATE painters SET last_seen_at = 0 WHERE json_extract(info_json, '$.runpodPodId') = ?", [runpodPodId]);
+}
+
 export async function deletePainter(id: string): Promise<void> {
   await (await db()).run("DELETE FROM painters WHERE id = ?", [id]);
 }
@@ -889,17 +894,26 @@ function mapPainterPod(r: Row): PainterPod {
   };
 }
 
+/** The Studio's painter pods are named so; rows with another name (an old take-over) are not touched. */
+export const PAINTER_POD_NAME = "cinema-studio-painter";
+
+/** The newest painter pod the Studio created (any state, also a failed attempt). */
 export async function currentPainterPod(): Promise<PainterPod | undefined> {
-  const row = await (await db()).get("SELECT * FROM painter_pods ORDER BY created_at DESC LIMIT 1");
+  const row = await (await db()).get("SELECT * FROM painter_pods WHERE name LIKE ? ORDER BY created_at DESC LIMIT 1", [`${PAINTER_POD_NAME}%`]);
   return row ? mapPainterPod(row) : undefined;
 }
 
-/** Take over a pod (the one before it is forgotten, never terminated). */
-export async function setPainterPod(input: { id: string; name: string; status: PainterPod["status"]; costPerHr?: number; startedAt?: number }): Promise<PainterPod> {
-  const d = await db();
-  await d.run("DELETE FROM painter_pods");
-  await d.run("INSERT INTO painter_pods (id, name, status, cost_per_hr, started_at, created_at) VALUES (?, ?, ?, ?, ?, ?)", [input.id, input.name, input.status, input.costPerHr ?? null, input.startedAt ?? null, Date.now()]);
+export async function insertPainterPod(input: { id: string; name: string; status: PainterPod["status"]; message?: string; costPerHr?: number; startedAt?: number }): Promise<PainterPod> {
+  await (await db()).run("INSERT INTO painter_pods (id, name, status, message, cost_per_hr, started_at, last_activity_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
+    input.id, input.name, input.status, input.message ?? null, input.costPerHr ?? null, input.startedAt ?? null, input.startedAt ?? null, Date.now(),
+  ]);
   return (await currentPainterPod())!;
+}
+
+/** What every painter pod so far has cost, in USD. */
+export async function painterPodsUsd(): Promise<number> {
+  const row = await (await db()).get("SELECT COALESCE(SUM(accumulated_seconds * COALESCE(cost_per_hr, 0)), 0) / 3600.0 AS usd FROM painter_pods WHERE name LIKE ?", [`${PAINTER_POD_NAME}%`]);
+  return num(row?.usd);
 }
 
 export async function updatePainterPod(id: string, patch: Partial<{ status: PainterPod["status"]; message: string | null; costPerHr: number; startedAt: number | null; stoppedAt: number; lastActivityAt: number; accumulatedSeconds: number }>): Promise<void> {
@@ -907,10 +921,6 @@ export async function updatePainterPod(id: string, patch: Partial<{ status: Pain
   const keys = Object.keys(patch).filter((k) => k in cols) as Array<keyof typeof patch>;
   if (!keys.length) return;
   await (await db()).run(`UPDATE painter_pods SET ${keys.map((k) => `${cols[k]} = ?`).join(", ")} WHERE id = ?`, [...keys.map((k) => (patch[k] ?? null) as SqlValue), id]);
-}
-
-export async function deletePainterPods(): Promise<void> {
-  await (await db()).run("DELETE FROM painter_pods");
 }
 
 /* ---------- eval ---------- */
