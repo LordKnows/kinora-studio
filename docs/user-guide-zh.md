@@ -158,14 +158,14 @@ Cinema Studio 是一个**在浏览器里拍 AI 短片的"摄制组"**。它把�
 
 元素 = 片子里反复出现、需要"长得一样"的东西。分三类：**character（角色）/ location（场景）/ prop（道具）**。
 
-1. 点右上角新建按钮，打开抽屉：
+1. 点右上角 **New element**，打开抽屉：
    - **Kind**：类型；**Name**：名字（如 `Mara`）。
    - **Visual description**：具体的外观描述——年龄、体型、发型、服装、材质、光线。越具体越稳定。
    - **Fixed features**：**绝对不能变/不能消失的细节**，写清楚在哪一侧，例如 `龙纹身 / 左前臂内侧`、`红色贝雷帽 / 头顶`。点 **Add feature** 可加多条（最多 8 条）。
-   - 点保存。
+   - 点 **Create**（之后修改点 **Save**）。
 2. **上传参考图**：在抽屉的 **Reference images** 区点上传按钮。第一张会标为 **PRIMARY（主参考）**。
 3. **标注视角**：给每张参考图选它展示的是哪个视角（正面 / 侧面 / 表情等），这样侧脸镜头会自动用侧面图。选好后保存。
-4. 想在别的项目复用这个角色？用抽屉里的"复制到共享库"按钮，页面底部 **Library** 区会出现它，其他项目可以直接导入。
+4. 想在别的项目复用这个角色？点抽屉里的 **Promote to library**（复制到共享库），页面底部 **Library** 区会出现它，其他项目可以直接导入。
 
 > 玩法 A：AI 会帮你创建所有元素并写好描述，但**图片通常需要你上传**（除非你的 AI 客户端自己能画图）。
 
@@ -211,7 +211,7 @@ Cinema Studio 是一个**在浏览器里拍 AI 短片的"摄制组"**。它把�
 
 **Frames（画面）** —— 首帧/尾帧：
 - **Hero frame（首帧）**：上传，或从本项目已有图片里挑（已完成的 take 会自动提供 `LAST FRAME` 尾帧图，可作为下一镜的首帧）。
-- **End frame（尾帧，可选）**：上传，或用"推镜"按钮从首帧自动裁出一张放大图作为尾帧，保证镜头一定会往前推。
+- **End frame（尾帧，可选）**：上传，或点 **Derive end frame (push-in)** 从首帧自动裁出一张放大图作为尾帧，保证镜头一定会往前推。
 - **Frame check**：用 Difference（差异）/ Onion skin（洋葱皮）对比首尾帧是否对得上。
 
 **Takes（渲染结果）** —— 见 4.4。
@@ -233,7 +233,7 @@ Cinema Studio 是一个**在浏览器里拍 AI 短片的"摄制组"**。它把�
 2. 抽屉列出所有还没有 take 的镜头、渲染顺序（系统会把 reference 模式的镜头排前面、锚点镜头排在衔接镜头前面）和**总估价**。
 3. 先点 **Render probe (N)**：只渲染 1–2 个**最容易翻车**的镜头试水。
 4. 弹出报价横幅 → 确认金额 → 点 **Confirm and spend**。
-5. 试水镜头没问题，再点主按钮渲染剩下的镜头。
+5. 试水镜头没问题，再点 **Render pass 1 (N)** 渲染第一轮（每个镜头一条 take）。有衔接关系的镜头会显示 `Waiting for an anchor`，等锚点镜头选定 take 后，再次打开 **Render batch** 渲染下一轮。
 
 **单个镜头渲染**
 1. 打开镜头抽屉 → **Takes** 标签。
@@ -410,7 +410,7 @@ AI 视频模型有固定的弱点，**在文字阶段避开它们比渲染后返
 2 Script          读剧本 → Approve vN
 3 Elements        给每个角色上传参考图、标注视角
 4 Board           Sketch 看草图 → Lint 修问题 → Approve shotlist
-                  → Render batch → Render probe → Confirm and spend → 渲染其余
+                  → Render batch → Render probe → Confirm and spend → Render pass 1
                   → 每个镜头挑一条 → Use this take
 5 Finals          （可选）Regenerate 2K
 6 Timeline        Auto build → 调 In/Out → 上传音乐 → Export（先 preview-480p）
