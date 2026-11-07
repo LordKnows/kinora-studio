@@ -361,6 +361,7 @@ export function createStudioServer(actor: Actor): McpServer {
     const assets = await repo.getAssets(job.assetIds);
     return { job, assets: job.assetIds.map((a) => assets.get(a)).filter(Boolean) };
   });
+  tool("cancel_image_job", "Withdraw a queued or running picture that is no longer wanted (a redraw superseded it, the aspect changed). Nothing is attached or counted against the quota; a painter already drawing it finishes, but its answer is refused.", z.object({ jobId: id }), async ({ jobId }) => ({ job: await imaging.cancelImageJob(jobId, actor) }));
   tool("list_image_jobs", "The project's recent image jobs, newest first.", z.object({ projectId: id }), async ({ projectId }) => ({ jobs: await imaging.listImageJobs(projectId) }));
   pictureTool("view_frames", "Look at pictures yourself: project images by asset id (generated ones come as their preview, with the diff to their base when there is one), and/or a take's thumbnails and last frame. You see stills only — never claim motion or sound.", z.object({ projectId: id, assetIds: z.array(id).max(6).default([]), takeId: id.optional(), diffs: z.boolean().default(true) }), async ({ projectId, assetIds: refs, takeId, diffs }) => {
     const pv = await orch.getProjectView(projectId);

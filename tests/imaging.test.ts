@@ -155,30 +155,64 @@ describe("GPT Image switch and jobs", () => {
     expect((await repo.getProject(projectId)).imaging!.usedImages).toBe(2);
   });
 
-  it("a painter that goes silent or forgets a job gives it back; three losses fail it", async () => {
+  it("a lost answer hands the job to the same painter again; a silent painter gives it back; both are capped", async () => {
     const p = await repo.createProject({ name: "Lease" });
+    const db = (await import("@/db")).getDb;
+    const age = async (jobId: string) => (await db()).run("UPDATE jobs SET claimed_at = ? WHERE id = ?", [Date.now() - 20_000, jobId]);
     const job = await repo.createJob({ projectId: p.id, kind: "image", targetId: p.id, backend: "painter", input: { op: "extract", videoUrl: "https://x/v.mp4", frame: 3, size: "1344x768" } });
     const a = await painter.claim({ painterId: "a", name: "a", want: 4, info: { ops: ["extract"] } });
     expect(a.jobs.map((j) => j.jobId)).toContain(job.id);
-    /* silent for longer than the lease: back in the queue */
+    /* the answer never reached "a" (error 1102, a dropped connection): it does not report the job — it gets it again, not a failure */
+    expect((await painter.claim({ painterId: "a", name: "a", want: 4, info: { ops: ["extract"], running: [] } })).jobs).toEqual([]);
+    await age(job.id);
+    const again = await painter.claim({ painterId: "a", name: "a", want: 4, info: { ops: ["extract"], running: [] } });
+    expect(again.jobs.map((j) => j.jobId)).toEqual([job.id]);
+    expect(await repo.getJob(job.id)).toMatchObject({ status: "running", attempts: 2 });
+    /* while it reports the job, nothing happens; with no free slot it is not handed over */
+    await age(job.id);
+    expect((await painter.claim({ painterId: "a", name: "a", want: 4, info: { ops: ["extract"], running: [job.id] } })).jobs).toEqual([]);
+    expect((await painter.claim({ painterId: "a", name: "a", want: 0, info: { ops: ["extract"], running: [] } })).jobs).toEqual([]);
+    /* "a" goes silent for longer than the lease: back in the queue for anyone */
     expect(await painter.sweepImageLeases(Date.now() + painter.LEASE_LOST_MS + 1000)).toBeGreaterThan(0);
-    expect(await repo.getJob(job.id)).toMatchObject({ status: "queued", attempts: 1 });
-    /* claimed again, then the painter restarts and no longer lists it */
-    await painter.claim({ painterId: "b", name: "b", want: 4, info: { ops: ["extract"] } });
-    await repo.updateJob(job.id, {});
-    const db = (await import("@/db")).getDb;
-    await (await db()).run("UPDATE jobs SET claimed_at = ? WHERE id = ?", [Date.now() - 120_000, job.id]);
-    await painter.claim({ painterId: "b", name: "b", want: 0, info: { ops: ["extract"], running: [] } });
-    expect(await repo.getJob(job.id)).toMatchObject({ status: "queued", attempts: 2 });
-    await painter.claim({ painterId: "b", name: "b", want: 4, info: { ops: ["extract"] } });
-    await painter.sweepImageLeases(Date.now() + painter.LEASE_LOST_MS + 1000);
-    expect(await repo.getJob(job.id)).toMatchObject({ status: "failed" });
-    expect((await repo.getJob(job.id)).error).toContain("given up after 3 tries");
+    expect(await repo.getJob(job.id)).toMatchObject({ status: "queued" });
+    /* every hand-over counts: after MAX_ATTEMPTS a lost lease fails the job */
+    while (true) {
+      await painter.claim({ painterId: "b", name: "b", want: 4, info: { ops: ["extract"] } });
+      await painter.sweepImageLeases(Date.now() + painter.LEASE_LOST_MS + 1000);
+      const j = await repo.getJob(job.id);
+      if (j.status === "failed") {
+        expect(j.attempts).toBe(painter.MAX_ATTEMPTS);
+        expect(j.error).toContain(`given up after ${painter.MAX_ATTEMPTS} tries`);
+        break;
+      }
+    }
+    /* a painter that never takes a job it is handed fails it after MAX_HANDOVERS */
+    const lost = await repo.createJob({ projectId: p.id, kind: "image", targetId: p.id, backend: "painter", input: { op: "extract", videoUrl: "https://x/v.mp4", frame: 4, size: "1344x768" } });
+    await painter.claim({ painterId: "c", name: "c", want: 1, info: { ops: ["extract"] } });
+    for (let k = 0; k < painter.MAX_HANDOVERS; k++) {
+      await age(lost.id);
+      await painter.claim({ painterId: "c", name: "c", want: 1, info: { ops: ["extract"], running: [] } });
+    }
+    expect(await repo.getJob(lost.id)).toMatchObject({ status: "failed" });
+    expect((await repo.getJob(lost.id)).error).toContain("without it drawing it");
     /* a job the old pod path still holds is failed, not left running forever */
     const old = await repo.createJob({ projectId: p.id, kind: "image", targetId: p.id, backend: "pod-codex", input: { op: "paint" } });
     await repo.updateJob(old.id, { requestId: "pod-job-1", status: "running" });
     await painter.sweepImageLeases(Date.now() + 31 * 60_000);
     expect((await repo.getJob(old.id)).status).toBe("failed");
+  });
+
+  it("two processes under one painter id are flagged; a cancelled picture is not attached", async () => {
+    await painter.claim({ painterId: "twin", name: "twin", want: 0, info: { instance: "one", host: "pod-a" } });
+    await painter.claim({ painterId: "twin", name: "twin", want: 0, info: { instance: "two", host: "pod-b" } });
+    expect((await repo.getPainter("twin")).info.lastError).toContain("two painter processes are using the id twin");
+    const p = await repo.createProject({ name: "Cancel" });
+    const job = await repo.createJob({ projectId: p.id, kind: "image", targetId: p.id, backend: "painter", input: { op: "extract", videoUrl: "https://x/v.mp4", frame: 5, size: "1344x768" } });
+    await painter.claim({ painterId: "d", name: "d", want: 1, info: { ops: ["extract"] } });
+    expect((await imaging.cancelImageJob(job.id, mcp)).status).toBe("failed");
+    expect((await repo.getJob(job.id)).error).toContain("cancelled by the director");
+    await expect(painter.finish(job.id, "d", { output: { url: "https://studio.example/media/x.png" } })).rejects.toMatchObject({ code: "forbidden" });
+    expect((await repo.getJob(job.id)).assetIds).toEqual([]);
   });
 
   it("the Machine page asks a painter to log in to Codex", async () => {
@@ -311,7 +345,7 @@ describe("remote MCP image tools", () => {
     const client = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(a), client.connect(b)]);
     const names = (await client.listTools()).tools.map((t) => t.name);
-    for (const n of ["image_status", "plan_frames", "generate_element_sheet", "generate_shot_frame", "edit_frame", "extract_frame", "generate_style_frame", "get_image_job", "list_image_jobs", "view_frames", "remake_take", "derive_end_frame", "review_packet", "rename_picture", "delete_pictures"]) expect(names).toContain(n);
+    for (const n of ["image_status", "plan_frames", "generate_element_sheet", "generate_shot_frame", "edit_frame", "extract_frame", "generate_style_frame", "get_image_job", "list_image_jobs", "view_frames", "remake_take", "derive_end_frame", "review_packet", "rename_picture", "delete_pictures", "cancel_image_job"]) expect(names).toContain(n);
     const p = await repo.createProject({ name: "View" });
     const asset = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/projects/v/a.png", kind: "image", source: "generated", meta: { previewUrl: "https://studio.example/media/projects/v/a.preview.jpg" } });
     const res = await client.callTool({ name: "view_frames", arguments: { projectId: p.id, assetIds: [asset.id] } });

@@ -310,6 +310,8 @@ export type Painter = {
     slots?: number;
     running?: string[];
     onPod?: boolean;
+    /** Random per process: two processes heartbeating under one id show up as a clash. */
+    instance?: string;
     /** RUNPOD_POD_ID of the pod it runs in, when it runs on RunPod (links it to the painter pod). */
     runpodPodId?: string;
     codex?: { installed?: boolean; logged_in?: boolean; code_mode_host?: boolean; detail?: string; home?: string; bin?: string; version?: string };

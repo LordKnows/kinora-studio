@@ -115,6 +115,8 @@ class Painter:
         self.run_job = run_job or self._run_paint
         self.running: dict[str, threading.Thread] = {}
         self.lock = threading.Lock()
+        # random per process: the Studio flags two processes heartbeating under one id
+        self.instance = uuid.uuid4().hex[:12]
         self._codex: dict[str, Any] | None = None
         self._codex_at = 0.0
         self.last_error = ""
@@ -137,7 +139,7 @@ class Painter:
         login = {k: v for k, v in self.login.state.items() if k in ("state", "url", "code", "lines", "error")}
         return {
             "version": VERSION, "host": socket.gethostname()[:120], "backends": backends, "ops": ["paint", "crop", "extract"],
-            "slots": self.slots, "running": running, "onPod": self.on_pod,
+            "slots": self.slots, "running": running, "onPod": self.on_pod, "instance": self.instance,
             **({"runpodPodId": os.environ["RUNPOD_POD_ID"]} if os.environ.get("RUNPOD_POD_ID") else {}),
             "codex": {k: codex.get(k) for k in ("installed", "logged_in", "code_mode_host", "detail", "home", "bin")},
             **({"login": login} if login.get("state") not in (None, "idle") else {}),
@@ -155,8 +157,10 @@ class Painter:
             if cmd.get("type") == "codex_login":
                 threading.Thread(target=self._login, name="codex-login", daemon=True).start()
         for job in answer.get("jobs") or []:
-            t = threading.Thread(target=self._run, args=(job["jobId"], job["input"]), name=f"job-{job['jobId']}", daemon=True)
             with self.lock:
+                if job["jobId"] in self.running:  # handed over again while still drawing it: keep the one running
+                    continue
+                t = threading.Thread(target=self._run, args=(job["jobId"], job["input"]), name=f"job-{job['jobId']}", daemon=True)
                 self.running[job["jobId"]] = t
             t.start()
         return int(answer.get("pollMs") or 5000)
@@ -210,7 +214,7 @@ class Painter:
                 self.last_error = f"studio: {exc}"
                 print(f"[painter] heartbeat failed: {exc}", file=sys.stderr)
                 wait = backoff
-                backoff = min(60, backoff * 2)
+                backoff = min(30, backoff * 2)
             stop.wait(max(1.0, wait))
 
 
@@ -222,7 +226,10 @@ def from_env(on_pod: bool = False) -> Painter:
     state = Path(os.environ.get("PAINTER_STATE_DIR") or (Path.home() / ".cinema-painter"))
     os.environ.setdefault("PAINTER_STATE_DIR", str(state))
     name = os.environ.get("PAINTER_NAME") or socket.gethostname().split(".")[0]
-    explicit = f"gpu-pod-{os.environ['RUNPOD_POD_ID']}" if on_pod and os.environ.get("RUNPOD_POD_ID") else os.environ.get("PAINTER_ID")
+    # On RunPod every pod is its own painter (the state dir on a shared volume must not make two pods one
+    # painter: they would take each other's jobs); elsewhere the id is kept in the state dir.
+    pod_id = os.environ.get("RUNPOD_POD_ID")
+    explicit = os.environ.get("PAINTER_ID") or (f"gpu-pod-{pod_id}" if on_pod and pod_id else f"pod-{pod_id}" if pod_id else None)
     return Painter(Studio(url, token), painter_id(state, explicit), name, slots=int(os.environ.get("PAINTER_SLOTS", "2")), on_pod=on_pod)
 
 
