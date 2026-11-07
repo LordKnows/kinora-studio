@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir requests boto3
 COPY h3-runpod/handler.py /app/handler.py
 COPY h3-runpod/server.py /app/server.py
 COPY h3-runpod/paint.py /app/paint.py
+COPY h3-runpod/install_codex.sh /app/install_codex.sh
 COPY h3-runpod/models-remake.txt /app/models-remake.txt
 COPY h3-runpod/start.sh /app/start.sh
 COPY h3-runpod/workflows /app/workflows

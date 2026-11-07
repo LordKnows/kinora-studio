@@ -362,9 +362,11 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
 1. **数据库**：执行 `migrations/0012_imaging.sql`（见 1b）。
 2. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开
    "device code sign-in for Codex"。然后启动 GPU Pod，在 Machine 页 **Images on the pod →
-   Log in with a device code**，按页面显示的网址和验证码在任意设备上批准。Codex CLI 由 Pod
-   开机时装到网络卷上（`<卷>/codex/bin/codex`），登录凭证也存在卷上（`<卷>/codex/home`），
-   换 Pod 不用重新登录；令牌刷新会写回卷上。
+   Log in with a device code**，按页面显示的网址和验证码在任意设备上批准。Codex CLI 和它的
+   辅助程序 `codex-code-mode-host`（Codex 用它执行工具调用，单独发布）由 Pod 开机时装到网络卷上
+   （模型所在的同一个卷，通常是 `/workspace/codex/bin/`），登录凭证也存在卷上
+   （`/workspace/codex/home`），换 Pod 不用重新登录；令牌刷新会写回卷上。Machine 页会提示
+   凭证是否落在卷上。
 3. **按项目开启**：项目 Settings → Director → GPT Image，打开开关、选后端（Codex / API）、
    设图片上限。关闭时网页按钮置灰，导演的生图工具会拒绝。
 4. **可选：API 后端**：在 Worker 的 Settings → Variables 加 secret `OPENAI_API_KEY`

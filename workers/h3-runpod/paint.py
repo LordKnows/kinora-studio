@@ -280,6 +280,7 @@ def run_codex(prompt: str, pictures: list[Path], w: int, h: int, workdir: Path,
     if not auth.is_file():
         raise PaintError("Codex is not logged in on this pod: open the Machine page and log in with the device code")
     why = ""
+    no_code_mode = os.environ.get("CODEX_CODE_MODE", "auto") == "off"
     for attempt in (1, 2):
         home = workdir / f"codex{attempt}" / "home"
         ws = workdir / f"codex{attempt}" / "ws"
@@ -290,6 +291,10 @@ def run_codex(prompt: str, pictures: list[Path], w: int, h: int, workdir: Path,
         copied = (home / "auth.json").read_bytes()
         (home / "config.toml").write_text(CODEX_CONFIG)
         cmd = [codex_bin(), "exec", "--skip-git-repo-check", "-C", str(ws), "-c", 'model_reasoning_effort="low"', "--json"]
+        if no_code_mode:
+            # Codex 0.16x runs tool calls through the separate codex-code-mode-host
+            # helper; when it cannot start, ask for the tools directly instead.
+            cmd += ["-c", "features.code_mode=false"]
         model = os.environ.get("CODEX_PAINT_MODEL")
         if model:
             cmd += ["-m", model]
@@ -324,6 +329,10 @@ def run_codex(prompt: str, pictures: list[Path], w: int, h: int, workdir: Path,
         why = (said or (r.stderr or "")[-400:] or f"exit {r.returncode}, no picture").strip()[:400]
         if any(q in why.lower() for q in QUOTA_WORDS):
             raise QuotaError(f"codex: {why}")
+        if "code-mode host" in why.lower() or "code_mode_host" in why.lower():
+            no_code_mode = True
+    if "code-mode host" in why.lower():
+        why += f" — codex-code-mode-host must sit next to {codex_bin()} (install_codex.sh installs both; restart the pod)"
     raise PaintError(f"no picture after 2 tries: {why}")
 
 
@@ -493,6 +502,8 @@ class CodexLogin:
     def status(self) -> dict[str, Any]:
         binary = codex_bin()
         installed = bool(shutil.which(binary) or Path(binary).is_file())
+        helper = Path(binary).with_name("codex-code-mode-host") if Path(binary).is_absolute() else Path(shutil.which("codex-code-mode-host") or "")
+        helper_ok = helper.is_file() if str(helper) else False
         logged_in = False
         detail = ""
         if installed:
@@ -506,7 +517,7 @@ class CodexLogin:
             login = dict(self.state)
         if logged_in and login.get("state") == "pending":
             login["state"] = "done"
-        return {"installed": installed, "logged_in": logged_in, "detail": detail, "home": str(codex_home()), "login": login}
+        return {"installed": installed, "code_mode_host": helper_ok, "logged_in": logged_in, "detail": detail, "bin": binary, "home": str(codex_home()), "login": login}
 
     def start(self) -> dict[str, Any]:
         with self.lock:

@@ -259,3 +259,27 @@ def test_remake_status_reads_files(tmp_path, monkeypatch):
     monkeypatch.setattr(h3, "REMAKE_NODE_DIR", str(nodes))
     st = h3.remake_status(tmp_path)
     assert st["ready"] and st["modes"] == {"edit": True, "swap": False}
+
+
+def test_codex_falls_back_without_code_mode_when_its_host_is_missing(tmp_path, codex_env):
+    calls = []
+
+    def run(cmd, env, **kw):
+        calls.append(cmd)
+        home = Path(env["CODEX_HOME"])
+        if "features.code_mode=false" not in cmd:
+            msg = {"type": "item.completed", "item": {"type": "agent_message", "text": "REFUSED failed to spawn code-mode host /root/codex/bin/codex-code-mode-host: No such file or directory (os error 2)"}}
+            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(msg), stderr="")
+        d = home / "generated_images" / "s"
+        d.mkdir(parents=True)
+        (d / "a.png").write_bytes(png_bytes((9, 9, 9), (1664, 960)))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    params = paint.validate_paint_input({"op": "paint", "prompt": "A courier in a yellow raincoat, front view.", "size": "1344x768", "output": {"key": "x.png"}})
+    out = paint.run_paint_job(params, FakeUploader(), tmp_path, http=FakeHttp({}), codex_runner=run)
+    assert out["attempts"] == 2
+    assert "features.code_mode=false" not in calls[0] and "features.code_mode=false" in calls[1]
+
+
+def test_install_codex_script_is_valid_bash():
+    assert subprocess.run(["bash", "-n", str(HERE / "install_codex.sh")]).returncode == 0
