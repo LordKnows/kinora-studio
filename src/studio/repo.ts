@@ -5,7 +5,7 @@ import { notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
@@ -119,9 +119,9 @@ export async function setImaging(id: string, imaging: Imaging | null): Promise<P
 }
 
 /** Count one finished picture against the quota, atomically. */
-export async function bumpImagesUsed(id: string): Promise<Project> {
+export async function bumpImagesUsed(id: string, n = 1): Promise<Project> {
   const p = await getProject(id);
-  if (p.imaging) await setImaging(id, { ...p.imaging, usedImages: p.imaging.usedImages + 1 });
+  if (p.imaging) await setImaging(id, { ...p.imaging, usedImages: p.imaging.usedImages + Math.max(1, Math.round(n)) });
   return getProject(id);
 }
 
@@ -199,19 +199,48 @@ function mapAsset(r: Row): Asset {
     url: str(r.url), kind: str(r.kind) as AssetKind, source: str(r.source) as AssetSource,
     width: opt(r.width, num), height: opt(r.height, num), durationS: opt(r.duration_s, num),
     meta: json(r.meta_json, {}), createdAt: num(r.created_at),
+    ...(r.seq !== null && r.seq !== undefined ? { seq: num(r.seq), handle: `IMG-${num(r.seq)}` } : {}),
+    ...(typeof r.name === "string" && r.name ? { name: r.name } : {}),
   };
 }
 
+export const ASSET_NAME_MAX = 80;
+const cleanName = (name?: string) => name?.replace(/\s+/g, " ").trim().slice(0, ASSET_NAME_MAX) || null;
+
+/** Pictures get the next number of their project (IMG-n) in the same
+    statement, so two pictures landing at once never share one. */
 export async function createAsset(input: {
   projectId: string | null; url: string; kind: AssetKind; source: AssetSource;
-  width?: number; height?: number; durationS?: number; meta?: Record<string, unknown>;
+  width?: number; height?: number; durationS?: number; meta?: Record<string, unknown>; name?: string;
 }): Promise<Asset> {
   const id = newId("ast");
+  const name = cleanName(input.name ?? (typeof input.meta?.label === "string" ? input.meta.label : undefined));
   await (await db()).run(
-    "INSERT INTO assets (id, project_id, url, kind, source, width, height, duration_s, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, input.projectId, input.url, input.kind, input.source, input.width ?? null, input.height ?? null, input.durationS ?? null, JSON.stringify(input.meta ?? {}), Date.now()],
+    `INSERT INTO assets (id, project_id, url, kind, source, width, height, duration_s, meta_json, created_at, name, seq)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'image' THEN (SELECT COALESCE(MAX(seq), 0) + 1 FROM assets WHERE kind = 'image' AND project_id IS ?) END)`,
+    [id, input.projectId, input.url, input.kind, input.source, input.width ?? null, input.height ?? null, input.durationS ?? null, JSON.stringify(input.meta ?? {}), Date.now(), name, input.kind, input.projectId],
   );
   return getAsset(id);
+}
+
+export async function renameAsset(id: string, name: string): Promise<Asset> {
+  await (await db()).run("UPDATE assets SET name = ? WHERE id = ?", [cleanName(name), id]);
+  return getAsset(id);
+}
+
+/** An asset id, or a picture's handle in this project ("IMG-12", "img12", "#12", "12"). */
+export async function resolveAssetRef(projectId: string, ref: string): Promise<string> {
+  const m = /^(?:img[-_ ]?|#)?(\d{1,6})$/i.exec(ref.trim());
+  if (!m) return ref;
+  const row = await (await db()).get("SELECT id FROM assets WHERE project_id = ? AND kind = 'image' AND seq = ?", [projectId, Number(m[1])]);
+  if (!row) throw notFound("picture", `IMG-${m[1]} in this project`);
+  return str(row.id);
+}
+
+export async function deleteAssets(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const { changes } = await (await db()).run(`DELETE FROM assets WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+  return changes;
 }
 
 export async function updateAssetMeta(id: string, meta: Record<string, unknown>): Promise<Asset> {
@@ -745,6 +774,7 @@ function mapJob(r: Row): Job {
     requestId: opt(r.request_id, str), status: str(r.status) as JobStatus, assetIds: json<string[]>(r.asset_ids_json, []),
     costUsd: opt(r.cost_usd, num), error: opt(r.error, str), input: json<Record<string, unknown>>(r.input_json, {}),
     output: json<Record<string, unknown> | undefined>(r.output_json, undefined), createdAt: num(r.created_at), finishedAt: opt(r.finished_at, num),
+    claimedAt: opt(r.claimed_at, num), attempts: opt(r.attempts, num),
   };
 }
 
@@ -785,6 +815,64 @@ export async function updateJob(id: string, patch: Partial<{ requestId: string; 
     patch.output ? JSON.stringify(patch.output) : cur.output ? JSON.stringify(cur.output) : null, id,
   ]);
   return getJob(id);
+}
+
+/** Hand a queued image job to a painter; false when someone else took it first. */
+export async function claimJob(id: string, requestId: string): Promise<boolean> {
+  const { changes } = await (await db()).run(
+    "UPDATE jobs SET status = 'running', request_id = ?, claimed_at = ?, attempts = attempts + 1 WHERE id = ? AND status = 'queued' AND request_id IS NULL",
+    [requestId, Date.now(), id],
+  );
+  return changes === 1;
+}
+
+/** Give a job back to the queue (its painter went away). Only if it still holds it. */
+export async function releaseJob(id: string, requestId: string, note: string): Promise<boolean> {
+  const { changes } = await (await db()).run("UPDATE jobs SET status = 'queued', request_id = NULL, claimed_at = NULL, error = ? WHERE id = ? AND status = 'running' AND request_id = ?", [note, id, requestId]);
+  return changes === 1;
+}
+
+export async function listQueuedJobs(kind: JobKind, limit = 50): Promise<Job[]> {
+  const rows = await (await db()).all("SELECT * FROM jobs WHERE kind = ? AND status = 'queued' AND request_id IS NULL ORDER BY created_at LIMIT ?", [kind, limit]);
+  return rows.map(mapJob);
+}
+
+/* ---------- painters ---------- */
+
+function mapPainter(r: Row): Painter {
+  return {
+    id: str(r.id), name: str(r.name), info: json<Painter["info"]>(r.info_json, {}), commands: json<Painter["commands"]>(r.commands_json, []),
+    firstSeenAt: num(r.first_seen_at), lastSeenAt: num(r.last_seen_at),
+  };
+}
+
+export async function upsertPainter(id: string, name: string, info: Painter["info"]): Promise<Painter> {
+  const now = Date.now();
+  await (await db()).run(
+    `INSERT INTO painters (id, name, info_json, commands_json, first_seen_at, last_seen_at) VALUES (?, ?, ?, '[]', ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, info_json = excluded.info_json, last_seen_at = excluded.last_seen_at`,
+    [id, name, JSON.stringify(info), now, now],
+  );
+  return getPainter(id);
+}
+
+export async function getPainter(id: string): Promise<Painter> {
+  const row = await (await db()).get("SELECT * FROM painters WHERE id = ?", [id]);
+  if (!row) throw notFound("painter", id);
+  return mapPainter(row);
+}
+
+export async function listPainters(): Promise<Painter[]> {
+  const rows = await (await db()).all("SELECT * FROM painters ORDER BY last_seen_at DESC");
+  return rows.map(mapPainter);
+}
+
+export async function setPainterCommands(id: string, commands: Painter["commands"]): Promise<void> {
+  await (await db()).run("UPDATE painters SET commands_json = ? WHERE id = ?", [JSON.stringify(commands), id]);
+}
+
+export async function deletePainter(id: string): Promise<void> {
+  await (await db()).run("DELETE FROM painters WHERE id = ?", [id]);
 }
 
 /* ---------- eval ---------- */

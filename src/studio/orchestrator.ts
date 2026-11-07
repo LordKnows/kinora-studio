@@ -808,7 +808,9 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
   }
   let autoStopped: boolean | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
-    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveJobs()).some((j) => j.kind === "image");
+    /* pictures keep the pod up only while the pod itself is drawing one (painters elsewhere do not need it) */
+    const { podIsPainting } = await import("./painter");
+    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await podIsPainting());
     try {
       autoStopped = await gpu.autoStopIfIdle(stillBusy);
     } catch {

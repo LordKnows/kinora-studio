@@ -161,37 +161,17 @@ def test_status_carries_the_runner_progress():
         httpd.shutdown()
 
 
-def test_paint_lane_runs_beside_a_busy_gpu_and_extra_routes_answer():
-    release = threading.Event()
-
-    def run_video(inp):
-        release.wait(5)
-        return {"url": "https://r2/v.mp4"}
-
-    def run_paint(inp):
-        return {"url": "https://r2/p.png", "width": 1344, "height": 768}
-
-    server = JobServer(run_video, lambda inp: {}, token="t0k", post=lambda *a, **k: None, run_paint=run_paint,
-                       routes={("GET", "/codex/status"): lambda b: (200, {"installed": True, "logged_in": False}),
-                               ("POST", "/codex/login"): lambda b: (200, {"state": "pending", "code": "ABCD-1234"})}, paint_workers=1)
+def test_extra_routes_answer_and_need_the_token():
+    server = JobServer(lambda inp: {}, lambda inp: {}, token="t0k", post=lambda *a, **k: None,
+                       routes={("GET", "/remake/status"): lambda b: (200, {"ready": False}),
+                               ("POST", "/remake/install"): lambda b: (200, {"started": True, "modes": b.get("modes")})})
     httpd = server.serve("127.0.0.1", 0)
     port = httpd.server_address[1]
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     try:
-        _, video = call(port, "POST", "/run", {"input": {}})
-        _, img = call(port, "POST", "/paint", {"input": {}})
-        deadline = time.time() + 3
-        status = {}
-        while time.time() < deadline:
-            _, status = call(port, "GET", f"/status/{img['id']}")
-            if status["status"] == "COMPLETED":
-                break
-            time.sleep(0.05)
-        assert status["status"] == "COMPLETED" and status["output"]["url"].endswith("p.png")
-        assert call(port, "GET", f"/status/{video['id']}")[1]["status"] == "IN_PROGRESS"
-        assert call(port, "GET", "/codex/status")[1] == {"installed": True, "logged_in": False}
-        assert call(port, "POST", "/codex/login", {})[1]["code"] == "ABCD-1234"
-        assert call(port, "GET", "/codex/status", token=None)[0] == 401
+        assert call(port, "GET", "/remake/status")[1] == {"ready": False}
+        assert call(port, "POST", "/remake/install", {"modes": ["edit"]})[1] == {"started": True, "modes": ["edit"]}
+        assert call(port, "GET", "/remake/status", token=None)[0] == 401
+        assert call(port, "POST", "/paint", {"input": {}})[0] == 404  # pictures go through the painters now
     finally:
-        release.set()
         httpd.shutdown()

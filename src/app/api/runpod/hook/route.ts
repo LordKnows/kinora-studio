@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { errorResponse } from "@/api/http";
 import { mapRunPodStatus, verifyHookUrl } from "@/studio/backends/runpod";
 import { config } from "@/studio/config";
-import { applyImageStatus } from "@/studio/imaging";
 import { applyTakeStatus, applyUpscaleStatus } from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 
@@ -14,13 +13,6 @@ export async function POST(req: Request): Promise<Response> {
     const subject = await verifyHookUrl(new URL(req.url), config.runpod().webhookSecret);
     const body = (await req.json()) as Parameters<typeof mapRunPodStatus>[0];
     const job = body;
-    if (subject.startsWith("image:")) {
-      /* An image job on the pod (paint, crop, extract). */
-      const job = await repo.getJob(subject.slice("image:".length));
-      if (job.requestId && body.id && job.requestId !== body.id) return NextResponse.json({ ok: true, ignored: "stale job id" });
-      const updated = await applyImageStatus(job, mapRunPodStatus(body));
-      return NextResponse.json({ ok: true, status: updated.status });
-    }
     if (subject.startsWith("regen:")) {
       /* Open-H3-Regenerate-2K pass of a take. */
       const take = await repo.getTake(subject.slice("regen:".length));

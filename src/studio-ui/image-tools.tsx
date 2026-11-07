@@ -9,8 +9,8 @@ import { Button, ErrorBanner, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
 /* The web side of GPT Image: every button posts one action to
-   /api/projects/:id/images and follows the job until its picture is in. The
-   buttons are disabled while GPT Image is off for the project. */
+   /api/projects/:id/images and follows the job until a painter has drawn
+   it. The buttons are disabled while GPT Image is off for the project. */
 
 export type Box = { x: number; y: number; w: number; h: number };
 
@@ -23,7 +23,7 @@ export function useImagingOn(): { on: boolean; why?: string } {
   return { on: true };
 }
 
-type Started = { job?: Job; pod?: string; note?: string; queued?: Array<{ jobId: string }>; later?: string[] };
+type Started = { job?: Job; runner?: string; painters?: { ready: boolean; note?: string }; note?: string; queued?: Array<{ jobId: string }>; later?: string[] };
 
 /** Start an image action and poll its job(s); reload the project when they are done. */
 export function useImageAction() {
@@ -45,7 +45,7 @@ export function useImageAction() {
         }
       }
       if (pending.size) {
-        setStatus((s) => (s.startsWith("failed") ? s : `drawing… ${jobIds.length - pending.size}/${jobIds.length}`));
+        setStatus((s) => (s.startsWith("failed") || s.startsWith("queued —") ? s : `drawing… ${jobIds.length - pending.size}/${jobIds.length}`));
         timer.current = setTimeout(() => void tick(), 3000);
       } else {
         setStatus((s) => (s.startsWith("failed") ? s : "done"));
@@ -63,12 +63,9 @@ export function useImageAction() {
       return;
     }
     if (r.note) setStatus(r.note);
-    if (r.pod && !r.pod.startsWith("running")) {
-      setStatus(`queued; the GPU pod is ${r.pod.split(":")[0]}`);
-      if (window.confirm("Image jobs run on the GPU pod, which is not running. Start it now? (It bills per hour while it runs; the job starts when it is up.)")) {
-        await post("/api/gpu/start", { confirm: true });
-        setStatus("starting the pod…");
-      }
+    if (r.painters && !r.painters.ready) {
+      /* nobody can draw it right now: say why; the GPU pod is only a fallback, never started from here */
+      setStatus(`queued — ${r.painters.note ?? "waiting for a painter"}`);
     }
     void follow(ids);
   });

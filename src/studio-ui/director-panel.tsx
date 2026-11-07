@@ -9,7 +9,7 @@ import { Button, ErrorBanner, Field, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
-type ImagingSummary = { enabled: boolean; backend: "codex" | "api"; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; stoppedReason?: string; backendReady: boolean; note?: string };
+type ImagingSummary = { enabled: boolean; backend: "codex" | "api"; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
@@ -56,8 +56,8 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await put(`/api/projects/${projectId}/delegation`, next);
     await refresh();
   });
-  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; backend: "codex" | "api"; maxImages: number; quality: "low" | "medium" | "high"; clearStop: boolean }>) => {
-    if (next.enabled && !img?.enabled && !window.confirm("Switch GPT Image on for this project? The director and the buttons may then draw pictures with your ChatGPT plan (Codex on the pod) or the API, up to the image limit below.")) return;
+  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; backend: "codex" | "api"; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
+    if (next.enabled && !img?.enabled && !window.confirm("Switch GPT Image on for this project? The director and the buttons may then draw pictures with your ChatGPT plan (Codex on a painter) or the API, up to the image limit below.")) return;
     await put(`/api/projects/${projectId}/imaging`, { enabled: next.enabled ?? img?.enabled ?? false, ...next });
     await refresh();
   });
@@ -80,7 +80,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
       <div className="st-stack st-stack--tight">
         <strong>GPT Image</strong>
         <span className="st-muted">
-          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director. Codex uses your ChatGPT plan through the Codex CLI on the GPU pod (log it in once on the Machine page); API uses OPENAI_API_KEY and is paid per picture.
+          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director. Pictures are drawn by a painter — a small always-on machine, not the GPU pod — so they are ready before the pod starts (Machine page → Painters). Codex uses your ChatGPT plan through the Codex CLI there (log it in once on the Machine page); API uses OPENAI_API_KEY and is paid per picture.
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
@@ -105,6 +105,22 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
               <input className="st-input st-input--sm" type="number" min={1} max={2000} value={imgMax} onChange={(e) => setImgMax(e.target.value)} onBlur={() => Number(imgMax) !== img.maxImages && void setImaging.fire({ maxImages: Math.max(1, Number(imgMax) || 1) })} style={{ width: 90 }} />
             </Field>
             <span className="st-muted st-num">{img.usedImages} used · {img.leftImages} left</span>
+          </div>
+        )}
+        {img?.enabled && (
+          <div className="st-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+            <label className="st-row" style={{ gap: 8 }} title="A fresh Codex session looks at every drawn picture beside its references and brief (anatomy, extra people, identity, mirrored features, text, framing) before it reaches you. Uses Codex usage, not image quota.">
+              <input type="checkbox" disabled={setImaging.busy} checked={img.selfCheck} onChange={(e) => void setImaging.fire({ selfCheck: e.target.checked })} />
+              <span>Self-check every picture</span>
+            </label>
+            <Field label="Redraws on a blocker">
+              <select className="st-select st-input--sm" value={img.autoRedraws} disabled={!img.selfCheck} onChange={(e) => void setImaging.fire({ autoRedraws: Number(e.target.value) })}>
+                <option value={0}>0 (just flag it)</option>
+                <option value={1}>1</option>
+                <option value={2}>2</option>
+              </select>
+            </Field>
+            <span className="st-muted">A redraw counts as a picture.</span>
           </div>
         )}
         {img?.stoppedReason && (
