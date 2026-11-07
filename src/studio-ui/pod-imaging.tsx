@@ -6,7 +6,7 @@ import { get, post } from "./api";
 import { Button, ErrorBanner, Lamp, useAction } from "./common";
 
 type Login = { state: string; url?: string; code?: string; lines?: string[]; error?: string };
-type Codex = { installed: boolean; logged_in: boolean; detail?: string; home?: string; login?: Login };
+type Codex = { installed: boolean; code_mode_host?: boolean; logged_in: boolean; detail?: string; home?: string; bin?: string; login?: Login };
 type Remake = { ready: boolean; modes: { edit: boolean; swap: boolean }; nodes: boolean; download: string; log?: string };
 
 /* The pod's image side: Codex logged in with the user's ChatGPT plan (device
@@ -55,7 +55,10 @@ export function PodImaging() {
           <strong>Codex (GPT Image with your ChatGPT plan)</strong>
           <br />
           {codex ? (
-            <Lamp state={codex.logged_in ? "ok" : codex.installed ? "warn" : "draft"} label={codex.logged_in ? "logged in" : codex.installed ? "installed, not logged in" : "not installed (the pod installs it at boot)"} />
+            <span className="st-row" style={{ gap: 8 }}>
+              <Lamp state={codex.logged_in ? "ok" : codex.installed ? "warn" : "draft"} label={codex.logged_in ? "logged in" : codex.installed ? "installed, not logged in" : "not installed (the pod installs it at boot)"} />
+              {codex.installed && codex.code_mode_host === false && <Lamp state="warn" label="code-mode helper missing (restart the pod)" />}
+            </span>
           ) : null}
         </span>
         <span className="st-row">
@@ -72,7 +75,7 @@ export function PodImaging() {
         </div>
       )}
       {l && l.state === "failed" && <span className="st-warn">Login failed{l.error ? `: ${l.error}` : ""}. {l.lines?.slice(-2).join(" ")}</span>}
-      {codex?.logged_in && <span className="st-muted">The login lives on the volume ({codex.home}); a new pod reuses it.</span>}
+      {codex?.logged_in && <span className="st-muted">{codex.home?.startsWith("/root/") ? `The login is on the pod's own disk (${codex.home}), not on a volume: a new pod needs a new login.` : `The login lives on the volume (${codex.home}); a new pod reuses it.`}</span>}
 
       <div className="st-row st-row--between" style={{ marginTop: 8 }}>
         <span>

@@ -212,27 +212,20 @@ fi
 # Image jobs (paint.py) need Pillow in the job server's Python.
 python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; image jobs will fail"
 
-# The Codex CLI draws with the user's ChatGPT plan (image_gen). The binary and
-# the login live on the volume when there is one, so the device-code login
-# is done once and a refreshed token survives a new pod. CODEX_INSTALL=0 skips.
+# The Codex CLI draws with the user's ChatGPT plan (image_gen). The binaries
+# and the login live on the network volume ($VOLUME_PATH, the same place the
+# models come from), so the device-code login is done once and a refreshed
+# token survives a new pod. Codex runs its tools through a separate helper,
+# codex-code-mode-host, released as its own archive and looked up next to the
+# codex binary: both are installed into one bin/. CODEX_INSTALL=0 skips.
 if [ "${CODEX_INSTALL:-1}" = "1" ]; then
-  CROOT="${STUDIO_VOLUME_PATH:-/root}/codex"
-  [ -d "${STUDIO_VOLUME_PATH:-/nonexistent}" ] || CROOT="/root/codex"
-  mkdir -p "$CROOT/bin" "$CROOT/home"
-  if [ ! -x "$CROOT/bin/codex" ] || [ "${CODEX_UPDATE:-0}" = "1" ]; then
-    (
-      set -e
-      tmp="$(mktemp -d)"
-      curl -fsSL -A Mozilla/5.0 -o "$tmp/codex.tgz" "${CODEX_RELEASE_URL:-https://github.com/openai/codex/releases/latest/download/codex-x86_64-unknown-linux-musl.tar.gz}"
-      tar xzf "$tmp/codex.tgz" -C "$tmp"
-      bin="$(find "$tmp" -type f -name 'codex*' ! -name '*.tgz' | head -1)"
-      install -m 0755 "$bin" "$CROOT/bin/codex"
-      rm -rf "$tmp"
-      echo "installed $("$CROOT/bin/codex" --version 2>/dev/null || echo codex)"
-    ) > /app/codex_install.log 2>&1 || echo "[start] Codex CLI install failed; see /app/codex_install.log"
-  fi
+  CROOT="${CODEX_ROOT:-${VOLUME_PATH:-/workspace}/codex}"
+  mkdir -p "$CROOT/bin" "$CROOT/home" 2>/dev/null || { CROOT="/root/codex"; mkdir -p "$CROOT/bin" "$CROOT/home"; }
+  bash /app/h3-runpod/install_codex.sh "$CROOT/bin" > /app/codex_install.log 2>&1 || echo "[start] Codex CLI install failed; see /app/codex_install.log"
   export CODEX_BIN="$CROOT/bin/codex"
   export CODEX_HOME_MASTER="$CROOT/home"
+  export PATH="$CROOT/bin:$PATH"
+  echo "[start] Codex at $CROOT ($(tail -1 /app/codex_install.log 2>/dev/null))"
 fi
 
 echo "[start] ComfyUI: $COMFY_CMD"
