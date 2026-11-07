@@ -167,6 +167,39 @@ def test_a_painter_on_runpod_says_which_pod_it_is(monkeypatch):
     assert "runpodPodId" not in fake.claims[-1]["info"]
 
 
+def test_a_job_handed_over_again_is_not_drawn_twice():
+    gate = threading.Event()
+    calls = []
+
+    def run_job(job_id, raw):
+        calls.append(job_id)
+        gate.wait(5)
+        return {"error": "test"}
+
+    job = {"jobId": "job_9", "input": {}}
+    fake = FakeStudio(jobs=[job])
+    p = painter.Painter(painter.Studio("https://studio.test", "tok", http=fake), "box-6", "box", slots=2, login=FakeLogin(), http=fake, run_job=run_job)
+    p.tick()
+    fake.jobs = [job]  # the Studio hands it over again (its answer was lost)
+    p.tick()
+    assert fake.claims[-1]["info"]["running"] == ["job_9"] and fake.claims[-1]["info"]["instance"] == p.instance
+    gate.set()
+    assert wait_for(lambda: not p.running)
+    assert calls == ["job_9"]
+
+
+def test_on_runpod_every_pod_is_its_own_painter(tmp_path, monkeypatch):
+    monkeypatch.setenv("STUDIO_URL", "https://studio.test")
+    monkeypatch.setenv("PAINTER_TOKEN", "tok")
+    monkeypatch.setenv("PAINTER_STATE_DIR", str(tmp_path))
+    monkeypatch.delenv("PAINTER_ID", raising=False)
+    monkeypatch.setenv("RUNPOD_POD_ID", "abc123")
+    assert painter.from_env().id == "pod-abc123"
+    assert painter.from_env(on_pod=True).id == "gpu-pod-abc123"
+    monkeypatch.delenv("RUNPOD_POD_ID")
+    assert painter.from_env().id == painter.painter_id(tmp_path)
+
+
 def test_painter_id_is_stable(tmp_path):
     a = painter.painter_id(tmp_path)
     assert a == painter.painter_id(tmp_path) and (tmp_path / "painter-id").read_text() == a

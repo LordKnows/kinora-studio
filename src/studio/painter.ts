@@ -25,9 +25,16 @@ import type { Job, Painter } from "./types";
 export const ONLINE_MS = 90_000;
 /** A running job whose painter has been silent this long goes back to the queue. */
 export const LEASE_LOST_MS = 4 * 60_000;
-/** A job whose painter answered without it this long after claiming it was lost (the painter restarted). */
-const FORGOTTEN_MS = 60_000;
-export const MAX_ATTEMPTS = 3;
+/** A job its painter does not report this long after it was handed over never reached it (or the painter
+    restarted): it is handed to the same painter again. A claim whose answer was lost — the Worker cut off
+    after the job was booked (error 1102), a network drop — must not count as a failed picture. */
+const UNSEEN_MS = 15_000;
+/** Hand-overs of one job before it fails (each is counted in `attempts`). */
+export const MAX_HANDOVERS = 8;
+/** Hand-overs (re-deliveries included) after which a job whose painter went silent fails instead of going back to the queue. */
+export const MAX_ATTEMPTS = 5;
+/** Painters not heard from for this long are forgotten (a pod-based painter has a new id per pod). */
+const FORGET_PAINTERS_MS = 24 * 60 * 60_000;
 /** Queued this long with no painter taking it: fail it so nobody waits forever. */
 const QUEUE_TIMEOUT_MS = 3 * 60 * 60_000;
 
@@ -109,15 +116,29 @@ export const outputKey = (job: Pick<Job, "id" | "projectId">) => `projects/${job
 export async function claim(input: ClaimInput): Promise<{ jobs: ClaimedJob[]; commands: Painter["commands"]; pollMs: number }> {
   const id = input.painterId.replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 80);
   if (!id) throw new StudioError("validation", "painterId is required");
-  const painter = await repo.upsertPainter(id, input.name.slice(0, 80) || id, { ...input.info, running: (input.info.running ?? []).slice(0, 50) });
-  /* jobs we think it holds but it no longer reports: it restarted and lost them */
+  const now = Date.now();
+  /* two processes heartbeating under one id (a second pod on the same volume, a copy left running) steal
+     each other's jobs: say so where the user looks */
+  const before = await repo.getPainter(id).catch(() => undefined);
+  const clash = !!before?.info.instance && !!input.info.instance && before.info.instance !== input.info.instance && now - before.lastSeenAt < 20_000;
+  const info = { ...input.info, running: (input.info.running ?? []).slice(0, 50), ...(clash ? { lastError: `two painter processes are using the id ${id} (seen ${before!.info.host ?? "?"} and ${input.info.host ?? "?"}): stop one of them` } : {}) };
+  const painter = await repo.upsertPainter(id, input.name.slice(0, 80) || id, info);
   const running = new Set(painter.info.running ?? []);
-  for (const job of (await repo.listActiveJobs()).filter((j) => j.kind === "image" && j.status === "running" && painterOfJob(j) === id)) {
-    if (!running.has(job.id) && Date.now() - (job.claimedAt ?? 0) > FORGOTTEN_MS) await requeueOrFail(job, `the painter ${painter.name} restarted while drawing it`);
-  }
-  const jobs: ClaimedJob[] = [];
   const want = Math.max(0, Math.min(4, Math.floor(input.want)));
-  if (want > 0) {
+  const jobs: ClaimedJob[] = [];
+  /* jobs booked to it that it does not report: the answer that carried them was lost, or it restarted —
+     hand them over again rather than failing the picture */
+  for (const job of (await repo.listActiveJobs()).filter((j) => j.kind === "image" && j.status === "running" && painterOfJob(j) === id)) {
+    if (running.has(job.id) || now - (job.claimedAt ?? 0) < UNSEEN_MS) continue;
+    if ((job.attempts ?? 1) >= MAX_HANDOVERS) {
+      await repo.updateJob(job.id, { status: "failed", error: `handed to the painter ${painter.name} ${job.attempts} times without it drawing it`, finishedAt: now });
+      continue;
+    }
+    if (jobs.length >= want) continue;
+    await repo.rehandJob(job.id);
+    jobs.push({ jobId: job.id, input: painterInput(job) });
+  }
+  if (jobs.length < want) {
     for (const job of await repo.listQueuedJobs("image", 50)) {
       if (jobs.length >= want) break;
       if (!canServe(painter, job)) continue;
@@ -203,6 +224,7 @@ async function requeueOrFail(job: Job, why: string): Promise<void> {
 
 /** Running jobs whose painter went silent go back to the queue; jobs nobody took for hours fail. */
 export async function sweepImageLeases(now = Date.now()): Promise<number> {
+  await repo.forgetPaintersBefore(now - FORGET_PAINTERS_MS).catch(() => undefined);
   const painters = new Map((await repo.listPainters()).map((p) => [p.id, p]));
   let changed = 0;
   for (const job of (await repo.listActiveJobs()).filter((j) => j.kind === "image")) {

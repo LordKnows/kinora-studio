@@ -16,6 +16,7 @@ const Info = z.object({
   running: z.array(z.string().max(80)).max(50).default([]),
   onPod: z.boolean().optional(),
   runpodPodId: z.string().max(80).optional(),
+  instance: z.string().max(80).optional(),
   codex: z.record(z.string(), z.unknown()).optional(),
   login: z.object({ state: z.string().max(20), url: z.string().max(400).optional(), code: z.string().max(40).optional(), lines: z.array(z.string().max(400)).max(20).optional(), error: z.string().max(400).optional() }).optional(),
   lastError: z.string().max(600).optional(),

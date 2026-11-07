@@ -830,6 +830,11 @@ export async function claimJob(id: string, requestId: string): Promise<boolean> 
   return changes === 1;
 }
 
+/** Hand a booked job to its painter again (the answer that carried it was lost); counted as a hand-over. */
+export async function rehandJob(id: string): Promise<void> {
+  await (await db()).run("UPDATE jobs SET claimed_at = ?, attempts = attempts + 1 WHERE id = ?", [Date.now(), id]);
+}
+
 /** Give a job back to the queue (its painter went away). Only if it still holds it. */
 export async function releaseJob(id: string, requestId: string, note: string): Promise<boolean> {
   const { changes } = await (await db()).run("UPDATE jobs SET status = 'queued', request_id = NULL, claimed_at = NULL, error = ? WHERE id = ? AND status = 'running' AND request_id = ?", [note, id, requestId]);
@@ -878,6 +883,10 @@ export async function setPainterCommands(id: string, commands: Painter["commands
 /** The pod a painter ran in is gone: it is offline now, not in 90 s when its heartbeats stop counting. */
 export async function markPaintersGone(runpodPodId: string): Promise<void> {
   await (await db()).run("UPDATE painters SET last_seen_at = 0 WHERE json_extract(info_json, '$.runpodPodId') = ?", [runpodPodId]);
+}
+
+export async function forgetPaintersBefore(ts: number): Promise<void> {
+  await (await db()).run("DELETE FROM painters WHERE last_seen_at < ?", [ts]);
 }
 
 export async function deletePainter(id: string): Promise<void> {

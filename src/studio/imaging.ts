@@ -550,6 +550,15 @@ export async function generateStyleFrame(projectId: string, actor: Actor, opts: 
   return { ...r, prompt };
 }
 
+/** Withdraw a picture that is no longer wanted. A painter already drawing it finishes, but its answer is
+    refused and nothing is attached or counted. */
+export async function cancelImageJob(jobId: string, actor: Actor): Promise<Job> {
+  const job = await repo.getJob(jobId);
+  if (job.kind !== "image") throw new StudioError("validation", "not an image job");
+  if (job.status !== "queued" && job.status !== "running") return job;
+  return repo.updateJob(job.id, { status: "failed", error: `cancelled by ${actor.via === "mcp" ? "the director" : actor.user}`, finishedAt: Date.now() });
+}
+
 export async function listImageJobs(projectId: string): Promise<Job[]> {
   return (await repo.listProjectJobs(projectId, 60)).filter((j) => j.kind === "image");
 }
