@@ -6,7 +6,7 @@ import { EDIT_GRAMMAR, type LinkType } from "@/studio/editing";
 import { CAMERA_MOVES, MOTION_SOURCES, SCREEN_POSITIONS, SHOT_MODES, type ShotInput } from "@/studio/schemas";
 import type { Element, Take } from "@/studio/types";
 
-import { Button, Chips, Field } from "./common";
+import { Button, Chips, Field, NumberInput } from "./common";
 import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
 
@@ -95,7 +95,7 @@ export function ShotEditor({
     <div className="st-stack">
       <div className="st-fields">
         <Field label="Duration (s)">
-          <input className="st-input" type="number" min={5} max={15} step={1} value={value.durationS} onChange={(e) => set("durationS", Math.max(5, Math.min(15, Math.round(Number(e.target.value) || 5))))} />
+          <NumberInput min={5} max={15} value={value.durationS} onCommit={(v) => set("durationS", v ?? 5)} />
         </Field>
         <Field label="Mode">
           <select className="st-select" value={value.mode} onChange={(e) => set("mode", e.target.value as ShotDraft["mode"])}>

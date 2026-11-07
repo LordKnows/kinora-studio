@@ -7,7 +7,7 @@ import { LORA_KINDS, type LoraInput } from "@/studio/schemas";
 import type { Lora } from "@/studio/types";
 
 import { del, describe, get, patch, post } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Section, Skeleton, useAction } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, NumberInput, Section, Skeleton, useAction } from "./common";
 import { LORA_KIND_LABEL } from "./lora-picker";
 
 /* The global LoRA library: speed LoRAs (fewer steps), style and effect LoRAs.
@@ -220,7 +220,7 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
             <input type="range" min={0} max={2} step={0.05} value={draft.defaultStrength} onChange={(e) => set("defaultStrength", Number(e.target.value))} className="st-range" />
           </Field>
           <Field label="Steps hint" hint="Speed LoRAs: the step count they are trained for; becomes the project default.">
-            <input className="st-input" type="number" min={1} max={60} value={draft.stepsHint ?? ""} onChange={(e) => set("stepsHint", e.target.value ? Math.max(1, Math.min(60, Math.round(Number(e.target.value)))) : undefined)} placeholder="8" />
+            <NumberInput min={1} max={60} allowEmpty value={draft.stepsHint} onCommit={(v) => set("stepsHint", v ?? undefined)} placeholder="8" />
           </Field>
         </div>
         <Field label="Trigger words" hint="Appended to the LOOK block when this LoRA is active.">

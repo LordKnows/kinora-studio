@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
 import { uploadMedia } from "./upload";
@@ -10,6 +11,34 @@ import { ApiError, describe, usd } from "./api";
 
 /* Small shared controls for the studio pages. Every control carries its
    hover / focus / disabled / busy states in studio.css. */
+
+/** A number field that can be typed into: what is typed is kept as text and
+    clamped to min..max only on blur or Enter (clamping on every key turns
+    "1" into the minimum before the "2" of "12" arrives). */
+export function NumberInput({ value, min, max, onCommit, allowEmpty = false, integer = true, className = "st-input", placeholder, style, ariaLabel }: {
+  value: number | null | undefined; min: number; max: number; onCommit: (v: number | null) => void; allowEmpty?: boolean; integer?: boolean;
+  className?: string; placeholder?: string; style?: React.CSSProperties; ariaLabel?: string;
+}) {
+  const shown = value === null || value === undefined ? "" : String(value);
+  const [text, setText] = useState(shown);
+  useEffect(() => setText(shown), [shown]);
+  const commit = () => {
+    if (text.trim() === "") {
+      if (allowEmpty) onCommit(null);
+      else setText(shown);
+      return;
+    }
+    const n = Number(text);
+    if (!Number.isFinite(n)) return setText(shown);
+    const c = Math.max(min, Math.min(max, integer ? Math.round(n) : n));
+    setText(String(c));
+    if (c !== value) onCommit(c);
+  };
+  return (
+    <input className={className} type="number" inputMode={integer ? "numeric" : "decimal"} min={min} max={max} step={integer ? 1 : "any"} value={text} placeholder={placeholder} style={style} aria-label={ariaLabel}
+      onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+  );
+}
 
 export function Button({
   children,
@@ -239,6 +268,35 @@ export function Stars({ value, onChange }: { value?: number; onChange: (n: numbe
         </button>
       ))}
     </span>
+  );
+}
+
+/** A popup over everything (also over a drawer): Esc or a click outside closes it, and only it. */
+export function Modal({ title, onClose, children, size = "md", head }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "md" | "lg" | "full"; head?: ReactNode }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="st-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="st-modal" data-size={size} role="dialog" aria-modal="true">
+        <div className="st-modal-head">
+          <div className="st-modal-title">{title}</div>
+          {head}
+          <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onClose} aria-label="Close">
+            <CloseIcon size={13} />
+          </button>
+        </div>
+        <div className="st-modal-body">{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

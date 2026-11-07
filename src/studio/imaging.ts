@@ -27,7 +27,7 @@ import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
 
 /* ---------- the switch ---------- */
 
-export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, backend: "codex", maxImages: 40, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
+export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
 
 export async function setImaging(projectId: string, input: { enabled: boolean; backend?: Imaging["backend"]; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
   if (actor.via !== "web") throw new StudioError("forbidden", "GPT Image is switched on in Settings, on the web only");
@@ -342,10 +342,10 @@ export function stylePrompt(project: Project): string {
 
 /* ---------- which picture comes from where ---------- */
 
-export type FrameMethod = "none" | "sheets" | "anchor" | "edit_anchor" | "new" | "edit_from_last" | "edit_from_previous" | "crop_from_first" | "crop_from_last";
+export type FrameMethod = "none" | "sheets" | "anchor" | "edit_anchor" | "new" | "edit_from_last" | "edit_from_previous" | "edit_picture" | "crop_from_first" | "crop_from_last";
 export type FramePlanRow = { shotId: string; label: string; mode: string; link: string; first: FrameMethod | null; last: FrameMethod | null; have: { first: boolean; last: boolean }; previousShotId?: string; why: string; order: number; paints: number };
 
-const CHEAP: Record<FrameMethod, number> = { none: 0, sheets: 0, anchor: 0, crop_from_first: 0, crop_from_last: 0, edit_anchor: 1, edit_from_previous: 1, edit_from_last: 1, new: 1 };
+const CHEAP: Record<FrameMethod, number> = { none: 0, sheets: 0, anchor: 0, crop_from_first: 0, crop_from_last: 0, edit_anchor: 1, edit_from_previous: 1, edit_from_last: 1, edit_picture: 1, new: 1 };
 
 /**
  * The director's picture plan: for every shot, where its first and last
@@ -452,7 +452,7 @@ export async function generateElementSheet(elementId: string, views: RefView[], 
 }
 
 /** A first or last frame of a shot, by the plan's method unless one is given. */
-export async function generateShotFrame(shotId: string, which: "first" | "last", actor: Actor, opts: { method?: FrameMethod; quality?: Imaging["quality"]; startPod?: boolean; zoom?: number; instruction?: string } = {}): Promise<{ job?: Job; runner?: string; painters?: painter.RunnerSummary; method: FrameMethod; prompt?: string; note?: string }> {
+export async function generateShotFrame(shotId: string, which: "first" | "last", actor: Actor, opts: { method?: FrameMethod; quality?: Imaging["quality"]; startPod?: boolean; zoom?: number; instruction?: string; baseAssetId?: string } = {}): Promise<{ job?: Job; runner?: string; painters?: painter.RunnerSummary; method: FrameMethod; prompt?: string; note?: string }> {
   const shot = await repo.getShot(shotId);
   const pv = await getProjectView(shot.projectId);
   const flat = pv.scenes.flatMap((s) => s.shots);
@@ -503,6 +503,12 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   } else if (method === "edit_from_previous") {
     base = flat.find((x) => x.id === row.previousShotId)?.hero;
     instruction ||= `make it this shot's ${which} frame: ${which === "first" ? sh.spec.frames?.first ?? sh.spec.beats[0]?.action : sh.spec.frames?.last ?? sh.spec.beats[sh.spec.beats.length - 1]?.action}. Same place, same camera.`;
+  } else if (method === "edit_picture") {
+    /* any picture the user (or the director) chose as the starting point */
+    if (!opts.baseAssetId) throw new StudioError("validation", "edit_picture: choose the picture to start from (baseAssetId)");
+    base = pv.assets.find((a) => a.id === opts.baseAssetId && a.kind === "image");
+    if (!base) throw new StudioError("validation", `edit_picture: ${opts.baseAssetId} is not a picture of this project`);
+    instruction ||= `make it this shot's ${which} frame: ${which === "first" ? sh.spec.frames?.first ?? sh.spec.beats[0]?.action ?? sh.spec.intent : sh.spec.frames?.last ?? sh.spec.beats[sh.spec.beats.length - 1]?.action ?? sh.spec.intent}. Keep the people, the place, the light and the style of this picture.`;
   } else if (method === "edit_anchor") {
     const link = effectiveLink(sh.spec);
     const idx = flat.findIndex((x) => x.id === shotId);

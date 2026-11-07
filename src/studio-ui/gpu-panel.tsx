@@ -1,37 +1,149 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
 import type { GpuState } from "@/studio/gpu";
 import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
-import { Button, CopyRow, ErrorBanner, Lamp, useAction } from "./common";
+import { Button, CopyRow, ErrorBanner, Field, Lamp, useAction } from "./common";
 
-/* The GPU pod, as a compact card in the project rail and as a full section on
-   the settings page. One fetch on mount, then a poll whose pace follows the
-   pod: fast while it is starting, slow while it is running or off. */
+/* The GPU pod — one for the whole Studio, shared by every project. Its state
+   lives in ONE store for the page (the top-bar menu, the Machine page and any
+   other view read the same object), polled at a pace that follows the pod
+   (fast while it changes, slow otherwise), refreshed when the window regains
+   focus, and announced to the other open tabs after every Start / Stop. */
+
+type GpuStore = { state: GpuState | null; error: string | null };
+let gpuStore: GpuStore = { state: null, error: null };
+const gpuSubscribers = new Set<() => void>();
+let gpuTimer: number | undefined;
+let gpuInflight: Promise<void> | null = null;
+let gpuChannel: BroadcastChannel | null = null;
+
+function scheduleGpuPoll(): void {
+  if (typeof window === "undefined") return;
+  if (gpuTimer) window.clearTimeout(gpuTimer);
+  const s = gpuStore.state;
+  const busy = s?.status === "starting" || s?.status === "creating" || s?.status === "stopping" || (s?.pendingTakes ?? 0) > 0;
+  gpuTimer = window.setTimeout(() => void refreshGpuStore(), gpuStore.error ? 10000 : busy ? 5000 : 30000);
+}
+
+function refreshGpuStore(): Promise<void> {
+  if (gpuInflight) return gpuInflight;
+  gpuInflight = (async () => {
+    try {
+      gpuStore = { state: await get<GpuState>("/api/gpu"), error: null };
+    } catch (caught) {
+      gpuStore = { ...gpuStore, error: describe(caught) };
+    } finally {
+      gpuInflight = null;
+      gpuSubscribers.forEach((f) => f());
+      scheduleGpuPoll();
+    }
+  })();
+  return gpuInflight;
+}
+
+function channel(): BroadcastChannel | null {
+  if (gpuChannel || typeof window === "undefined" || typeof BroadcastChannel === "undefined") return gpuChannel;
+  gpuChannel = new BroadcastChannel("studio-gpu");
+  gpuChannel.onmessage = () => void refreshGpuStore();
+  return gpuChannel;
+}
 
 export function useGpu() {
-  const [state, setState] = useState<GpuState | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const reload = useCallback(async () => {
-    try {
-      setState(await get<GpuState>("/api/gpu"));
-      setError(null);
-    } catch (caught) {
-      setError(describe(caught));
-    }
+  const [, rerender] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    gpuSubscribers.add(rerender);
+    channel();
+    if (!gpuStore.state && !gpuInflight) void refreshGpuStore();
+    const onFocus = () => void refreshGpuStore();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      gpuSubscribers.delete(rerender);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
+  /* after a Start / Stop: refresh here and tell the other tabs */
+  const reload = useCallback(async () => {
+    await refreshGpuStore();
+    channel()?.postMessage("changed");
+  }, []);
+  return { state: gpuStore.state, error: gpuStore.error, reload };
+}
+
+const SHORT: Record<string, string> = { none: "GPU off", off: "GPU off", starting: "GPU starting", creating: "GPU creating", running: "GPU on", stopping: "GPU stopping", stopped: "GPU off", unavailable: "no GPU", terminated: "GPU off" };
+
+/** The GPU in the top bar of every page: always shown, opens a menu with its state and Start / Stop. */
+export function GpuMenu() {
+  const { state, error, reload } = useGpu();
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    void reload();
-  }, [reload]);
-  useEffect(() => {
-    const busy = state?.status === "starting" || state?.status === "creating" || state?.status === "stopping" || (state?.pendingTakes ?? 0) > 0;
-    const t = window.setInterval(() => void reload(), busy ? 5000 : 30000);
-    return () => window.clearInterval(t);
-  }, [state?.status, state?.pendingTakes, reload]);
-  return { state, error, reload };
+    if (!open) return;
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !box.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
+  const start = useAction(async (confirm) => {
+    await post("/api/gpu/start", { confirm });
+    await reload();
+  });
+  const stop = useAction(async () => {
+    await post("/api/gpu/stop");
+    await reload();
+  });
+  const live = !!state && (state.status === "running" || state.status === "starting" || state.status === "creating");
+  const lamp = !state ? "draft" : !state.configured ? "draft" : state.status === "running" ? "live" : state.status === "starting" || state.status === "creating" || state.status === "stopping" ? "queued" : state.status === "unavailable" ? "warn" : "draft";
+  const label = !state ? (error ? "GPU ?" : "GPU …") : state.mode !== "pod" ? "GPU (serverless)" : !state.configured ? "GPU not set up" : SHORT[state.status] ?? "GPU off";
+  return (
+    <div className="st-gpu-menu-anchor" ref={box}>
+      <button type="button" className="st-pill" data-live={live ? "true" : undefined} aria-expanded={open} aria-haspopup="dialog" onClick={() => { setOpen((o) => !o); void refreshGpuStore(); }} title={error ?? state?.message ?? state?.pod?.gpuName ?? "GPU pod"}>
+        <Lamp state={lamp} label={label} />
+        {state?.pod?.gpuName && live && <span className="st-num">{state.pod.gpuName.replace(/^NVIDIA (GeForce )?/, "")}</span>}
+        {live && state && <span className="st-num">{usd(state.sessionUsd)}</span>}
+      </button>
+      {open && (
+        <div className="st-gpu-menu" role="dialog" aria-label="GPU pod">
+          <div className="st-row st-row--between">
+            <strong>GPU pod</strong>
+            <span className="st-muted">one for all projects</span>
+          </div>
+          {!state ? (
+            <span className={error ? "st-warn" : "st-muted"}>{error ? `Could not read the GPU state: ${error}` : "Loading…"}</span>
+          ) : (
+            <>
+              <Lamp state={lampState(state.status)} label={GPU_LABEL[state.status] ?? state.status} />
+              {state.pod?.gpuName && <span className="st-muted">{state.pod.gpuName}{state.pod.dataCenter ? ` · ${state.pod.dataCenter}` : ""}</span>}
+              {live && <span className="st-num">{clock(state.uptimeSeconds)} · {usd(state.sessionUsd)}{state.pod?.costPerHr ? ` · ${usd(state.pod.costPerHr)}/h` : ""}</span>}
+              {state.pendingTakes > 0 && <span className="st-muted">{state.pendingTakes} take(s) waiting for the GPU</span>}
+              {state.message && <span className="st-muted">{state.message}</span>}
+              {error && <span className="st-warn">Last refresh failed: {error}</span>}
+              <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
+              <div className="st-row">
+                {!state.configured ? (
+                  <span className="st-muted">RunPod is not configured</span>
+                ) : live ? (
+                  <Button size="sm" busy={stop.busy || state.status === "stopping"} onClick={() => void stop.fire()}>Stop</Button>
+                ) : (
+                  <Button size="sm" kind="primary" busy={start.busy} onClick={() => void start.fire()}>{state.status === "unavailable" ? "Retry" : "Start"}</Button>
+                )}
+                <Link className="st-btn st-btn--sm st-btn--quiet" href="/machine" onClick={() => setOpen(false)}>Machine page</Link>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export const GPU_LABEL: Record<string, string> = {
@@ -173,8 +285,22 @@ export function GpuSection() {
   const { state, error, reload } = useGpu();
   const [types, setTypes] = useState<Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number; allowed: boolean }> | null>(null);
   const [typesError, setTypesError] = useState<string | null>(null);
+  /* "" = any allowed GPU, in priority order */
+  const [choice, setChoice] = useState("");
+  const [allowed, setAllowed] = useState<Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number }>>([]);
+  useEffect(() => {
+    void get<{ types: Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number; allowed: boolean }> }>("/api/gpu/types")
+      .then((r) => setAllowed(r.types.filter((t) => t.allowed)))
+      .catch(() => setAllowed([]));
+  }, []);
   const start = useAction(async (confirm) => {
-    await post("/api/gpu/start", { confirm });
+    await post("/api/gpu/start", { confirm, ...(choice ? { gpuTypeId: choice } : {}) });
+    await reload();
+  });
+  const switchGpu = useAction(async () => {
+    const to = allowed.find((t) => t.id === choice)?.displayName ?? choice;
+    if (!window.confirm(`Switch the GPU pod to ${to}? The current pod is terminated (a take in progress is lost; models stay on the network volume) and a new pod is created on ${to}.`)) return;
+    await post("/api/gpu/start", { confirm: true, gpuTypeId: choice, replace: true });
     await reload();
   });
   const stop = useAction(async () => {
@@ -203,7 +329,7 @@ export function GpuSection() {
   const on = state.status === "running" || state.status === "starting" || state.status === "creating";
   return (
     <div className="st-stack">
-      <ErrorBanner error={start.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
+      <ErrorBanner error={start.error ?? switchGpu.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); switchGpu.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
       <dl className="st-dl">
         <dt>Mode</dt>
         <dd>{state.mode === "pod" ? "RunPod pod (Secure Cloud)" : "RunPod serverless (TODO)"}</dd>
@@ -235,12 +361,27 @@ export function GpuSection() {
         <dt>Queue</dt>
         <dd className="st-num">{state.pendingTakes} take(s) waiting for the GPU</dd>
       </dl>
-      <div className="st-row">
+      <div className="st-row" style={{ flexWrap: "wrap" }}>
+        <Field label="GPU">
+          <select className="st-select st-input--sm" value={choice} onChange={(e) => setChoice(e.target.value)} disabled={!state.configured || allowed.length === 0}>
+            <option value="">Any allowed (priority order)</option>
+            {allowed.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.displayName}{t.memoryInGb ? ` · ${t.memoryInGb} GB` : ""}{t.securePrice ? ` · ${usd(t.securePrice)}/h` : ""}{state.pod?.gpuTypeId === t.id && state.status !== "terminated" ? " · current" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
         {on ? (
-          <Button busy={stop.busy || state.status === "stopping"} onClick={() => void stop.fire()}>Stop</Button>
+          <>
+            {choice && choice !== state.pod?.gpuTypeId && !state.pod?.adopted && (
+              <Button kind="primary" busy={switchGpu.busy} onClick={() => void switchGpu.fire()}>Switch to this GPU</Button>
+            )}
+            <Button busy={stop.busy || state.status === "stopping"} onClick={() => void stop.fire()}>Stop</Button>
+          </>
         ) : (
           <Button kind="primary" busy={start.busy} disabled={!state.configured} onClick={() => void start.fire()}>
-            {state.status === "unavailable" ? "Retry on allowed GPUs" : "Start"}
+            {choice ? `Start on ${allowed.find((t) => t.id === choice)?.displayName ?? choice}` : state.status === "unavailable" ? "Retry on allowed GPUs" : "Start"}
           </Button>
         )}
         {state.pod && state.status !== "terminated" && (

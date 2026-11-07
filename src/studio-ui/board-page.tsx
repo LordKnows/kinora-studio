@@ -2,18 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { CheckIcon } from "./icons";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
 import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
 import type { Take } from "@/studio/types";
-import { uploadMedia } from "./upload";
-import { EditRegion, ImageButton, reviewChip } from "./image-tools";
+import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
-import { preferredViews } from "@/studio/compiler";
 
 import { del, get, patch, post, put, usd } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
-import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
+import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
 
@@ -423,7 +419,8 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
     await reload();
   });
   const remove = useAction(async () => {
-    if (!window.confirm("Delete this shot?")) return;
+    const takes = shot.takes.length;
+    if (!window.confirm(`Delete shot ${shot.index + 1} ("${shot.spec.intent || "untitled"}")${takes ? ` and its ${takes} take${takes > 1 ? "s" : ""}` : ""}? The shot leaves the board. Its pictures stay in Pictures.`)) return;
     await del(`/api/shots/${shot.id}`);
     onClose();
     await reload();
@@ -437,9 +434,6 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
       onClose={onClose}
       head={
         <>
-          <Button size="sm" kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>
-            Delete
-          </Button>
           <Button size="sm" kind="primary" busy={save.busy} disabled={!dirty || problems.length > 0} onClick={() => void save.fire()}>
             Save
           </Button>
@@ -472,6 +466,11 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
                 setDirty(true);
               }}
             />
+            {/* deleting the shot is here, in its own place — never next to the frame buttons */}
+            <div className="st-row st-row--between" style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
+              <span className="st-muted">Remove this shot from the board (its takes too). Pictures stay in Pictures.</span>
+              <Button size="sm" kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>Delete this shot</Button>
+            </div>
           </>
         )}
         {tab === "compile" && <CompilePanel shotId={shot.id} dirty={dirty} />}
@@ -543,243 +542,6 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
   );
 }
 
-function FramesPanel({ shot }: { shot: ShotView }) {
-  const { projectId, view, reload } = useProjectContext();
-  const pickHero = useAction(async (_confirm, assetId: string | null) => {
-    await post(`/api/shots/${shot.id}/hero-frame`, { assetId });
-    await reload();
-  });
-  const pickEnd = useAction(async (_confirm, assetId: string | null) => {
-    await post(`/api/shots/${shot.id}/end-frame`, { assetId });
-    await reload();
-  });
-
-  const derive = useAction(async () => {
-    if (!shot.hero) return;
-    const x = shot.spec.composition?.subjectX === "left" ? 0.38 : shot.spec.composition?.subjectX === "right" ? 0.62 : 0.5;
-    const file = await cropForPushIn(shot.hero.url, 1.2, x);
-    const { assetId } = await uploadMedia(file, projectId);
-    await post(`/api/shots/${shot.id}/end-frame`, { assetId });
-    await reload();
-  });
-
-  /* Hero and end frames: uploads, GPT Image pictures drawn by a painter,
-     images the director imports, or last frames of finished takes. Every
-     picture shows its handle (IMG-12); "Select" deletes a batch. */
-  const images = (view?.assets ?? []).filter((a) => a.kind === "image");
-  const shown = images.slice(0, 48);
-  const sel = usePictureSelection();
-
-  const grid = (picked: string | undefined, onPick: (id: string) => void) => (
-    <div className="st-thumbs st-thumbs--named">
-      {shown.map((a) => (
-        <div key={a.id} className="st-pic">
-          <button type="button" className="st-thumb" aria-pressed={sel.selecting ? sel.selected.includes(a.id) : picked === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : onPick(a.id))} title={pictureTitle(a)}>
-            <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
-            {sel.selecting ? <SelectMark on={sel.selected.includes(a.id)} /> : picked === a.id && (
-              <span className="st-thumb-check">
-                <CheckIcon size={11} />
-              </span>
-            )}
-            {a.source === "frame-extract" && <span className="st-thumb-tag">LAST FRAME</span>}
-          </button>
-          <PictureCaption asset={a} />
-        </div>
-      ))}
-      {images.length === 0 && <span className="st-muted">No images in this project yet. Upload one, generate it with GPT Image below, or finish a take to get its last frame.</span>}
-    </div>
-  );
-
-  return (
-    <div className="st-stack">
-      <ErrorBanner error={pickHero.error ?? pickEnd.error} projectId={projectId} onDismiss={() => { pickHero.dismiss(); pickEnd.dismiss(); }} />
-      {sel.selecting && <span className="st-warn">Select pictures to delete — click to tick, then Delete. Pictures in use are confirmed first.</span>}
-      <Section
-        title="Hero frame"
-        aside={
-          <span className="st-row">
-            <SelectBar sel={sel} all={shown.map((a) => a.id)} onDeleted={reload} />
-            {shot.heroAssetId && <Button size="sm" kind="quiet" onClick={() => void pickHero.fire(null)}>Clear</Button>}
-            <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} label="Upload hero frame" onUploaded={({ assetId }) => pickHero.fire(assetId)} />
-          </span>
-        }
-      >
-        {grid(shot.heroAssetId, (id) => void pickHero.fire(shot.heroAssetId === id ? null : id))}
-      </Section>
-      <Section
-        title="End frame (keyframe mode, optional)"
-        aside={
-          <span className="st-row">
-            {shot.hero && (
-              <Button size="sm" kind="quiet" busy={derive.busy} onClick={() => void derive.fire()} title="Crop the hero frame toward the subject and scale it back up: the end frame of a push-in, so FL2VA has to push">
-                Derive end frame (push-in)
-              </Button>
-            )}
-            {shot.endAssetId && <Button size="sm" kind="quiet" onClick={() => void pickEnd.fire(null)}>Clear</Button>}
-          </span>
-        }
-      >
-        <ErrorBanner error={derive.error} projectId={projectId} onDismiss={derive.dismiss} />
-        {grid(shot.endAssetId, (id) => void pickEnd.fire(shot.endAssetId === id ? null : id))}
-      </Section>
-      <FramePlanTools shot={shot} />
-      {shot.hero && shot.end && <FrameCheck first={shot.hero.url} last={shot.end.url} />}
-      {shot.hero && <PhoneCheck url={shot.hero.url} />}
-    </div>
-  );
-}
-
-type PlanRow = { shotId: string; first: string | null; last: string | null; why: string; have: { first: boolean; last: boolean } };
-const METHOD_LABEL: Record<string, string> = {
-  none: "nothing to draw", sheets: "uses the element sheets (below)", anchor: "the anchor take's last frame", edit_anchor: "edit the anchor's last frame",
-  new: "draw new", edit_from_last: "edit from the last frame", edit_from_previous: "edit the earlier shot's frame", crop_from_first: "crop the first frame", crop_from_last: "crop the last frame",
-};
-
-/* GPT Image for this shot's frames, by the plan (cheapest first). */
-function FramePlanTools({ shot }: { shot: ShotView }) {
-  const { projectId } = useProjectContext();
-  const [row, setRow] = useState<PlanRow | null>(null);
-  const [editing, setEditing] = useState<"first" | "last" | null>(null);
-  useEffect(() => {
-    void get<{ shots: PlanRow[] }>(`/api/projects/${projectId}/frame-plan`).then((p) => setRow(p.shots.find((r) => r.shotId === shot.id) ?? null)).catch(() => setRow(null));
-  }, [projectId, shot.id, shot.heroAssetId, shot.endAssetId]);
-  const drawable = (m: string | null) => !!m && !["none", "sheets", "anchor"].includes(m);
-  const paints = (m: string | null) => !!m && !m.startsWith("crop");
-  return (
-    <Section title="Frames with GPT Image">
-      <div className="st-stack st-stack--tight">
-        {row ? <span className="st-muted">{row.why}</span> : <span className="st-muted">Loading the plan…</span>}
-        {row && (["first", "last"] as const).map((which) => {
-          const m = which === "first" ? row.first : row.last;
-          if (!m) return null;
-          const asset = which === "first" ? shot.hero : shot.end;
-          return (
-            <div key={which} className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
-              <span>
-                <strong>{which === "first" ? "First" : "Last"} frame</strong> · {METHOD_LABEL[m] ?? m}
-                {asset && reviewChip(asset) ? <span className="st-chip" style={{ marginLeft: 6 }}>{reviewChip(asset)}</span> : null}
-              </span>
-              <span className="st-row" style={{ gap: 6 }}>
-                {drawable(m) && <ImageButton label={asset ? "Redraw" : "Generate"} paint={paints(m)} body={{ action: "shot_frame", shotId: shot.id, which }} />}
-                {asset && <Button size="sm" kind="quiet" onClick={() => setEditing(editing === which ? null : which)}>Edit a region</Button>}
-              </span>
-            </div>
-          );
-        })}
-        {row?.first === "sheets" && <SheetNeeds shot={shot} />}
-        {editing && (editing === "first" ? shot.hero : shot.end) && (
-          <EditRegion asset={(editing === "first" ? shot.hero : shot.end)!} attach={editing === "first" ? { heroOf: shot.id } : { endOf: shot.id }} onClose={() => setEditing(null)} />
-        )}
-      </div>
-    </Section>
-  );
-}
-
-/* A reference-mode shot reads the element sheets: show which ones this shot
-   still lacks (no picture yet, or not the view its angle wants), with a
-   button for each, and the optional reference frame. */
-function SheetNeeds({ shot }: { shot: ShotView }) {
-  const { view } = useProjectContext();
-  const scene = view?.scenes.find((s) => s.id === shot.sceneId);
-  const ids = [...new Set([...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : scene?.locationElementId ? [scene.locationElementId] : [])])];
-  const wanted = preferredViews(shot.spec)[0]!;
-  const rows = ids.map((id) => view?.elements.find((e) => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e);
-  return (
-    <div className="st-stack st-stack--tight" style={{ marginTop: 6 }}>
-      {rows.length === 0 && <span className="st-muted">No characters, props or location on this shot yet: add them in the Edit tab so R2VA has references to read.</span>}
-      {rows.map((el) => {
-        const views = Object.values(el.refViews ?? {});
-        const isChar = el.kind === "character";
-        const has = el.refAssetIds.length > 0;
-        const needsView = isChar && has && !views.includes(wanted);
-        return (
-          <div key={el.id} className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
-            <span>
-              <strong>{el.name}</strong> <span className="st-muted">({el.kind})</span> ·{" "}
-              {!has ? "no sheet yet" : needsView ? `has ${views.join(", ") || "an untagged picture"}; this shot's angle wants the ${wanted.replace("_", " ")} view` : `ready${views.length ? ` (${views.join(", ")})` : ""}`}
-            </span>
-            {!has && <ImageButton label={isChar ? "Generate sheet (front first)" : "Generate reference"} body={{ action: "element_sheet", elementId: el.id, views: ["front"] }} />}
-            {needsView && <ImageButton label={`Add the ${wanted.replace("_", " ")} view`} body={{ action: "element_view", elementId: el.id, view: wanted }} />}
-          </div>
-        );
-      })}
-      <div className="st-row st-row--between" style={{ flexWrap: "wrap", marginTop: 4 }}>
-        <span className="st-muted">Optional: a reference frame for this shot's composition and light. R2VA reads it as the first of its three reference pictures.</span>
-        <ImageButton label={shot.hero ? "Redraw reference frame" : "Draw a reference frame"} body={{ action: "shot_frame", shotId: shot.id, which: "first", method: "new" }} />
-      </div>
-    </div>
-  );
-}
-
-/* Overlay first and last frame: whatever should not change must cancel out
-   to black in difference mode (a wall that changes colour fades in the
-   video; a cup that grows, grows). */
-function FrameCheck({ first, last }: { first: string; last: string }) {
-  const [mode, setMode] = useState<"difference" | "onion">("difference");
-  const [mix, setMix] = useState(50);
-  return (
-    <Section
-      title="Frame check · first vs last"
-      aside={
-        <span className="st-row">
-          <Button size="sm" kind={mode === "difference" ? "default" : "quiet"} onClick={() => setMode("difference")}>Difference</Button>
-          <Button size="sm" kind={mode === "onion" ? "default" : "quiet"} onClick={() => setMode("onion")}>Onion skin</Button>
-        </span>
-      }
-    >
-      <div style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", background: "#000", borderRadius: 6, overflow: "hidden" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={first} alt="first frame" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={last} alt="last frame" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", mixBlendMode: mode === "difference" ? "difference" : "normal", opacity: mode === "onion" ? mix / 100 : 1 }} />
-      </div>
-      {mode === "onion" && <input type="range" min={0} max={100} value={mix} onChange={(e) => setMix(Number(e.target.value))} style={{ width: "100%" }} aria-label="Last frame opacity" />}
-      <p className="st-muted">{mode === "difference" ? "Black = identical. Anything bright outside the action will drift during the shot: walls, furniture, prop sizes, the horizon." : "Slide between the frames: camera position, scale and background must stay put."}</p>
-    </Section>
-  );
-}
-
-/* Phone-size preview: is every important person still readable? */
-function PhoneCheck({ url }: { url: string }) {
-  return (
-    <Section title="Phone size">
-      <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="hero frame at phone width" style={{ width: 180, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
-        <span className="st-muted">The hero frame at the width it plays in a feed. Faces and props that matter should still read here.</span>
-      </div>
-    </Section>
-  );
-}
-
-/** Crop toward the composition point and scale back to the hero frame's size. */
-async function cropForPushIn(url: string, zoom: number, subjectX: number): Promise<File> {
-  const img = new Image();
-  img.crossOrigin = "anonymous";
-  img.src = url;
-  await img.decode();
-  const W = img.naturalWidth, H = img.naturalHeight;
-  const cw = Math.round(W / zoom), ch = Math.round(H / zoom);
-  const x = Math.round(Math.min(W - cw, Math.max(0, subjectX * W - cw / 2)));
-  const y = Math.round(Math.min(H - ch, Math.max(0, H * 0.45 - ch / 2)));
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("no canvas");
-  ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(img, x, y, cw, ch, 0, 0, W, H);
-  const blob = await new Promise<Blob | null>((resolve) => {
-    try {
-      canvas.toBlob(resolve, "image/png");
-    } catch {
-      resolve(null);
-    }
-  });
-  if (!blob) throw new Error("the image host does not allow the browser to read the frame (CORS); ask the director to run derive_end_frame instead");
-  return new File([blob], `end-pushin-${zoom}.png`, { type: "image/png" });
-}
-
 function TakesPanel({ shot }: { shot: ShotView }) {
   const { projectId, reload } = useProjectContext();
   const [n, setN] = useState(1);
@@ -794,10 +556,10 @@ function TakesPanel({ shot }: { shot: ShotView }) {
       <div className="st-card st-row st-row--between">
         <div className="st-row">
           <Field label="Takes">
-            <input className="st-input st-input--sm" type="number" min={1} max={4} value={n} onChange={(e) => setN(Math.max(1, Math.min(4, Number(e.target.value) || 1)))} style={{ width: 70 }} />
+            <NumberInput className="st-input st-input--sm" min={1} max={4} value={n} onCommit={(v) => setN(v ?? 1)} style={{ width: 70 }} />
           </Field>
           <Field label="Steps">
-            <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder="auto" value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Math.max(4, Math.min(50, Number(e.target.value))) : null)} style={{ width: 70 }} />
+            <NumberInput className="st-input st-input--sm" min={4} max={50} placeholder="auto" allowEmpty value={steps} onCommit={(v) => setSteps(v)} style={{ width: 70 }} />
           </Field>
         </div>
         <Button kind="primary" busy={generate.busy} onClick={() => void generate.fire()}>

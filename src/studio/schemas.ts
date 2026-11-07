@@ -53,7 +53,7 @@ export const LookSettings = z.object({
   camera: z.string().max(200).describe("Camera body / format, e.g. 'Arri Alexa, anamorphic'"),
   lens: z.string().max(200).describe("Lens and depth of field, e.g. '35mm, shallow DOF'"),
   lighting: z.string().max(200).describe("Lighting approach, e.g. 'practical sources, hard key'"),
-  aspectRatio: z.enum(ASPECT_RATIOS).default("16:9"),
+  aspectRatio: z.enum(ASPECT_RATIOS).default("9:16"),
   resolution: z.literal("768p").default("768p").describe("Self-hosted H3-Base renders 768p only"),
   upscale: z.boolean().default(false).describe("Upscale at export time (master-upscaled preset)"),
   negative: z.array(z.string().max(80)).max(10).default(["no on-screen text", "no logos", "no subtitles"]),
