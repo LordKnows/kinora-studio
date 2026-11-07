@@ -6,6 +6,7 @@ import * as craft from "@/studio/craft";
 import * as imaging from "@/studio/imaging";
 import * as orch from "@/studio/orchestrator";
 import * as painter from "@/studio/painter";
+import * as pictures from "@/studio/pictures";
 import { remakeFrames, remakePrompt, remakeTake } from "@/studio/remake";
 import * as repo from "@/studio/repo";
 import { ShotInput, ShotlistInput } from "@/studio/schemas";
@@ -228,6 +229,73 @@ describe("GPT Image switch and jobs", () => {
   });
 });
 
+describe("picture names and batch delete", () => {
+  it("numbers pictures per project, renames them and finds them by handle", async () => {
+    const p = await repo.createProject({ name: "Names" });
+    const other = await repo.createProject({ name: "Other" });
+    const a = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/projects/n/a.png", kind: "image", source: "upload", meta: { key: "projects/n/a.png" } });
+    const b = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/projects/n/b.png", kind: "image", source: "generated", meta: { label: "Mia · front" } });
+    const v = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/v.mp4", kind: "video", source: "generated" });
+    const c = await repo.createAsset({ projectId: other.id, url: "https://studio.example/media/projects/o/c.png", kind: "image", source: "upload" });
+    expect([a.handle, b.handle, v.handle, c.handle]).toEqual(["IMG-1", "IMG-2", undefined, "IMG-1"]);
+    expect(b.name).toBe("Mia · front");
+    expect(await repo.resolveAssetRef(p.id, "IMG-2")).toBe(b.id);
+    expect(await repo.resolveAssetRef(p.id, "img2")).toBe(b.id);
+    expect(await repo.resolveAssetRef(p.id, "#1")).toBe(a.id);
+    expect(await repo.resolveAssetRef(p.id, b.id)).toBe(b.id);
+    await expect(repo.resolveAssetRef(p.id, "IMG-9")).rejects.toMatchObject({ code: "not_found" });
+    expect((await pictures.renamePicture(p.id, "IMG-1", "  kitchen   wide v2 ")).name).toBe("kitchen wide v2");
+    await expect(pictures.renamePicture(p.id, c.id, "x")).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("deletes a batch: in-use pictures ask first and come off their shots, elements and the Look", async () => {
+    const p = await repo.createProject({ name: "Tidy" });
+    const sc = await repo.createScript(p.id, "EXT. PIER - DAY");
+    await repo.approveScript(sc.id);
+    const mk = (n: string) => repo.createAsset({ projectId: p.id, url: `https://studio.example/media/projects/${p.id}/images/${n}.png`, kind: "image", source: "generated", meta: { previewUrl: `https://studio.example/media/projects/${p.id}/images/${n}.preview.jpg` } });
+    const hero = await mk("hero");
+    const sheet = await mk("sheet");
+    const style = await mk("style");
+    const draft = await mk("draft");
+    const el = await repo.createElement(p.id, { kind: "character", name: "Ola", description: "a fisher", refAssetIds: [sheet.id], refViews: { [sheet.id]: "front" } });
+    await orch.saveShotlist(p.id, ShotlistInput.parse({ scenes: [{ slug: "pier", shots: [shot({ characters: [el.id] })] }] }));
+    const sh = (await repo.listShots(p.id))[0]!;
+    await repo.updateShot(sh.id, { heroAssetId: hero.id });
+    await repo.setProjectLook(p.id, { styleFrameAssetId: style.id });
+    const deleted: string[] = [];
+    const prevFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : undefined;
+      if ((req?.method ?? init?.method) === "DELETE") {
+        deleted.push(decodeURIComponent(new URL(req?.url ?? String(input)).pathname));
+        return new Response(null, { status: 204 });
+      }
+      return prevFetch(input, init);
+    }) as typeof fetch;
+    try {
+      /* the agent may only delete unused pictures */
+      await expect(pictures.deletePictures(p.id, [hero.handle!, draft.handle!], mcp, { confirm: true, allowInUse: false })).rejects.toMatchObject({ code: "forbidden" });
+      const unused = await pictures.deletePictures(p.id, [draft.handle!], mcp, { confirm: true, allowInUse: false });
+      expect(unused.deleted.map((d) => d.handle)).toEqual([draft.handle]);
+      expect(deleted.some((k) => k.endsWith("/draft.png")) && deleted.some((k) => k.endsWith("/draft.preview.jpg"))).toBe(true);
+      /* the web: in-use ones ask first */
+      await expect(pictures.deletePictures(p.id, [hero.id, sheet.id, style.id], web)).rejects.toMatchObject({ code: "needs_confirm" });
+      const r = await pictures.deletePictures(p.id, [hero.id, sheet.id, style.id], web, { confirm: true });
+      expect(r.deleted).toHaveLength(3);
+      expect(r.detached.map((d) => d.kind).sort()).toEqual(["element_ref", "first_frame", "style_frame"]);
+      expect((await repo.getShot(sh.id)).heroAssetId).toBeUndefined();
+      expect((await repo.getElement(el.id)).refAssetIds).toEqual([]);
+      expect((await repo.getElement(el.id)).refViews).toEqual({});
+      expect((await repo.getProject(p.id)).look.styleFrameAssetId).toBeUndefined();
+      await expect(repo.getAsset(hero.id)).rejects.toMatchObject({ code: "not_found" });
+      /* handles are not reused */
+      expect((await mk("next")).handle).toBe("IMG-5");
+    } finally {
+      globalThis.fetch = prevFetch;
+    }
+  });
+});
+
 describe("remote MCP image tools", () => {
   it("lists them, and view_frames returns pictures", async () => {
     const { createStudioServer } = await import("@/mcp/server");
@@ -238,7 +306,7 @@ describe("remote MCP image tools", () => {
     const client = new Client({ name: "t", version: "0" });
     await Promise.all([server.connect(a), client.connect(b)]);
     const names = (await client.listTools()).tools.map((t) => t.name);
-    for (const n of ["image_status", "plan_frames", "generate_element_sheet", "generate_shot_frame", "edit_frame", "extract_frame", "generate_style_frame", "get_image_job", "list_image_jobs", "view_frames", "remake_take", "derive_end_frame", "review_packet"]) expect(names).toContain(n);
+    for (const n of ["image_status", "plan_frames", "generate_element_sheet", "generate_shot_frame", "edit_frame", "extract_frame", "generate_style_frame", "get_image_job", "list_image_jobs", "view_frames", "remake_take", "derive_end_frame", "review_packet", "rename_picture", "delete_pictures"]) expect(names).toContain(n);
     const p = await repo.createProject({ name: "View" });
     const asset = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/projects/v/a.png", kind: "image", source: "generated", meta: { previewUrl: "https://studio.example/media/projects/v/a.preview.jpg" } });
     const res = await client.callTool({ name: "view_frames", arguments: { projectId: p.id, assetIds: [asset.id] } });

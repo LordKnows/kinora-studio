@@ -207,18 +207,22 @@ function mapAsset(r: Row): Asset {
 export const ASSET_NAME_MAX = 80;
 const cleanName = (name?: string) => name?.replace(/\s+/g, " ").trim().slice(0, ASSET_NAME_MAX) || null;
 
-/** Pictures get the next number of their project (IMG-n) in the same
-    statement, so two pictures landing at once never share one. */
+/** A project's pictures are numbered (IMG-n) from a counter on the project
+    that only goes up: taken and bumped in one statement, never reused. */
 export async function createAsset(input: {
   projectId: string | null; url: string; kind: AssetKind; source: AssetSource;
   width?: number; height?: number; durationS?: number; meta?: Record<string, unknown>; name?: string;
 }): Promise<Asset> {
   const id = newId("ast");
   const name = cleanName(input.name ?? (typeof input.meta?.label === "string" ? input.meta.label : undefined));
+  let seq: number | null = null;
+  if (input.kind === "image" && input.projectId) {
+    const row = await (await db()).get("UPDATE projects SET picture_seq = picture_seq + 1 WHERE id = ? RETURNING picture_seq", [input.projectId]);
+    seq = row ? num(row.picture_seq) : null;
+  }
   await (await db()).run(
-    `INSERT INTO assets (id, project_id, url, kind, source, width, height, duration_s, meta_json, created_at, name, seq)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'image' THEN (SELECT COALESCE(MAX(seq), 0) + 1 FROM assets WHERE kind = 'image' AND project_id IS ?) END)`,
-    [id, input.projectId, input.url, input.kind, input.source, input.width ?? null, input.height ?? null, input.durationS ?? null, JSON.stringify(input.meta ?? {}), Date.now(), name, input.kind, input.projectId],
+    "INSERT INTO assets (id, project_id, url, kind, source, width, height, duration_s, meta_json, created_at, name, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, input.projectId, input.url, input.kind, input.source, input.width ?? null, input.height ?? null, input.durationS ?? null, JSON.stringify(input.meta ?? {}), Date.now(), name, seq],
   );
   return getAsset(id);
 }

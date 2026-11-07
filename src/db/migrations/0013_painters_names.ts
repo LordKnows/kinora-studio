@@ -1,7 +1,8 @@
 /* Pictures off the GPU: painters (any small machine that claims image jobs
    from the Studio and draws them) and the lease on the job they hold; and a
    name for every picture — a short handle per project (IMG-12) and a
-   readable name the user can change. */
+   readable name the user can change. The counter lives on the project and
+   only goes up, so a handle is never reused after a delete. */
 export default String.raw`
 CREATE TABLE IF NOT EXISTS painters (
   id TEXT PRIMARY KEY,
@@ -17,9 +18,11 @@ ALTER TABLE assets ADD COLUMN seq INTEGER;
 ALTER TABLE assets ADD COLUMN name TEXT;
 UPDATE assets SET seq = (
   SELECT COUNT(*) FROM assets a2
-  WHERE a2.kind = 'image' AND a2.project_id IS assets.project_id
+  WHERE a2.kind = 'image' AND a2.project_id = assets.project_id
     AND (a2.created_at < assets.created_at OR (a2.created_at = assets.created_at AND a2.id <= assets.id))
-) WHERE kind = 'image';
+) WHERE kind = 'image' AND project_id IS NOT NULL;
+ALTER TABLE projects ADD COLUMN picture_seq INTEGER NOT NULL DEFAULT 0;
+UPDATE projects SET picture_seq = COALESCE((SELECT MAX(seq) FROM assets WHERE assets.project_id = projects.id AND kind = 'image'), 0);
 UPDATE assets SET name = json_extract(meta_json, '$.label') WHERE kind = 'image' AND name IS NULL AND json_extract(meta_json, '$.label') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS assets_project_seq ON assets(project_id, seq);
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status, created_at);

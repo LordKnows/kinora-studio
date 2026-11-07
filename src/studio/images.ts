@@ -1,7 +1,7 @@
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
-import { publicUrl, putObject, uploadKey } from "./storage/r2";
+import { nameOfUploadKey, publicUrl, putObject, uploadKey } from "./storage/r2";
 import type { Actor, Asset } from "./types";
 
 /* The Studio has no image model. The director (the user's own Claude) often
@@ -53,7 +53,8 @@ export async function storeImage(projectId: string, bytes: Uint8Array, filename:
   const ext = info.type === "jpeg" ? "jpg" : info.type;
   const key = uploadKey(actor.user, filename.includes(".") ? filename : `${filename}.${ext}`);
   await putObject(key, bytes, TYPES[info.type]!);
-  return repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta } });
+  const name = typeof meta.label === "string" ? meta.label : nameOfUploadKey(key);
+  return repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta }, name });
 }
 
 /** Fetch an image the director's own tool produced and keep it. */

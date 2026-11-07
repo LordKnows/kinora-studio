@@ -10,6 +10,7 @@ import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
 import { useProjectContext } from "./shell";
 import { ImageButton } from "./image-tools";
+import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 
 type ElementRow = Element & { refs: Asset[] };
 
@@ -191,7 +192,14 @@ function ElementEditor({
     await post(`/api/elements/${element.id}/promote`);
   });
 
-  const candidates = [...(element?.refs ?? []), ...images.filter((a) => !element?.refs.some((r) => r.id === a.id))];
+  const candidates = [...(element?.refs ?? []), ...images.filter((a) => !element?.refs.some((r) => r.id === a.id))].filter((a) => images.some((i) => i.id === a.id));
+  const pickSel = usePictureSelection();
+  const afterDelete = async () => {
+    const left = (await get<{ assets: Asset[] }>(`/api/projects/${projectId}`)).assets.filter((a) => a.kind === "image");
+    setImages(left);
+    setSelected((cur) => cur.filter((id) => left.some((a) => a.id === id)));
+    await onSaved();
+  };
 
   const uploaded = async ({ assetId }: { assetId: string }) => {
     if (!element) return;
@@ -259,31 +267,40 @@ function ElementEditor({
         {element && (
           <Section
             title="Reference images"
-            aside={<UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />}
+            aside={
+              <span className="st-row">
+                <SelectBar sel={pickSel} all={candidates.map((a) => a.id)} onDeleted={afterDelete} />
+                <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} onUploaded={uploaded} />
+              </span>
+            }
           >
             {candidates.length === 0 ? (
               <Empty title="No references yet" hint="Upload an image, generate a sheet with GPT Image above, or pick any project image. The first pick is the primary reference." />
             ) : (
               <>
-                <div className="st-thumbs">
+                <div className="st-thumbs st-thumbs--named">
                   {candidates.map((a) => {
                     const idx = selected.indexOf(a.id);
+                    const ticked = pickSel.selected.includes(a.id);
                     return (
-                      <button
-                        key={a.id}
-                        type="button"
-                        className={`st-thumb${kind === "character" ? " st-thumb--tall" : ""}`}
-                        aria-pressed={idx >= 0}
-                        onClick={() => setSelected(idx >= 0 ? selected.filter((id) => id !== a.id) : [...selected, a.id])}
-                      >
-                        <img src={a.url} alt="" />
-                        {idx >= 0 && (
-                          <span className="st-thumb-check">
-                            <CheckIcon size={11} />
-                          </span>
-                        )}
-                        {idx === 0 && <span className="st-thumb-tag">PRIMARY</span>}
-                      </button>
+                      <div key={a.id} className="st-pic">
+                        <button
+                          type="button"
+                          className={`st-thumb${kind === "character" ? " st-thumb--tall" : ""}`}
+                          aria-pressed={pickSel.selecting ? ticked : idx >= 0}
+                          title={pictureTitle(a)}
+                          onClick={() => (pickSel.selecting ? pickSel.toggle(a.id) : setSelected(idx >= 0 ? selected.filter((id) => id !== a.id) : [...selected, a.id]))}
+                        >
+                          <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
+                          {pickSel.selecting ? <SelectMark on={ticked} /> : idx >= 0 && (
+                            <span className="st-thumb-check">
+                              <CheckIcon size={11} />
+                            </span>
+                          )}
+                          {idx === 0 && <span className="st-thumb-tag">PRIMARY</span>}
+                        </button>
+                        <PictureCaption asset={a} />
+                      </div>
                     );
                   })}
                 </div>

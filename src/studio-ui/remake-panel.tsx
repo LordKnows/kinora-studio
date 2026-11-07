@@ -7,6 +7,7 @@ import type { Asset, Take } from "@/studio/types";
 import { post, usd } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 import { EditRegion, ImageButton, reviewChip } from "./image-tools";
+import { SelectBar, SelectMark, usePictureSelection } from "./pictures";
 import { useProjectContext } from "./shell";
 
 type Change = { subject: string; target: string };
@@ -30,7 +31,8 @@ export function RemakePanel({ take, onClose }: { take: Take; onClose: () => void
     setResult(`Remake queued as take #${r.take.n} (${r.frames} frames, ≈ ${usd(r.estimateUsd)}).${r.warnings.length ? ` ${r.warnings.join(" ")}` : ""}`);
     await reload();
   });
-  const label = (a: Asset) => `${a.source === "frame-extract" ? "frame" : "painted"} f${String(a.meta.frame ?? "?")}`;
+  const label = (a: Asset) => `${a.handle ? `${a.handle} · ` : ""}${a.source === "frame-extract" ? "frame" : "painted"} f${String(a.meta.frame ?? "?")}`;
+  const sel = usePictureSelection();
   return (
     <div className="st-card st-stack">
       <div className="st-row st-row--between">
@@ -45,12 +47,18 @@ export function RemakePanel({ take, onClose }: { take: Take; onClose: () => void
       </div>
       {frames.length > 0 && (
         <div className="st-stack st-stack--tight">
-          <span className="st-label" style={{ marginBottom: 0 }}>Frames of this take — tick the painted ones to use as keyframes (1–4)</span>
+          <span className="st-row st-row--between">
+            <span className="st-label" style={{ marginBottom: 0 }}>Frames of this take — tick the painted ones to use as keyframes (1–4)</span>
+            <SelectBar sel={sel} all={frames.map((a) => a.id)} onDeleted={async () => { setPicked([]); await reload(); }} />
+          </span>
           <div className="st-thumbs">
             {frames.map((a) => (
               <div key={a.id} className="st-stack st-stack--tight" style={{ width: 200 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt="" style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
+                <span style={{ position: "relative", display: "block", cursor: sel.selecting ? "pointer" : undefined }} onClick={sel.selecting ? () => sel.toggle(a.id) : undefined}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={a.name ?? ""} style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
+                  {sel.selecting && <SelectMark on={sel.selected.includes(a.id)} />}
+                </span>
                 <span className="st-muted st-num">{label(a)}{reviewChip(a) ? ` · ${reviewChip(a)}` : ""}</span>
                 <span className="st-row" style={{ gap: 6 }}>
                   {a.source !== "frame-extract" && (
