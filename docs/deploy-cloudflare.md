@@ -389,7 +389,9 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    `ubuntu:24.04` 新建一台 CPU pod（同一数据中心，网络卷挂在 `/workspace`），1–3 分钟后开始画；
    空闲 10 分钟后直接删除（terminate），只为画图的那几分钟付费。每次都是新 pod，不会因为原来那台
    机器被占用而起不来；Codex 登录和机器 id 存在卷上，新 pod 接着用。Machine → Painters →
-   **Painter pod** 上有 Start / Stop 和费用。需要 Worker 上已有 `RUNPOD_API_KEY`，并执行
+   **Painter pod** 上有 Start / Stop 和费用。新 pod 6 分钟内（`PAINTER_POD_BOOT_MINUTES`）没有画图机器报到
+   ——常见是 RunPod 宿主机起不了容器（日志里 `unable to join session keyring … disk quota exceeded`）——
+   就删掉、换下一种 CPU 规格重建；30 分钟内连续 3 台起不来就暂停 30 分钟，卡片上写明原因。需要 Worker 上已有 `RUNPOD_API_KEY`，并执行
    `migrations/0014_painter_pod.sql`。手动建的常开 CPU pod 不再需要，到 RunPod 控制台删除即可
    （卷保留）。
 4. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开

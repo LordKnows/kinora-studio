@@ -61,10 +61,30 @@ export const BOOT_SCRIPT = [
   "exec bash /opt/painter/h3-runpod/run_painter.sh",
 ].join("\n");
 
-/** A pod that shows no painter this long after it was created is terminated (its start command failed?). */
-const BOOT_TIMEOUT_MS = 12 * 60_000;
+/** A pod that shows no painter this long after it was created is replaced: its container never started
+    (RunPod hosts that fail with "unable to join session keyring: … disk quota exceeded"), or the start command failed. */
+function bootTimeoutMs(): number {
+  const m = Number(env("PAINTER_POD_BOOT_MINUTES") ?? "6");
+  return (Number.isFinite(m) && m >= 3 ? m : 6) * 60_000;
+}
 /** After a failed create, wait this long before the sweep tries again (Start on the web tries at once). */
 const RETRY_AFTER_MS = 5 * 60_000;
+/** Pods in a row that did not start before the Studio stops trying for a while. */
+const MAX_BOOT_FAILURES = 3;
+const BOOT_FAILURE_WINDOW_MS = 30 * 60_000;
+const GIVE_UP_FOR_MS = 30 * 60_000;
+const BOOT_FAILED = "boot failed";
+const GAVE_UP = "gave up";
+
+/** Each pod is named after its flavor, so a failure can be pinned on it. */
+const flavorOf = (pod: PainterPod) => (pod.name.startsWith(`${repo.PAINTER_POD_NAME}-`) ? pod.name.slice(repo.PAINTER_POD_NAME.length + 1) : undefined);
+
+/** The configured flavors, the ones whose pods recently failed to start moved to the back. */
+export async function flavorOrder(now = Date.now()): Promise<string[]> {
+  const failed = new Set((await repo.listPainterPodsSince(now - 60 * 60_000)).filter((p) => p.message?.startsWith(BOOT_FAILED)).map(flavorOf).filter(Boolean));
+  const flavors = podConfig().flavors;
+  return [...flavors.filter((f) => !failed.has(f)), ...flavors.filter((f) => failed.has(f))];
+}
 
 function client(): RunPodPodsClient {
   const key = env("RUNPOD_API_KEY");
@@ -116,14 +136,14 @@ export async function startPainterPod(reason: string): Promise<PainterPodState> 
   if (isLive(await repo.currentPainterPod())) return painterPodState();
   const c = podConfig();
   const tried: string[] = [];
-  for (const flavorId of c.flavors) {
+  for (const flavorId of await flavorOrder()) {
     try {
       const record = await client().createCpuPod({
-        name: repo.PAINTER_POD_NAME, image: c.image, flavorId, vcpuCount: c.vcpuCount, diskGb: c.diskGb,
+        name: `${repo.PAINTER_POD_NAME}-${flavorId}`, image: c.image, flavorId, vcpuCount: c.vcpuCount, diskGb: c.diskGb,
         env: { STUDIO_URL: config.publicUrl(), PAINTER_TOKEN: config.painterToken()!, PAINTER_NAME: "painter-pod", PAINTER_STATE_DIR: `${MOUNT_PATH}/painter`, PYTHONUNBUFFERED: "1" },
         entrypoint: ["bash", "-c", BOOT_SCRIPT], dataCenterId: c.dataCenterId, networkVolumeId: c.volumeId, mountPath: MOUNT_PATH,
       });
-      await repo.insertPainterPod({ id: record.id, name: repo.PAINTER_POD_NAME, status: "starting", costPerHr: record.costPerHr, startedAt: Date.now(), message: `created (${flavorId}, ${c.vcpuCount} vCPU, ${c.dataCenterId}) — ${reason}; installing and fetching the painter (1–3 min)` });
+      await repo.insertPainterPod({ id: record.id, name: `${repo.PAINTER_POD_NAME}-${flavorId}`, status: "starting", costPerHr: record.costPerHr, startedAt: Date.now(), message: `created (${flavorId}, ${c.vcpuCount} vCPU, ${c.dataCenterId}) — ${reason}; installing and fetching the painter (1–3 min)` });
       return painterPodState();
     } catch (caught) {
       const msg = caught instanceof Error ? caught.message : String(caught);
@@ -213,7 +233,7 @@ export async function sweepPainterPod(now = Date.now()): Promise<string | undefi
   const painters = await repo.listPainters();
   if (!pod || !isLive(pod)) {
     const otherCanDraw = painters.some((p) => !p.info.onPod && isOnline(p, now));
-    const recentFailure = pod?.status === "unavailable" && now - pod.createdAt < RETRY_AFTER_MS;
+    const recentFailure = pod?.status === "unavailable" && now - pod.createdAt < (pod.message?.startsWith(GAVE_UP) ? GIVE_UP_FOR_MS : RETRY_AFTER_MS);
     if (queued > 0 && !otherCanDraw && !recentFailure) {
       await wakeForWork();
       return "created";
@@ -228,8 +248,18 @@ export async function sweepPainterPod(now = Date.now()): Promise<string | undefi
       await repo.updatePainterPod(pod.id, { status: "running", message: "running", lastActivityAt: now });
       return "running";
     }
-    if (now - (pod.startedAt ?? now) > BOOT_TIMEOUT_MS) {
-      await stopPainterPod(`terminated: no painter reported from it within ${BOOT_TIMEOUT_MS / 60_000} minutes — press Start and watch its container log in RunPod (start command, PAINTER_TOKEN, Access bypass for /api/painter/* and /api/pod/*)`);
+    if (now - (pod.startedAt ?? now) > bootTimeoutMs()) {
+      const flavor = flavorOf(pod) ?? "?";
+      await stopPainterPod(`${BOOT_FAILED} (${flavor}): no painter reported within ${bootTimeoutMs() / 60_000} minutes — usually a RunPod host whose containers cannot start ("session keyring … disk quota exceeded" in the pod's log); otherwise the start command (PAINTER_TOKEN, Access bypass for /api/painter/* and /api/pod/*)`);
+      const failures = (await repo.listPainterPodsSince(now - BOOT_FAILURE_WINDOW_MS)).filter((p) => p.message?.startsWith(BOOT_FAILED));
+      if (failures.length >= MAX_BOOT_FAILURES) {
+        const flavors = [...new Set(failures.map(flavorOf).filter(Boolean))].join(", ");
+        await repo.insertPainterPod({ id: `unavailable_${now}`, name: repo.PAINTER_POD_NAME, status: "unavailable",
+          message: `${GAVE_UP}: ${failures.length} pods in a row did not start (${flavors}) in ${c.dataCenterId} — RunPod's hosts there are failing to start containers. The Studio tries again in ${GIVE_UP_FOR_MS / 60_000} minutes; or press Start, change PAINTER_POD_CPU_FLAVORS, or move the volume to another data center.` });
+        return "gave-up";
+      }
+      /* replace it at once, on another flavor (another pool of hosts), while pictures wait */
+      if (queued > 0) await wakeForWork();
       return "boot-timeout";
     }
     return "starting";
