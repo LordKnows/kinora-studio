@@ -10,6 +10,7 @@ SQLite/D1 database. Deploys to Cloudflare Workers.
 The original single-shot studio is still here at `/playground`.
 
 Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
+User guide (中文，小白从零开始): [docs/user-guide-zh.md](docs/user-guide-zh.md).
 
 ---
 
