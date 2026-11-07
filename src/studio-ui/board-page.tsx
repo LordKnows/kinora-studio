@@ -13,6 +13,7 @@ import { preferredViews } from "@/studio/compiler";
 
 import { del, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
+import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
 
@@ -562,22 +563,28 @@ function FramesPanel({ shot }: { shot: ShotView }) {
     await reload();
   });
 
-  /* The Studio has no image model: hero and end frames are uploads, images
-     the director imports (import_image), or last frames of finished takes. */
+  /* Hero and end frames: uploads, GPT Image pictures drawn by a painter,
+     images the director imports, or last frames of finished takes. Every
+     picture shows its handle (IMG-12); "Select" deletes a batch. */
   const images = (view?.assets ?? []).filter((a) => a.kind === "image");
+  const shown = images.slice(0, 48);
+  const sel = usePictureSelection();
 
   const grid = (picked: string | undefined, onPick: (id: string) => void) => (
-    <div className="st-thumbs">
-      {images.slice(0, 48).map((a) => (
-        <button key={a.id} type="button" className="st-thumb" aria-pressed={picked === a.id} onClick={() => onPick(a.id)}>
-          <img src={a.url} alt="" />
-          {picked === a.id && (
-            <span className="st-thumb-check">
-              <CheckIcon size={11} />
-            </span>
-          )}
-          {a.source === "frame-extract" && <span className="st-thumb-tag">LAST FRAME</span>}
-        </button>
+    <div className="st-thumbs st-thumbs--named">
+      {shown.map((a) => (
+        <div key={a.id} className="st-pic">
+          <button type="button" className="st-thumb" aria-pressed={sel.selecting ? sel.selected.includes(a.id) : picked === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : onPick(a.id))} title={pictureTitle(a)}>
+            <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
+            {sel.selecting ? <SelectMark on={sel.selected.includes(a.id)} /> : picked === a.id && (
+              <span className="st-thumb-check">
+                <CheckIcon size={11} />
+              </span>
+            )}
+            {a.source === "frame-extract" && <span className="st-thumb-tag">LAST FRAME</span>}
+          </button>
+          <PictureCaption asset={a} />
+        </div>
       ))}
       {images.length === 0 && <span className="st-muted">No images in this project yet. Upload one, generate it with GPT Image below, or finish a take to get its last frame.</span>}
     </div>
@@ -586,10 +593,12 @@ function FramesPanel({ shot }: { shot: ShotView }) {
   return (
     <div className="st-stack">
       <ErrorBanner error={pickHero.error ?? pickEnd.error} projectId={projectId} onDismiss={() => { pickHero.dismiss(); pickEnd.dismiss(); }} />
+      {sel.selecting && <span className="st-warn">Select pictures to delete — click to tick, then Delete. Pictures in use are confirmed first.</span>}
       <Section
         title="Hero frame"
         aside={
           <span className="st-row">
+            <SelectBar sel={sel} all={shown.map((a) => a.id)} onDeleted={reload} />
             {shot.heroAssetId && <Button size="sm" kind="quiet" onClick={() => void pickHero.fire(null)}>Clear</Button>}
             <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} label="Upload hero frame" onUploaded={({ assetId }) => pickHero.fire(assetId)} />
           </span>

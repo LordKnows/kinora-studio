@@ -58,8 +58,11 @@ function podEnv(): Record<string, string> {
     COMFY_URL: `http://127.0.0.1:${pod.comfyPort}`,
     STUDIO_BUNDLE_URL: `${config.publicUrl()}/api/pod/bundle?token=${encodeURIComponent(pod.workerToken)}`,
     STUDIO_VOLUME_PATH: pod.volumeMountPath,
-    /* GPT Image through the API (the Codex path needs no secret here: its
-       login lives on the volume). */
+    /* The pod is also the fallback painter (workers/painter): it claims image
+       jobs from the Studio like any painter while it runs. Codex's login
+       lives on the volume; the API path needs the key. */
+    STUDIO_URL: config.publicUrl(),
+    ...(config.painterOnPod() ? { PAINTER_ON_POD: "1", PAINTER_TOKEN: config.painterToken() ?? pod.workerToken, PAINTER_NAME: "gpu-pod" } : { PAINTER_ON_POD: "0" }),
     ...imagesApiEnv(),
   };
 }
@@ -73,20 +76,12 @@ function imagesApiEnv(): Record<string, string> {
   return out;
 }
 
-/* ---- the pod's image side: Codex login and the Viggle Remake models ---- */
+/* ---- the pod's Viggle Remake models (pictures are drawn by painters: painter.ts) ---- */
 
 async function runningPodBackend(): Promise<PodBackend> {
   const pod = await repo.currentGpuPod();
   if (!pod || pod.status !== "running" || !pod.hostUrl) throw new StudioError("backend_error", "the GPU pod is not running: start it on the Machine page first", { podStatus: pod?.status ?? "none" });
-  return podBackend(pod, "paint");
-}
-
-export async function codexStatus(): Promise<unknown> {
-  return (await runningPodBackend()).request("GET", "/codex/status");
-}
-
-export async function codexLogin(): Promise<unknown> {
-  return (await runningPodBackend()).request("POST", "/codex/login", {});
+  return podBackend(pod);
 }
 
 export async function remakeStatus(): Promise<unknown> {
@@ -152,7 +147,7 @@ export async function getGpuState(): Promise<GpuState> {
   };
 }
 
-export function podBackend(pod: repo.GpuPod, kind: "video" | "assemble" | "paint" = "video"): PodBackend {
+export function podBackend(pod: repo.GpuPod, kind: "video" | "assemble" = "video"): PodBackend {
   if (!pod.hostUrl) throw new StudioError("backend_error", "pod has no host url yet");
   return new PodBackend({ hostUrl: pod.hostUrl, token: config.runpodPod().workerToken, kind });
 }

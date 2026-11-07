@@ -99,6 +99,12 @@ export const config = {
   }),
   r2Configured: (): boolean => Boolean(env("R2_ACCOUNT_ID") && env("R2_BUCKET")),
 
+  /** Painters (workers/painter) authenticate with this; falls back to the pod's
+      STUDIO_WORKER_TOKEN so one secret is enough. Undefined: no painter can connect. */
+  painterToken: (): string | undefined => env("PAINTER_TOKEN") ?? env("STUDIO_WORKER_TOKEN"),
+  /** "0": the GPU pod does not draw pictures, even when no painter is online. */
+  painterOnPod: (): boolean => env("PAINTER_ON_POD") !== "0",
+
   /** Static bearer for clients that cannot do OAuth (Claude Code, curl). */
   mcpStaticToken: (): string | undefined => env("MCP_STATIC_TOKEN"),
 };

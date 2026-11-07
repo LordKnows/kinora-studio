@@ -54,6 +54,9 @@ export async function reviewPacket(projectId: string, stage: ReviewStage, target
 
 /* ---- frame: one generated picture against what it was asked to be ---- */
 
+/** The fault codes a frame reviewer files under (the painter's own self-check uses the same list). */
+export const FRAME_FAULTS = ["anatomy", "count", "identity", "wardrobe", "feature_side", "text", "framing", "aspect", "style", "background", "extra", "edit_scope", "prompt_mismatch", "other"] as const;
+
 async function framePacket(projectId: string, assetId: string): Promise<ReviewPacket> {
   const view = await getProjectView(projectId);
   const asset = view.assets.find((a) => a.id === assetId);
@@ -63,21 +66,41 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
   const shot = view.scenes.flatMap((s) => s.shots).find((sh) => sh.heroAssetId === asset.id || sh.endAssetId === asset.id);
   const element = view.elements.find((e) => e.refAssetIds.includes(asset.id));
   const sheets = shot ? view.elements.filter((e) => shot.spec.characters.includes(e.id) || shot.spec.props.includes(e.id)).map((e) => ({ name: e.name, fixedFeatures: e.fixedFeatures ?? [], refs: e.refAssetIds.filter((a) => a !== asset.id).map((a) => view.assets.find((x) => x.id === a)?.url).filter(Boolean) })) : [];
+  /* the pictures it was drawn from, in the order the painter attached them */
+  const job = typeof m.jobId === "string" ? await repo.getJob(m.jobId).catch(() => undefined) : undefined;
+  const refsUsed = ((job?.input.refUrls as string[] | undefined) ?? []).map((url, k) => ({ n: k + 1, url, name: view.assets.find((a) => a.url === url)?.name }));
   const materials = {
-    picture: asset.url, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
-    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
+    picture: asset.url, handle: asset.handle, name: asset.name, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
+    refsUsed,
+    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
     element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
     sheets, renderSize: VIDEO_SIZES[view.project.look.aspectRatio],
+    /* measured on the pixels by the painter: facts, not opinions */
+    pixelChecks: m.checks,
+    /* a first checker (Codex) — leads to confirm or reject, not a verdict to copy */
+    firstChecker: m.autoReview ? { verdict: (m.autoReview as { verdict?: string }).verdict, findings: (m.autoReview as { findings?: unknown }).findings } : undefined,
   };
   const reviewerPrompt = [
-    "You are the reviewer of one generated picture. Read only, change nothing. Open every image named below and look closely.",
-    "1. Does it show what was asked (askedFor), nothing missing, nothing added? Count the people and the props.",
-    "2. Identity: does every character match their sheet (face, hair, build, clothes)? Is every fixed feature there, on the right side?",
-    "3. Base and region: if there is a base, is everything outside the edited region identical (the diff image is black there)? Did the edit stay inside it?",
-    "4. For a first/last frame: same camera, scale and background as the shot's other frame? Everything the action needs already visible? Room for the movement? People in different poses? Eyes on the composition line?",
-    "5. For a sheet view: the asked view (front, side, back, expressions), the whole figure, plain background, consistent with the other views?",
-    "6. Artefacts: extra fingers, melted objects, text or lettering, borders, a wrong aspect ratio (the render is " + materials.renderSize + ").",
-    "For each finding: where, the problem, the fix (what to change in the request or the region). End with exactly one word on its own line: PASS or FAIL.",
+    "You are the reviewer of one generated picture that a video model will copy into every frame of a shot. Read only, change nothing.",
+    "Open the picture at FULL size (the url, not a thumbnail) and every reference beside it. Do your own pass first, top to bottom, before reading firstChecker.",
+    "",
+    "Check, and file every fault under one code:",
+    "1. anatomy — hands (count the fingers on every visible hand), arms, legs, faces, eyes, teeth; nothing fused, doubled, melted or missing.",
+    "2. count / extra — exactly the people and props asked for (shot.characters, askedFor); no extra person in the background, no duplicate of a character, nothing added that was not asked.",
+    "3. identity / wardrobe — put the picture next to each sheet (refsUsed, sheets): face shape, hairline and hair colour, eye colour, age, build, every garment and its colour, props. 'Similar' is a fault: the video will drift further.",
+    "4. feature_side — every fixed feature on the side the sheet puts it, as the PERSON's own left/right (a scar on her left cheek is on the right side of the picture when she faces the camera). A mirrored person is a blocker.",
+    "5. text — letters, numbers, captions, labels, logos, watermarks, signatures, borders, panel grids, letterbox bars.",
+    "6. framing / aspect — the render is " + materials.renderSize + ": heads, hands or feet cut that should be in, the subject's eyes on the composition line (shot.composition), headroom; a sheet shows the whole figure.",
+    "7. style / background — the film's style; a sheet view: ONE figure, the asked view (front, side, back, expressions), plain empty backdrop; a frame: the right place, same camera, scale and background as the shot's other frame.",
+    "8. edit_scope — with a base: outside the region everything identical (the diff is black there); the edit did what was asked and nothing else.",
+    "9. prompt_mismatch — anything else askedFor wants and the picture does not show: everything the action needs already visible in a first frame, room for the movement, people in different poses.",
+    "",
+    "Then go through pixelChecks (measured, so they are true unless the check misread the picture) and each firstChecker finding: confirm it with what you see, or reject it. Do not copy anything you did not see yourself.",
+    "",
+    "For each finding write: code, severity (blocker = a viewer would notice it or the video model would copy it; minor = a nit), where (a body part, or a box as fractions x,y,w,h of the picture), the problem, and the fix as ONE of:",
+    "  'edit: <instruction>' with the box — for a local fault (a hand, a garment, a face, a stray object): edit_frame with that region fixes it without touching the rest;",
+    "  'redraw: <what to change in the request>' — for a global fault (wrong person count, wrong camera, wrong style, mirrored person).",
+    "A picture with any blocker FAILS. End with exactly one word on its own line: PASS or FAIL.",
     "",
     "--- MATERIAL ---",
     JSON.stringify(materials, null, 2),
@@ -218,14 +241,14 @@ async function filmPacket(projectId: string): Promise<ReviewPacket> {
 export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[] }): Promise<{ review: StageReview; note?: string }> {
   const packet = await reviewPacket(projectId, input.stage, input.shotId);
   const sure = input.findings.filter((f) => f.sure !== false);
-  if (input.verdict === "pass" && input.stage === "film" && input.findings.some((f) => f.severity === "blocker")) {
-    throw new StudioError("validation", "a film review with blocker findings cannot pass");
+  if (input.verdict === "pass" && (input.stage === "film" || input.stage === "frame") && input.findings.some((f) => f.severity === "blocker")) {
+    throw new StudioError("validation", `a ${input.stage} review with blocker findings cannot pass`);
   }
   const review = await repo.insertReview({ projectId, stage: input.stage, shotId: input.shotId, subjectHash: packet.subjectHash, verdict: input.verdict, reviewer: input.reviewer, basis: input.basis, findings: input.findings });
   /* a frame review marks the picture itself, so the Board and the Remake gate can see it */
   if (input.stage === "frame" && input.shotId) {
     const a = await repo.getAsset(input.shotId).catch(() => undefined);
-    if (a) await repo.updateAssetMeta(a.id, { ...a.meta, review: input.verdict, reviewedBy: input.reviewer });
+    if (a) await repo.updateAssetMeta(a.id, { ...a.meta, review: input.verdict, reviewedBy: input.reviewer, reviewFindings: input.findings.slice(0, 20) });
   }
   const note = input.reviewer === "self" ? "Recorded as a self-review: tell the user it was not an independent read." : input.verdict === "pass" && sure.length ? "Passed with findings: fix the sure ones before rendering." : undefined;
   return { review, ...(note ? { note } : {}) };

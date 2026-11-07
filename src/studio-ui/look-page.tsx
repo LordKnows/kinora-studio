@@ -10,6 +10,7 @@ import { Button, Chips, ErrorBanner, Field, Lamp, useAction } from "./common";
 import { StyleGallery } from "./library-page";
 import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
+import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 import { ImageButton } from "./image-tools";
 
 /* Brief & style — Tier 1. The brief and the running time the director
@@ -185,22 +186,30 @@ function StyleFrameCard() {
     await patch(`/api/projects/${projectId}/look`, { styleFrameAssetId: assetId ?? "" });
     await reload();
   });
+  const sel = usePictureSelection();
   return (
     <div className="st-card st-stack" style={{ marginBottom: 16 }}>
       <div className="st-row st-row--between">
         <span className="st-h2">Style frame</span>
-        <ImageButton label={frames.length ? "Draw another" : "Generate a style frame"} body={{ action: "style_frame" }} />
+        <span className="st-row">
+          <SelectBar sel={sel} all={frames.map((a) => a.id)} onDeleted={reload} />
+          <ImageButton label={frames.length ? "Draw another" : "Generate a style frame"} body={{ action: "style_frame" }} />
+        </span>
       </div>
       <span className="st-muted">One picture that sets the look (from the brief and the Look). Choose one and every generated sheet and frame matches it.</span>
       <ErrorBanner error={choose.error} onDismiss={choose.dismiss} />
       {frames.length > 0 && (
-        <div className="st-thumbs">
+        <div className="st-thumbs st-thumbs--named">
           {frames.map((a) => (
-            <button key={a.id} type="button" className="st-thumb" aria-pressed={current === a.id} onClick={() => void choose.fire(current === a.id ? null : a.id)} title={current === a.id ? "The style frame (click to clear)" : "Use as the style frame"}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt="" />
-              {current === a.id && <span className="st-thumb-tag">STYLE</span>}
-            </button>
+            <div key={a.id} className="st-pic">
+              <button type="button" className="st-thumb" aria-pressed={sel.selecting ? sel.selected.includes(a.id) : current === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : void choose.fire(current === a.id ? null : a.id))} title={sel.selecting ? pictureTitle(a) : current === a.id ? "The style frame (click to clear)" : "Use as the style frame"}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} />
+                {sel.selecting && <SelectMark on={sel.selected.includes(a.id)} />}
+                {current === a.id && <span className="st-thumb-tag">STYLE</span>}
+              </button>
+              <PictureCaption asset={a} />
+            </div>
           ))}
         </div>
       )}

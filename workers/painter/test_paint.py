@@ -1,5 +1,6 @@
-"""Image jobs on the pod: paste-back, crop, extract, the Codex and API
-backends (with fakes), the device-code login, and the Remake graph."""
+"""What a painter draws: paste-back, crop, extract, the Codex and API
+backends (with fakes), aspect handling, the pixel checks, the self-review
+with one redraw, and the device-code login."""
 
 from __future__ import annotations
 
@@ -18,8 +19,6 @@ from PIL import Image
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import paint  # noqa: E402
-
-h3 = sys.modules["handler_h3_runpod"]
 
 
 def png_bytes(color, size=(320, 180)) -> bytes:
@@ -145,7 +144,11 @@ def test_codex_paint_region_edit_copies_a_refreshed_login_back(tmp_path, codex_e
     assert img.getpixel((700, 100))[0] > 200
     cmd = calls[0][0]
     assert cmd[:3] == ["codex", "exec", "--skip-git-repo-check"] and "--json" in cmd
-    assert "referenced_image_paths" in cmd[-1] and "aspect ratio 1344:768" in cmd[-1]
+    # the pictures go in as attachments, in order (ref first, the picture to edit last), and the ratio is one the model knows
+    pics = [cmd[i + 1] for i, a in enumerate(cmd) if a == "-i"]
+    assert len(pics) == 2 and pics[0].endswith("ref0.png") and pics[1].endswith("base.png")
+    assert "16:9 aspect ratio" in cmd[-1] and "Image 2: the picture to edit." in cmd[-1]
+    assert "checks" not in out or all(c["id"] != "cropped" for c in out["checks"])  # a region edit is pasted, not cropped
     assert json.loads((codex_env / "auth.json").read_text()) == {"tokens": "fresh"}
 
 
@@ -230,37 +233,6 @@ def test_device_code_login_reports_url_and_code(tmp_path, monkeypatch):
     assert state["state"] in ("pending", "done")
 
 
-def test_remake_input_and_graph():
-    with pytest.raises(h3.JobError, match="17n"):
-        h3.validate_remake_input({"workflow": "REMAKE", "video": "https://x/v.mp4", "prompt": "retention_analysis:", "refs": ["https://x/a.png"], "frames": 100, "output": {"key": "a.mp4"}})
-    with pytest.raises(h3.JobError, match="one source frame index per ref"):
-        h3.validate_remake_input({"workflow": "REMAKE", "video": "https://x/v.mp4", "prompt": "retention_analysis:", "refs": ["https://x/a.png"], "pins": [1, 2], "output": {"key": "a.mp4"}})
-    params = h3.validate_remake_input({"workflow": "REMAKE", "mode": "swap", "video": "https://x/v.mp4", "prompt": "subject_definitions:\nretention_analysis:\n", "refs": ["https://x/a.png", "https://x/b.png"], "pins": [12, 100], "frames": 124, "output": {"key": "a.mp4"}})
-    mapping = h3.load_mapping()["REMAKE"]
-    graph = h3.fill_remake_graph(h3.load_workflow("REMAKE"), mapping, {**params, "files": {"video": "src.mp4", "refs": ["a.png", "b.png"]}})
-    assert graph["1"]["inputs"]["unet_name"] == "viggle_remake_swap_pruned_int8_convrot.safetensors"
-    assert graph["15"]["inputs"]["sigmas"].startswith("1.0, 0.990476")
-    assert graph["11"]["inputs"]["pins"] == "12, 100" and graph["11"]["inputs"]["frames"] == 124
-    assert "ref_3" not in graph["11"]["inputs"] and "21" not in graph and "22" not in graph
-    assert graph["9"]["inputs"]["image"] == "a.png" and graph["10"]["inputs"]["image"] == "b.png"
-    # every link points at a node that is still there
-    for nid, node in graph.items():
-        for v in node["inputs"].values():
-            if isinstance(v, list) and len(v) == 2 and isinstance(v[0], str):
-                assert v[0] in graph, (nid, v)
-
-
-def test_remake_status_reads_files(tmp_path, monkeypatch):
-    (tmp_path / "diffusion_models").mkdir()
-    (tmp_path / "diffusion_models" / "viggle_remake_edit_pruned_int8_convrot.safetensors").write_bytes(b"0" * 2_000_000)
-    nodes = tmp_path / "nodes"
-    nodes.mkdir()
-    (nodes / "nodes.py").write_text("#")
-    monkeypatch.setattr(h3, "REMAKE_NODE_DIR", str(nodes))
-    st = h3.remake_status(tmp_path)
-    assert st["ready"] and st["modes"] == {"edit": True, "swap": False}
-
-
 def test_codex_falls_back_without_code_mode_when_its_host_is_missing(tmp_path, codex_env):
     calls = []
 
@@ -283,3 +255,87 @@ def test_codex_falls_back_without_code_mode_when_its_host_is_missing(tmp_path, c
 
 def test_install_codex_script_is_valid_bash():
     assert subprocess.run(["bash", "-n", str(HERE / "install_codex.sh")]).returncode == 0
+
+
+def test_shape_hint_names_a_ratio_the_model_knows():
+    assert paint.nearest_ratio(1344, 768) == (16, 9)
+    assert paint.nearest_ratio(1008, 1344) == (3, 4)
+    assert paint.nearest_ratio(1024, 1024) == (1, 1)
+    assert "portrait" in paint.shape_hint(1008, 1344) and "3:4 aspect ratio" in paint.shape_hint(1008, 1344)
+
+
+def test_a_close_aspect_is_kept_and_its_crop_reported(tmp_path, codex_env):
+    run, calls = fake_codex(png_bytes((90, 120, 150), (1536, 1024)))  # 3:2 for a 16:9 frame: 14% off, redrawn once
+    params = paint.validate_paint_input({"op": "paint", "prompt": "A courier crosses a wet square at dusk.", "size": "1344x768", "output": {"key": "x.png"}})
+    out = paint.run_paint_job(params, FakeUploader(), tmp_path, http=FakeHttp({}), codex_runner=run)
+    assert len(calls) == 2 and out["drawn"] == 2
+    crop = next(c for c in out["checks"] if c["id"] == "cropped")
+    assert crop["level"] == "warn" and "top and bottom" in crop["message"]
+
+    run2, calls2 = fake_codex(png_bytes((90, 120, 150), (1672, 941)))  # what "16:9" gets: kept at once
+    out2 = paint.run_paint_job(params, FakeUploader(), tmp_path / "b", http=FakeHttp({}), codex_runner=run2) if (tmp_path / "b").mkdir() is None else None
+    assert len(calls2) == 1 and out2["drawn"] == 1 and not any(c["id"] == "cropped" and c["level"] != "warn" for c in out2.get("checks", []))
+
+
+def test_pixel_checks():
+    flat = Image.new("RGB", (1344, 768), (128, 128, 128))
+    assert any(c["id"] == "blank" and c["level"] == "fail" for c in paint.auto_checks(flat, drawn_size=None, target=(1344, 768)))
+    noisy = Image.effect_noise((1344, 768), 60).convert("RGB")
+    assert paint.auto_checks(noisy, drawn_size=None, target=(1344, 768)) == []
+    boxed = noisy.copy()
+    boxed.paste((0, 0, 0), (0, 0, 1344, 60))
+    boxed.paste((0, 0, 0), (0, 708, 1344, 768))
+    border = [c for c in paint.auto_checks(boxed, drawn_size=None, target=(1344, 768)) if c["id"] == "border"]
+    assert border and "top" in border[0]["message"] and "bottom" in border[0]["message"] and "left" not in border[0]["message"]
+    pillar = noisy.copy()
+    pillar.paste((10, 10, 10), (0, 0, 80, 768))
+    side = [c for c in paint.auto_checks(pillar, drawn_size=None, target=(1344, 768)) if c["id"] == "border"]
+    assert side and "left" in side[0]["message"] and "right" not in side[0]["message"]
+    other = Image.effect_noise((1344, 768), 60).convert("RGB").transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+    scope = [c for c in paint.auto_checks(other, drawn_size=None, target=(1344, 768), base=Image.new("RGB", (1344, 768), (20, 20, 20))) if c["id"] == "edit_scope"]
+    assert scope and scope[0]["level"] == "warn"
+    sheet = Image.new("RGB", (1008, 1344), (200, 200, 200))
+    sheet.paste(Image.effect_noise((400, 1000), 80).convert("RGB"), (300, 200))
+    assert not any(c["id"] == "busy_background" for c in paint.auto_checks(sheet, drawn_size=None, target=(1008, 1344), kind="element_sheet"))
+    assert any(c["id"] == "busy_background" for c in paint.auto_checks(Image.effect_noise((1008, 1344), 80).convert("RGB"), drawn_size=None, target=(1008, 1344), kind="element_sheet"))
+
+
+def test_self_review_redraws_a_blocker_once_with_the_findings(tmp_path, codex_env):
+    draws, reviews = [], []
+
+    def run(cmd, env, **kw):
+        home = Path(env["CODEX_HOME"])
+        if "--output-schema" in cmd:
+            reviews.append(cmd)
+            verdict = {"verdict": "fail", "summary": "six fingers", "findings": [{"code": "anatomy", "severity": "blocker", "where": "her left hand", "what": "six fingers", "fix": "five fingers on her left hand"}]} if len(reviews) == 1 else {"verdict": "pass", "summary": "ok", "findings": []}
+            Path(cmd[cmd.index("-o") + 1]).write_text(json.dumps(verdict))
+            assert cmd[cmd.index("-i", len(cmd) - 4) + 1].endswith(".png")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        draws.append(cmd[-1])
+        d = home / "generated_images" / "s"
+        d.mkdir(parents=True)
+        (d / "a.png").write_bytes(png_bytes((30 + len(draws), 60, 90), (1672, 941)))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    params = paint.validate_paint_input({"op": "paint", "prompt": "A courier waves with her left hand.", "size": "1344x768", "check": {"review": True, "redraws": 1, "kind": "shot_first"}, "output": {"key": "x.png"}})
+    out = paint.run_paint_job(params, FakeUploader(), tmp_path, http=FakeHttp({}), codex_runner=run)
+    assert len(draws) == 2 and len(reviews) == 2 and out["drawn"] == 2 and out["rounds"] == 2
+    assert "five fingers on her left hand" in draws[1] and "five fingers" not in draws[0]
+    assert out["review"]["verdict"] == "pass" and out["review"]["reviewer"] == "codex"
+
+
+def test_self_review_failure_is_kept_when_no_redraw_is_left(tmp_path, codex_env):
+    def run(cmd, env, **kw):
+        home = Path(env["CODEX_HOME"])
+        if "--output-schema" in cmd:
+            Path(cmd[cmd.index("-o") + 1]).write_text(json.dumps({"verdict": "pass", "summary": "", "findings": [{"code": "text", "severity": "blocker", "where": "bottom", "what": "a caption", "fix": "no caption"}]}))
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        d = home / "generated_images" / "s"
+        d.mkdir(parents=True)
+        (d / "a.png").write_bytes(png_bytes((40, 60, 90), (1672, 941)))
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    params = paint.validate_paint_input({"op": "paint", "prompt": "A courier waves.", "size": "1344x768", "check": {"review": True, "redraws": 0}, "output": {"key": "x.png"}})
+    out = paint.run_paint_job(params, FakeUploader(), tmp_path, http=FakeHttp({}), codex_runner=run)
+    # a blocker makes it a fail whatever the verdict field said
+    assert out["drawn"] == 1 and out["review"]["verdict"] == "fail"

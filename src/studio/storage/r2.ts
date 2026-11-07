@@ -59,3 +59,21 @@ export async function putObject(key: string, body: ArrayBuffer | Uint8Array, con
   const res = await s3().fetch(objectUrl(key), { method: "PUT", body: body as BodyInit, headers: { "content-type": contentType } });
   if (!res.ok) throw new Error(`R2 PUT ${key} failed: ${res.status} ${await res.text().catch(() => "")}`);
 }
+
+/** A readable name from an upload key: the file name the user chose, without our prefix and extension. */
+export function nameOfUploadKey(key: string): string | undefined {
+  const file = key.split("/").pop() ?? "";
+  return file.replace(/^up_[A-Za-z0-9]+-/, "").replace(/\.[A-Za-z0-9]{2,5}$/, "").replace(/[_-]+/g, " ").trim() || undefined;
+}
+
+/** Remove an object (a deleted picture and its preview). A missing key is not an error. */
+export async function deleteObject(key: string): Promise<void> {
+  const res = await s3().fetch(objectUrl(key), { method: "DELETE" });
+  if (!res.ok && res.status !== 404) throw new Error(`R2 DELETE ${key} failed: ${res.status}`);
+}
+
+/** The R2 key behind one of our public URLs, or undefined for anything else. */
+export function keyOfPublicUrl(url: string): string | undefined {
+  const base = `${config.r2().publicBaseUrl}/`;
+  return url.startsWith(base) ? decodeURIComponent(url.slice(base.length).split("?")[0]!) : undefined;
+}

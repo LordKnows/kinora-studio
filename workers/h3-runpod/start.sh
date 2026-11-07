@@ -209,8 +209,11 @@ if [ "${REMAKE_NODES:-1}" = "1" ]; then
   export REMAKE_NODE_DIR="$RNODES"
 fi
 
-# Image jobs (paint.py) need Pillow in the job server's Python.
-python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; image jobs will fail"
+# The pod is also the fallback painter (painter.py, started by server.py):
+# while it runs it claims the Studio's image jobs like any painter. Pictures
+# are normally drawn on a painter elsewhere (workers/painter), before the pod
+# is started; PAINTER_ON_POD=0 turns this off. paint.py needs Pillow.
+python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; the pod cannot draw pictures"
 
 # The Codex CLI draws with the user's ChatGPT plan (image_gen). The binaries
 # and the login live on the network volume ($VOLUME_PATH, the same place the

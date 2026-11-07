@@ -33,6 +33,7 @@ export const PROJECT_NAV: Array<{ slug: string; label: string; step: string }> =
   { slug: "script", label: "Script", step: "2" },
   { slug: "elements", label: "Elements", step: "3" },
   { slug: "board", label: "Board", step: "4" },
+  { slug: "pictures", label: "Pictures", step: "·" },
   { slug: "finals", label: "Finals", step: "5" },
   { slug: "timeline", label: "Timeline", step: "6" },
 ];

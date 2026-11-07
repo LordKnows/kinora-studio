@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Install the Codex CLI and the helpers it spawns into one directory:
-#   codex                 the CLI (codex-x86_64-unknown-linux-musl)
+#   codex                 the CLI (codex-<arch>-unknown-linux-musl, x86_64 or aarch64)
 #   codex-code-mode-host  runs Codex's tool calls in "code mode"; a separate
 #                         release archive, looked up next to the codex binary
 # Idempotent: present files are kept unless CODEX_UPDATE=1.
 set -euo pipefail
 BIN="${1:?usage: install_codex.sh <bin dir>}"
 BASE="${CODEX_RELEASE_BASE:-https://github.com/openai/codex/releases/latest/download}"
-TARGET="${CODEX_TARGET:-x86_64-unknown-linux-musl}"
+case "$(uname -m)" in
+  aarch64|arm64) DEFAULT_TARGET="aarch64-unknown-linux-musl" ;;
+  *) DEFAULT_TARGET="x86_64-unknown-linux-musl" ;;
+esac
+TARGET="${CODEX_TARGET:-$DEFAULT_TARGET}"
 mkdir -p "$BIN"
 fetch() {  # <asset base name> <installed name>
   local asset="$1" name="$2" tmp

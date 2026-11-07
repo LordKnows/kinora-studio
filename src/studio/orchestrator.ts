@@ -354,7 +354,12 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
       if (costUsd) await repo.addSpent(take.projectId, costUsd);
       await gpu.touchGpuActivity();
       await repo.createAsset({ projectId: take.projectId, url, kind: "video", source: "generated", durationS: num(take.input.seconds), meta: { takeId: take.id, shotId: take.shotId } });
-      if (lastFrameUrl) await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame" } });
+      if (lastFrameUrl) {
+        const shot = await repo.getShot(take.shotId).catch(() => undefined);
+        const scene = shot ? await repo.getScene(shot.sceneId).catch(() => undefined) : undefined;
+        const where = scene && shot ? `${scene.slug} #${shot.index + 1} · ` : "";
+        await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame" }, name: `${where}take #${take.n} last frame` });
+      }
       return updated;
     }
     case "failed": {
@@ -718,7 +723,7 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
       await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS: Array.isArray(status.output.cuts_s) ? status.output.cuts_s : undefined } });
       /* 3 frames each side of every cut, for the film review. */
       const sheet = str(status.output.cut_sheet_url);
-      if (sheet) await repo.createAsset({ projectId: job.projectId, url: sheet, kind: "image", source: "export", meta: { exportId: job.id, role: "cut-sheet" } });
+      if (sheet) await repo.createAsset({ projectId: job.projectId, url: sheet, kind: "image", source: "export", meta: { exportId: job.id, role: "cut-sheet" }, name: `cut sheet · ${job.preset}` });
       return updated;
     }
     case "failed":
@@ -808,7 +813,9 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
   }
   let autoStopped: boolean | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
-    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveJobs()).some((j) => j.kind === "image");
+    /* pictures keep the pod up only while the pod itself is drawing one (painters elsewhere do not need it) */
+    const { podIsPainting } = await import("./painter");
+    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await podIsPainting());
     try {
       autoStopped = await gpu.autoStopIfIdle(stillBusy);
     } catch {

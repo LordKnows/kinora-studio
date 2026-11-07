@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { get } from "./api";
 import { Lamp, Section } from "./common";
 import { GpuSection } from "./gpu-panel";
-import { PodImaging } from "./pod-imaging";
+import { PaintersPanel, RemakeModels } from "./painters-panel";
 
 type Me = { user: string; via: string; authMode: string; runpodConfigured: boolean; r2Configured: boolean; imageGeneration: string };
 
@@ -20,14 +20,17 @@ export function MachinePage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Machine</h1>
-          <p className="st-subtitle">The RunPod pod that renders every take, what it costs, and the storage behind it. One pod serves all projects.</p>
+          <p className="st-subtitle">The RunPod pod that renders every take, the painters that draw the pictures before it starts, what it costs, and the storage behind it.</p>
         </div>
       </div>
       <div className="st-card">
         <GpuSection />
       </div>
-      <Section title="Images on the pod">
-        <PodImaging />
+      <Section title="Pictures (painters, off the GPU)">
+        <PaintersPanel />
+      </Section>
+      <Section title="Remake models (on the pod)">
+        <RemakeModels />
       </Section>
       <Section title="Backends">
         <div className="st-card">
@@ -40,7 +43,7 @@ export function MachinePage() {
               <dt>R2 storage</dt>
               <dd><Lamp state={me.r2Configured ? "ok" : "warn"} label={me.r2Configured ? "configured" : "missing R2_* secrets"} /></dd>
               <dt>Image models</dt>
-              <dd><Lamp state="ok" label="GPT Image on the pod (Codex or the API), switched per project in Settings" /></dd>
+              <dd><Lamp state="ok" label="GPT Image on the painters (Codex or the API), switched per project in Settings" /></dd>
             </dl>
           ) : (
             <span className="st-muted">Loading…</span>

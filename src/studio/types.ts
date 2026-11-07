@@ -34,11 +34,15 @@ export type Autopilot = {
 
 export type Imaging = {
   enabled: boolean;
-  /** codex = the user's ChatGPT plan through the Codex CLI on the pod; api = OPENAI_API_KEY, paid per call. */
+  /** codex = the user's ChatGPT plan through the Codex CLI on a painter; api = OPENAI_API_KEY, paid per call. */
   backend: "codex" | "api";
   maxImages: number;
   usedImages: number;
   quality: "low" | "medium" | "high";
+  /** A fresh Codex session checks every drawn picture against its brief and refs (default on; uses Codex usage, not image quota). */
+  selfCheck?: boolean;
+  /** Redraws a painter may make when the self-check finds a blocker (0–2, default 1; each counts as a picture). */
+  autoRedraws?: number;
   grantedBy: string;
   grantedAt: number;
   /** Set when the plan or the account ran out of image quota; painting stops until it is cleared. */
@@ -75,6 +79,12 @@ export type Asset = {
   height?: number;
   durationS?: number;
   meta: Record<string, unknown>;
+  /** Pictures only: a short per-project number (IMG-12 is seq 12) to name it by in a conversation. */
+  seq?: number;
+  /** `IMG-<seq>`, derived. */
+  handle?: string;
+  /** A readable name ("Mia · front"); the user can change it. */
+  name?: string;
   createdAt: number;
 };
 
@@ -135,7 +145,7 @@ export type Review = {
 
 /** A cold-reader review of a stage, stored against a hash of what was reviewed. */
 export type ReviewStage = "story" | "shot" | "film" | "frame";
-export type ReviewFinding = { where: string; problem: string; fix?: string; sure?: boolean; severity?: "blocker" | "minor" };
+export type ReviewFinding = { where: string; problem: string; fix?: string; sure?: boolean; severity?: "blocker" | "minor"; code?: string };
 export type StageReview = {
   id: string; projectId: string; stage: ReviewStage; shotId?: string;
   subjectHash: string; verdict: "pass" | "fail"; reviewer: "fresh_agent" | "self" | "human"; basis: string;
@@ -266,8 +276,33 @@ export type Job = {
   input: Record<string, unknown>;
   /** What the pod answered (urls, size, attempts). */
   output?: Record<string, unknown>;
+  /** Image jobs: when a painter took it, and how many times it was taken. */
+  claimedAt?: number;
+  attempts?: number;
   createdAt: number;
   finishedAt?: number;
+};
+
+/** A machine that draws the Studio's pictures (workers/painter/painter.py). */
+export type Painter = {
+  id: string;
+  name: string;
+  info: {
+    version?: string;
+    host?: string;
+    /** Paint backends it can serve right now (codex only once logged in, api only with a key). */
+    backends?: string[];
+    ops?: string[];
+    slots?: number;
+    running?: string[];
+    onPod?: boolean;
+    codex?: { installed?: boolean; logged_in?: boolean; code_mode_host?: boolean; detail?: string; home?: string; bin?: string; version?: string };
+    login?: { state: string; url?: string; code?: string; lines?: string[]; error?: string };
+    lastError?: string;
+  };
+  commands: Array<{ id: string; type: "codex_login"; at: number }>;
+  firstSeenAt: number;
+  lastSeenAt: number;
 };
 
 export type Actor = { user: string; via: "web" | "mcp" | "hook" };

@@ -1,4 +1,4 @@
-// Packs workers/h3-runpod (+ the assembler handler) into a gzip tarball and
+// Packs workers/h3-runpod (+ the assembler handler and workers/painter) into a gzip tarball and
 // embeds it as base64 in src/pod/bundle.ts, so a stock RunPod ComfyUI image
 // can bootstrap the studio's job server from GET /api/pod/bundle without a
 // Docker build. Runs before dev/build.
@@ -10,8 +10,13 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const stage = mkdtempSync(join(tmpdir(), "pod-bundle-"));
 mkdirSync(join(stage, "h3-runpod"), { recursive: true });
-for (const f of ["handler.py", "server.py", "paint.py", "install_codex.sh", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "models-remake.txt", "download_models.sh"]) {
+for (const f of ["handler.py", "server.py", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "models-remake.txt", "download_models.sh"]) {
   cpSync(join(root, "workers/h3-runpod", f), join(stage, "h3-runpod", f));
+}
+/* the painter (pictures off the GPU) rides along: the pod runs it as the
+   fallback, and a CPU box bootstraps from this same bundle (run_painter.sh) */
+for (const f of ["paint.py", "painter.py", "install_codex.sh", "run_painter.sh"]) {
+  cpSync(join(root, "workers/painter", f), join(stage, "h3-runpod", f));
 }
 cpSync(join(root, "workers/h3-runpod/workflows"), join(stage, "h3-runpod/workflows"), { recursive: true });
 cpSync(join(root, "workers/h3-runpod/studio_nodes"), join(stage, "h3-runpod/studio_nodes"), { recursive: true });
