@@ -185,15 +185,33 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
 /** Make sure a pod is on its way up. Resume the stopped one if RunPod still
     has a card for it; otherwise terminate it and create a fresh pod on the
     allow-list. "unavailable" is the answer when no listed GPU has capacity. */
-export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState> {
+export async function startGpu(actor: Actor, confirm: boolean, opts: { gpuTypeId?: string; replace?: boolean } = {}): Promise<GpuState> {
   if (!gpuConfigured()) throw new StudioError("backend_error", "RunPod pod mode is not configured (RUNPOD_API_KEY, RUNPOD_POD_IMAGE, STUDIO_WORKER_TOKEN, R2_*)");
   const pc = config.runpodPod();
   if (pc.gpuTypeIds.length === 0) throw new StudioError("validation", "RUNPOD_GPU_TYPES is empty: list the GPU types the pod may use");
+  /* a chosen GPU type: one of the allowed ones, and only that one is tried */
+  const wanted = opts.gpuTypeId;
+  if (wanted && !(await prioritizedGpuTypes()).includes(wanted)) throw new StudioError("validation", `${wanted} is not one of the allowed GPU types (RUNPOD_GPU_TYPES)`);
   let pod = await refreshGpu();
-  if (pod && (pod.status === "running" || pod.status === "starting" || pod.status === "creating")) return getGpuState();
+  const otherType = !!wanted && !!pod && !pod.id.startsWith(UNAVAILABLE_PREFIX) && pod.status !== "terminated" && pod.gpuTypeId !== wanted;
+  if (otherType && pod!.adopted) throw new StudioError("validation", `this pod was created by hand (${pod!.gpuName ?? pod!.gpuTypeId}); the Studio does not replace it — terminate it in RunPod, or start it as it is`);
+  const live = pod && (pod.status === "running" || pod.status === "starting" || pod.status === "creating");
+  if (live && !otherType) return getGpuState();
+  if (live && otherType && !opts.replace) throw new StudioError("needs_confirm", `the pod runs on ${pod!.gpuName ?? pod!.gpuTypeId}; switching to ${wanted} terminates it (takes in progress are lost) and creates a new pod`, { switchFrom: pod!.gpuTypeId, switchTo: wanted });
   if (actor.via === "mcp") assertConfirmed(confirm, estimatedPodUsdPerHour(pod), "starting the GPU pod (billed per hour while it runs)");
 
   const client = pods();
+  /* switching GPU type: the pod on the other type goes (its models are on the network volume) */
+  if (otherType && pod) {
+    try {
+      await client.terminatePod(pod.id);
+    } catch {
+      /* already gone */
+    }
+    const uptime = live ? Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000)) : 0;
+    await repo.updateGpuPod(pod.id, { status: "terminated", message: `replaced to switch to ${wanted}`, stoppedAt: Date.now(), startedAt: null, accumulatedSeconds: pod.accumulatedSeconds + uptime });
+    pod = undefined;
+  }
   /* A stopped pod is resumed; an adopted pod that could not get its GPU
      last time is retried the same way, never replaced by a new one. */
   if (pod && (pod.status === "stopped" || (pod.adopted && pod.status === "unavailable"))) {
@@ -222,7 +240,7 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
 
   /* GPU types × placements: RunPod tries every allowed GPU inside one call;
      we walk the placements (one model volume per data center) ourselves. */
-  const gpuTypeIds = await prioritizedGpuTypes();
+  const gpuTypeIds = wanted ? [wanted] : await prioritizedGpuTypes();
   if (gpuTypeIds.length === 0) {
     await repo.insertGpuPod({ id: `${UNAVAILABLE_PREFIX}${Date.now()}`, name: pc.podName, image: pc.image, status: "unavailable", message: `none of RUNPOD_GPU_TYPES [${pc.gpuTypeIds.join(", ")}] matches a RunPod GPU type` });
     return getGpuState();

@@ -13,6 +13,11 @@ import { useProjectContext } from "./shell";
 import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 import { ImageButton } from "./image-tools";
 
+function clampSeconds(raw: string): number | null {
+  const n = Math.round(Number(raw));
+  return raw.trim() === "" || !Number.isFinite(n) ? null : Math.max(5, Math.min(3600, n));
+}
+
 /* Brief & style — Tier 1. The brief and the running time the director
    reads first; a style preset compiled into the Look; the Look's fields,
    aspect ratio, LoRAs and negatives, inherited by every shot. */
@@ -25,19 +30,22 @@ export function LookPage() {
   const { projectId, view, reload } = useProjectContext();
   const [look, setLook] = useState<LookSettings | null>(null);
   const [saved, setSaved] = useState(false);
-  const [brief, setBrief] = useState<{ brief: string; targetSeconds: number | "" } | null>(null);
+  /* the running time is kept as typed (a number input that clamps on every key cannot be typed into) and clamped on blur and save */
+  const [brief, setBrief] = useState<{ brief: string; targetSeconds: string } | null>(null);
   const [briefSaved, setBriefSaved] = useState(false);
   const [pickingStyle, setPickingStyle] = useState(false);
   const [styleNote, setStyleNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (view && !look) setLook(view.project.look);
-    if (view && !brief) setBrief({ brief: view.project.brief, targetSeconds: view.project.targetSeconds ?? "" });
+    if (view && !brief) setBrief({ brief: view.project.brief, targetSeconds: view.project.targetSeconds ? String(view.project.targetSeconds) : "" });
   }, [view, look, brief]);
 
   const saveBrief = useAction(async () => {
     if (!brief) return;
-    await patch(`/api/projects/${projectId}`, { brief: brief.brief, targetSeconds: brief.targetSeconds === "" ? null : brief.targetSeconds });
+    const seconds = clampSeconds(brief.targetSeconds);
+    setBrief({ ...brief, targetSeconds: seconds === null ? "" : String(seconds) });
+    await patch(`/api/projects/${projectId}`, { brief: brief.brief, targetSeconds: seconds });
     await reload();
     setBriefSaved(true);
     window.setTimeout(() => setBriefSaved(false), 1500);
@@ -65,7 +73,7 @@ export function LookPage() {
   });
 
   const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
-  const target = brief && brief.targetSeconds !== "" ? brief.targetSeconds : undefined;
+  const target = brief ? clampSeconds(brief.targetSeconds) ?? undefined : undefined;
   const plan = target ? planDurations(target) : null;
 
   if (!look || !brief) return null;
@@ -94,7 +102,9 @@ export function LookPage() {
           </Field>
           <div className="st-fields">
             <Field label="Target running time (s)">
-              <input className="st-input" type="number" min={5} max={3600} step={1} value={brief.targetSeconds} onChange={(e) => setBrief({ ...brief, targetSeconds: e.target.value === "" ? "" : Math.max(5, Math.min(3600, Math.round(Number(e.target.value)))) })} />
+              <input className="st-input" type="number" inputMode="numeric" min={5} max={3600} step={1} value={brief.targetSeconds}
+                onChange={(e) => setBrief({ ...brief, targetSeconds: e.target.value })}
+                onBlur={() => { const s = clampSeconds(brief.targetSeconds); setBrief({ ...brief, targetSeconds: s === null ? "" : String(s) }); }} />
             </Field>
             <Field label="Board vs target">
               <span className="st-row" style={{ minHeight: 36 }}>

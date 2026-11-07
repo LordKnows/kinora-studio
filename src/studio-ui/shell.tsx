@@ -8,7 +8,7 @@ import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
 import { Lamp, Skeleton } from "./common";
-import { useGpu } from "./gpu-panel";
+import { GpuMenu } from "./gpu-panel";
 import { useProject } from "./use-project";
 
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
@@ -45,23 +45,6 @@ const GLOBAL_NAV: Array<{ href: string; label: string }> = [
   { href: "/connect", label: "Connect" },
 ];
 
-const GPU_SHORT: Record<string, string> = { off: "GPU off", starting: "GPU starting", creating: "GPU creating", running: "GPU on", stopping: "GPU stopping", stopped: "GPU off", unavailable: "no GPU", terminated: "GPU off" };
-
-function GpuPill() {
-  const { state } = useGpu();
-  if (!state || state.mode !== "pod") return null;
-  const live = state.status === "running" || state.status === "starting" || state.status === "creating";
-  const lamp = !state.configured ? "draft" : state.status === "running" ? "live" : state.status === "starting" || state.status === "creating" ? "queued" : state.status === "unavailable" ? "warn" : "draft";
-  const label = !state.configured ? "GPU not set up" : GPU_SHORT[state.status] ?? "GPU off";
-  return (
-    <Link href="/machine" className="st-pill" data-live={live ? "true" : undefined} title={state.message ?? state.pod?.gpuName ?? ""}>
-      <Lamp state={lamp} label={label} />
-      {state.pod?.gpuName && live && <span className="st-num">{state.pod.gpuName.replace(/^NVIDIA (GeForce )?/, "")}</span>}
-      {live && <span className="st-num">{usd(state.sessionUsd)}</span>}
-    </Link>
-  );
-}
-
 export function TopBar({ crumb }: { crumb?: ReactNode }) {
   const pathname = usePathname();
   return (
@@ -72,7 +55,7 @@ export function TopBar({ crumb }: { crumb?: ReactNode }) {
       </Link>
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />
-      <GpuPill />
+      <GpuMenu />
       <nav className="st-topbar-nav" aria-label="Studio">
         {GLOBAL_NAV.map((item) => {
           const current = item.href === "/" ? pathname === "/" : pathname?.startsWith(item.href);

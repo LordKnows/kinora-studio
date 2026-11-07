@@ -74,6 +74,10 @@ describe("GPT Image switch and jobs", () => {
   it("is off by default; only the web switches it", async () => {
     const p = await repo.createProject({ name: "Courier", budgetCapUsd: 20 });
     projectId = p.id;
+    /* new projects are vertical (9:16) with 100 pictures by default; this one is set to 16:9 */
+    expect(p.look.aspectRatio).toBe("9:16");
+    expect(imaging.imagingSummary(p)).toMatchObject({ maxImages: 100 });
+    await repo.setProjectLook(projectId, { aspectRatio: "16:9" });
     const sc = await repo.createScript(projectId, "EXT. SQUARE - DAY");
     await repo.approveScript(sc.id);
     mia = (await repo.createElement(projectId, { kind: "character", name: "Mia", description: "a courier in a yellow raincoat", fixedFeatures: [{ feature: "a scar", where: "left cheek" }] })).id;
@@ -265,6 +269,24 @@ describe("GPT Image switch and jobs", () => {
     expect(r.take.input).toMatchObject({ workflow: "REMAKE", mode: "edit", pins: [12], frames: 124, video: "https://studio.example/media/t.mp4" });
     expect(r.warnings[0]).toContain("frame review");
     expect(posts[posts.length - 1]!.url.endsWith("/run")).toBe(true);
+  });
+});
+
+describe("a frame from a picture you choose", () => {
+  it("edits the chosen picture into the shot's frame, and asks for one when none is given", async () => {
+    const p = await repo.createProject({ name: "From picture" });
+    const sc = await repo.createScript(p.id, "INT. ROOM - DAY");
+    await repo.approveScript(sc.id);
+    await imaging.setImaging(p.id, { enabled: true }, web);
+    await orch.saveShotlist(p.id, ShotlistInput.parse({ scenes: [{ slug: "room", shots: [shot({ frames: { first: "She sits at the desk", last: "She stands at the door" } })] }] }));
+    const sh = (await repo.listShots(p.id))[0]!;
+    const base = await repo.createAsset({ projectId: p.id, url: "https://studio.example/media/projects/x/base.png", kind: "image", source: "generated" });
+    await expect(imaging.generateShotFrame(sh.id, "last", web, { method: "edit_picture" })).rejects.toMatchObject({ code: "validation" });
+    const r = await imaging.generateShotFrame(sh.id, "last", web, { method: "edit_picture", baseAssetId: base.id });
+    expect(r.method).toBe("edit_picture");
+    expect(r.job!.input).toMatchObject({ op: "paint", baseAssetId: base.id, baseUrl: base.url, attach: { endOf: sh.id } });
+    expect(r.prompt).toContain("She stands at the door");
+    expect(r.prompt).toContain("Keep the people, the place, the light");
   });
 });
 

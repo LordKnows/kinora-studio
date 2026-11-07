@@ -287,6 +287,31 @@
   border-color: var(--accent-32);
   color: var(--tx);
 }
+button.st-pill {
+  cursor: pointer;
+  font: inherit;
+}
+.studio .st-gpu-menu-anchor {
+  position: relative;
+  flex: none;
+}
+.studio .st-gpu-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  width: min(320px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--line-2);
+  background: var(--s1);
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  white-space: normal;
+}
 
 /* ---------- shell: rail + main ---------- */
 
@@ -1896,4 +1921,167 @@
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--tx3);
+}
+
+/* ---------- popups (over the drawer too) ---------- */
+
+.studio .st-modal-back {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+.studio .st-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 100%);
+  max-height: calc(100vh - 40px);
+  border-radius: 14px;
+  border: 1px solid var(--line-2);
+  background: var(--s1);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.studio .st-modal[data-size="lg"] {
+  width: min(1100px, 100%);
+}
+.studio .st-modal[data-size="full"] {
+  width: min(1400px, 100%);
+  height: calc(100vh - 40px);
+}
+.studio .st-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.studio .st-modal-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+.studio .st-lightbox-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: calc(100vh - 170px);
+  object-fit: contain;
+  background: #000;
+  border-radius: 8px;
+}
+
+/* ---------- the Frames tab ---------- */
+
+.studio .st-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background: var(--s2);
+}
+.studio .st-seg button {
+  border: 0;
+  background: transparent;
+  color: var(--tx2);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+}
+.studio .st-seg button small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.studio .st-seg button[aria-pressed="true"] {
+  background: var(--s1);
+  color: var(--tx);
+  box-shadow: 0 0 0 1px var(--accent-32);
+}
+.studio .st-frame-slots {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.studio .st-frame-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.studio .st-frame-view {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  background: var(--s2);
+  cursor: zoom-in;
+  padding: 0;
+}
+.studio .st-frame-view img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.studio .st-frame-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  border-radius: 10px;
+  border: 1.5px dashed var(--line-3);
+  color: var(--tx2);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px;
+}
+.studio .st-gen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--accent-32);
+  background: var(--s1);
+}
+.studio .st-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+}
+.studio .st-choice[data-on="true"] {
+  border-color: var(--accent-32);
+  background: var(--s2);
+}
+.studio .st-choice input {
+  margin-top: 3px;
+}
+.studio .st-choice small {
+  display: block;
+  color: var(--tx2);
+  font-size: 12px;
 }
