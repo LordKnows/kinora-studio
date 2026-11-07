@@ -811,6 +811,13 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
   } catch {
     /* next sweep */
   }
+  /* the painter pod: started for queued pictures, stopped when idle */
+  try {
+    const { sweepPainterPod } = await import("./painter-pod");
+    await sweepPainterPod();
+  } catch {
+    /* next sweep */
+  }
   let autoStopped: boolean | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
     /* pictures keep the pod up only while the pod itself is drawing one (painters elsewhere do not need it) */

@@ -37,6 +37,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0010_director_craft.sql` | 导演手艺层：场景色板、元素固定特征与参考图视角、预授权额度三列，`reviews`（冷读审核）与 `director_notes`（要求清单、决策日志）两张表（三条 ALTER 只执行一次） |
 | `migrations/0011_delegated_approvals.sql` | `projects` 表加 `delegation_json`（代理审批开关；只执行一次） |
 | `migrations/0012_imaging.sql` | GPT Image：`projects` 表加 `imaging_json`（项目开关与额度），`jobs` 表加 `input_json`、`output_json`（生图作业；三条 ALTER 只执行一次） |
+| `migrations/0014_painter_pod.sql` | 画图 pod 由 Studio 开关：`painter_pods` 表（幂等） |
 | `migrations/0013_painters_names.sql` | 生图搬出 GPU：`painters` 表（画图机器的心跳），`jobs` 表加 `claimed_at`、`attempts`（租约）；图片编号与名字：`assets` 表加 `seq`、`name`，`projects` 表加 `picture_seq`，并给已有图片补编号（五条 ALTER 只执行一次） |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
@@ -381,6 +382,11 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    `docker run -d --restart unless-stopped -v painter:/data -e STUDIO_URL=… -e PAINTER_TOKEN=… cinema-painter`。
    **RunPod CPU Pod**：任意带 Python 的镜像，挂一个卷到 `/workspace`（Codex 登录和机器 id 存在
    `/workspace/painter`，重启不丢），启动命令用上面三行。
+   **让 Studio 开关这台 CPU pod（省钱）**：Machine 页 → Painters → **Painter pod**，粘贴这台 pod 的
+   RunPod id → **Take over**。之后有图片排队、又没有在线的画图机器时，Studio 会自动启动它
+   （1–3 分钟后开始画）；空闲 10 分钟（Worker 变量 `PAINTER_IDLE_STOP_MINUTES` 可改）自动停机，
+   只为画图的那几分钟付费。卡片上也有 Start / Stop 按钮。Studio 只开关它，从不新建或删除它。
+   需要 Worker 上已有 `RUNPOD_API_KEY`，以及执行 `migrations/0014_painter_pod.sql`。
 4. **Codex 登录（用 ChatGPT 订阅画图）**：先在 ChatGPT 网页版 Settings → Security 打开
    "device code sign-in for Codex"。Machine 页 **Painters** 里找到这台机器 →
    **Log in with a device code**，按页面显示的网址和验证码在任意设备上批准（机器在下一次心跳时

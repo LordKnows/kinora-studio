@@ -73,7 +73,7 @@ export async function runnerSummary(op = "paint", backend = "codex"): Promise<Ru
   const able = all.filter((p) => canServe(p, probe));
   const painters = all.map((p) => ({ id: p.id, name: p.name, onPod: !!p.info.onPod, backends: p.info.backends ?? [], busy: p.info.running?.length ?? 0 }));
   let note: string | undefined;
-  if (!all.length) note = "no painter is online: start the painter machine (Machine page → Painters), or the GPU pod, which draws when no painter does";
+  if (!all.length) note = "no painter is online: start the painter pod (Machine page → Painters), or the GPU pod, which draws when no painter does";
   else if (!able.length) note = op === "paint" && backend === "codex"
     ? `painter${all.length > 1 ? "s" : ""} online (${all.map((p) => p.name).join(", ")}) but Codex is not logged in there: Machine page → Painters → Log in`
     : op === "paint" ? `no online painter has the images API (OPENAI_API_KEY) set` : `no online painter takes ${op} jobs`;
@@ -127,6 +127,11 @@ export async function claim(input: ClaimInput): Promise<{ jobs: ClaimedJob[]; co
   }
   const commands = painter.commands;
   if (commands.length) await repo.setPainterCommands(id, []);
+  /* a painter pod that hands out or draws pictures is not idle */
+  if (jobs.length || running.size) {
+    const { touchPainterPod } = await import("./painter-pod");
+    await touchPainterPod(painter.info.runpodPodId);
+  }
   /* poll fast while something is pending (a login, jobs in the queue), slowly when idle */
   const pending = commands.length > 0 || painter.info.login?.state === "pending" || jobs.length > 0 || running.size > 0;
   return { jobs, commands, pollMs: pending ? 2000 : 5000 };
@@ -156,6 +161,8 @@ export async function uploadUrls(jobId: string, painterId: string, keys: string[
 export async function finish(jobId: string, painterId: string, result: { output?: Record<string, unknown>; error?: string }): Promise<Job> {
   const job = await heldJob(jobId, painterId);
   const { applyImageStatus } = await import("./imaging");
+  const { touchPainterPod } = await import("./painter-pod");
+  await touchPainterPod((await repo.getPainter(painterId).catch(() => undefined))?.info.runpodPodId ?? "-");
   if (result.error || !result.output) return applyImageStatus(job, { state: "failed", error: (result.error ?? "the painter answered without a picture").slice(0, 2000) });
   const expected = publicUrl(outputKey(job));
   if (result.output.url !== expected) return applyImageStatus(job, { state: "failed", error: `the painter wrote ${String(result.output.url)}, not ${expected}` });

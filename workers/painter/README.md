@@ -38,6 +38,14 @@ login and the painter id are kept in `/workspace/painter`), and as the start
 command the bundle one-liner from the Machine page. Add `/api/painter/*` and
 `/api/pod/*` to the Cloudflare Access bypass application.
 
+To pay only while it draws, let the Studio start and stop that CPU pod:
+Machine page → Painters → **Painter pod** → paste its RunPod id → **Take over**.
+It starts when pictures are queued and no painter can draw them (1–3
+minutes to boot), and stops after `PAINTER_IDLE_STOP_MINUTES` (default 10)
+with nothing to draw or log in. The painter reports `RUNPOD_POD_ID`, which is
+how the Studio knows the painter is up. The Studio never creates or deletes
+the pod.
+
 Then open the Machine page → Painters → **Log in with a device code** (once;
 the login is kept in `PAINTER_STATE_DIR`, and a refreshed token is written
 back there).
