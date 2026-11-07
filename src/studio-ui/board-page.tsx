@@ -9,6 +9,7 @@ import type { Take } from "@/studio/types";
 import { uploadMedia } from "./upload";
 import { EditRegion, ImageButton, reviewChip } from "./image-tools";
 import { RemakePanel } from "./remake-panel";
+import { preferredViews } from "@/studio/compiler";
 
 import { del, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, Section, Stars, statusLabel, useAction, UploadButton } from "./common";
@@ -621,7 +622,7 @@ function FramesPanel({ shot }: { shot: ShotView }) {
 
 type PlanRow = { shotId: string; first: string | null; last: string | null; why: string; have: { first: boolean; last: boolean } };
 const METHOD_LABEL: Record<string, string> = {
-  none: "nothing to draw", sheets: "uses the element sheets", anchor: "the anchor take's last frame", edit_anchor: "edit the anchor's last frame",
+  none: "nothing to draw", sheets: "uses the element sheets (below)", anchor: "the anchor take's last frame", edit_anchor: "edit the anchor's last frame",
   new: "draw new", edit_from_last: "edit from the last frame", edit_from_previous: "edit the earlier shot's frame", crop_from_first: "crop the first frame", crop_from_last: "crop the last frame",
 };
 
@@ -656,11 +657,48 @@ function FramePlanTools({ shot }: { shot: ShotView }) {
             </div>
           );
         })}
+        {row?.first === "sheets" && <SheetNeeds shot={shot} />}
         {editing && (editing === "first" ? shot.hero : shot.end) && (
           <EditRegion asset={(editing === "first" ? shot.hero : shot.end)!} attach={editing === "first" ? { heroOf: shot.id } : { endOf: shot.id }} onClose={() => setEditing(null)} />
         )}
       </div>
     </Section>
+  );
+}
+
+/* A reference-mode shot reads the element sheets: show which ones this shot
+   still lacks (no picture yet, or not the view its angle wants), with a
+   button for each, and the optional reference frame. */
+function SheetNeeds({ shot }: { shot: ShotView }) {
+  const { view } = useProjectContext();
+  const scene = view?.scenes.find((s) => s.id === shot.sceneId);
+  const ids = [...new Set([...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : scene?.locationElementId ? [scene.locationElementId] : [])])];
+  const wanted = preferredViews(shot.spec)[0]!;
+  const rows = ids.map((id) => view?.elements.find((e) => e.id === id)).filter((e): e is NonNullable<typeof e> => !!e);
+  return (
+    <div className="st-stack st-stack--tight" style={{ marginTop: 6 }}>
+      {rows.length === 0 && <span className="st-muted">No characters, props or location on this shot yet: add them in the Edit tab so R2VA has references to read.</span>}
+      {rows.map((el) => {
+        const views = Object.values(el.refViews ?? {});
+        const isChar = el.kind === "character";
+        const has = el.refAssetIds.length > 0;
+        const needsView = isChar && has && !views.includes(wanted);
+        return (
+          <div key={el.id} className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
+            <span>
+              <strong>{el.name}</strong> <span className="st-muted">({el.kind})</span> ·{" "}
+              {!has ? "no sheet yet" : needsView ? `has ${views.join(", ") || "an untagged picture"}; this shot's angle wants the ${wanted.replace("_", " ")} view` : `ready${views.length ? ` (${views.join(", ")})` : ""}`}
+            </span>
+            {!has && <ImageButton label={isChar ? "Generate sheet (front first)" : "Generate reference"} body={{ action: "element_sheet", elementId: el.id, views: ["front"] }} />}
+            {needsView && <ImageButton label={`Add the ${wanted.replace("_", " ")} view`} body={{ action: "element_view", elementId: el.id, view: wanted }} />}
+          </div>
+        );
+      })}
+      <div className="st-row st-row--between" style={{ flexWrap: "wrap", marginTop: 4 }}>
+        <span className="st-muted">Optional: a reference frame for this shot's composition and light. R2VA reads it as the first of its three reference pictures.</span>
+        <ImageButton label={shot.hero ? "Redraw reference frame" : "Draw a reference frame"} body={{ action: "shot_frame", shotId: shot.id, which: "first", method: "new" }} />
+      </div>
+    </div>
   );
 }
 
