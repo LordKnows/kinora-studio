@@ -910,6 +910,12 @@ export async function insertPainterPod(input: { id: string; name: string; status
   return (await currentPainterPod())!;
 }
 
+/** Painter pods created since `since` (newest first): which flavors failed to start lately. */
+export async function listPainterPodsSince(since: number): Promise<PainterPod[]> {
+  const rows = await (await db()).all("SELECT * FROM painter_pods WHERE name LIKE ? AND created_at >= ? ORDER BY created_at DESC", [`${PAINTER_POD_NAME}%`, since]);
+  return rows.map(mapPainterPod);
+}
+
 /** What every painter pod so far has cost, in USD. */
 export async function painterPodsUsd(): Promise<number> {
   const row = await (await db()).get("SELECT COALESCE(SUM(accumulated_seconds * COALESCE(cost_per_hr, 0)), 0) / 3600.0 AS usd FROM painter_pods WHERE name LIKE ?", [`${PAINTER_POD_NAME}%`]);

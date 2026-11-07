@@ -94,7 +94,7 @@ describe("painter pod", () => {
     expect(r.runner).toContain("starting the painter pod");
     expect(runpod.created.map((b) => (b.cpu as { id: string }).id)).toEqual(["cpu3c", "cpu3g"]);
     const body = runpod.created[1]!;
-    expect(body).toMatchObject({ name: "cinema-studio-painter", image: "ubuntu:24.04", cpu: { id: "cpu3g", vcpuCount: 2 }, dataCenterIds: ["US-CA-2"], mounts: { network: [{ volumeId: "xo8dvjecz8", path: "/workspace" }] } });
+    expect(body).toMatchObject({ name: "cinema-studio-painter-cpu3g", image: "ubuntu:24.04", cpu: { id: "cpu3g", vcpuCount: 2 }, dataCenterIds: ["US-CA-2"], mounts: { network: [{ volumeId: "xo8dvjecz8", path: "/workspace" }] } });
     expect(body.env).toMatchObject({ STUDIO_URL: "https://studio.example", PAINTER_TOKEN: "tok", PAINTER_STATE_DIR: "/workspace/painter" });
     expect((body.entrypoint as string[]).slice(0, 2)).toEqual(["bash", "-c"]);
     expect((body.entrypoint as string[])[2]).toContain("/api/pod/bundle?token=$PAINTER_TOKEN");
@@ -159,11 +159,26 @@ describe("painter pod", () => {
     expect(await pod.sweepPainterPod(Date.now() + 6 * 60_000)).toBe("created");
   });
 
-  it("a pod nothing ever reports from is terminated", async () => {
-    const live = (await repo.currentPainterPod())!;
+  it("a pod nothing reports from is replaced on another flavor; three in a row and it gives up for a while", async () => {
+    /* the painter now reports from somewhere else: the new pod never shows a painter (a host that cannot start containers) */
     await (await getDb()).run("UPDATE painters SET info_json = ? WHERE id = ?", [JSON.stringify({ runpodPodId: "elsewhere" }), "painter-pod"]);
-    expect(await pod.sweepPainterPod(Date.now() + 13 * 60_000)).toBe("boot-timeout");
-    expect(runpod.deleted).toContain(live.id);
-    expect((await repo.currentPainterPod())!.message).toContain("no painter reported");
+    const flavorOfCurrent = async () => (await repo.currentPainterPod())!.name.replace("cinema-studio-painter-", "");
+    const firstFlavor = await flavorOfCurrent();
+    const later = Date.now() + 7 * 60_000;
+    expect(await pod.sweepPainterPod(later)).toBe("boot-timeout");
+    const replaced = await repo.currentPainterPod();
+    expect(replaced!.status).toBe("starting");
+    expect(await flavorOfCurrent()).not.toBe(firstFlavor);
+    expect((await pod.flavorOrder()).slice(-1)).toEqual([firstFlavor]);
+    expect(await pod.sweepPainterPod(later)).toBe("boot-timeout");
+    expect(await pod.sweepPainterPod(later)).toBe("gave-up");
+    const st = await pod.painterPodState();
+    expect(st.pod).toMatchObject({ status: "unavailable" });
+    expect(st.pod!.message).toContain("gave up: 3 pods in a row did not start");
+    const before = runpod.created.length;
+    expect(await pod.sweepPainterPod(later + 60_000)).toBe("unavailable");
+    expect(runpod.created.length).toBe(before);
+    /* half an hour later it tries again */
+    expect(await pod.sweepPainterPod(Date.now() + 31 * 60_000)).toBe("created");
   });
 });
