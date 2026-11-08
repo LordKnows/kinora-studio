@@ -29,7 +29,7 @@ export function useLoraLibrary() {
 
 export const LORA_KIND_LABEL: Record<string, string> = { speed: "Speed", style: "Style", effect: "Effect" };
 
-export function LoraPicker({ value, onChange, compact, family = "minimax-h3" }: { value: LoraRef[]; onChange: (next: LoraRef[]) => void; compact?: boolean; family?: string }) {
+export function LoraPicker({ value, onChange, compact, family = "minimax-h3", adult = true }: { value: LoraRef[]; onChange: (next: LoraRef[]) => void; compact?: boolean; family?: string; adult?: boolean }) {
   const { loras: all, error } = useLoraLibrary();
   /* only LoRAs trained for this model family load into its workflows */
   const loras = all?.filter((l) => (l.baseModel ?? "minimax-h3") === family || value.some((r) => r.id === l.id)) ?? null;
@@ -51,8 +51,9 @@ export function LoraPicker({ value, onChange, compact, family = "minimax-h3" }: 
         return (
           <div key={l.id} className="st-lora-row" data-on={on ? "true" : undefined}>
             <label className="st-toggle">
-              <input type="checkbox" checked={on} disabled={!on && value.length >= 6} onChange={(e) => onChange(e.target.checked ? [...value, { id: l.id, strength: l.recommended?.strength ?? l.defaultStrength }] : value.filter((r) => r.id !== l.id))} />
+              <input type="checkbox" checked={on} disabled={!on && (value.length >= 6 || (l.adult && !adult))} title={l.adult && !adult ? "18+: show 18+ references first (Canvas, top right)" : undefined} onChange={(e) => onChange(e.target.checked ? [...value, { id: l.id, strength: l.recommended?.strength ?? l.defaultStrength }] : value.filter((r) => r.id !== l.id))} />
               <span className="st-lora-name">{l.name}</span>
+              {l.adult && <span className="st-ref-badge st-lora-adult">18+</span>}
               <span className="st-lora-kind">{LORA_KIND_LABEL[l.kind] ?? l.kind}</span>
             </label>
             {on && (

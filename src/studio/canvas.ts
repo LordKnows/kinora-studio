@@ -9,7 +9,7 @@ import { findModel, IMAGE_MODELS, imageModelOfBackend, resolveParams, type Model
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
-import { REF_VIEWS } from "./schemas";
+import { LoraRef, REF_VIEWS } from "./schemas";
 import type { Actor, Asset, Job } from "./types";
 
 /*
@@ -36,6 +36,7 @@ export const CanvasCompose = z.object({
   model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, or qwen-image-2.1-turbo on the GPU pod. Omit for the project's GPT Image backend."),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
+  loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
   style: z.enum(CANVAS_STYLE_IDS).default("realistic"),
   note: z.string().max(600).optional().describe("Free text added to the composed prompt"),
   prompt: z.string().min(5).max(4000).optional().describe("Replace the composed prompt entirely"),
@@ -90,7 +91,7 @@ export function canvasModel(id: string | undefined, projectBackend: string | und
   return model;
 }
 
-export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string }> {
+export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; warnings: string[] }> {
   await repo.getProject(projectId);
   const adult = await adultAllowed(actor);
   const portrait = await resolveSlot(projectId, "portrait", input.portrait, adult);
@@ -99,6 +100,22 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
   if (!portrait && !costume && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
   const model = canvasModel(input.model, (await repo.getProject(projectId)).imaging?.backend);
+  const library = input.loras.length ? await repo.getLoras(input.loras.map((r) => r.id)) : new Map();
+  const loras = input.loras.map((r) => {
+    const l = library.get(r.id);
+    if (!l) throw new StudioError("not_found", `no LoRA ${r.id} in the library`);
+    return { ...l, strength: r.strength ?? l.recommended.strength ?? l.defaultStrength };
+  });
+  if (loras.length && model.runtime !== "pod") throw new StudioError("validation", `${model.label} takes no LoRAs; pick a model on the GPU pod`);
+  for (const l of loras) {
+    if (l.baseModel !== model.family) throw new StudioError("validation", `${l.name} is trained for ${l.baseModel}, not ${model.label} (${model.family})`);
+  }
+  /* LoRAs made for adult content: only for a user who unlocked 18+, and only on library pictures (an upload may be a real person) */
+  const adultLora = loras.find((l) => l.adult);
+  if (adultLora && !adult) throw new StudioError("forbidden", `${adultLora.name} is 18+: the user shows 18+ references on the Canvas page first (web only)`, { adult: false });
+  if (adultLora && (portrait?.asset || costume?.asset || pose?.asset || extras.length)) {
+    throw new StudioError("validation", `${adultLora.name} draws with library pictures only (AI-generated adults): remove the uploaded pictures — an upload may be a real person`);
+  }
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   const count = [portrait, costume, pose].filter(Boolean).length + extras.length;
   if (count > maxRefs) throw new StudioError("validation", `${model.label} takes at most ${maxRefs} pictures per call; this recipe has ${count}`);
@@ -124,7 +141,10 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     note: input.note,
     refStyle: model.refStyle,
   };
-  const prompt = input.prompt?.trim() || buildCanvasPrompt(recipe);
+  const ADULTS = "画面中的人物均为成年人。";
+  const typed = input.prompt?.trim();
+  /* the adult line stays even in a prompt the user wrote themselves, whenever an adult LoRA is on */
+  const prompt = typed ? (adultLora && !typed.includes(ADULTS) ? `${typed}\n${ADULTS}` : typed) : buildCanvasPrompt(recipe);
   const refs: CanvasRef[] = [
     ...(portrait ? [{ role: "portrait" as const, label: portrait.label, url: portrait.url, thumb: portrait.thumb, ...(portrait.item ? { refId: portrait.item.id } : { assetId: portrait.asset!.id }) }] : []),
     ...(costume ? [{ role: "costume" as const, label: costume.label, url: costume.url, thumb: costume.thumb, ...(costume.item ? { refId: costume.item.id } : { assetId: costume.asset!.id }) }] : []),
@@ -132,14 +152,18 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...extras.map((e) => ({ role: "extra" as const, label: e.name || e.asset.name || "picture", url: e.asset.url, thumb: (e.asset.meta.previewUrl as string | undefined) ?? e.asset.url, assetId: e.asset.id })),
   ];
   const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || "pictures"}`.slice(0, 80);
-  const params = model.runtime === "pod" ? { ...resolveParams(model).params, ...(input.seed !== undefined ? { seed: input.seed } : {}) } : undefined;
+  const resolved = model.runtime === "pod" ? resolveParams(model, { loras }) : undefined;
+  const params = resolved ? {
+    ...resolved.params, ...(input.seed !== undefined ? { seed: input.seed } : {}),
+    ...(loras.length ? { loras: loras.map((l) => ({ file: l.filename, strength: l.strength, name: l.name, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}) })) } : {}),
+  } : undefined;
   const r = await imaging.submitImage(projectId, {
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size: input.size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id },
+    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}) },
   }, actor, { startPod: input.startPod });
-  return { ...r, prompt, refs, model: model.id };
+  return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }
 
 /** Bring one reference picture into the project (a single fetch from its gallery), optionally onto an element. */

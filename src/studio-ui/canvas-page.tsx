@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
-import { describeParams, findModel, IMAGE_MODELS, imageModelOfBackend, type ModelEntry } from "@/studio/models";
+import { describeParams, findModel, IMAGE_MODELS, imageModelOfBackend, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
-import { REF_VIEWS, type RefView } from "@/studio/schemas";
+import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
 import type { Asset, Job, Project } from "@/studio/types";
 
 import { get, post, put } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./common";
 import { CanvasLibrary, loadReferences, type UseOptions } from "./canvas-library";
+import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { CloseIcon, UploadIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
@@ -33,6 +34,8 @@ type Recipe = {
   quality?: "low" | "medium" | "high";
   /** The image model (models.ts); unset = the project's GPT Image backend. */
   model?: string;
+  /** Pod models: LoRAs from the library, trained for the model's family. */
+  loras?: LoraRef[];
   note: string;
   /** The prompt typed over the composed one. */
   prompt?: string;
@@ -189,6 +192,15 @@ export function CanvasPage() {
   const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
   const model: ModelEntry = findModel(recipe.model ?? "") ?? imageModelOfBackend(view?.project.imaging?.backend ?? "codex") ?? IMAGE_MODELS[0]!;
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
+  const { loras: library } = useLoraLibrary();
+  /* only the LoRAs of this model's family travel with the recipe */
+  const activeLoras = model.runtime === "pod" ? (recipe.loras ?? []).flatMap((r) => {
+    const l = library?.find((x) => x.id === r.id && x.baseModel === model.family);
+    return l ? [{ ...l, strength: r.strength ?? l.recommended.strength ?? l.defaultStrength }] : [];
+  }) : [];
+  const resolved = resolveParams(model, { loras: activeLoras });
+  const adultLora = activeLoras.find((l) => l.adult);
+  const anyUpload = !!(recipe.portrait?.upload || recipe.costume?.upload || recipe.pose?.upload || recipe.extras.length);
   const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(recipe, model.refStyle)), [recipe, model.refStyle]);
   const prompt = recipe.prompt ?? composed;
   const hiddenInRecipe = !adult && [recipe.portrait?.item, recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
@@ -266,6 +278,7 @@ export function CanvasPage() {
         style: recipe.style,
         size: recipe.size,
         model: model.id,
+        ...(activeLoras.length ? { loras: activeLoras.map((l) => ({ id: l.id, strength: l.strength })) } : {}),
         ...(recipe.quality && model.runtime === "api" ? { quality: recipe.quality } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
@@ -310,7 +323,7 @@ export function CanvasPage() {
   const imaging = project?.imaging;
   const uploadedFaceAdult = !!recipe.portrait?.upload && [recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
   const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (the GPT Image switch)" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
-  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : "");
+  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : adultLora && anyUpload ? `${adultLora.name} draws with library pictures only` : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -405,10 +418,16 @@ export function CanvasPage() {
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
             {uploadedFaceAdult && <p className="st-danger">18+ references cannot be combined with an uploaded face: it may be a real person. Use a library portrait (AI-generated adults).</p>}
+            {adultLora && anyUpload && <p className="st-danger">{adultLora.name} draws with library pictures only (AI-generated adults): remove the uploaded pictures — an upload may be a real person.</p>}
           </Section>
 
           <Section title="Picture">
-            <ModelPicker model={model} status={modelStatus.find((m) => m.id === model.id)} gpu={gpuStatus}
+            <ModelPicker model={model} status={modelStatus.find((m) => m.id === model.id)} gpu={gpuStatus} resolved={resolved}
+              loras={model.runtime === "pod" && library?.some((l) => l.baseModel === model.family) ? (
+                <Field label="LoRAs" hint="Picking one applies its card's settings">
+                  <LoraPicker compact family={model.family} adult={adult} value={(recipe.loras ?? []).filter((r) => library?.find((l) => l.id === r.id)?.baseModel === model.family)} onChange={(next) => setRecipe((r) => ({ ...r, loras: next }))} />
+                </Field>
+              ) : null}
               onModel={(id) => setRecipe((r) => ({ ...r, model: id }))}
               onStartGpu={async () => {
                 try {
@@ -496,7 +515,7 @@ export function CanvasPage() {
 
 /* ---------- the model ---------- */
 
-function ModelPicker({ model, status, gpu, onModel, onStartGpu }: { model: ModelEntry; status?: ModelStatus; gpu: { status: string; configured: boolean } | null; onModel: (id: string) => void; onStartGpu: () => Promise<void> }) {
+function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu }: { model: ModelEntry; status?: ModelStatus; gpu: { status: string; configured: boolean } | null; resolved: Resolved; loras: React.ReactNode; onModel: (id: string) => void; onStartGpu: () => Promise<void> }) {
   const [starting, setStarting] = useState(false);
   const ready = status?.painters?.ready;
   const gpuDown = model.runtime === "pod" && gpu?.configured && !["running", "starting"].includes(gpu.status);
@@ -507,7 +526,9 @@ function ModelPicker({ model, status, gpu, onModel, onStartGpu }: { model: Model
           {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.runtime === "pod" ? "GPU pod" : m.backend === "codex" ? "ChatGPT plan" : "API, per picture"}</option>)}
         </select>
       </Field>
-      <span className="st-muted st-num">{describeParams(model.params) || "settings by the service"} · up to {model.maxRefs ?? CANVAS_MAX_REFS} pictures{model.moderation === "openai" ? " · OpenAI moderation" : " · no content filter"}</span>
+      {loras}
+      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · up to {model.maxRefs ?? CANVAS_MAX_REFS} pictures{model.moderation === "openai" ? " · OpenAI moderation" : " · no content filter"}</span>
+      {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
       {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
         <div className="st-alert st-alert--warn">
           <span>{status.painters.note}{gpu?.status === "starting" ? " The pod is starting; its painter reports once the model is loaded." : ""}</span>

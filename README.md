@@ -319,3 +319,17 @@ There is no content filter and no Codex self-review (it would send the
 picture to OpenAI); an uploaded face is never combined with 18+ references.
 Licence: Qwen Research License — non-commercial use only.
 
+**Qwen-Image 2.1 (base) and LoRAs.** For LoRAs trained on the full model,
+`QWEN_IMAGE_BASE=1` (default) adds the base int8 (7.3 GB; encoder and VAE
+shared) when the disk has room, and Canvas offers the family's LoRAs under
+the model. The library seeds **ChatR Labs' Omni v0.1** (an uncensored
+rank-128 adapter: strength 1, 35 steps, true CFG 5): picking it sets those
+settings; the painter fetches the file from HuggingFace into models/loras on
+first use and chains it (`LoraLoaderModelOnly`) between the model loader and
+the cache (`workflows/QWEN21_EDIT_BASE.json`, KSampler euler/simple, a
+single-space negative above CFG 1). It is 18+: offered only once the user has
+unlocked 18+, it never draws with an uploaded picture (an upload may be a real
+person), and the adult line stays in any prompt. Its weights use
+Diffusers/PEFT keys: if the pod's ComfyUI log says "lora key not loaded", the
+adapter did not apply.
+

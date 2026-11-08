@@ -193,7 +193,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   }
   workflow ??= "T2VA";
 
-  const loras = (ctx.loras ?? []).filter((l) => l.workflows.length === 0 || l.workflows.includes(workflow));
+  /* only LoRAs trained for H3 load into its graphs (an image model's LoRA in the library is skipped) */
+  const loras = (ctx.loras ?? []).filter((l) => (l.baseModel ?? "minimax-h3") === H3_MODEL.family && (l.workflows.length === 0 || l.workflows.includes(workflow)));
   const speed = loras.find((l) => l.kind === "speed");
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);

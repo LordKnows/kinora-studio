@@ -19,8 +19,11 @@ sys.path.insert(0, str(HERE))
 import paint  # noqa: E402
 
 POD = HERE.parent / "h3-runpod"
-MANIFEST = json.loads((POD / "workflows" / "image_models.json").read_text())["qwen-image-2.1-turbo"]
+MANIFESTS = json.loads((POD / "workflows" / "image_models.json").read_text())
+MANIFEST = MANIFESTS["qwen-image-2.1-turbo"]
 GRAPH = json.loads((POD / "workflows" / "QWEN21_EDIT.json").read_text())
+BASE_GRAPH = json.loads((POD / "workflows" / "QWEN21_EDIT_BASE.json").read_text())
+OMNI = "chatrlabs-omni-lora-v0.1-bf16.safetensors"
 
 
 def png(color=(10, 120, 200), size=(512, 768)) -> bytes:
@@ -37,6 +40,15 @@ class Res:
 
     def json(self):
         return self._payload
+
+    def iter_content(self, n):
+        yield self.content
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
 
 
 def object_info(graph):
@@ -55,15 +67,20 @@ def object_info(graph):
 
 
 class FakeComfy:
-    def __init__(self, missing_node=None, missing_file=False):
-        self.info = object_info({k: v for k, v in GRAPH.items() if not k.startswith("_")})
+    def __init__(self, missing_node=None, missing_file=False, graph=None, loras=()):
+        self.info = object_info({k: v for k, v in (graph or GRAPH).items() if not k.startswith("_")})
+        self.info["LoraLoaderModelOnly"] = {"input": {"required": {"model": ["MODEL"], "lora_name": [list(loras)], "strength_model": ["FLOAT"]}}}
+        self.downloads = []
         if missing_node:
             self.info.pop(missing_node)
         if missing_file:
             self.info["UNETLoader"]["input"]["required"]["unet_name"] = [["something_else.safetensors"]]
         self.uploads, self.queued = [], []
 
-    def get(self, url, params=None, timeout=0):
+    def get(self, url, params=None, timeout=0, stream=False, headers=None):
+        if url.startswith("https://huggingface.co/"):
+            self.downloads.append(url)
+            return Res(content=b"\0" * 1_000_001)
         if url.endswith("/system_stats"):
             return Res(payload={"system": {}})
         if "/object_info/" in url:
@@ -89,7 +106,7 @@ class FakeComfy:
 
 @pytest.fixture
 def weights(tmp_path, monkeypatch):
-    for line in (POD / MANIFEST["files"]).read_text().splitlines():
+    for line in (POD / MANIFEST["files"]).read_text().splitlines() + (POD / MANIFESTS["qwen-image-2.1"]["files"]).read_text().splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         subdir, _, url = line.partition("\t")
@@ -178,3 +195,50 @@ def test_the_manifest_matches_the_workflow():
     enc = graph[MANIFEST["image_target"]]["inputs"]
     assert [enc[f"images.image_{i + 1}"][0] for i in range(10)] == MANIFEST["image_loaders"]
     assert graph[MANIFEST["output_node"]]["class_type"] == "SaveImage"
+
+
+def test_the_base_model_samples_with_the_loras_settings_and_chains_the_lora(tmp_path, weights, monkeypatch):
+    monkeypatch.setenv("LORA_DIR", str(tmp_path / "loras"))
+    comfy = FakeComfy(graph=BASE_GRAPH, loras=[OMNI])
+    hf = f"https://huggingface.co/chatrlabs/Qwen-Image-2.1-Uncensored-Omni-LoRA-v0.1/blob/main/{OMNI}"
+    settings = paint._settings({"steps": 35, "cfg": 5, "sampler": "euler", "scheduler": "simple", "resolution": 1024, "seed": 3, "loras": [{"file": OMNI, "strength": 1, "hf_url": hf}]})
+    paint.run_comfy("qwen-image-2.1", "<image1> in a red dress", pictures(tmp_path, 2), 1024, 1024, settings, comfy)
+    # fetched once from HuggingFace (a blob link becomes a resolve link) into models/loras
+    assert comfy.downloads == [hf.replace("/blob/", "/resolve/")] and (tmp_path / "loras" / OMNI).is_file()
+    g = comfy.queued[0]
+    assert g["lora1"]["class_type"] == "LoraLoaderModelOnly" and g["lora1"]["inputs"]["model"] == ["1", 0] and g["lora1"]["inputs"]["lora_name"] == OMNI
+    assert g["4"]["inputs"]["model"] == ["lora1", 0]
+    k = g["29"]["inputs"]
+    assert (k["steps"], k["cfg"], k["sampler_name"], k["scheduler"], k["seed"]) == (35, 5.0, "euler", "simple", 3)
+    # true CFG needs a negative: a single space, as the card says
+    assert g["20"]["inputs"]["negative_prompt"] == " "
+    # a second job finds the file and downloads nothing
+    paint.run_comfy("qwen-image-2.1", "again", pictures(tmp_path, 1), 1024, 1024, settings, comfy)
+    assert len(comfy.downloads) == 1
+
+
+def test_lora_settings_are_sanitised():
+    out = paint._settings({"loras": [
+        {"file": OMNI, "strength": 0.8, "hf_url": "https://huggingface.co/x/y/resolve/main/a.safetensors"},
+        {"file": "../../etc/passwd.safetensors"},
+        {"file": "evil.safetensors", "hf_url": "https://evil.example/a.safetensors"},
+        {"file": "notweights.bin"},
+    ]})
+    assert out["loras"] == [{"file": OMNI, "strength": 0.8, "hf_url": "https://huggingface.co/x/y/resolve/main/a.safetensors"}, {"file": "evil.safetensors", "strength": 1.0}]
+
+
+def test_a_lora_without_a_link_or_file_fails_clearly(tmp_path, weights, monkeypatch):
+    monkeypatch.setenv("LORA_DIR", str(tmp_path / "loras"))
+    with pytest.raises(paint.PaintError, match="no HuggingFace link"):
+        paint.run_comfy("qwen-image-2.1", "a prompt", pictures(tmp_path, 1), 1024, 1024, {"loras": [{"file": "x.safetensors", "strength": 1}]}, FakeComfy(graph=BASE_GRAPH))
+
+
+def test_the_base_manifest_matches_its_workflow():
+    entry = MANIFESTS["qwen-image-2.1"]
+    graph = {k: v for k, v in BASE_GRAPH.items() if not k.startswith("_")}
+    for key in ("prompt", "negative", "resolution", "width", "height", "seed", "steps", "sampler", "scheduler", "cfg"):
+        node, field = entry[key]
+        assert field in graph[node]["inputs"], key
+    assert graph[entry["lora_after"]]["class_type"] == "UNETLoader" and entry["lora_into"] == ["4", "model"]
+    assert graph[entry["output_node"]]["class_type"] == "SaveImage"
+

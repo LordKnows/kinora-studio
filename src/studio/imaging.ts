@@ -105,8 +105,11 @@ export type ImageRequest = {
   /** A model other than the project's GPT Image backend (models.ts): its painter backend and settings. */
   model?: string;
   backend?: string;
-  params?: InferenceParams;
+  params?: PodParams;
 };
+
+/** What a pod model's job carries: the resolved settings, a seed, and its LoRAs (fetched by the pod when missing). */
+export type PodParams = InferenceParams & { seed?: number; loras?: Array<{ file: string; strength: number; name?: string; hf_url?: string }> };
 
 /** Queue an image job for the painters. Painting is gated by the project
     switch and quota; crop and extract are not. Nothing here needs the GPU:

@@ -634,6 +634,17 @@ def _settings(raw: Any) -> dict[str, Any]:
         out["resolution"] = int(raw["resolution"])
     if num(raw.get("seed")) and raw["seed"] >= 0:
         out["seed"] = int(raw["seed"])
+    if isinstance(raw.get("scheduler"), str) and re.fullmatch(r"[a-z0-9_]{1,40}", raw["scheduler"]):
+        out["scheduler"] = raw["scheduler"]
+    loras = []
+    for l in raw.get("loras") or []:
+        if not isinstance(l, dict) or not isinstance(l.get("file"), str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.safetensors", l["file"]):
+            continue
+        strength = float(l["strength"]) if num(l.get("strength")) and 0 <= l["strength"] <= 2 else 1.0
+        hf = l.get("hf_url") if isinstance(l.get("hf_url"), str) and l["hf_url"].startswith("https://huggingface.co/") else None
+        loras.append({"file": l["file"], "strength": strength, **({"hf_url": hf} if hf else {})})
+    if loras:
+        out["loras"] = loras[:4]
     return out
 
 
@@ -741,6 +752,45 @@ def _put(graph: dict[str, Any], target: Any, value: Any) -> None:
     graph[node]["inputs"][field] = value
 
 
+def lora_dir() -> Path:
+    return Path(os.environ["LORA_DIR"]) if os.environ.get("LORA_DIR") else models_dir() / "loras"
+
+
+def ensure_lora_files(loras: list[dict[str, Any]], http: Any) -> None:
+    """Each LoRA of the job in models/loras, fetched from its HuggingFace link when missing (once; ComfyUI rescans the folder)."""
+    for l in loras:
+        dest = lora_dir() / l["file"]
+        if dest.is_file() and dest.stat().st_size > 1_000_000:
+            continue
+        url = l.get("hf_url")
+        if not url:
+            raise PaintError(f"LoRA {l['file']} is not on the pod and has no HuggingFace link to fetch it from")
+        url = url.replace("/blob/", "/resolve/", 1)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        headers = {"Authorization": f"Bearer {os.environ['HF_TOKEN']}"} if os.environ.get("HF_TOKEN") else {}
+        part = dest.with_name(dest.name + ".part")
+        with http.get(url, stream=True, timeout=600, headers=headers) as res:
+            if res.status_code >= 400:
+                raise PaintError(f"could not download LoRA {l['file']} ({res.status_code})")
+            with open(part, "wb") as fh:
+                for chunk in res.iter_content(1 << 20):
+                    fh.write(chunk)
+        part.replace(dest)
+
+
+def chain_loras(graph: dict[str, Any], entry: dict[str, Any], loras: list[dict[str, Any]]) -> None:
+    """LoraLoaderModelOnly nodes between the model loader (lora_after) and its consumer (lora_into), in order."""
+    after, into = entry.get("lora_after"), entry.get("lora_into")
+    if not after or not into:
+        raise PaintError("this image model takes no LoRAs (image_models.json has no lora_after / lora_into)")
+    prev = str(after)
+    for i, l in enumerate(loras):
+        nid = f"lora{i + 1}"
+        graph[nid] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": [prev, 0], "lora_name": l["file"], "strength_model": l["strength"]}, "_meta": {"title": l["file"]}}
+        prev = nid
+    _put(graph, into, [prev, 0])
+
+
 def comfy_upload(path: Path, http: Any) -> str:
     with open(path, "rb") as fh:
         res = http.post(f"{COMFY_URL}/upload/image", files={"image": (path.name, fh, "image/png")}, data={"overwrite": "true", "subfolder": "studio"}, timeout=120)
@@ -763,7 +813,7 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1, /app/download_qwen_image.log)")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1, /app/download_qwen_image*.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
     graph = json.loads((POD_DIR / "workflows" / f"{entry['workflow']}.json").read_text())
@@ -776,12 +826,16 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         if i >= len(pictures):
             graph.pop(node_id, None)
             target.get("inputs", {}).pop(f"{entry.get('image_prefix', 'images.image_')}{i + 1}", None)
+    if settings.get("loras"):
+        ensure_lora_files(settings["loras"], http)
+        chain_loras(graph, entry, settings["loras"])
     comfy_preflight(graph, http)
     for i, pic in enumerate(pictures):
         graph[loaders[i]]["inputs"]["image"] = comfy_upload(pic, http)
     m = int(entry.get("size_multiple") or 16)
     _put(graph, entry.get("prompt"), prompt)
-    _put(graph, entry.get("negative"), "")
+    # above CFG 1 the negative branch runs: a single space, as the Omni card asks (empty would switch true CFG off)
+    _put(graph, entry.get("negative"), " " if settings.get("cfg", 1) > 1 else "")
     _put(graph, entry.get("width"), max(m, round(w / m) * m))
     _put(graph, entry.get("height"), max(m, round(h / m) * m))
     _put(graph, entry.get("seed"), settings.get("seed", random.randint(1, 2**48)))
@@ -789,6 +843,8 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         _put(graph, entry.get("resolution"), settings["resolution"])
     if "sampler" in settings:
         _put(graph, entry.get("sampler"), settings["sampler"])
+    if "scheduler" in settings:
+        _put(graph, entry.get("scheduler"), settings["scheduler"])
     if "cfg" in settings:
         _put(graph, entry.get("cfg"), settings["cfg"])
     if "sigmas" in settings:

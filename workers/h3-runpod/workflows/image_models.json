@@ -1,5 +1,5 @@
 {
-  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio.",
+  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio. lora_after / lora_into: where the painter chains LoraLoaderModelOnly nodes for the job's LoRAs (fetched from their HuggingFace link into models/loras when missing).",
   "qwen-image-2.1-turbo": {
     "workflow": "QWEN21_EDIT",
     "files": "models-qwen-image.txt",
@@ -56,6 +56,78 @@
     ],
     "steps": null,
     "output_node": "28",
-    "size_multiple": 32
+    "size_multiple": 32,
+    "lora_after": "1",
+    "lora_into": [
+      "4",
+      "model"
+    ]
+  },
+  "qwen-image-2.1": {
+    "workflow": "QWEN21_EDIT_BASE",
+    "files": "models-qwen-image-base.txt",
+    "max_images": 10,
+    "image_target": "20",
+    "image_prefix": "images.image_",
+    "image_loaders": [
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40"
+    ],
+    "prompt": [
+      "20",
+      "prompt"
+    ],
+    "negative": [
+      "20",
+      "negative_prompt"
+    ],
+    "resolution": [
+      "20",
+      "resolution"
+    ],
+    "width": [
+      "21",
+      "width"
+    ],
+    "height": [
+      "21",
+      "height"
+    ],
+    "seed": [
+      "29",
+      "seed"
+    ],
+    "sampler": [
+      "29",
+      "sampler_name"
+    ],
+    "sigmas": null,
+    "cfg": [
+      "29",
+      "cfg"
+    ],
+    "steps": [
+      "29",
+      "steps"
+    ],
+    "output_node": "28",
+    "size_multiple": 32,
+    "lora_after": "1",
+    "lora_into": [
+      "4",
+      "model"
+    ],
+    "scheduler": [
+      "29",
+      "scheduler"
+    ]
   }
 }

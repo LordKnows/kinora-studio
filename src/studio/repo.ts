@@ -9,7 +9,8 @@ import type {
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
-import { loraParams, type InferenceParams } from "./models";
+import { isAdultLora, loraParams, type InferenceParams } from "./models";
+import { QWEN_LORA_SEED, QWEN_LORA_SQL } from "@/db/migrations/0017_seed_qwen_loras";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
    No ORM: the SQL is small enough to read, and it runs unchanged on D1. */
@@ -662,7 +663,7 @@ function mapLora(r: Row): Lora {
     workflows: json<string[]>(r.workflows_json, []), notes: str(r.notes), createdAt: num(r.created_at), updatedAt: num(r.updated_at),
     baseModel: typeof r.base_model === "string" && r.base_model ? r.base_model : "minimax-h3", params: json<InferenceParams>(r.params_json, {}),
   };
-  return { ...base, recommended: loraParams(base) };
+  return { ...base, recommended: loraParams(base), adult: isAdultLora(base) };
 }
 
 /* Migration 0016 adds two columns; they are also added on first use, so a
@@ -678,6 +679,12 @@ async function loraDb(): Promise<Db> {
       } catch (caught) {
         if (!/duplicate column/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
       }
+    }
+    /* built-in LoRAs added after 0016 (Qwen-Image 2.1): once per database, so a deleted one stays deleted */
+    await d.run("CREATE TABLE IF NOT EXISTS studio_seeds (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    if (!(await d.get("SELECT name FROM studio_seeds WHERE name = ?", [QWEN_LORA_SEED]))) {
+      await d.run(QWEN_LORA_SQL);
+      await d.run("INSERT OR IGNORE INTO studio_seeds (name, applied_at) VALUES (?, ?)", [QWEN_LORA_SEED, Date.now()]);
     }
     loraColumnsReady = true;
   }

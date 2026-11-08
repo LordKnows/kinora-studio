@@ -79,7 +79,7 @@ export const MODELS: ModelEntry[] = [
     notes: "Drawn on a painter with OPENAI_API_KEY (IMAGE_MODEL, default gpt-image-2); paid per picture. Same moderation as Codex.",
   },
   {
-    id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1",
+    id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",
     backend: "comfy:qwen-image-2.1-turbo", workflows: ["QWEN21_EDIT"],
     params: { steps: 8, cfg: 1, sampler: "euler", sigmas: QWEN21_TURBO_SIGMAS, resolution: 1024 },
     maxRefs: 10, refStyle: "qwen",
@@ -90,7 +90,22 @@ export const MODELS: ModelEntry[] = [
     ],
     license: "Qwen Research License: non-commercial (research or evaluation) only; a commercial license is requested from Qwen", commercial: false, moderation: "none",
     source: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1",
-    notes: "Qwen's distilled 8-step edit model, multi-reference (up to 10 pictures, named <image1>…<image10> in the prompt), on the GPU pod in ComfyUI (the official Turbo image-edit template: TextEncodeQwenImage21, QwenImage21Cache, the fixed 8-step sigma schedule, CFG 1, euler). No content filter of its own. The 'Uncensored' Qwen3-VL text encoder (AtomicChat) is a stable-diffusion.cpp GGUF not run in ComfyUI, and its card measures no change to the pictures; the stock encoder is used.",
+    notes: "Qwen's distilled 8-step edit model, multi-reference (up to 10 pictures, named <image1>…<image10> in the prompt), on the GPU pod in ComfyUI (the official Turbo image-edit template: TextEncodeQwenImage21, QwenImage21Cache, the fixed 8-step sigma schedule, CFG 1, euler). No content filter of its own. LoRAs trained for the base model (Qwen-Image 2.1) are not offered here: use the base model for them. The 'Uncensored' Qwen3-VL text encoder (AtomicChat) is a stable-diffusion.cpp GGUF not run in ComfyUI, and its card measures no change to the pictures; the stock encoder is used.",
+  },
+  {
+    id: "qwen-image-2.1", kind: "image", runtime: "pod", label: "Qwen-Image 2.1", zh: "通义 Qwen-Image 2.1 基础版（GPU pod，可加 LoRA）", family: "qwen-image-2.1",
+    backend: "comfy:qwen-image-2.1", workflows: ["QWEN21_EDIT_BASE"],
+    /* the official pipeline: about 40–50 euler steps at CFG 1 (Comfy-Org's template starts at 25); a LoRA's own card wins */
+    params: { steps: 40, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 1024 },
+    maxRefs: 10, refStyle: "qwen",
+    files: [
+      { dir: "diffusion_models", file: "qwen_image_2.1_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors", gb: 7.3 },
+      { dir: "text_encoders", file: "qwen3vl_8b_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", gb: 9.4 },
+      { dir: "vae", file: "qwen_image_2.1_vae_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", gb: 0.7 },
+    ],
+    license: "Qwen Research License: non-commercial (research or evaluation) only; a commercial license is requested from Qwen", commercial: false, moderation: "none",
+    source: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1",
+    notes: "The full (not distilled) Qwen-Image 2.1, for LoRAs trained on it — e.g. ChatR Labs' Omni LoRA (35 steps, CFG 5). Comfy-Org's image-edit template: KSampler, euler/simple, up to ten pictures (<image1>…). Slower than Turbo: about 4–5× the steps, and CFG above 1 runs each step twice. The text encoder and VAE are shared with Turbo; the base adds 7.3 GB on the pod.",
   },
   {
     id: "minimax-h3", kind: "video", runtime: "pod", label: "MiniMax H3", zh: "MiniMax H3 视频", family: "minimax-h3",
@@ -144,14 +159,23 @@ export const KNOWN_LORA_PARAMS: Record<string, InferenceParams> = {
   lora_prithiv_anime_motion: { strength: 0.8 },
   lora_innerreflections_sketch_loop: { strength: 1, strengthRange: [0.75, 1.25] },
   lora_diffsynth_lineart_anime: { strength: 1 },
+  /* ChatR Labs Omni v0.1 for Qwen-Image 2.1 (migration 0017): its card's evaluation settings */
+  lora_chatr_omni_v01: { steps: 35, cfg: 5, strength: 1 },
 };
+
+/** LoRAs made to draw adult content: hidden until the user has unlocked 18+, and never with an uploaded picture (a real person). */
+export const ADULT_LORA_IDS = new Set(["lora_chatr_omni_v01"]);
+
+export function isAdultLora(l: { id: string; name: string; filename?: string }): boolean {
+  return ADULT_LORA_IDS.has(l.id) || /uncensor|nsfw|18\+|\bnude|\bporn/i.test(`${l.name} ${l.filename ?? ""}`);
+}
 
 export type LoraLike = { id: string; name: string; kind: string; stepsHint?: number; defaultStrength?: number; params?: InferenceParams; strength?: number };
 
-/** A LoRA's recommended settings: what it was seeded with, then what the user stored, then its stepsHint. */
+/** A LoRA's recommended settings: what it was seeded with, then what the user stored, then (speed LoRAs) its stepsHint. */
 export function loraParams(l: LoraLike): InferenceParams {
   const p: InferenceParams = { ...(KNOWN_LORA_PARAMS[l.id] ?? {}), ...stripEmpty(l.params ?? {}) };
-  if (p.steps === undefined && l.stepsHint) p.steps = l.stepsHint;
+  if (p.steps === undefined && l.stepsHint && l.kind === "speed") p.steps = l.stepsHint;
   if (p.strength === undefined && l.defaultStrength !== undefined) p.strength = l.defaultStrength;
   return p;
 }
@@ -169,27 +193,31 @@ const SAMPLING_KEYS = ["steps", "cfg", "sampler", "scheduler", "sigmas", "shiftV
 /**
  * The settings a render uses. The base model's recommendation, its
  * workflow variant, then the speed LoRA (it replaces the sampling chain it
- * was distilled for), then the caller's steps. A model with a fixed sigma
- * schedule takes its steps from the schedule.
+ * was distilled for) — or, without one, the first LoRA whose card names
+ * its own steps or CFG (Omni: 35 steps, CFG 5) — then the caller's steps.
+ * A model with a fixed sigma schedule takes its steps from the schedule.
  */
 export function resolveParams(model: ModelEntry, opts: { workflow?: string; loras?: LoraLike[]; steps?: number } = {}): Resolved {
   const warnings: string[] = [];
   const sources = [model.label];
   let params: InferenceParams = { ...model.params, ...(opts.workflow ? model.variants?.[opts.workflow] ?? {} : {}) };
+  const chainOf = (l: LoraLike) => Object.fromEntries(SAMPLING_KEYS.filter((k) => loraParams(l)[k] !== undefined).map((k) => [k, loraParams(l)[k]])) as InferenceParams;
   const speed = (opts.loras ?? []).find((l) => l.kind === "speed");
-  if (speed) {
-    const lp = loraParams(speed);
-    const chain = Object.fromEntries(SAMPLING_KEYS.filter((k) => lp[k] !== undefined).map((k) => [k, lp[k]])) as InferenceParams;
+  const carrier = speed ?? (opts.loras ?? []).find((l) => Object.keys(chainOf(l)).length > 0);
+  if (carrier) {
+    const chain = chainOf(carrier);
     /* a speed LoRA that only knows its steps runs on the chain the graphs carry for it */
-    params = { ...params, ...(model.graphDefaults ?? {}), ...chain };
+    params = { ...params, ...(speed ? model.graphDefaults ?? {} : {}), ...chain };
     if (!chain.sigmas) delete params.sigmas;
-    sources.push(speed.name);
+    sources.push(carrier.name);
+    const others = (opts.loras ?? []).filter((l) => l !== carrier && Object.keys(chainOf(l)).length > 0 && l.kind !== "speed");
+    if (others.length) warnings.push(`${others.map((l) => l.name).join(", ")} also name${others.length > 1 ? "" : "s"} settings; ${carrier.name}'s are used`);
   }
   if (opts.steps !== undefined && opts.steps !== params.steps) {
     if (params.sigmas) {
       warnings.push(`${sources.at(-1)} runs on a fixed ${params.sigmas.length - 1}-step schedule; ${opts.steps} steps was ignored`);
     } else {
-      warnings.push(speed ? `${speed.name} is tuned for ${params.steps} steps; you asked for ${opts.steps}` : `${model.label} wants about ${params.steps} steps, not ${opts.steps}`);
+      warnings.push(carrier ? `${carrier.name} is tuned for ${params.steps} steps; you asked for ${opts.steps}` : `${model.label} wants about ${params.steps} steps, not ${opts.steps}`);
       params = { ...params, steps: opts.steps };
       sources.push("your steps");
     }

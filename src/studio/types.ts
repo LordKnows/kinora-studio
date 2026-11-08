@@ -233,6 +233,8 @@ export type Lora = {
   /** Settings stored for it; `recommended` adds what the Studio knows from its card and its stepsHint. */
   params: InferenceParams;
   recommended: InferenceParams;
+  /** Made to draw adult content (models.ts isAdultLora): needs the user's 18+ switch, never with an uploaded picture. */
+  adult: boolean;
   createdAt: number;
   updatedAt: number;
 };

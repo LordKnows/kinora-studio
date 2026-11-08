@@ -161,3 +161,51 @@ describe("an image model on the GPU pod", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1-turbo", portrait: { assetId: up.id }, pose: { id: adultPose.id } }), web)).rejects.toMatchObject({ code: "validation" });
   });
 });
+
+describe("Qwen-Image 2.1 base with ChatR Omni", () => {
+  const BASE = findModel("qwen-image-2.1") as ModelEntry;
+  const adultUser: Actor = { user: "omni@local", via: "web" };
+  let projectId = "";
+  const omni = { id: "lora_chatr_omni_v01", strength: 1 };
+
+  it("is seeded in the library with its card's settings, marked 18+, for the base model only", async () => {
+    const l = await repo.getLora("lora_chatr_omni_v01");
+    expect(l.baseModel).toBe("qwen-image-2.1");
+    expect(l.adult).toBe(true);
+    expect(l.recommended).toMatchObject({ steps: 35, cfg: 5, strength: 1 });
+    expect(l.hfUrl).toContain("chatrlabs/Qwen-Image-2.1-Uncensored-Omni-LoRA-v0.1");
+    const r = resolveParams(BASE, { loras: [l] });
+    expect(r.params).toMatchObject({ steps: 35, cfg: 5, sampler: "euler", scheduler: "simple" });
+    expect(r.sources).toEqual(["Qwen-Image 2.1", "ChatR Omni v0.1 (uncensored)"]);
+    expect(resolveParams(BASE).params).toMatchObject({ steps: 40, cfg: 1 });
+  });
+
+  it("needs the 18+ switch, the base model, a pod model and library pictures only", async () => {
+    projectId = (await repo.createProject({ name: "Omni" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, adultUser);
+    const portrait = (await listReferences("portrait", false)).items[1]!;
+    const recipe = { portrait: { id: portrait.id }, loras: [omni] };
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1", ...recipe }), adultUser)).rejects.toMatchObject({ code: "forbidden" });
+    await setAdultContent(adultUser, { enabled: true, confirmAdult: true });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1-turbo", ...recipe }), adultUser)).rejects.toMatchObject({ code: "validation" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "gpt-image-codex", ...recipe }), adultUser)).rejects.toMatchObject({ code: "validation" });
+    const up = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/prop.png", kind: "image", source: "upload", meta: {}, name: "prop" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1", ...recipe, extras: [{ assetId: up.id }] }), adultUser)).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("queues the base model with the LoRA's settings and file, and keeps the adult line in a typed prompt", async () => {
+    const portrait = (await listReferences("portrait", false)).items[1]!;
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1", portrait: { id: portrait.id }, loras: [omni], prompt: "<image1> at the beach" }), adultUser);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.backend).toBe("comfy:qwen-image-2.1");
+    expect(job.input.params).toMatchObject({ steps: 35, cfg: 5, sampler: "euler", scheduler: "simple", loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors", strength: 1 }] });
+    expect((job.input.params as { loras: Array<{ hf_url: string }> }).loras[0]!.hf_url).toMatch(/^https:\/\/huggingface\.co\/chatrlabs\//);
+    expect(job.input.prompt).toBe("<image1> at the beach\n画面中的人物均为成年人。");
+    expect((job.input.canvas as { loras: Array<{ id: string }> }).loras[0]!.id).toBe("lora_chatr_omni_v01");
+  });
+
+  it("a deleted built-in LoRA stays deleted", async () => {
+    await repo.deleteLora("lora_chatr_omni_v01");
+    expect((await repo.listLoras()).some((l) => l.id === "lora_chatr_omni_v01")).toBe(false);
+  });
+});
