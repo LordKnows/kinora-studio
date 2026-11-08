@@ -81,10 +81,10 @@ def tokensail(monkeypatch):
 def test_tokensail_sends_the_references_as_urls_and_fetches_the_picture_at_once(tokensail):
     vendor = FakeVendor([OK_TOKENSAIL])
     refs = ["https://studio.test/media/projects/p/images/j1.ref0.jpg", "https://studio.test/media/projects/p/images/j1.ref1.jpg"]
-    img, meta = paint.run_qwen("图1的人物穿上图2的服装", refs, 1024, 1536, {"api_model": "qwen-image-3.0-pro", "prompt_extend": False}, vendor, request_id="j1.r0")
+    img, meta = paint.run_qwen("图1的人物穿上图2的服装", refs, 1024, 1536, {"api_model": "qwen-image-3.0-pro", "prompt_extend": False}, vendor, request_id="job_j1-r0")
     url, headers, body = vendor.posts[0]
     assert url == "https://api.tokensail.ai/v1/images/generations"
-    assert headers["Authorization"] == "Bearer sk-tokensail-0000test" and headers["X-TokenSail-Request-Id"] == "j1.r0"
+    assert headers["Authorization"] == "Bearer sk-tokensail-0000test" and headers["X-TokenSail-Request-Id"] == "job_j1-r0"
     assert body == {"model": "qwen-image-3.0-pro", "prompt": "图1的人物穿上图2的服装", "n": 1, "size": "1024x1536", "response_format": "url",
                     "image": refs, "prompt_extend": False, "watermark": False}
     assert vendor.gets == ["https://assets.tokensail.ai/a/x.png"] and img.size == (1024, 1536)
@@ -118,6 +118,16 @@ def test_busy_answers_are_retried_and_refusals_say_why(tokensail):
     for answer, words in cases:
         with pytest.raises(paint.PaintError, match=words):
             paint.run_qwen("a prompt here", [], 1024, 1024, {}, FakeVendor([answer]))
+
+
+def test_the_request_id_fits_tokensails_pattern(tokensail):
+    """TokenSail takes X-TokenSail-Request-Id only as [A-Za-z0-9_-]{1,64} (a "." was refused with 400 validation_error)."""
+    import re
+
+    vendor = FakeVendor([OK_TOKENSAIL])
+    paint.run_qwen("a prompt here", [], 1024, 1024, {}, vendor, request_id="job_abc.r0/" + "x" * 80)
+    rid = vendor.posts[0][1]["X-TokenSail-Request-Id"]
+    assert re.fullmatch(r"[A-Za-z0-9_-]{1,64}", rid) and rid.startswith("job_abc-r0-")
 
 
 def test_no_key_no_qwen(monkeypatch):
@@ -166,6 +176,6 @@ def test_a_job_rehosts_its_references_mirrored_and_reports_the_cost(tokensail, t
     assert ref0[0].getpixel((5, 5))[0] > 200 and ref1[0].getpixel((5, 5))[2] > 200  # the second one went up mirrored
     _, headers, body = vendor.posts[0]
     assert body["image"] == ["https://studio.test/media/projects/p/images/j1.ref0.jpg", "https://studio.test/media/projects/p/images/j1.ref1.jpg"]
-    assert headers["X-TokenSail-Request-Id"] == "j1.r0"
+    assert headers["X-TokenSail-Request-Id"] == "j1-r0"
     assert out["backend"] == "qwen" and out["api"] == [{"route": "tokensail", "model": "qwen-image-3.0-pro", "cost_usd": "0.0712"}]
     assert out["url"] == "https://studio.test/media/projects/p/images/j1.png"

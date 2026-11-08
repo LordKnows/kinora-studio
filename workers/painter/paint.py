@@ -980,9 +980,10 @@ def run_qwen(prompt: str, ref_urls: list[str], w: int, h: int, settings: dict[st
         body: dict[str, Any] = {"model": model, "prompt": prompt, "n": 1, "size": f"{w}x{h}", "response_format": "url",
                                 **({"image": ref_urls} if ref_urls else {}), "prompt_extend": extend, "watermark": False,
                                 **({"negative_prompt": negative} if negative else {})}
-        if request_id:
-            # retrying with the same id is never charged twice
-            headers["X-TokenSail-Request-Id"] = request_id[:120]
+        rid = re.sub(r"[^A-Za-z0-9_-]", "-", request_id or "")[:64]
+        if rid:
+            # retrying with the same id is never charged twice; TokenSail takes [A-Za-z0-9_-]{1,64}
+            headers["X-TokenSail-Request-Id"] = rid
     else:
         url = base if "/services/aigc/" in base else f"{re.sub(r'/api/v1$', '', base)}/api/v1/services/aigc/multimodal-generation/generation"
         body = {"model": model, "input": {"messages": [{"role": "user", "content": [*({"image": u} for u in ref_urls), {"text": prompt}]}]},
@@ -1119,7 +1120,7 @@ def _draw(params: dict[str, Any], prompt: str, pictures: list[Path], has_base: b
         return drawn, 1, drawn.size
     if params["backend"] == "qwen":
         api = params.setdefault("_api", {})
-        rid = f"{params['studio_job_id']}.{tag}" if params.get("studio_job_id") else None
+        rid = f"{params['studio_job_id']}-{tag}" if params.get("studio_job_id") else None
         drawn, meta = run_qwen(prompt, api.get("ref_urls") or [], w, h, params.get("settings") or {}, http, request_id=rid)
         api.setdefault("calls", []).append(meta)
         return drawn, 1, drawn.size
