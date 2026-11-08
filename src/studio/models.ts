@@ -7,7 +7,8 @@
  *   base model params → per-workflow variant → speed LoRA → user override
  *
  * Two runtimes. "api": drawn by a painter through a hosted service (GPT
- * Image via Codex or the images API). "pod": a ComfyUI workflow on the GPU
+ * Image via Codex or the images API; Qwen-Image 3.0 Pro through TokenSail
+ * or DashScope, on the CPU painter pod). "pod": a ComfyUI workflow on the GPU
  * pod — the same pod as the video models, so it draws only while the pod
  * runs. Pure data and functions: the pages import it too.
  */
@@ -55,11 +56,14 @@ export type ModelEntry = {
   refStyle?: "zh" | "qwen";
   /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
   poseRecipe?: boolean;
+  /** API models: the vendor's model name, and the request options Canvas offers (the pose gallery's 百炼 settings). */
+  apiModel?: string;
+  options?: Array<"prompt_extend" | "negative_prompt">;
   files?: ModelFile[];
   license: string;
   commercial: boolean | "ask";
   /** Who refuses what: the hosted service's moderation, or nothing but the prompt. */
-  moderation: "openai" | "none";
+  moderation: "openai" | "alibaba" | "none";
   source: string;
   notes: string;
 };
@@ -79,6 +83,13 @@ export const MODELS: ModelEntry[] = [
     backend: "api", params: {}, maxRefs: 5, refStyle: "zh", license: "OpenAI terms of use", commercial: true, moderation: "openai",
     source: "https://platform.openai.com/docs/guides/image-generation",
     notes: "Drawn on a painter with OPENAI_API_KEY (IMAGE_MODEL, default gpt-image-2); paid per picture. Same moderation as Codex.",
+  },
+  {
+    id: "qwen-image-3.0-pro", kind: "image", runtime: "api", label: "Qwen-Image 3.0 Pro · API", zh: "通义 Qwen-Image 3.0 Pro（API，按张计费）", family: "qwen-image-3.0",
+    backend: "qwen", apiModel: "qwen-image-3.0-pro", params: {}, maxRefs: 3, refStyle: "zh", options: ["prompt_extend", "negative_prompt"],
+    license: "Alibaba Cloud Model Studio terms, through TokenSail (or DashScope directly); paid per picture and per reference picture", commercial: "ask", moderation: "alibaba",
+    source: "https://tokensail.ai/docs/api/images.html",
+    notes: "The pose gallery's 阿里云百炼 path (anhao/ai-pose-gallery-zh: qwen-image-3.0-pro, references as URLs, 图1/图2/图3 in the prompt, prompt_extend, watermark off, negative prompt). Drawn by the CPU painter pod with TOKENSAIL_API_KEY (TokenSail's /v1/images/generations) or DASHSCOPE_API_KEY (DashScope's multimodal-generation); no GPU. The vendor fetches the references itself, so the painter puts them in R2 for the job's length. TokenSail lists ¥0.25 per picture at 1K and ¥0.50 at 2K, each reference billed on top; cn region only. Alibaba Cloud moderates every request: sexual content is refused.",
   },
   {
     id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",

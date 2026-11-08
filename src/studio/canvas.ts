@@ -16,7 +16,8 @@ import type { Actor, Asset, Job } from "./types";
  * Canvas: compose one character picture from the reference library —
  * a portrait (face, hair), a costume, a pose, more pictures up to what the
  * model takes — drawn by a painter like every other Studio picture: GPT
- * Image (Codex or the API), or an image model on the GPU pod (Qwen-Image
+ * Image (Codex or the API), Qwen-Image 3.0 Pro through an API (TokenSail
+ * or DashScope, on the CPU painter pod), or an image model on the GPU pod (Qwen-Image
  * 2.1 Turbo / base, Qwen-Image-Edit 2509 in ComfyUI, models.ts) while the
  * pod runs. The pose can be flipped left to right (the painter mirrors the
  * picture before drawing). The
@@ -35,7 +36,9 @@ export const CanvasCompose = z.object({
   portrait: Slot.optional(),
   costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
   pose: Slot.extend({ depth: z.boolean().default(false), mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)") }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's GPT Image backend."),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's GPT Image backend."),
+  promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
+  negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
   loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
@@ -139,6 +142,10 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     const el = await repo.getElement(input.attach.elementId);
     if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
   }
+  /* an API model whose key nobody has: the CPU painter pod would start for a picture it cannot draw */
+  if (model.backend === "qwen" && !painter.qwenApiKeyOnWorker() && !(await painter.runnerSummary("paint", "qwen")).ready) {
+    throw new StudioError("validation", `${model.label} needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret (Cloudflare → Workers → Settings → Variables and Secrets); the CPU painter pod gets it when it starts`);
+  }
 
   const recipe: CanvasPromptRecipe = {
     portrait: portrait && (portrait.item ? { item: portrait.item as RefPortrait } : { upload: { name: portrait.label } }),
@@ -165,12 +172,17 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const params = resolved ? {
     ...resolved.params, ...(input.seed !== undefined ? { seed: input.seed } : {}),
     ...(loras.length ? { loras: loras.map((l) => ({ file: l.filename, strength: l.strength, name: l.name, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}) })) } : {}),
+  } : model.apiModel ? {
+    /* the pose gallery's 百炼 request: the model name, prompt_extend, a negative prompt (watermark is always off) */
+    api_model: model.apiModel,
+    ...(model.options?.includes("prompt_extend") ? { prompt_extend: input.promptExtend } : {}),
+    ...(model.options?.includes("negative_prompt") && input.negativePrompt?.trim() ? { negative_prompt: input.negativePrompt.trim() } : {}),
   } : undefined;
   const r = await imaging.submitImage(projectId, {
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size: input.size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }

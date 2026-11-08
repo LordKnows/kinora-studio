@@ -54,7 +54,7 @@ function ModelCard({ m, loras, first }: { m: Listed; loras: Lora[]; first: boole
         </div>
         <span className="st-chips">
           <span className="st-chip st-chip--mono">{m.runtime === "pod" ? "GPU pod" : "painter · API"}</span>
-          {m.moderation === "openai" ? <span className="st-chip st-chip--mono">OpenAI moderation</span> : <span className="st-chip st-chip--mono">no filter</span>}
+          {m.moderation === "openai" ? <span className="st-chip st-chip--mono">OpenAI moderation</span> : m.moderation === "alibaba" ? <span className="st-chip st-chip--mono">Alibaba Cloud moderation</span> : <span className="st-chip st-chip--mono">no filter</span>}
         </span>
       </div>
       {m.painters && (m.painters.ready ? <Lamp state="ok" label={`can draw now · ${m.painters.drawers.join(", ")}`} /> : <span className="st-muted">{m.painters.note}</span>)}

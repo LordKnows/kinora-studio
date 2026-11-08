@@ -409,6 +409,16 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    按 **Redraws on a blocker**（默认 1 次）带着问题重画；重画算图片额度，检查本身不算。
 6. **可选：API 后端**：在画图机器上设 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。
    GPU Pod 兜底画图时用 Worker 上的同名 secret（建 Pod 时传入）。
+6a. **可选：Qwen-Image 3.0 Pro（API，Canvas 里选 “Qwen-Image 3.0 Pro · API”）**：参考 repo 的
+   阿里云百炼画法，由 **CPU 画图 Pod** 调用，不用 GPU。Worker 加 secret `TOKENSAIL_API_KEY`
+   （TokenSail 的推理 key，`sk-tokensail-` 开头，不是 `sk-tokensail-mgmt-`；Cloudflare 网页：
+   Workers & Pages → 这个 Worker → Settings → Variables and Secrets → Add → 类型 Secret）。
+   直连百炼的话改设 `DASHSCOPE_API_KEY`（两者都设时用 TokenSail）。可选变量：`QWEN_API_BASE`
+   （换接口地址，如国际站 `https://dashscope-intl.aliyuncs.com`）、`QWEN_IMAGE_API_MODEL`。
+   CPU Pod **建立时**带上这些变量：加完 secret 后在 Machine → Painters 把正在运行的画图 Pod 停掉，
+   下一张图会新建一个。参考图由阿里自己按 URL 抓取，所以画图机器先把它们放到 R2
+   （`…/<job>.ref0.jpg`，`/media/*` 必须公网可访问），任务结束即删除。按张计费（TokenSail：
+   1K ¥0.25、2K ¥0.50，每张参考图另计），阿里云内容审核会拒绝色情内容。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
 8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。

@@ -335,6 +335,25 @@ person), and the adult line stays in any prompt. Its weights use
 Diffusers/PEFT keys: if the pod's ComfyUI log says "lora key not loaded", the
 adapter did not apply.
 
+**Qwen-Image 3.0 Pro through an API (the pose gallery's 百炼 path).**
+anhao/ai-pose-gallery-zh calls `qwen-image-3.0-pro` on Alibaba Cloud Model
+Studio from the browser; here the CPU painter pod calls it — no GPU, and it is
+not a ComfyUI model (the weights are not published). With `TOKENSAIL_API_KEY`
+it goes through TokenSail's OpenAI-style `/v1/images/generations` (`image`:
+the reference URLs, `size` `WxH`); with `DASHSCOPE_API_KEY` through
+DashScope's own `multimodal-generation` endpoint, exactly as the gallery
+does. Same composed prompt (图1/图2/图3), up to three pictures, `watermark`
+off, and Canvas offers the gallery's `prompt_extend` (off by default: it
+rewrites the composed roles) and a negative prompt. The vendor fetches the
+references by URL, so the painter re-hosts them in R2 (`<job>.refN.jpg`,
+mirrored when asked) and the Studio deletes them when the job ends. The
+picture comes back as a URL that expires in about an hour and is fetched at
+once; the cost TokenSail reports is kept in the job's output. Errors say what
+to do (402: top up; 403: allow the model for the key; a moderation refusal is
+named). Set the key as a Worker secret: the CPU painter pod gets it when it
+is created (stop a running one once). Paid per picture and per reference;
+Alibaba Cloud moderates every request.
+
 **Qwen-Image-Edit 2509 (the pose gallery's workflow).** anhao/ai-pose-gallery-zh
 draws its recipes with `qwen_image_edit_2509_3img` in ComfyUI; it is ported as
 `workflows/QIE2509_3IMG.json` (portrait + costume + pose) and

@@ -63,6 +63,11 @@ export function isOnline(p: Painter, now = Date.now()): boolean {
   return now - p.lastSeenAt < ONLINE_MS;
 }
 
+/** The Worker secret the CPU painter pod passes on for Qwen-Image 3.0 Pro (TokenSail first), if any. */
+export function qwenApiKeyOnWorker(): "TOKENSAIL_API_KEY" | "DASHSCOPE_API_KEY" | undefined {
+  return process.env.TOKENSAIL_API_KEY ? "TOKENSAIL_API_KEY" : process.env.DASHSCOPE_API_KEY ? "DASHSCOPE_API_KEY" : undefined;
+}
+
 /** Can this painter take this job right now? */
 export function canServe(p: Painter, job: Pick<Job, "input">): boolean {
   const op = String(job.input.op ?? "paint");
@@ -86,6 +91,9 @@ export async function runnerSummary(op = "paint", backend = "codex"): Promise<Ru
   if (podModel && !able.length) note = all.some((p) => p.info.onPod)
     ? `the GPU pod is up but cannot draw ${backend.slice(6)} yet: its model files are still downloading or ComfyUI lacks the nodes (Machine page → GPU pod)`
     : `${backend.slice(6)} runs on the GPU pod: start it (top bar) and it draws while it runs`;
+  else if (op === "paint" && backend === "qwen" && !able.length) note = qwenApiKeyOnWorker()
+    ? `Qwen-Image 3.0 Pro is drawn by the CPU painter pod with the Worker's ${qwenApiKeyOnWorker()}: ${all.some((p) => !p.info.onPod) ? "restart the painter pod (Machine page → Painters) so it picks the key up" : "the painter pod starts for it"}`
+    : "Qwen-Image 3.0 Pro needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret; the CPU painter pod gets it when it starts";
   else if (!all.length) note = "no painter is online: start the painter pod (Machine page → Painters), or the GPU pod, which draws when no painter does";
   else if (!able.length) note = op === "paint" && backend === "codex"
     ? `painter${all.length > 1 ? "s" : ""} online (${all.map((p) => p.name).join(", ")}) but Codex is not logged in there: Machine page → Painters → Log in`
@@ -177,16 +185,29 @@ async function heldJob(jobId: string, painterId: string): Promise<Job> {
 }
 
 /** Presigned PUTs for the files of a job: the picture, its preview, the diff. Only those keys. */
+/** Pictures an API job may put in R2 for the vendor to fetch (Qwen-Image 3.0 Pro: three references + an edited picture). */
+const MAX_REHOSTED = 4;
+
 export async function uploadUrls(jobId: string, painterId: string, keys: string[]): Promise<Array<{ key: string; putUrl: string; publicUrl: string }>> {
   const job = await heldJob(jobId, painterId);
   const stem = outputKey(job).slice(0, -".png".length);
-  const allowed = new Set([`${stem}.png`, `${stem}.preview.jpg`, `${stem}.diff.jpg`]);
+  /* an API that fetches its references by URL (Qwen-Image 3.0 Pro): the painter puts them next to the picture for the job's length */
+  const refs = job.input.backend === "qwen" ? Array.from({ length: MAX_REHOSTED }, (_, i) => `${stem}.ref${i}.jpg`) : [];
+  const allowed = new Set([`${stem}.png`, `${stem}.preview.jpg`, `${stem}.diff.jpg`, ...refs]);
   const out = [];
   for (const key of keys.slice(0, 6)) {
     if (!allowed.has(key)) throw new StudioError("validation", `a painter may only write ${[...allowed].join(", ")}`);
     out.push({ key, putUrl: (await presignPut(key, "", 0)).url, publicUrl: publicUrl(key) });
   }
   return out;
+}
+
+/** The references a painter put in R2 for an API to fetch: gone once the job ends (the galleries allow one picture as a reference, not a copy). */
+export async function removeRehosted(job: Job): Promise<void> {
+  if (job.input.backend !== "qwen") return;
+  const stem = outputKey(job).slice(0, -".png".length);
+  const { deleteObject } = await import("./storage/r2");
+  await Promise.all(Array.from({ length: MAX_REHOSTED }, (_, i) => deleteObject(`${stem}.ref${i}.jpg`).catch(() => undefined)));
 }
 
 /** The painter's answer: a picture (the files already in R2) or an error. */

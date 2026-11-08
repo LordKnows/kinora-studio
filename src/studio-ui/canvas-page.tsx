@@ -38,6 +38,9 @@ type Recipe = {
   model?: string;
   /** Pod models: LoRAs from the library, trained for the model's family. */
   loras?: LoraRef[];
+  /** Qwen-Image 3.0 Pro (API): let the vendor rewrite the prompt, and what the picture must not show. */
+  promptExtend?: boolean;
+  negative?: string;
   note: string;
   /** The prompt typed over the composed one. */
   prompt?: string;
@@ -194,6 +197,8 @@ export function CanvasPage() {
   const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
   const model: ModelEntry = findModel(recipe.model ?? "") ?? imageModelOfBackend(view?.project.imaging?.backend ?? "codex") ?? IMAGE_MODELS[0]!;
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
+  /* GPT Image's quality tiers; Qwen's API has none */
+  const takesQuality = model.backend === "codex" || model.backend === "api";
   const { loras: library } = useLoraLibrary();
   /* only the LoRAs of this model's family travel with the recipe */
   const activeLoras = model.runtime === "pod" ? (recipe.loras ?? []).flatMap((r) => {
@@ -282,7 +287,9 @@ export function CanvasPage() {
         size: recipe.size,
         model: model.id,
         ...(activeLoras.length ? { loras: activeLoras.map((l) => ({ id: l.id, strength: l.strength })) } : {}),
-        ...(recipe.quality && model.runtime === "api" ? { quality: recipe.quality } : {}),
+        ...(recipe.quality && takesQuality ? { quality: recipe.quality } : {}),
+        ...(model.options?.includes("prompt_extend") ? { promptExtend: !!recipe.promptExtend } : {}),
+        ...(model.options?.includes("negative_prompt") && recipe.negative?.trim() ? { negativePrompt: recipe.negative.trim() } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
         ...(prefs.attach ? { attach: prefs.attach } : {}),
@@ -305,9 +312,9 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; costumeView?: string; note?: string; model?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, note: c.note ?? "", ...(c.model ? { model: c.model } : {}) };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -339,7 +346,7 @@ export function CanvasPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
+          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
         </div>
         <div className="st-row">
           <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
@@ -455,7 +462,7 @@ export function CanvasPage() {
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>
-              {model.runtime === "api" && (
+              {takesQuality && (
                 <Field label="Quality">
                   <select className="st-select" value={recipe.quality ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, quality: (e.target.value || undefined) as Recipe["quality"] }))}>
                     <option value="">Project default{imaging ? ` (${imaging.quality})` : ""}</option>
@@ -466,6 +473,16 @@ export function CanvasPage() {
                 </Field>
               )}
             </div>
+            {model.options?.includes("prompt_extend") && (
+              <label className="st-toggle" title="prompt_extend: the vendor rewrites the prompt before drawing (the pose gallery turns it on; off keeps the 图1/图2/图3 roles exactly as composed)">
+                <input type="checkbox" checked={!!recipe.promptExtend} onChange={(e) => setRecipe((r) => ({ ...r, promptExtend: e.target.checked }))} /> 智能改写 · let Qwen rewrite the prompt
+              </label>
+            )}
+            {model.options?.includes("negative_prompt") && (
+              <Field label="Negative prompt" hint="What the picture must not show, e.g. 多余的手指, 文字水印">
+                <input className="st-input" maxLength={500} value={recipe.negative ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, negative: e.target.value }))} />
+              </Field>
+            )}
             <Field label="Note" hint="Added to the prompt, e.g. 教室窗边逆光，微风吹拂发丝">
               <textarea className="st-textarea" rows={2} maxLength={600} value={recipe.note} onChange={(e) => setRecipe((r) => ({ ...r, note: e.target.value }))} />
             </Field>
@@ -534,7 +551,7 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
         </select>
       </Field>
       {loras}
-      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {model.poseRecipe ? "pose + portrait and/or costume" : `up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : " · no content filter"}</span>
+      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {model.poseRecipe ? "pose + portrait and/or costume" : `up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : model.moderation === "alibaba" ? " · Alibaba Cloud moderation" : " · no content filter"}</span>
       {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
       {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
         <div className="st-alert st-alert--warn">
