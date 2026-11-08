@@ -1,0 +1,469 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+
+import {
+  COSTUME_SOURCES,
+  POSE_ANGLES,
+  POSE_SYSTEMS,
+  REF_KIND_LABEL,
+  REFERENCE_TERMS,
+  referenceImage,
+  referenceName,
+  searchText,
+  type PoseAngle,
+  type RefCostume,
+  type RefItem,
+  type RefKind,
+  type RefPortrait,
+  type RefPose,
+} from "@/studio/references-model";
+
+import { get } from "./api";
+import { Button, Empty, ErrorBanner, Modal, Skeleton } from "./common";
+import { CheckIcon, OpenOutIcon, PlusIcon } from "./icons";
+
+/* The Canvas library: portraits, costumes and poses, filtered in the
+   browser. Thumbnails load from the galleries themselves (no referrer is
+   sent); nothing is copied unless a picture is used. */
+
+type ListAnswer = { kind: RefKind; adult: boolean; items: RefItem[]; hidden: number };
+
+const cache = new Map<string, Promise<ListAnswer>>();
+
+export function useReferences(kind: RefKind, adultVersion: number): { data: ListAnswer | null; error: unknown } {
+  const [state, setState] = useState<{ key: string; data: ListAnswer | null; error: unknown }>({ key: "", data: null, error: null });
+  const key = `${kind}:${adultVersion}`;
+  useEffect(() => {
+    let live = true;
+    if (!cache.has(key)) cache.set(key, get<ListAnswer>(`/api/references?kind=${kind}`));
+    cache.get(key)!.then(
+      (data) => live && setState({ key, data, error: null }),
+      (error) => {
+        cache.delete(key);
+        if (live) setState({ key, data: null, error });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [key, kind]);
+  return state.key === key ? { data: state.data, error: state.error } : { data: null, error: null };
+}
+
+/** Load a kind's list outside a component (random picks). */
+export function loadReferences(kind: RefKind, adultVersion: number): Promise<ListAnswer> {
+  const key = `${kind}:${adultVersion}`;
+  if (!cache.has(key)) cache.set(key, get<ListAnswer>(`/api/references?kind=${kind}`));
+  return cache.get(key)!;
+}
+
+export type UseOptions = { depth?: boolean; view?: string };
+
+type Props = {
+  kind: RefKind;
+  onKind: (k: RefKind) => void;
+  adultVersion: number;
+  adult: boolean;
+  depth: boolean;
+  onDepth: (d: boolean) => void;
+  selected: Partial<Record<RefKind, string>>;
+  onUse: (item: RefItem, opts: UseOptions) => void;
+  onImport?: (item: RefItem, opts: UseOptions) => Promise<string>;
+};
+
+const PAGE = 60;
+
+export function CanvasLibrary(props: Props) {
+  const { kind, onKind } = props;
+  return (
+    <div className="st-stack" style={{ gap: 14 }}>
+      <div className="st-tabs" role="tablist" aria-label="Reference library">
+        {(["portrait", "costume", "pose"] as const).map((k) => (
+          <button key={k} type="button" role="tab" className="st-tab" aria-selected={kind === k} onClick={() => onKind(k)}>
+            {REF_KIND_LABEL[k].en} <span className="st-muted">{REF_KIND_LABEL[k].zh}</span>
+          </button>
+        ))}
+      </div>
+      {kind === "portrait" && <PortraitBrowser {...props} />}
+      {kind === "costume" && <CostumeBrowser {...props} />}
+      {kind === "pose" && <PoseBrowser {...props} />}
+    </div>
+  );
+}
+
+/* ---------- shared pieces ---------- */
+
+function Pills<T extends string>({ value, options, onChange, label }: { value: T; options: Array<{ id: T; label: string; count?: number }>; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="st-chips" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.id || "all"} type="button" className="st-chip st-chip--btn" aria-pressed={value === o.id} onClick={() => onChange(o.id)}>
+          {o.label}
+          {o.count !== undefined && <span className="st-num st-muted">{o.count}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Search({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return <input className="st-input st-input--sm st-ref-search" type="search" value={value} placeholder={placeholder} aria-label="Search" onChange={(e) => onChange(e.target.value)} />;
+}
+
+function useSearch(items: RefItem[]) {
+  return useMemo(() => new Map(items.map((x) => [x.id, searchText(x)])), [items]);
+}
+
+const matchesQuery = (text: string | undefined, q: string) => {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return !words.length || (!!text && words.every((w) => text.includes(w)));
+};
+
+function countBy<T>(items: T[], key: (x: T) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const x of items) m.set(key(x), (m.get(key(x)) ?? 0) + 1);
+  return m;
+}
+
+function Hidden({ hidden, adult }: { hidden: number; adult: boolean }) {
+  if (adult || !hidden) return null;
+  return <span className="st-muted">{hidden} 18+ hidden</span>;
+}
+
+function Thumb({ src, alt }: { src: string; alt: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken || !src) return <span className="st-ref-missing">picture unavailable</span>;
+  return <img src={src} alt={alt} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setBroken(true)} />;
+}
+
+function Card({ item, thumb, caption, sub, selected, onOpen, onUse, useLabel, extra }: { item: RefItem; thumb: string; caption: string; sub?: string; selected: boolean; onOpen: () => void; onUse: () => void; useLabel: string; extra?: React.ReactNode }) {
+  return (
+    <div className="st-ref" data-selected={selected ? "true" : undefined}>
+      <button type="button" className="st-ref-img" onClick={onOpen} aria-label={`Preview ${caption}`}>
+        <Thumb src={thumb} alt={caption} />
+        {item.nsfw && <span className="st-ref-badge">18+</span>}
+      </button>
+      <button type="button" className="st-ref-add" onClick={onUse} title={selected ? "In the recipe" : useLabel} aria-label={selected ? `${caption} is in the recipe` : `${useLabel}: ${caption}`} aria-pressed={selected}>
+        {selected ? <CheckIcon size={12} /> : <PlusIcon size={12} />}
+      </button>
+      <div className="st-ref-cap">
+        <span className="st-ref-name" title={caption}>{caption}</span>
+        {sub && <span className="st-muted st-ref-sub">{sub}</span>}
+        {extra}
+      </div>
+    </div>
+  );
+}
+
+function Grid({ children, total, shown, onMore }: { children: React.ReactNode; total: number; shown: number; onMore: () => void }) {
+  return (
+    <>
+      <div className="st-ref-grid">{children}</div>
+      {shown < total && (
+        <div className="st-row" style={{ justifyContent: "center", marginTop: 14 }}>
+          <Button onClick={onMore}>Show more ({total - shown} left)</Button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function Loading({ error }: { error: unknown }) {
+  if (error) return <ErrorBanner error={error} />;
+  return (
+    <div className="st-ref-grid">
+      {Array.from({ length: 12 }, (_, i) => <Skeleton key={i} height={190} />)}
+    </div>
+  );
+}
+
+const USE_LABEL: Record<RefKind, string> = { portrait: "Use as portrait", costume: "Use as costume", pose: "Use as pose" };
+
+/* ---------- portraits ---------- */
+
+function PortraitBrowser({ adultVersion, adult, selected, onUse, onImport }: Props) {
+  const { data, error } = useReferences("portrait", adultVersion);
+  const items = useMemo(() => (data?.items ?? []) as RefPortrait[], [data]);
+  const text = useSearch(items);
+  const [section, setSection] = useState("");
+  const [hair, setHair] = useState("");
+  const [style, setStyle] = useState("");
+  const [hot, setHot] = useState(false);
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<number | null>(null);
+  useEffect(() => setShown(PAGE), [section, hair, style, hot, q]);
+  const base = items.filter((x) => (!section || x.section === section) && (!hair || x.hairLength === hair));
+  const styles = countBy(base, (x) => x.hairstyle);
+  const list = base.filter((x) => (!style || x.hairstyle === style) && (!hot || x.hot) && matchesQuery(text.get(x.id), q));
+  if (!data) return <Loading error={error} />;
+  const sections = countBy(items, (x) => x.section);
+  const hairs = countBy(items.filter((x) => !section || x.section === section), (x) => x.hairLength);
+  return (
+    <div className="st-stack" style={{ gap: 12 }}>
+      <div className="st-ref-filters">
+        <Pills label="Section" value={section} onChange={setSection} options={[{ id: "", label: "All", count: items.length }, ...["正脸参考", "造型氛围"].map((s) => ({ id: s, label: s === "正脸参考" ? "正脸参考 · face" : "造型氛围 · styling", count: sections.get(s) ?? 0 }))]} />
+        <Pills label="Hair length" value={hair} onChange={(v) => { setHair(v); setStyle(""); }} options={[{ id: "", label: "Any length" }, ...["短发", "中发", "中长发", "长发"].map((h) => ({ id: h, label: h, count: hairs.get(h) ?? 0 }))]} />
+        <div className="st-row">
+          <select className="st-select st-input--sm" style={{ width: "auto", maxWidth: 320 }} value={style} onChange={(e) => setStyle(e.target.value)} aria-label="Hairstyle">
+            <option value="">All hairstyles ({styles.size})</option>
+            {[...styles.entries()].sort((a, b) => b[1] - a[1]).map(([s, n]) => <option key={s} value={s}>{s} ({n})</option>)}
+          </select>
+          <label className="st-toggle"><input type="checkbox" checked={hot} onChange={(e) => setHot(e.target.checked)} /> Top 10 🔥</label>
+          <Search value={q} onChange={setQ} placeholder="Search 搜索 (短发, 波波头…)" />
+          <span className="st-muted st-num">{list.length}</span>
+        </div>
+      </div>
+      {list.length === 0 ? <Empty title="No portrait matches" hint="Clear a filter or the search." /> : (
+        <Grid total={list.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
+          {list.slice(0, shown).map((x, i) => (
+            <Card key={x.id} item={x} thumb={x.thumb} caption={x.title} sub={`${x.section} · ${x.hairLength}`} selected={selected.portrait === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.portrait} extra={x.hot ? <span className="st-ref-hot">Top 10</span> : undefined} />
+          ))}
+        </Grid>
+      )}
+      <p className="st-muted st-ref-terms">{REFERENCE_TERMS.portraits} {REFERENCE_TERMS.translation} <Hidden hidden={data.hidden} adult={adult} /></p>
+      {open !== null && list[open] && <Lightbox list={list} index={open} onIndex={setOpen} onClose={() => setOpen(null)} selected={selected} onUse={onUse} onImport={onImport} depth={false} />}
+    </div>
+  );
+}
+
+/* ---------- costumes ---------- */
+
+function CostumeBrowser({ adultVersion, adult, selected, onUse, onImport }: Props) {
+  const { data, error } = useReferences("costume", adultVersion);
+  const items = useMemo(() => (data?.items ?? []) as RefCostume[], [data]);
+  const text = useSearch(items);
+  const [style, setStyle] = useState<"" | "real" | "anime">("");
+  const [source, setSource] = useState("");
+  const [category, setCategory] = useState("");
+  const [tag, setTag] = useState("");
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<number | null>(null);
+  useEffect(() => setShown(PAGE), [style, source, category, tag, q]);
+  if (!data) return <Loading error={error} />;
+  const byStyle = items.filter((x) => !style || x.style === style);
+  const bySource = byStyle.filter((x) => !source || x.source === source);
+  const categories = countBy(bySource, (x) => x.category);
+  const byCategory = bySource.filter((x) => !category || x.category === category);
+  const tags = countBy(byCategory.flatMap((x) => x.tags.filter((t) => t !== x.category).map((t) => ({ t }))), (x) => x.t);
+  const list = byCategory.filter((x) => (!tag || x.tags.includes(tag)) && matchesQuery(text.get(x.id), q));
+  const sources = COSTUME_SOURCES.filter((s) => !style || (s.id === "gia-anime" || s.id === "charadb" ? "anime" : "real") === style);
+  const shownSources = source ? COSTUME_SOURCES.filter((s) => s.id === source) : sources;
+  return (
+    <div className="st-stack" style={{ gap: 12 }}>
+      <div className="st-ref-filters">
+        <div className="st-row">
+          <Pills label="Style" value={style} onChange={(v) => { setStyle(v); setSource(""); setCategory(""); setTag(""); }} options={[{ id: "", label: "全部 · all", count: items.length }, { id: "real", label: "现实 · real", count: items.filter((x) => x.style === "real").length }, { id: "anime", label: "二次元 · anime", count: items.filter((x) => x.style === "anime").length }]} />
+          <select className="st-select st-input--sm" style={{ width: "auto" }} value={source} onChange={(e) => { setSource(e.target.value); setCategory(""); setTag(""); }} aria-label="Source">
+            <option value="">All sources</option>
+            {sources.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </div>
+        <Pills label="Category" value={category} onChange={(v) => { setCategory(v); setTag(""); }} options={[{ id: "", label: "All", count: bySource.length }, ...[...categories.entries()].map(([c, n]) => ({ id: c, label: c, count: n }))]} />
+        <div className="st-row">
+          <select className="st-select st-input--sm" style={{ width: "auto", maxWidth: 260 }} value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag">
+            <option value="">All tags</option>
+            {[...tags.entries()].sort((a, b) => b[1] - a[1]).slice(0, 80).map(([t, n]) => <option key={t} value={t}>{t} ({n})</option>)}
+          </select>
+          <Search value={q} onChange={setQ} placeholder="Search 搜索 (水手服, denim, SPR-0001…)" />
+          <span className="st-muted st-num">{list.length}</span>
+        </div>
+      </div>
+      {list.length === 0 ? <Empty title="No costume matches" hint="Clear a filter or the search." /> : (
+        <Grid total={list.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
+          {list.slice(0, shown).map((x, i) => (
+            <Card key={x.id} item={x} thumb={x.thumb} caption={x.name} sub={`${x.category} · ${COSTUME_SOURCES.find((s) => s.id === x.source)?.label ?? x.source}`} selected={selected.costume === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.costume} />
+          ))}
+        </Grid>
+      )}
+      <div className="st-muted st-ref-terms">
+        {shownSources.map((s) => <p key={s.id}><a className="st-link st-link--ext" href={s.site} target="_blank" rel="noopener noreferrer">{s.label}</a>: {s.terms}</p>)}
+        <p>{REFERENCE_TERMS.translation} <Hidden hidden={data.hidden} adult={adult} /></p>
+      </div>
+      {open !== null && list[open] && <Lightbox list={list} index={open} onIndex={setOpen} onClose={() => setOpen(null)} selected={selected} onUse={onUse} onImport={onImport} depth={false} />}
+    </div>
+  );
+}
+
+/* ---------- poses ---------- */
+
+type PoseGroup = { key: string; first: RefPose; angles: Partial<Record<PoseAngle, RefPose>> };
+
+function PoseBrowser({ adultVersion, adult, selected, onUse, onImport, depth, onDepth }: Props) {
+  const { data, error } = useReferences("pose", adultVersion);
+  const items = useMemo(() => (data?.items ?? []) as RefPose[], [data]);
+  const text = useSearch(items);
+  const [system, setSystem] = useState("");
+  const [category, setCategory] = useState("");
+  const [angle, setAngle] = useState<"" | PoseAngle>("");
+  const [mode, setMode] = useState<"group" | "single">("group");
+  const [q, setQ] = useState("");
+  const [shown, setShown] = useState(PAGE);
+  const [open, setOpen] = useState<number | null>(null);
+  const [cardAngle, setCardAngle] = useState<Record<string, PoseAngle>>({});
+  useEffect(() => setShown(PAGE), [system, category, angle, mode, q]);
+  const groups = useMemo(() => {
+    const m = new Map<string, PoseGroup>();
+    for (const p of items) {
+      const g = m.get(p.group) ?? { key: p.group, first: p, angles: {} };
+      g.angles[p.angle] = p;
+      m.set(p.group, g);
+    }
+    return [...m.values()];
+  }, [items]);
+  if (!data) return <Loading error={error} />;
+  const systems = POSE_SYSTEMS.filter((s) => adult || !s.nsfw);
+  const bySystem = items.filter((x) => !system || x.system === system);
+  const categories = countBy(bySystem, (x) => x.category);
+  const keep = (x: RefPose) => (!system || x.system === system) && (!category || x.category === category) && matchesQuery(text.get(x.id), q);
+  const singles = items.filter((x) => keep(x) && (!angle || x.angle === angle));
+  const groupList = groups.filter((g) => keep(g.first) && (!angle || g.angles[angle]));
+  const shownOf = (g: PoseGroup) => g.angles[cardAngle[g.key] ?? (angle || "front")] ?? g.angles.front ?? g.first;
+  /* the lightbox walks the pictures in view: in group mode, the angle each card shows */
+  const lightList = mode === "group" ? groupList.map(shownOf) : singles;
+  const pic = (p: RefPose) => (depth ? p.depthThumb : p.thumb);
+  return (
+    <div className="st-stack" style={{ gap: 12 }}>
+      <div className="st-ref-filters">
+        <div className="st-row">
+          <Pills label="Pose system" value={system} onChange={(v) => { setSystem(v); setCategory(""); }} options={[{ id: "", label: "All", count: items.length }, ...systems.map((s) => ({ id: s.id, label: `${s.zh}${s.nsfw ? " · 18+" : ""}`, count: items.filter((x) => x.system === s.id).length }))]} />
+        </div>
+        <div className="st-row">
+          <select className="st-select st-input--sm" style={{ width: "auto", maxWidth: 240 }} value={category} onChange={(e) => setCategory(e.target.value)} aria-label="Category">
+            <option value="">All categories ({categories.size})</option>
+            {[...categories.entries()].sort((a, b) => a[0].localeCompare(b[0], "zh-CN")).map(([c, n]) => <option key={c} value={c}>{c} ({n})</option>)}
+          </select>
+          <Pills label="Angle" value={angle} onChange={setAngle} options={[{ id: "", label: "Any angle" }, ...POSE_ANGLES.map((a) => ({ id: a.id, label: `${a.zh} ${a.en}` }))]} />
+        </div>
+        <div className="st-row">
+          <div className="st-seg" role="group" aria-label="Pose picture">
+            <button type="button" aria-pressed={!depth} onClick={() => onDepth(false)}>Line art 白模</button>
+            <button type="button" aria-pressed={depth} onClick={() => onDepth(true)}>Depth 深度图</button>
+          </div>
+          <div className="st-seg" role="group" aria-label="View">
+            <button type="button" aria-pressed={mode === "group"} onClick={() => setMode("group")}>By pose</button>
+            <button type="button" aria-pressed={mode === "single"} onClick={() => setMode("single")}>Every picture</button>
+          </div>
+          <Search value={q} onChange={setQ} placeholder="Search 搜索 (坐姿, 回头, P012…)" />
+          <span className="st-muted st-num">{mode === "group" ? `${groupList.length} poses` : singles.length}</span>
+        </div>
+      </div>
+      {(mode === "group" ? groupList.length : singles.length) === 0 ? <Empty title="No pose matches" hint="Clear a filter or the search." /> : mode === "group" ? (
+        <Grid total={groupList.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
+          {groupList.slice(0, shown).map((g, i) => {
+            const p = shownOf(g);
+            return (
+              <Card key={g.key} item={p} thumb={pic(p)} caption={p.name} sub={`${p.category} · ${POSE_ANGLES.find((a) => a.id === p.angle)?.zh}`} selected={selected.pose === p.id} onOpen={() => setOpen(i)} onUse={() => onUse(p, { depth })} useLabel={USE_LABEL.pose}
+                extra={
+                  <span className="st-ref-angles" role="group" aria-label="Angle">
+                    {POSE_ANGLES.filter((a) => g.angles[a.id]).map((a) => (
+                      <button key={a.id} type="button" aria-pressed={p.angle === a.id} title={a.en} onClick={() => setCardAngle((m) => ({ ...m, [g.key]: a.id }))}>{a.zh.slice(0, 1)}</button>
+                    ))}
+                  </span>
+                } />
+            );
+          })}
+        </Grid>
+      ) : (
+        <Grid total={singles.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
+          {singles.slice(0, shown).map((p, i) => (
+            <Card key={p.id} item={p} thumb={pic(p)} caption={p.name} sub={`${p.category} · ${POSE_ANGLES.find((a) => a.id === p.angle)?.zh}`} selected={selected.pose === p.id} onOpen={() => setOpen(i)} onUse={() => onUse(p, { depth })} useLabel={USE_LABEL.pose} />
+          ))}
+        </Grid>
+      )}
+      <p className="st-muted st-ref-terms">{REFERENCE_TERMS.poses} {REFERENCE_TERMS.translation} <Hidden hidden={data.hidden} adult={adult} /></p>
+      {open !== null && lightList[open] && <Lightbox list={lightList} index={open} onIndex={setOpen} onClose={() => setOpen(null)} selected={selected} onUse={onUse} onImport={onImport} depth={depth} onDepth={onDepth} siblings={groups} />}
+    </div>
+  );
+}
+
+/* ---------- the lightbox ---------- */
+
+function Lightbox({ list, index, onIndex, onClose, selected, onUse, onImport, depth, onDepth, siblings }: { list: RefItem[]; index: number; onIndex: (i: number) => void; onClose: () => void; selected: Partial<Record<RefKind, string>>; onUse: Props["onUse"]; onImport?: Props["onImport"]; depth: boolean; onDepth?: (d: boolean) => void; siblings?: PoseGroup[] }) {
+  const base = list[index]!;
+  const [angleOverride, setAngleOverride] = useState<PoseAngle | null>(null);
+  const [view, setView] = useState<string | undefined>(undefined);
+  const [importing, setImporting] = useState(false);
+  const [imported, setImported] = useState<string>("");
+  const [importError, setImportError] = useState<unknown>(null);
+  useEffect(() => {
+    setAngleOverride(null);
+    setView(undefined);
+    setImported("");
+    setImportError(null);
+  }, [index]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement | null)?.closest("input, textarea, select")) return;
+      if (e.key === "ArrowRight") onIndex((index + 1) % list.length);
+      if (e.key === "ArrowLeft") onIndex((index - 1 + list.length) % list.length);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, list.length, onIndex]);
+  const group = base.kind === "pose" ? siblings?.find((g) => g.key === base.group) : undefined;
+  const item: RefItem = base.kind === "pose" && angleOverride && group?.angles[angleOverride] ? group.angles[angleOverride]! : base;
+  const opts: UseOptions = item.kind === "pose" ? { depth } : item.kind === "costume" && view ? { view } : {};
+  const pic = referenceImage(item, opts);
+  const name = referenceName(item);
+  const inRecipe = selected[item.kind] === item.id;
+  return (
+    <Modal size="lg" onClose={onClose} title={<span>{name} <span className="st-muted st-num">{item.id}</span></span>}
+      head={<span className="st-row" style={{ gap: 4 }}><Button size="sm" kind="quiet" onClick={() => onIndex((index - 1 + list.length) % list.length)}>← Prev</Button><span className="st-muted st-num">{index + 1}/{list.length}</span><Button size="sm" kind="quiet" onClick={() => onIndex((index + 1) % list.length)}>Next →</Button></span>}>
+      <div className="st-ref-light">
+        <div className="st-ref-light-pic">
+          <img src={pic.image} alt={name} referrerPolicy="no-referrer" />
+        </div>
+        <div className="st-stack" style={{ gap: 12 }}>
+          {item.nsfw && <span className="st-chip st-chip--warn" style={{ alignSelf: "flex-start" }}>18+</span>}
+          <dl className="st-dl">
+            {item.kind === "portrait" && (<><dt>Section</dt><dd>{item.section}</dd><dt>Hair</dt><dd>{item.hairLength} · {item.hairstyle}</dd><dt>Size</dt><dd className="st-num">{item.width}×{item.height}</dd></>)}
+            {item.kind === "costume" && (<><dt>Category</dt><dd>{item.category}</dd><dt>Source</dt><dd>{COSTUME_SOURCES.find((s) => s.id === item.source)?.label}</dd>{item.nameJa && <><dt>日本語</dt><dd>{item.nameJa}</dd></>}<dt>Tags</dt><dd>{item.tags.join(" · ") || "—"}</dd><dt>Prompt words</dt><dd className="st-ref-kw">{item.keywords || "—"}</dd></>)}
+            {item.kind === "pose" && (<><dt>System</dt><dd>{POSE_SYSTEMS.find((s) => s.id === item.system)?.zh}</dd><dt>Category</dt><dd>{item.category}</dd><dt>Pose</dt><dd>{item.number} · {item.name}</dd></>)}
+          </dl>
+          {item.kind === "pose" && group && (
+            <div className="st-stack st-stack--tight">
+              <span className="st-label">Angle</span>
+              <div className="st-chips">{POSE_ANGLES.filter((a) => group.angles[a.id]).map((a) => <button key={a.id} type="button" className="st-chip st-chip--btn" aria-pressed={item.angle === a.id} onClick={() => setAngleOverride(a.id)}>{a.zh} · {a.en}</button>)}</div>
+              {onDepth && (
+                <div className="st-seg" role="group" aria-label="Pose picture" style={{ alignSelf: "flex-start" }}>
+                  <button type="button" aria-pressed={!depth} onClick={() => onDepth(false)}>Line art</button>
+                  <button type="button" aria-pressed={depth} onClick={() => onDepth(true)}>Depth</button>
+                </div>
+              )}
+            </div>
+          )}
+          {item.kind === "costume" && item.views && (
+            <div className="st-stack st-stack--tight">
+              <span className="st-label">View</span>
+              <div className="st-chips">{item.views.map((v) => <button key={v.id} type="button" className="st-chip st-chip--btn" aria-pressed={(view ?? "front") === v.id} onClick={() => setView(v.id)}>{v.label}</button>)}</div>
+            </div>
+          )}
+          {item.kind === "costume" && item.source === "charadb" && <p className="st-muted">CharaDB: reference only — never on a real person&apos;s photo, never for a minor, no redistribution.</p>}
+          {item.kind === "portrait" && <p className="st-muted">AI-generated, fictional adult. Never use it to pass as a real person.</p>}
+          <div className="st-row">
+            <Button kind="primary" onClick={() => onUse(item, opts)} disabled={inRecipe}>{inRecipe ? "In the recipe" : USE_LABEL[item.kind]}</Button>
+            {onImport && (
+              <Button busy={importing} title="Fetch this one picture into the project's Pictures" onClick={async () => {
+                setImporting(true);
+                setImportError(null);
+                try {
+                  setImported(await onImport(item, opts));
+                } catch (e) {
+                  setImportError(e);
+                } finally {
+                  setImporting(false);
+                }
+              }}>Add to project pictures</Button>
+            )}
+            <a className="st-btn st-btn--quiet" href={item.kind === "costume" ? item.original : pic.image} target="_blank" rel="noopener noreferrer"><OpenOutIcon size={12} /> Original</a>
+          </div>
+          {imported && <span className="st-ok">{imported}</span>}
+          <ErrorBanner error={importError} onDismiss={() => setImportError(null)} />
+        </div>
+      </div>
+    </Modal>
+  );
+}

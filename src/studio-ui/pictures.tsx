@@ -110,6 +110,7 @@ const FILTERS: Array<{ key: string; label: string; test: (a: Listed) => boolean 
   { key: "frames", label: "Frames", test: (a) => ["shot_first", "shot_last", "crop"].includes(String(a.meta.purpose)) || a.uses.some((u) => u.kind === "first_frame" || u.kind === "last_frame") },
   { key: "style", label: "Style", test: (a) => a.meta.purpose === "style_frame" || a.uses.some((u) => u.kind === "style_frame") },
   { key: "edits", label: "Edits & keyframes", test: (a) => a.meta.purpose === "edit" || a.meta.purpose === "remake_key" },
+  { key: "canvas", label: "Canvas", test: (a) => a.meta.purpose === "canvas" || !!a.meta.reference },
   { key: "takes", label: "From takes", test: (a) => a.source === "frame-extract" },
   { key: "uploads", label: "Uploads & imports", test: (a) => a.source === "upload" || !!a.meta.importedFrom },
   { key: "unused", label: "Unused", test: (a) => a.uses.length === 0 },

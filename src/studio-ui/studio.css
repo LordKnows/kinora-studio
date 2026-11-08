@@ -2085,3 +2085,375 @@ button.st-pill {
   color: var(--tx2);
   font-size: 12px;
 }
+
+/* ---------- Canvas: compose a character from the reference library ---------- */
+
+.studio .st-canvas {
+  display: grid;
+  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+.studio .st-canvas-recipe {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  position: sticky;
+  top: calc(var(--topbar) + 16px);
+  max-height: calc(100dvh - var(--topbar) - 32px);
+  overflow-y: auto;
+  padding-right: 6px;
+}
+.studio .st-canvas-recipe .st-section {
+  margin-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.studio .st-canvas-library {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .studio .st-canvas {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio .st-canvas-recipe {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+.studio .st-slots {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.studio .st-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--line);
+  background: var(--s1);
+  transition: border-color 0.13s ease, background 0.13s ease;
+}
+.studio .st-slot[data-drag="true"],
+.studio .st-extras[data-drag="true"] {
+  border-color: var(--accent);
+  background: var(--accent-08);
+}
+.studio .st-slot-pic {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--s2);
+  border: 1px dashed var(--line-2);
+  font-size: 11px;
+  text-align: center;
+  cursor: pointer;
+}
+.studio .st-slot-pic:hover {
+  border-color: var(--line-3);
+}
+.studio .st-slot-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.studio .st-slot-pic > span.st-muted {
+  padding: 8px;
+}
+.studio .st-slot-name {
+  font-size: 12px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-slot-sub {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-slot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: auto;
+}
+.studio .st-seg--sm button {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.studio .st-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-card);
+  transition: border-color 0.13s ease, background 0.13s ease;
+}
+.studio .st-extra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--s2);
+}
+.studio .st-extra img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.studio .st-extra .st-input {
+  width: 120px;
+}
+.studio .st-extra-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--tx2);
+}
+.studio .st-extra-add:hover:not(:disabled) {
+  color: var(--tx);
+  background: var(--s3);
+}
+.studio .st-extra-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.studio .st-canvas-fields {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+.studio .st-canvas-prompt {
+  max-height: 280px;
+  white-space: pre-wrap;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.studio .st-canvas-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.studio .st-canvas-refs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.studio .st-canvas-ref {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  min-width: 0;
+}
+.studio .st-canvas-ref img {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--s2);
+}
+
+/* the library grid */
+.studio .st-ref-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.studio .st-ref-search {
+  width: 260px;
+  max-width: 100%;
+}
+.studio .st-ref-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+}
+@media (max-width: 520px) {
+  .studio .st-ref-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .studio .st-slots {
+    gap: 6px;
+  }
+  .studio .st-slot {
+    padding: 6px;
+  }
+}
+.studio .st-ref {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.studio .st-ref-img {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--s2);
+  border: 1px solid var(--line);
+  cursor: zoom-in;
+  transition: border-color 0.13s ease, transform 0.13s var(--ease);
+}
+.studio .st-ref-img:hover {
+  border-color: var(--line-3);
+  transform: translateY(-1px);
+}
+.studio .st-ref[data-selected="true"] .st-ref-img {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.studio .st-ref-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.studio .st-ref-missing {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 8px;
+  font-size: 11px;
+  text-align: center;
+  color: var(--tx3);
+}
+.studio .st-ref-badge {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--danger);
+  color: #1a0703;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+.studio .st-ref-add {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--plate);
+  color: var(--plate-ink);
+  border: 1px solid var(--line-2);
+  transition: background 0.13s ease, color 0.13s ease;
+}
+.studio .st-ref-add:hover,
+.studio .st-ref-add[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.studio .st-ref-cap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.3;
+}
+.studio .st-ref-name,
+.studio .st-ref-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-ref-sub {
+  font-size: 11px;
+}
+.studio .st-ref-hot {
+  font-size: 10.5px;
+  color: var(--warn);
+}
+.studio .st-ref-angles {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+}
+.studio .st-ref-angles button {
+  min-width: 24px;
+  height: 22px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--tx3);
+  background: var(--s2);
+  border: 1px solid var(--line);
+}
+.studio .st-ref-angles button[aria-pressed="true"] {
+  color: var(--tx);
+  background: var(--accent-08);
+  border-color: var(--accent-32);
+}
+.studio .st-ref-terms {
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.studio .st-ref-terms p {
+  margin: 0 0 4px;
+}
+.studio .st-ref-light {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .studio .st-ref-light {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.studio .st-ref-light-pic {
+  display: grid;
+  place-items: center;
+  min-height: 240px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--s2);
+}
+.studio .st-ref-light-pic img {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+}
+.studio .st-ref-kw {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .st-slot-actions .st-btn--sm {
+  min-width: 26px;
+  padding: 0 6px;
+}
+.studio .st-slot .st-seg {
+  align-self: flex-start;
+}

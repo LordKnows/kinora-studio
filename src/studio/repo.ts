@@ -1174,3 +1174,43 @@ export async function listNotes(projectId: string, kind: NoteKind): Promise<Dire
   const rows = await (await db()).all("SELECT * FROM director_notes WHERE project_id = ? AND kind = ? ORDER BY created_at", [projectId, kind]);
   return rows.map(mapNote);
 }
+
+/* ---------- per-user settings ---------- */
+
+export type UserSettings = { adultContentAt?: number };
+
+/* The table is created on first use as well as by migration 0015, so a deploy
+   works before the migration has been applied on D1. One statement: D1's
+   exec splits on newlines. */
+const USER_SETTINGS_SQL = "CREATE TABLE IF NOT EXISTS user_settings (user TEXT PRIMARY KEY, settings_json TEXT NOT NULL DEFAULT '{}', updated_at INTEGER NOT NULL)";
+let settingsReady = false;
+
+async function settingsDb(): Promise<Db> {
+  const d = await db();
+  if (!settingsReady) {
+    await d.run(USER_SETTINGS_SQL);
+    settingsReady = true;
+  }
+  return d;
+}
+
+export async function getUserSettings(user: string): Promise<UserSettings> {
+  const row = await (await settingsDb()).get("SELECT settings_json FROM user_settings WHERE user = ?", [user]);
+  const raw = json<Record<string, unknown>>(row?.settings_json, {});
+  return typeof raw.adultContentAt === "number" ? { adultContentAt: raw.adultContentAt } : {};
+}
+
+/** Merge a patch into a user's settings; null clears a key. */
+export async function setUserSettings(user: string, patch: { [K in keyof UserSettings]?: UserSettings[K] | null }): Promise<UserSettings> {
+  const cur = await getUserSettings(user);
+  const next: Record<string, unknown> = { ...cur };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null || v === undefined) delete next[k];
+    else next[k] = v;
+  }
+  await (await settingsDb()).run(
+    "INSERT INTO user_settings (user, settings_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(user) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at",
+    [user, JSON.stringify(next), Date.now()],
+  );
+  return getUserSettings(user);
+}

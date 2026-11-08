@@ -39,6 +39,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0012_imaging.sql` | GPT Image：`projects` 表加 `imaging_json`（项目开关与额度），`jobs` 表加 `input_json`、`output_json`（生图作业；三条 ALTER 只执行一次） |
 | `migrations/0014_painter_pod.sql` | 画图 pod 由 Studio 按需新建、空闲删除：`painter_pods` 表（幂等） |
 | `migrations/0013_painters_names.sql` | 生图搬出 GPU：`painters` 表（画图机器的心跳），`jobs` 表加 `claimed_at`、`attempts`（租约）；图片编号与名字：`assets` 表加 `seq`、`name`，`projects` 表加 `picture_seq`，并给已有图片补编号（五条 ALTER 只执行一次） |
+| `migrations/0015_user_settings.sql` | Canvas：`user_settings` 表（每个用户的设置，目前是「显示 18+ 参考图」开关）。幂等；不执行也能用——Studio 首次用到时会自己建这张表 |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。
