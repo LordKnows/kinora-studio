@@ -457,8 +457,8 @@ export function CanvasPage() {
               </select>
             </Field>
             <div className="st-fields st-canvas-fields">
-              <Field label="Size">
-                <select className="st-select" value={recipe.size} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
+              <Field label="Size" hint={model.canvasSize ? `${model.label}: follows the pose picture` : undefined}>
+                <select className="st-select" value={model.canvasSize ?? recipe.size} disabled={!!model.canvasSize} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>

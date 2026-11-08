@@ -283,7 +283,9 @@ def test_2509_three_pictures_fill_portrait_costume_pose(tmp_path, weights2509):
     g = comfy.queued[0]
     assert [g[n]["inputs"]["image"] for n in ("1", "2", "3")] == ["studio/ref0.png", "studio/ref1.png", "studio/ref2.png"]
     assert g["12"]["inputs"]["prompt"].startswith("图1的人物") and g["13"]["inputs"]["prompt"] == ""
-    assert (g["10"]["inputs"]["width"], g["10"]["inputs"]["height"]) == (1024, 1536)
+    # the canvas is the original's: the pose picture's aspect at 1 MP, whatever size was asked
+    assert g["10"]["class_type"] == "ImageScaleToTotalPixels" and g["10"]["inputs"]["image"] == ["3", 0] and g["10"]["inputs"]["megapixels"] == 1.0
+    assert "width" not in g["10"]["inputs"] and g["11"]["inputs"]["pixels"] == ["10", 0]
     k = g["14"]["inputs"]
     assert (k["steps"], k["cfg"], k["sampler_name"], k["scheduler"], k["seed"], k["denoise"]) == (4, 1.0, "euler", "simple", 11, 1.0)
     # portrait and costume are pixel references; the pose only reaches the text encoder
@@ -313,9 +315,11 @@ def test_2509_manifest_matches_both_graphs():
         entry = {**QIE, **QIE.get("variants", {}).get(count, {})}
         assert entry["workflow"] == ("QIE2509_3IMG" if count == "3" else "QIE2509_2IMG")
         g = {k: v for k, v in graph.items() if not k.startswith("_")}
-        for key in ("prompt", "negative", "width", "height", "seed", "steps", "sampler", "scheduler", "cfg"):
+        for key in ("prompt", "negative", "seed", "steps", "sampler", "scheduler", "cfg"):
             node, field = entry[key]
             assert field in g[node]["inputs"], (count, key)
+        # the canvas follows the pose picture, as in the original: no size from the Studio
+        assert entry["width"] is None and entry["height"] is None and g["10"]["class_type"] == "ImageScaleToTotalPixels"
         assert len(entry["image_loaders"]) == int(count) and all(g[n]["class_type"] == "LoadImage" for n in entry["image_loaders"])
         assert g[entry["output_node"]]["class_type"] == "SaveImage"
         assert g[entry["lora_after"]]["class_type"] == "LoraLoaderModelOnly" and entry["lora_into"][0] in g

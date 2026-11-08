@@ -361,8 +361,12 @@ draws its recipes with `qwen_image_edit_2509_3img` in ComfyUI; it is ported as
 form). 图1 portrait and 图2 costume are pixel references (`ReferenceLatent`),
 the pose reaches the model only through the text encoder, so the mannequin's
 grey look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm,
-KSampler euler/simple, CFG 1. One change: the canvas is the size picked in
-Canvas (the original took the pose's aspect at 1 MP). `QWEN_EDIT_2509=1`
+KSampler euler/simple, CFG 1. As in the original, the canvas takes the pose
+picture's aspect at 1 MP (every library pose is 3:4; the picture is delivered
+at 1008×1344 and the Size control is locked): a canvas the costume picture's
+shape (2:3) made the model redraw the costume picture in place with the face
+put in, and ignore the pose. The pose is followed loosely by design (text
+encoder only, 4 Lightning steps). `QWEN_EDIT_2509=1`
 (default) downloads ~31 GB (2509 fp8, Qwen2.5-VL 7B fp8, VAE, Lightning) when
 40 GB are free; the painter picks the graph by the number of pictures
 (`image_models.json` `min_images` / `variants`). Apache-2.0: commercial use

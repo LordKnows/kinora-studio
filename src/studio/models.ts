@@ -56,6 +56,8 @@ export type ModelEntry = {
   refStyle?: "zh" | "qwen";
   /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
   poseRecipe?: boolean;
+  /** The size its pictures come at whatever was picked (2509: the canvas follows the pose picture, 3:4 like every library pose). */
+  canvasSize?: "1008x1344";
   /** API models: the vendor's model name, and the request options Canvas offers (the pose gallery's 百炼 settings). */
   apiModel?: string;
   options?: Array<"prompt_extend" | "negative_prompt">;
@@ -125,7 +127,7 @@ export const MODELS: ModelEntry[] = [
     backend: "comfy:qwen-image-edit-2509", workflows: ["QIE2509_3IMG", "QIE2509_2IMG"],
     /* the Lightning 4-step LoRA is part of the workflow: 4 steps, CFG 1, euler/simple, shift 3 (anhao/ai-pose-gallery-zh's graph) */
     params: { steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" },
-    maxRefs: 3, refStyle: "zh", poseRecipe: true,
+    maxRefs: 3, refStyle: "zh", poseRecipe: true, canvasSize: "1008x1344",
     files: [
       { dir: "diffusion_models", file: "qwen_image_edit_2509_fp8_e4m3fn.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-Edit/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors", gb: 20.4 },
       { dir: "text_encoders", file: "qwen_2.5_vl_7b_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", gb: 9.4 },
@@ -134,7 +136,7 @@ export const MODELS: ModelEntry[] = [
     ],
     license: "Apache-2.0 (Qwen-Image-Edit 2509, Comfy-Org's repackage, lightx2v Lightning)", commercial: true, moderation: "none",
     source: "https://huggingface.co/Qwen/Qwen-Image-Edit-2509",
-    notes: "The ComfyUI workflow the pose gallery recommends (anhao/ai-pose-gallery-zh, qwen_image_edit_2509_3img): 图1 portrait and 图2 costume are pixel references (ReferenceLatent), 图3 pose reaches the model only through the text encoder, so the grey mannequin's look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm, KSampler euler/simple, CFG 1. Needs a pose and a portrait and/or a costume (two pictures: person + pose; three: portrait + costume + pose), no extra pictures. The canvas is the size you pick (the original took the pose's aspect). About 31 GB on the pod.",
+    notes: "The ComfyUI workflow the pose gallery recommends (anhao/ai-pose-gallery-zh, qwen_image_edit_2509_3img): 图1 portrait and 图2 costume are pixel references (ReferenceLatent), 图3 pose reaches the model only through the text encoder, so the grey mannequin's look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm, KSampler euler/simple, CFG 1. Needs a pose and a portrait and/or a costume (two pictures: person + pose; three: portrait + costume + pose), no extra pictures. As in the original, the canvas takes the pose picture's aspect (3:4 at about 1 MP; the picture is delivered at 1008×1344): a canvas the costume picture's shape (2:3) makes it redraw the costume picture in place. The pose steers only through the text encoder, so it is followed loosely, more so at 4 Lightning steps. About 31 GB on the pod.",
   },
   {
     id: "minimax-h3", kind: "video", runtime: "pod", label: "MiniMax H3", zh: "MiniMax H3 视频", family: "minimax-h3",

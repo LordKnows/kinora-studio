@@ -235,6 +235,8 @@ describe("Qwen-Image-Edit 2509: the pose gallery's workflow", () => {
     expect(job.input.backend).toBe("comfy:qwen-image-edit-2509");
     expect(job.input.params).toMatchObject({ steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" });
     expect(job.input.refUrls).toHaveLength(3);
+    /* the canvas follows the pose picture (3:4), whatever size was picked: never the costume picture's 2:3 */
+    expect(job.input.size).toBe("1008x1344");
     expect(String(job.input.prompt)).toContain("图3中人体模型");
     expect(job.input.mirrorRefs).toBeUndefined();
   });

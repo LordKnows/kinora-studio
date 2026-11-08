@@ -1,5 +1,5 @@
 {
-  "_comment": "Qwen-Image-Edit 2509, two pictures → one character (API format), ported from anhao/ai-pose-gallery-zh buildQwen2509TwoImage (MIT, Copyright (c) 2026 Anhao). 图1 portrait and 图2 costume are pixel references (ReferenceLatent); 图3 pose reaches the model only through the text encoder, so its look never comes through. Lightning 4-step LoRA (lightx2v), shift 3, CFGNorm, KSampler euler/simple. One change: node 10 scales the pose to the Studio's canvas size (ImageScale) where the original took the pose's aspect at 1 MP; at denoise 1 only the latent's shape counts. Seed, steps, CFG, sampler, scheduler, prompt and size come from the Studio (image_models.json). LoRAs for 2509 are chained by the painter between node 5 and node 6. Two-picture form: 图1 the person (a portrait in their own clothes, or a costume for a faceless display figure), 图2 the pose.",
+  "_comment": "Qwen-Image-Edit 2509, two pictures → one character (API format), ported from anhao/ai-pose-gallery-zh buildQwen2509TwoImage (MIT, Copyright (c) 2026 Anhao). 图1 portrait and 图2 costume are pixel references (ReferenceLatent); 图3 pose reaches the model only through the text encoder, so its look never comes through. Lightning 4-step LoRA (lightx2v), shift 3, CFGNorm, KSampler euler/simple. Node 10 is the original's: the canvas takes the pose picture's aspect at 1 MP (the library's poses are all 3:4), never the costume picture's — a canvas the costume picture's shape makes the edit model redraw that picture in place. Seed, steps, CFG, sampler, scheduler and prompt come from the Studio (image_models.json). LoRAs for 2509 are chained by the painter between node 5 and node 6. Two-picture form: 图1 the person (a portrait in their own clothes, or a costume for a faceless display figure), 图2 the pose.",
   "1": {
     "class_type": "LoadImage",
     "inputs": {
@@ -89,19 +89,18 @@
     }
   },
   "10": {
-    "class_type": "ImageScale",
+    "class_type": "ImageScaleToTotalPixels",
     "inputs": {
       "image": [
         "3",
         0
       ],
       "upscale_method": "lanczos",
-      "width": 1008,
-      "height": 1344,
-      "crop": "center"
+      "megapixels": 1.0,
+      "resolution_steps": 16
     },
     "_meta": {
-      "title": "canvas size (from the Studio)"
+      "title": "canvas: the pose picture's aspect at 1 MP"
     }
   },
   "11": {
@@ -117,7 +116,7 @@
       ]
     },
     "_meta": {
-      "title": "latent: canvas size"
+      "title": "latent: the pose's shape"
     }
   },
   "12": {
