@@ -7,7 +7,7 @@ import type { GpuState } from "@/studio/gpu";
 import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
-import { Button, CopyRow, ErrorBanner, Field, Lamp, useAction } from "./common";
+import { Button, CopyRow, ErrorBanner, Lamp, useAction } from "./common";
 
 /* The GPU pod — one for the whole Studio, shared by every project. Its state
    lives in ONE store for the page (the top-bar menu, the Machine page and any
@@ -285,22 +285,8 @@ export function GpuSection() {
   const { state, error, reload } = useGpu();
   const [types, setTypes] = useState<Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number; allowed: boolean }> | null>(null);
   const [typesError, setTypesError] = useState<string | null>(null);
-  /* "" = any allowed GPU, in priority order */
-  const [choice, setChoice] = useState("");
-  const [allowed, setAllowed] = useState<Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number }>>([]);
-  useEffect(() => {
-    void get<{ types: Array<{ id: string; displayName: string; memoryInGb?: number; securePrice?: number; allowed: boolean }> }>("/api/gpu/types")
-      .then((r) => setAllowed(r.types.filter((t) => t.allowed)))
-      .catch(() => setAllowed([]));
-  }, []);
   const start = useAction(async (confirm) => {
-    await post("/api/gpu/start", { confirm, ...(choice ? { gpuTypeId: choice } : {}) });
-    await reload();
-  });
-  const switchGpu = useAction(async () => {
-    const to = allowed.find((t) => t.id === choice)?.displayName ?? choice;
-    if (!window.confirm(`Switch the GPU pod to ${to}? The current pod is terminated (a take in progress is lost; models stay on the network volume) and a new pod is created on ${to}.`)) return;
-    await post("/api/gpu/start", { confirm: true, gpuTypeId: choice, replace: true });
+    await post("/api/gpu/start", { confirm });
     await reload();
   });
   const stop = useAction(async () => {
@@ -329,7 +315,7 @@ export function GpuSection() {
   const on = state.status === "running" || state.status === "starting" || state.status === "creating";
   return (
     <div className="st-stack">
-      <ErrorBanner error={start.error ?? switchGpu.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); switchGpu.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
+      <ErrorBanner error={start.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
       <dl className="st-dl">
         <dt>Mode</dt>
         <dd>{state.mode === "pod" ? "RunPod pod (Secure Cloud)" : "RunPod serverless (TODO)"}</dd>
@@ -361,27 +347,12 @@ export function GpuSection() {
         <dt>Queue</dt>
         <dd className="st-num">{state.pendingTakes} take(s) waiting for the GPU</dd>
       </dl>
-      <div className="st-row" style={{ flexWrap: "wrap" }}>
-        <Field label="GPU">
-          <select className="st-select st-input--sm" value={choice} onChange={(e) => setChoice(e.target.value)} disabled={!state.configured || allowed.length === 0}>
-            <option value="">Any allowed (priority order)</option>
-            {allowed.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.displayName}{t.memoryInGb ? ` · ${t.memoryInGb} GB` : ""}{t.securePrice ? ` · ${usd(t.securePrice)}/h` : ""}{state.pod?.gpuTypeId === t.id && state.status !== "terminated" ? " · current" : ""}
-              </option>
-            ))}
-          </select>
-        </Field>
+      <div className="st-row">
         {on ? (
-          <>
-            {choice && choice !== state.pod?.gpuTypeId && !state.pod?.adopted && (
-              <Button kind="primary" busy={switchGpu.busy} onClick={() => void switchGpu.fire()}>Switch to this GPU</Button>
-            )}
-            <Button busy={stop.busy || state.status === "stopping"} onClick={() => void stop.fire()}>Stop</Button>
-          </>
+          <Button busy={stop.busy || state.status === "stopping"} onClick={() => void stop.fire()}>Stop</Button>
         ) : (
           <Button kind="primary" busy={start.busy} disabled={!state.configured} onClick={() => void start.fire()}>
-            {choice ? `Start on ${allowed.find((t) => t.id === choice)?.displayName ?? choice}` : state.status === "unavailable" ? "Retry on allowed GPUs" : "Start"}
+            {state.status === "unavailable" ? "Retry on allowed GPUs" : "Start"}
           </Button>
         )}
         {state.pod && state.status !== "terminated" && (
