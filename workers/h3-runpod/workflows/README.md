@@ -85,3 +85,15 @@ pictures (`<image1>`…`<image10>` in the prompt), `QwenImage21Cache`, the
 fixed 8-step Turbo sigma schedule, CFG 1, euler, a custom canvas size. It
 needs a ComfyUI recent enough to have those nodes (September 2026 or later).
 
+
+`QIE2509_3IMG.json` / `QIE2509_2IMG.json` are anhao/ai-pose-gallery-zh's
+`qwen_image_edit_2509_3img.api.json` and its two-picture form (MIT,
+Copyright (c) 2026 Anhao): Qwen-Image-Edit 2509 fp8 with the Lightning
+4-step LoRA, shift 3, CFGNorm, `TextEncodeQwenImageEditPlus` for the prompt
+and every picture, `ReferenceLatent` for the portrait and the costume only
+(the pose steers through the text encoder, so the grey mannequin's look
+never comes through), KSampler euler/simple, CFG 1. One change: node 10
+scales the pose to the Studio's canvas size (`ImageScale`) instead of the
+pose's own aspect at 1 MP; at denoise 1 only the latent's shape counts. The
+manifest's `variants` pick the graph by the number of pictures (three:
+portrait, costume, pose; two: person, pose), `min_images` refuses one.

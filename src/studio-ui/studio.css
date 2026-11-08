@@ -2169,6 +2169,9 @@ button.st-pill {
   object-fit: cover;
   display: block;
 }
+.studio .st-slot-pic img[data-mirror="true"] {
+  transform: scaleX(-1);
+}
 .studio .st-slot-pic > span.st-muted {
   padding: 8px;
 }

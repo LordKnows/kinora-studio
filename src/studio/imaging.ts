@@ -106,6 +106,8 @@ export type ImageRequest = {
   model?: string;
   backend?: string;
   params?: PodParams;
+  /** Indexes into refUrls the painter flips left to right before drawing (a pose turned the other way). */
+  mirrorRefs?: number[];
 };
 
 /** What a pod model's job carries: the resolved settings, a seed, and its LoRAs (fetched by the pod when missing). */

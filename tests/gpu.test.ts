@@ -145,7 +145,7 @@ describe("pod mode", () => {
     expect(create.gpu).toEqual({ id: "NVIDIA H100 80GB HBM3", count: 1 });
     expect(create.image).toBe("me/comfy:1");
     expect(create.cloud).toBe("SECURE");
-    expect(create.disk).toBe(120);
+    expect(create.disk).toBe(200);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");

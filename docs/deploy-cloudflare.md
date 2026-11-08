@@ -212,7 +212,7 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 4. **模型放哪**（默认：**本地盘，每次开机下载**）：`RUNPOD_NETWORK_VOLUME_ID` 留空、
    `RUNPOD_NETWORK_VOLUMES` 不填时，Pod 不挂任何卷，启动脚本用 aria2 十六线程把 `models.txt`
    里的 68 GB 下到容器盘（RunPod 机房到 HuggingFace 通常 300 MB/s 以上，几分钟），`/health` 报告
-   `models.ready`，齐了 Studio 才显示 running。容器盘默认 120 GB。Stop 会清空容器盘，所以
+   `models.ready`，齐了 Studio 才显示 running。容器盘默认 200 GB（H3、2K 重生成、Qwen-Image 2.1 与 Qwen-Image-Edit 2509 合计约 145 GB）。Stop 会清空容器盘，所以
    空闲自动关机默认 45 分钟。好处：不依赖任何卷，数据中心随便挑，没有全局盘的 venv 和读取
    速度问题。想不自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。
    用卷的两种方式如下。

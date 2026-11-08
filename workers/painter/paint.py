@@ -41,6 +41,8 @@ Input:
     {op, backend?, prompt?, refs?: [url], base?: url, region?: {x,y,w,h},
      crop?: {x,y,w,h}, video?: url, frame?: int, size: "WxH",
      quality?: low|medium|high, check?: {review?: bool, redraws?: int, kind?: str},
+     params?: {steps, cfg, sampler, scheduler, sigmas, resolution, seed, loras} (comfy:<model>),
+     mirror_refs?: [index into refs] (flipped left to right before drawing),
      output: {key: "....png"}, studio_job_id?}
     (boxes are fractions of the picture: 0..1)
 Output:
@@ -176,7 +178,10 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
         quality = raw.get("quality", "low")
         if quality not in ("low", "medium", "high"):
             raise PaintError("quality must be low, medium or high")
-        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")), settings=_settings(raw.get("params")))
+        mirror = raw.get("mirror_refs") or []
+        if not isinstance(mirror, list) or not all(isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(refs) for i in mirror):
+            raise PaintError("mirror_refs must list indexes into refs")
+        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")), settings=_settings(raw.get("params")), mirror_refs=sorted(set(mirror)))
     elif op == "crop":
         base = raw.get("base")
         if not isinstance(base, str) or not base.startswith(("http://", "https://")):
@@ -813,9 +818,13 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1, /app/download_qwen_image*.log) when the disk has room")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
+    if len(pictures) < int(entry.get("min_images", 0)):
+        raise PaintError(f"{model} needs at least {entry.get('min_images')} pictures (a pose and a portrait or costume)")
+    # a model with a set number of slots (Qwen-Image-Edit 2509) has a graph per picture count
+    entry = {**entry, **((entry.get("variants") or {}).get(str(len(pictures))) or {})}
     graph = json.loads((POD_DIR / "workflows" / f"{entry['workflow']}.json").read_text())
     graph = {k: v for k, v in graph.items() if not k.startswith("_")}
     loaders = list(entry.get("image_loaders") or [])
@@ -943,6 +952,16 @@ def _download_picture(url: str, dest: Path, http: Any) -> Path:
     return out
 
 
+def mirror_picture(path: Path) -> Path:
+    """The picture flipped left to right (a pose turned the other way), next to the original."""
+    Image = _pil()
+    from PIL import ImageOps
+
+    out = path.with_name(f"{path.stem}.mirrored.png")
+    ImageOps.mirror(Image.open(path).convert("RGB")).save(out)
+    return out
+
+
 def extract_frame(video: Path, frame: int, out: Path) -> Path:
     """The exact frame `frame` (0-based) of the video, as PNG."""
     proc = subprocess.run([FFMPEG, "-v", "error", "-y", "-i", str(video), "-vf", f"select=eq(n\\,{frame})", "-vsync", "0",
@@ -1001,6 +1020,8 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
         w, h = params["size"]
         check = params.get("check") or {"review": False, "redraws": 0, "kind": ""}
         refs = [_download_picture(u, workdir / f"ref{i}", http) for i, u in enumerate(params["refs"])]
+        for i in params.get("mirror_refs") or []:
+            refs[i] = mirror_picture(refs[i])
         pictures = list(refs)
         base = None
         base_path = None

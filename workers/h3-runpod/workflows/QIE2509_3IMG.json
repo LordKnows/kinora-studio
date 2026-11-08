@@ -1,0 +1,367 @@
+{
+  "_comment": "Qwen-Image-Edit 2509, three pictures → one character (API format), ported from anhao/ai-pose-gallery-zh src/workflows/qwen_image_edit_2509_3img.api.json (MIT, Copyright (c) 2026 Anhao). 图1 portrait and 图2 costume are pixel references (ReferenceLatent); 图3 pose reaches the model only through the text encoder, so its look never comes through. Lightning 4-step LoRA (lightx2v), shift 3, CFGNorm, KSampler euler/simple. One change: node 10 scales the pose to the Studio's canvas size (ImageScale) where the original took the pose's aspect at 1 MP; at denoise 1 only the latent's shape counts. Seed, steps, CFG, sampler, scheduler, prompt and size come from the Studio (image_models.json). LoRAs for 2509 are chained by the painter between node 5 and node 6.",
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "portrait_ref.png"
+    },
+    "_meta": {
+      "title": "图1 portrait (face, hair)"
+    }
+  },
+  "2": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "costume_ref.png"
+    },
+    "_meta": {
+      "title": "图2 costume"
+    }
+  },
+  "3": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "pose_ref.png"
+    },
+    "_meta": {
+      "title": "图3 pose (motion and camera only)"
+    }
+  },
+  "4": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_edit_2509_fp8_e4m3fn.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Qwen-Image-Edit 2509 (fp8)"
+    }
+  },
+  "5": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "4",
+        0
+      ],
+      "lora_name": "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors",
+      "strength_model": 1.0
+    },
+    "_meta": {
+      "title": "Lightning 4-step LoRA"
+    }
+  },
+  "6": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "shift": 3.0
+    },
+    "_meta": {
+      "title": "shift 3"
+    }
+  },
+  "7": {
+    "class_type": "CFGNorm",
+    "inputs": {
+      "model": [
+        "6",
+        0
+      ],
+      "strength": 1.0
+    },
+    "_meta": {
+      "title": "CFGNorm"
+    }
+  },
+  "8": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen2.5-VL 7B text encoder"
+    }
+  },
+  "9": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "_meta": {
+      "title": "Qwen-Image VAE"
+    }
+  },
+  "10": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 1008,
+      "height": 1344,
+      "crop": "center"
+    },
+    "_meta": {
+      "title": "canvas size (from the Studio)"
+    }
+  },
+  "11": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "10",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "latent: canvas size"
+    }
+  },
+  "12": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "8",
+        0
+      ],
+      "image1": [
+        "1",
+        0
+      ],
+      "image2": [
+        "2",
+        0
+      ],
+      "image3": [
+        "3",
+        0
+      ],
+      "prompt": ""
+    },
+    "_meta": {
+      "title": "positive prompt"
+    }
+  },
+  "13": {
+    "class_type": "TextEncodeQwenImageEditPlus",
+    "inputs": {
+      "clip": [
+        "8",
+        0
+      ],
+      "image1": [
+        "1",
+        0
+      ],
+      "image2": [
+        "2",
+        0
+      ],
+      "image3": [
+        "3",
+        0
+      ],
+      "prompt": ""
+    },
+    "_meta": {
+      "title": "negative prompt"
+    }
+  },
+  "14": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": [
+        "7",
+        0
+      ],
+      "positive": [
+        "25",
+        0
+      ],
+      "negative": [
+        "27",
+        0
+      ],
+      "latent_image": [
+        "11",
+        0
+      ],
+      "seed": 1,
+      "steps": 4,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0
+    },
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "15": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "14",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "decode"
+    }
+  },
+  "16": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "15",
+        0
+      ],
+      "filename_prefix": "studio/canvas_qie2509"
+    },
+    "_meta": {
+      "title": "save"
+    }
+  },
+  "20": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0,
+      "resolution_steps": 16
+    },
+    "_meta": {
+      "title": "portrait to 1 MP"
+    }
+  },
+  "21": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "20",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "portrait latent"
+    }
+  },
+  "22": {
+    "class_type": "ImageScaleToTotalPixels",
+    "inputs": {
+      "image": [
+        "2",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "megapixels": 1.0,
+      "resolution_steps": 16
+    },
+    "_meta": {
+      "title": "costume to 1 MP"
+    }
+  },
+  "23": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": [
+        "22",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "costume latent"
+    }
+  },
+  "24": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "12",
+        0
+      ],
+      "latent": [
+        "21",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "+ portrait (positive)"
+    }
+  },
+  "25": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "24",
+        0
+      ],
+      "latent": [
+        "23",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "+ costume (positive)"
+    }
+  },
+  "26": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "13",
+        0
+      ],
+      "latent": [
+        "21",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "+ portrait (negative)"
+    }
+  },
+  "27": {
+    "class_type": "ReferenceLatent",
+    "inputs": {
+      "conditioning": [
+        "26",
+        0
+      ],
+      "latent": [
+        "23",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "+ costume (negative)"
+    }
+  }
+}

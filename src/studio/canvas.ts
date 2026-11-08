@@ -17,7 +17,9 @@ import type { Actor, Asset, Job } from "./types";
  * a portrait (face, hair), a costume, a pose, more pictures up to what the
  * model takes — drawn by a painter like every other Studio picture: GPT
  * Image (Codex or the API), or an image model on the GPU pod (Qwen-Image
- * 2.1 Turbo in ComfyUI, models.ts) while the pod runs. The
+ * 2.1 Turbo / base, Qwen-Image-Edit 2509 in ComfyUI, models.ts) while the
+ * pod runs. The pose can be flipped left to right (the painter mirrors the
+ * picture before drawing). The
  * result is a project picture (IMG-n) with its recipe in meta.canvas, and
  * can go straight onto a character as a reference view.
  *
@@ -32,8 +34,8 @@ const Quality = z.enum(["low", "medium", "high"]);
 export const CanvasCompose = z.object({
   portrait: Slot.optional(),
   costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
-  pose: Slot.extend({ depth: z.boolean().default(false) }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, or qwen-image-2.1-turbo on the GPU pod. Omit for the project's GPT Image backend."),
+  pose: Slot.extend({ depth: z.boolean().default(false), mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)") }).optional(),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's GPT Image backend."),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
   loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
@@ -116,6 +118,12 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   if (adultLora && (portrait?.asset || costume?.asset || pose?.asset || extras.length)) {
     throw new StudioError("validation", `${adultLora.name} draws with library pictures only (AI-generated adults): remove the uploaded pictures — an upload may be a real person`);
   }
+  /* Qwen-Image-Edit 2509's graph has fixed slots: portrait, costume, pose (or person + pose) */
+  if (model.poseRecipe) {
+    if (!pose) throw new StudioError("validation", `${model.label} draws a pose: pick a pose, and a portrait and/or a costume`);
+    if (!portrait && !costume) throw new StudioError("validation", `${model.label} needs a portrait or a costume next to the pose`);
+    if (extras.length) throw new StudioError("validation", `${model.label} takes only a portrait, a costume and a pose; remove the extra pictures`);
+  }
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   const count = [portrait, costume, pose].filter(Boolean).length + extras.length;
   if (count > maxRefs) throw new StudioError("validation", `${model.label} takes at most ${maxRefs} pictures per call; this recipe has ${count}`);
@@ -135,7 +143,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const recipe: CanvasPromptRecipe = {
     portrait: portrait && (portrait.item ? { item: portrait.item as RefPortrait } : { upload: { name: portrait.label } }),
     costume: costume && (costume.item ? { item: costume.item as RefCostume } : { upload: { name: costume.label } }),
-    pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth } : { upload: { name: pose.label } }),
+    pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth, mirror: input.pose?.mirror } : { upload: { name: pose.label }, mirror: input.pose?.mirror }),
     extras: extras.map((e) => ({ name: e.name || e.asset.name || "" })),
     style: input.style,
     note: input.note,
@@ -152,6 +160,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...extras.map((e) => ({ role: "extra" as const, label: e.name || e.asset.name || "picture", url: e.asset.url, thumb: (e.asset.meta.previewUrl as string | undefined) ?? e.asset.url, assetId: e.asset.id })),
   ];
   const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || "pictures"}`.slice(0, 80);
+  const mirror = pose && input.pose?.mirror ? [refs.findIndex((r) => r.role === "pose")] : [];
   const resolved = model.runtime === "pod" ? resolveParams(model, { loras }) : undefined;
   const params = resolved ? {
     ...resolved.params, ...(input.seed !== undefined ? { seed: input.seed } : {}),
@@ -160,8 +169,8 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const r = await imaging.submitImage(projectId, {
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size: input.size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
-    model: model.id, backend: model.backend, ...(params ? { params } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}) },
+    model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
+    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }

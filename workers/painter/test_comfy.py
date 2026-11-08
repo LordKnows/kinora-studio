@@ -44,6 +44,10 @@ class Res:
     def iter_content(self, n):
         yield self.content
 
+    def raise_for_status(self):
+        if not self.ok:
+            raise AssertionError(self.status_code)
+
     def __enter__(self):
         return self
 
@@ -242,3 +246,120 @@ def test_the_base_manifest_matches_its_workflow():
     assert graph[entry["lora_after"]]["class_type"] == "UNETLoader" and entry["lora_into"] == ["4", "model"]
     assert graph[entry["output_node"]]["class_type"] == "SaveImage"
 
+
+
+# ---------- Qwen-Image-Edit 2509 (anhao/ai-pose-gallery-zh's workflow) ----------
+
+QIE = MANIFESTS["qwen-image-edit-2509"]
+QIE3 = json.loads((POD / "workflows" / "QIE2509_3IMG.json").read_text())
+QIE2 = json.loads((POD / "workflows" / "QIE2509_2IMG.json").read_text())
+LIGHTNING = "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors"
+
+
+@pytest.fixture
+def weights2509(tmp_path, monkeypatch):
+    for line in (POD / QIE["files"]).read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        subdir, _, url = line.partition("\t")
+        d = tmp_path / subdir
+        d.mkdir(parents=True, exist_ok=True)
+        (d / url.rsplit("/", 1)[-1]).write_bytes(b"\0" * 1_000_001)
+    monkeypatch.setenv("MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(paint, "COMFY_POLL_S", 0)
+    return tmp_path
+
+
+def comfy2509(graph):
+    return FakeComfy(graph=graph, loras=[LIGHTNING])
+
+
+SETTINGS_2509 = paint._settings({"steps": 4, "cfg": 1, "sampler": "euler", "scheduler": "simple", "seed": 11})
+
+
+def test_2509_three_pictures_fill_portrait_costume_pose(tmp_path, weights2509):
+    comfy = comfy2509(QIE3)
+    paint.run_comfy("qwen-image-edit-2509", "图1的人物穿上图2的服装，按图3摆姿势", pictures(tmp_path, 3), 1024, 1536, SETTINGS_2509, comfy)
+    g = comfy.queued[0]
+    assert [g[n]["inputs"]["image"] for n in ("1", "2", "3")] == ["studio/ref0.png", "studio/ref1.png", "studio/ref2.png"]
+    assert g["12"]["inputs"]["prompt"].startswith("图1的人物") and g["13"]["inputs"]["prompt"] == ""
+    assert (g["10"]["inputs"]["width"], g["10"]["inputs"]["height"]) == (1024, 1536)
+    k = g["14"]["inputs"]
+    assert (k["steps"], k["cfg"], k["sampler_name"], k["scheduler"], k["seed"], k["denoise"]) == (4, 1.0, "euler", "simple", 11, 1.0)
+    # portrait and costume are pixel references; the pose only reaches the text encoder
+    assert k["positive"] == ["25", 0] and g["25"]["inputs"]["conditioning"] == ["24", 0]
+    assert g["5"]["inputs"]["lora_name"] == LIGHTNING and g["6"]["inputs"]["shift"] == 3.0
+
+
+def test_2509_two_pictures_use_the_person_and_pose_graph(tmp_path, weights2509):
+    comfy = comfy2509(QIE3)
+    paint.run_comfy("qwen-image-edit-2509", "图1的人物按图2摆姿势", pictures(tmp_path, 2), 1008, 1344, SETTINGS_2509, comfy)
+    g = comfy.queued[0]
+    assert "2" not in g and "22" not in g and "25" not in g
+    assert g["1"]["inputs"]["image"] == "studio/ref0.png" and g["3"]["inputs"]["image"] == "studio/ref1.png"
+    assert g["12"]["inputs"]["image2"] == ["3", 0] and "image3" not in g["12"]["inputs"]
+    assert g["14"]["inputs"]["positive"] == ["24", 0] and g["14"]["inputs"]["negative"] == ["26", 0]
+
+
+def test_2509_needs_two_or_three_pictures(tmp_path, weights2509):
+    with pytest.raises(paint.PaintError, match="at least 2"):
+        paint.run_comfy("qwen-image-edit-2509", "a prompt", pictures(tmp_path, 1), 1024, 1024, {}, comfy2509(QIE3))
+    with pytest.raises(paint.PaintError, match="at most 3"):
+        paint.run_comfy("qwen-image-edit-2509", "a prompt", pictures(tmp_path, 4), 1024, 1024, {}, comfy2509(QIE3))
+
+
+def test_2509_manifest_matches_both_graphs():
+    for count, graph in (("3", QIE3), ("2", QIE2)):
+        entry = {**QIE, **QIE.get("variants", {}).get(count, {})}
+        assert entry["workflow"] == ("QIE2509_3IMG" if count == "3" else "QIE2509_2IMG")
+        g = {k: v for k, v in graph.items() if not k.startswith("_")}
+        for key in ("prompt", "negative", "width", "height", "seed", "steps", "sampler", "scheduler", "cfg"):
+            node, field = entry[key]
+            assert field in g[node]["inputs"], (count, key)
+        assert len(entry["image_loaders"]) == int(count) and all(g[n]["class_type"] == "LoadImage" for n in entry["image_loaders"])
+        assert g[entry["output_node"]]["class_type"] == "SaveImage"
+        assert g[entry["lora_after"]]["class_type"] == "LoraLoaderModelOnly" and entry["lora_into"][0] in g
+        for nid, node in g.items():
+            for value in node["inputs"].values():
+                if isinstance(value, list):
+                    assert value[0] in g, (count, nid, value)
+
+
+# ---------- a flipped pose ----------
+
+
+def test_mirror_refs_are_validated():
+    base = {"op": "paint", "prompt": "a picture", "size": "1024x1536", "output": {"key": "projects/p/images/j.png"}, "refs": ["https://x/a.png", "https://x/b.png"]}
+    assert paint.validate_paint_input({**base, "mirror_refs": [1, 1]})["mirror_refs"] == [1]
+    assert paint.validate_paint_input(base)["mirror_refs"] == []
+    for bad in ([2], [-1], ["1"], [True], "1"):
+        with pytest.raises(paint.PaintError, match="mirror_refs"):
+            paint.validate_paint_input({**base, "mirror_refs": bad})
+
+
+def test_a_flipped_reference_reaches_the_model_mirrored(tmp_path, monkeypatch):
+    half = Image.new("RGB", (40, 20), (255, 0, 0))
+    half.paste((0, 0, 255), (20, 0, 40, 20))
+    buf = io.BytesIO()
+    half.save(buf, "PNG")
+
+    class Http:
+        def get(self, url, stream=False, timeout=0, **kw):
+            return Res(content=buf.getvalue())
+
+    seen = []
+
+    def draw(params, prompt, pics, has_base, workdir, http, runner, tag):
+        seen.extend(Image.open(p).convert("RGB") for p in pics)
+        img = Image.new("RGB", params["size"], (128, 128, 128))
+        return img, 1, img.size
+
+    class Up:
+        def upload(self, path, key, ctype):
+            return f"https://r2/{key}"
+
+    monkeypatch.setattr(paint, "_draw", draw)
+    params = paint.validate_paint_input({"op": "paint", "prompt": "a picture", "size": "64x64", "backend": "api", "output": {"key": "projects/p/images/j.png"}, "refs": ["https://x/a.png", "https://x/b.png"], "mirror_refs": [1]})
+    paint.run_paint_job(params, Up(), tmp_path, http=Http())
+    assert seen[0].getpixel((0, 0)) == (255, 0, 0)  # as drawn
+    assert seen[1].getpixel((0, 0)) == (0, 0, 255)  # flipped left to right

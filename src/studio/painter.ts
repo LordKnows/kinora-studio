@@ -68,6 +68,8 @@ export function canServe(p: Painter, job: Pick<Job, "input">): boolean {
   const op = String(job.input.op ?? "paint");
   if (!(p.info.ops ?? ["paint", "crop", "extract"]).includes(op)) return false;
   if (op !== "paint") return true;
+  /* an older painter would draw the pose unflipped: leave the job to one that knows */
+  if (Array.isArray(job.input.mirrorRefs) && job.input.mirrorRefs.length && !(p.info.features ?? []).includes("mirror_refs")) return false;
   return (p.info.backends ?? []).includes(String(job.input.backend ?? "codex"));
 }
 
@@ -108,7 +110,7 @@ export function painterInput(job: Job): Record<string, unknown> {
   const i = job.input as Record<string, unknown> & { op: string };
   return {
     op: i.op, size: i.size, output: { key: outputKey(job) }, studio_job_id: job.id,
-    ...(i.op === "paint" ? { backend: i.backend, prompt: i.prompt, refs: i.refUrls ?? [], base: i.baseUrl, region: i.region, quality: i.quality, check: i.check, ...(i.params ? { params: i.params } : {}) } : {}),
+    ...(i.op === "paint" ? { backend: i.backend, prompt: i.prompt, refs: i.refUrls ?? [], base: i.baseUrl, region: i.region, quality: i.quality, check: i.check, ...(i.params ? { params: i.params } : {}), ...(Array.isArray(i.mirrorRefs) && i.mirrorRefs.length ? { mirror_refs: i.mirrorRefs } : {}) } : {}),
     ...(i.op === "crop" ? { base: i.baseUrl, crop: i.crop } : {}),
     ...(i.op === "extract" ? { video: i.videoUrl, frame: i.frame } : {}),
   };
