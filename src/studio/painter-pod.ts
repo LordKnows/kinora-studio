@@ -211,7 +211,9 @@ export async function sweepPainterPod(now = Date.now()): Promise<string | undefi
   if (!podConfigured().ok) return undefined;
   const c = podConfig();
   let pod = await repo.currentPainterPod();
-  const jobs = (await repo.listActiveJobs()).filter((j) => j.kind === "image");
+  /* pictures only the GPU pod draws (ComfyUI models) never wake the CPU painter pod */
+  const { isPodBackend } = await import("./painter");
+  const jobs = (await repo.listActiveJobs()).filter((j) => j.kind === "image" && !isPodBackend(j));
   const queued = jobs.filter((j) => j.status === "queued").length;
 
   if (pod && isLive(pod)) {

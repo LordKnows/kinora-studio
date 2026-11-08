@@ -9,6 +9,8 @@ import type {
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
+import { isAdultLora, loraParams, type InferenceParams } from "./models";
+import { QWEN_LORA_SEED, QWEN_LORA_SQL } from "@/db/migrations/0017_seed_qwen_loras";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
    No ORM: the SQL is small enough to read, and it runs unchanged on D1. */
@@ -655,20 +657,47 @@ export async function gpuTypeStats(): Promise<GpuTypeStats[]> {
 /* ---------- loras ---------- */
 
 function mapLora(r: Row): Lora {
-  return {
+  const base = {
     id: str(r.id), name: str(r.name), kind: str(r.kind) as LoraKind, filename: str(r.filename), hfUrl: opt(r.hf_url, str),
     triggerWords: str(r.trigger_words), defaultStrength: num(r.default_strength), stepsHint: opt(r.steps_hint, num),
     workflows: json<string[]>(r.workflows_json, []), notes: str(r.notes), createdAt: num(r.created_at), updatedAt: num(r.updated_at),
+    baseModel: typeof r.base_model === "string" && r.base_model ? r.base_model : "minimax-h3", params: json<InferenceParams>(r.params_json, {}),
   };
+  return { ...base, recommended: loraParams(base), adult: isAdultLora(base) };
+}
+
+/* Migration 0016 adds two columns; they are also added on first use, so a
+   deploy works before it has been applied on D1 (a column that exists
+   already answers "duplicate column", which is fine). */
+let loraColumnsReady = false;
+async function loraDb(): Promise<Db> {
+  const d = await db();
+  if (!loraColumnsReady) {
+    for (const sql of ["ALTER TABLE loras ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}'", "ALTER TABLE loras ADD COLUMN base_model TEXT NOT NULL DEFAULT 'minimax-h3'"]) {
+      try {
+        await d.run(sql);
+      } catch (caught) {
+        if (!/duplicate column/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
+      }
+    }
+    /* built-in LoRAs added after 0016 (Qwen-Image 2.1): once per database, so a deleted one stays deleted */
+    await d.run("CREATE TABLE IF NOT EXISTS studio_seeds (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
+    if (!(await d.get("SELECT name FROM studio_seeds WHERE name = ?", [QWEN_LORA_SEED]))) {
+      await d.run(QWEN_LORA_SQL);
+      await d.run("INSERT OR IGNORE INTO studio_seeds (name, applied_at) VALUES (?, ?)", [QWEN_LORA_SEED, Date.now()]);
+    }
+    loraColumnsReady = true;
+  }
+  return d;
 }
 
 export async function listLoras(): Promise<Lora[]> {
-  const rows = await (await db()).all("SELECT * FROM loras ORDER BY kind, name");
+  const rows = await (await loraDb()).all("SELECT * FROM loras ORDER BY kind, name");
   return rows.map(mapLora);
 }
 
 export async function getLora(id: string): Promise<Lora> {
-  const row = await (await db()).get("SELECT * FROM loras WHERE id = ?", [id]);
+  const row = await (await loraDb()).get("SELECT * FROM loras WHERE id = ?", [id]);
   if (!row) throw notFound("lora", id);
   return mapLora(row);
 }
@@ -676,7 +705,7 @@ export async function getLora(id: string): Promise<Lora> {
 export async function getLoras(ids: string[]): Promise<Map<string, Lora>> {
   const out = new Map<string, Lora>();
   if (ids.length === 0) return out;
-  const rows = await (await db()).all(`SELECT * FROM loras WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+  const rows = await (await loraDb()).all(`SELECT * FROM loras WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
   for (const row of rows) {
     const l = mapLora(row);
     out.set(l.id, l);
@@ -684,24 +713,25 @@ export async function getLoras(ids: string[]): Promise<Map<string, Lora>> {
   return out;
 }
 
-export async function createLora(input: { name: string; kind: LoraKind; filename: string; hfUrl?: string; triggerWords: string; defaultStrength: number; stepsHint?: number; workflows: string[]; notes: string }): Promise<Lora> {
+export async function createLora(input: { name: string; kind: LoraKind; filename: string; hfUrl?: string; triggerWords: string; defaultStrength: number; stepsHint?: number; workflows: string[]; notes: string; baseModel?: string; params?: InferenceParams }): Promise<Lora> {
   const id = newId("lora");
   const now = Date.now();
-  await (await db()).run(
-    "INSERT INTO loras (id, name, kind, filename, hf_url, trigger_words, default_strength, steps_hint, workflows_json, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, input.name, input.kind, input.filename, input.hfUrl ?? null, input.triggerWords, input.defaultStrength, input.stepsHint ?? null, JSON.stringify(input.workflows), input.notes, now, now],
+  await (await loraDb()).run(
+    "INSERT INTO loras (id, name, kind, filename, hf_url, trigger_words, default_strength, steps_hint, workflows_json, notes, base_model, params_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, input.name, input.kind, input.filename, input.hfUrl ?? null, input.triggerWords, input.defaultStrength, input.stepsHint ?? null, JSON.stringify(input.workflows), input.notes, input.baseModel ?? "minimax-h3", JSON.stringify(input.params ?? {}), now, now],
   );
   return getLora(id);
 }
 
-export async function updateLora(id: string, patch: Partial<{ name: string; kind: LoraKind; filename: string; hfUrl: string | null; triggerWords: string; defaultStrength: number; stepsHint: number | null; workflows: string[]; notes: string }>): Promise<Lora> {
+export async function updateLora(id: string, patch: Partial<{ name: string; kind: LoraKind; filename: string; hfUrl: string | null; triggerWords: string; defaultStrength: number; stepsHint: number | null; workflows: string[]; notes: string; baseModel: string; params: InferenceParams }>): Promise<Lora> {
   const cur = await getLora(id);
-  await (await db()).run(
-    "UPDATE loras SET name = ?, kind = ?, filename = ?, hf_url = ?, trigger_words = ?, default_strength = ?, steps_hint = ?, workflows_json = ?, notes = ?, updated_at = ? WHERE id = ?",
+  await (await loraDb()).run(
+    "UPDATE loras SET name = ?, kind = ?, filename = ?, hf_url = ?, trigger_words = ?, default_strength = ?, steps_hint = ?, workflows_json = ?, notes = ?, base_model = ?, params_json = ?, updated_at = ? WHERE id = ?",
     [
       patch.name ?? cur.name, patch.kind ?? cur.kind, patch.filename ?? cur.filename,
       patch.hfUrl === undefined ? (cur.hfUrl ?? null) : patch.hfUrl, patch.triggerWords ?? cur.triggerWords, patch.defaultStrength ?? cur.defaultStrength,
-      patch.stepsHint === undefined ? (cur.stepsHint ?? null) : patch.stepsHint, JSON.stringify(patch.workflows ?? cur.workflows), patch.notes ?? cur.notes, Date.now(), id,
+      patch.stepsHint === undefined ? (cur.stepsHint ?? null) : patch.stepsHint, JSON.stringify(patch.workflows ?? cur.workflows), patch.notes ?? cur.notes,
+      patch.baseModel ?? cur.baseModel, JSON.stringify(patch.params ?? cur.params), Date.now(), id,
     ],
   );
   return getLora(id);

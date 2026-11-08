@@ -64,3 +64,24 @@ strength 0. Files are read from `LORA_DIR` (default
 `hf_url` first (set `HF_TOKEN` on the pod for gated repos). Put the LoRA
 loaders in the graph where ComfyUI's H3 template expects them (between the
 model loader and the sampler) and keep a speed LoRA as slot 1.
+
+## Image models (Canvas)
+
+`image_models.json` lists the image models the pod's painter draws for the
+Studio (`workers/painter/paint.py` → `run_comfy`). Each entry names its
+API-format graph here, its download list (`models-qwen-image.txt`), the
+LoadImage slots for the reference pictures and the `[node, input]` each
+setting goes to. The painter advertises `comfy:<model>` once ComfyUI answers
+and every file is on disk, checks the graph against `/object_info` before it
+queues (missing nodes or model files are named in the error), drops the
+unused picture slots, applies the settings the Studio sends (steps, CFG,
+sampler, sigmas, resolution, seed — `src/studio/models.ts`), and returns the
+first saved image.
+
+`QWEN21_EDIT.json` is Comfy-Org's *Qwen Image 2.1 Turbo: Image edit*
+template (`image_qwen_image_2_1_turbo_image_edit.json`) in API format,
+without its prompt-enhancer branch: `TextEncodeQwenImage21` with up to ten
+pictures (`<image1>`…`<image10>` in the prompt), `QwenImage21Cache`, the
+fixed 8-step Turbo sigma schedule, CFG 1, euler, a custom canvas size. It
+needs a ComfyUI recent enough to have those nodes (September 2026 or later).
+

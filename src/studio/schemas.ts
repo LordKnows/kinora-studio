@@ -24,6 +24,20 @@ export const LoraRef = z.object({
 });
 export type LoraRef = z.infer<typeof LoraRef>;
 
+/* Recommended inference settings (src/studio/models.ts): a base model's, or a LoRA's own. */
+export const InferenceParamsInput = z.object({
+  steps: z.number().int().min(1).max(100).optional(),
+  cfg: z.number().min(0).max(30).optional(),
+  sampler: z.string().max(40).optional(),
+  scheduler: z.string().max(40).optional(),
+  sigmas: z.array(z.number().min(0).max(1)).min(2).max(101).optional().describe("A fixed schedule; steps = length − 1"),
+  shiftVideo: z.number().min(0).max(30).optional(),
+  shiftAudio: z.number().min(0).max(30).optional(),
+  strength: z.number().min(0).max(2).optional(),
+  strengthRange: z.tuple([z.number().min(0).max(2), z.number().min(0).max(2)]).optional(),
+  resolution: z.number().int().min(256).max(4096).optional(),
+});
+
 export const LoraInput = z.object({
   name: z.string().min(1).max(80),
   kind: z.enum(LORA_KINDS).describe("speed = fewer steps (lightx2v…), style/effect = look"),
@@ -34,6 +48,8 @@ export const LoraInput = z.object({
   stepsHint: z.number().int().min(1).max(60).optional().describe("speed LoRAs: the step count they are trained for"),
   workflows: z.array(z.enum(["T2VA", "I2VA", "FL2VA", "R2VA"])).default([]).describe("Empty = every workflow"),
   notes: z.string().max(1000).default(""),
+  baseModel: z.string().max(60).default("minimax-h3").describe("The model family it was trained for (models.ts): minimax-h3, qwen-image-2.1"),
+  params: InferenceParamsInput.default({}).describe("Recommended settings from its card: a speed LoRA's steps, sampler, scheduler, shift; any LoRA's strength range. Selecting it applies them."),
 });
 export type LoraInput = z.infer<typeof LoraInput>;
 

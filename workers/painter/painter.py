@@ -119,6 +119,8 @@ class Painter:
         self.instance = uuid.uuid4().hex[:12]
         self._codex: dict[str, Any] | None = None
         self._codex_at = 0.0
+        self._comfy: list[str] = []
+        self._comfy_at = 0.0
         self.last_error = ""
 
     # ---- what it can do ----
@@ -131,9 +133,22 @@ class Painter:
             self._codex_at = time.time()
         return self._codex
 
+    def comfy_backends(self) -> list[str]:
+        """On the GPU pod: the image models its ComfyUI can draw (comfy:<model>), checked every 30 s."""
+        if not self.on_pod:
+            return []
+        if time.time() - self._comfy_at > 30:
+            try:
+                self._comfy = paint.comfy_backends(self.http)
+            except Exception as exc:  # noqa: BLE001 — never let a probe stop the heartbeat
+                self.last_error = f"comfy probe: {exc}"
+                self._comfy = []
+            self._comfy_at = time.time()
+        return self._comfy
+
     def info(self) -> dict[str, Any]:
         codex = self.codex_status()
-        backends = (["codex"] if codex.get("logged_in") else []) + (["api"] if os.environ.get("OPENAI_API_KEY") else [])
+        backends = (["codex"] if codex.get("logged_in") else []) + (["api"] if os.environ.get("OPENAI_API_KEY") else []) + self.comfy_backends()
         with self.lock:
             running = list(self.running)
         login = {k: v for k, v in self.login.state.items() if k in ("state", "url", "code", "lines", "error")}

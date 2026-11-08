@@ -1,0 +1,2 @@
+ALTER TABLE loras ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE loras ADD COLUMN base_model TEXT NOT NULL DEFAULT 'minimax-h3';

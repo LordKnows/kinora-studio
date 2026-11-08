@@ -294,3 +294,42 @@ The director gets the same library through `list_references`,
   stored per user in `user_settings`). The director sees what its user
   unlocked and cannot unlock it.
 
+## Models and their settings
+
+`src/studio/models.ts` is the registry of every model the Studio runs —
+GPT Image (Codex / API), **Qwen-Image 2.1 Turbo** (Canvas, on the GPU pod),
+MiniMax H3, Open-H3-Regenerate-2K, Viggle Remake — with the settings their
+authors recommend (steps, CFG, sampler, schedule, shift), runtime, licence,
+moderation and files. LoRAs carry theirs too (`loras.params_json`,
+`base_model`; the seeded ones know their cards). A render resolves base model
+→ workflow variant → speed LoRA → the caller's steps, so picking a model or a
+speed LoRA sets everything; the Board's compile panel shows the settings and
+where they came from. Library → Models lists it all; `list_models` gives it
+to the director.
+
+**Qwen-Image 2.1 Turbo on the GPU pod.** Image and video models share the
+pod. With `QWEN_IMAGE=1` (default) the pod downloads Comfy-Org's ComfyUI
+files (~17 GB: Turbo int8, Qwen3-VL 8B int8, VAE) after the H3 set; the
+pod's painter then advertises `comfy:qwen-image-2.1-turbo` and draws Canvas
+pictures in ComfyUI (`workflows/QWEN21_EDIT.json`, the official Turbo edit
+template: 8 fixed steps, CFG 1, euler, up to ten reference pictures). It
+draws only while the pod runs (Canvas offers *Start GPU pod*); queued
+pictures keep the pod from idling out and never wake the CPU painter pod.
+There is no content filter and no Codex self-review (it would send the
+picture to OpenAI); an uploaded face is never combined with 18+ references.
+Licence: Qwen Research License — non-commercial use only.
+
+**Qwen-Image 2.1 (base) and LoRAs.** For LoRAs trained on the full model,
+`QWEN_IMAGE_BASE=1` (default) adds the base int8 (7.3 GB; encoder and VAE
+shared) when the disk has room, and Canvas offers the family's LoRAs under
+the model. The library seeds **ChatR Labs' Omni v0.1** (an uncensored
+rank-128 adapter: strength 1, 35 steps, true CFG 5): picking it sets those
+settings; the painter fetches the file from HuggingFace into models/loras on
+first use and chains it (`LoraLoaderModelOnly`) between the model loader and
+the cache (`workflows/QWEN21_EDIT_BASE.json`, KSampler euler/simple, a
+single-space negative above CFG 1). It is 18+: offered only once the user has
+unlocked 18+, it never draws with an uploaded picture (an upload may be a real
+person), and the adult line stays in any prompt. Its weights use
+Diffusers/PEFT keys: if the pod's ComfyUI log says "lora key not loaded", the
+adapter did not apply.
+

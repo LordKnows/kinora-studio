@@ -75,6 +75,14 @@ CODEX_TIMEOUT_S = int(os.environ.get("CODEX_PAINT_TIMEOUT_S", "900"))
 REVIEW_TIMEOUT_S = int(os.environ.get("CODEX_REVIEW_TIMEOUT_S", "300"))
 QUOTA_WORDS = ("usage limit", "rate limit", "429", "quota", "insufficient_quota", "billing")
 MAX_REDRAWS = 2
+MAX_COMFY_PICTURES = 10
+COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
+# the pod's ComfyUI queue is shared with the video takes: a picture may wait behind one
+COMFY_TIMEOUT_S = int(os.environ.get("COMFY_PAINT_TIMEOUT_S", "2400"))
+COMFY_POLL_S = 2.0
+HERE = Path(__file__).resolve().parent
+# the job server's folder: next to this file on the pod (bundle or image), ../h3-runpod in the repo
+POD_DIR = Path(os.environ.get("POD_DIR") or (HERE if (HERE / "workflows").is_dir() else HERE.parent / "h3-runpod"))
 
 CODEX_CONFIG = """approval_policy = "never"
 sandbox_mode = "read-only"
@@ -150,8 +158,8 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
         if not isinstance(prompt, str) or len(prompt.strip()) < 5:
             raise PaintError("paint needs a prompt")
         backend = raw.get("backend", "codex")
-        if backend not in ("codex", "api"):
-            raise PaintError("backend must be codex or api")
+        if not isinstance(backend, str) or not (backend in ("codex", "api") or re.fullmatch(r"comfy:[a-z0-9][a-z0-9._-]{0,60}", backend)):
+            raise PaintError("backend must be codex, api or comfy:<model>")
         refs = raw.get("refs") or []
         if not isinstance(refs, list) or not all(isinstance(u, str) and u.startswith(("http://", "https://")) for u in refs):
             raise PaintError("refs must be a list of image urls")
@@ -160,13 +168,15 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
             raise PaintError("base must be an image url")
         if backend == "codex" and len(refs) + (1 if base else 0) > MAX_CODEX_PICTURES:
             raise PaintError(f"Codex's image tool takes at most {MAX_CODEX_PICTURES} pictures (refs + base)")
+        if backend.startswith("comfy:") and len(refs) + (1 if base else 0) > MAX_COMFY_PICTURES:
+            raise PaintError(f"the pod's image models take at most {MAX_COMFY_PICTURES} pictures (refs + base)")
         region = _box(raw.get("region"), "region")
         if region and not base:
             raise PaintError("region needs a base image to paste back onto")
         quality = raw.get("quality", "low")
         if quality not in ("low", "medium", "high"):
             raise PaintError("quality must be low, medium or high")
-        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")))
+        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")), settings=_settings(raw.get("params")))
     elif op == "crop":
         base = raw.get("base")
         if not isinstance(base, str) or not base.startswith(("http://", "https://")):
@@ -602,6 +612,282 @@ def fix_note(review: dict[str, Any]) -> str:
     return "\n\nA previous attempt at this picture had these faults; this time get them right:\n" + "\n".join(items[:8]) if items else ""
 
 
+# ---------- comfy: image models on the GPU pod ----------
+
+
+def _settings(raw: Any) -> dict[str, Any]:
+    """The model's settings as the Studio resolved them (models.ts); anything malformed is dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    num = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    if num(raw.get("steps")) and 1 <= raw["steps"] <= 100:
+        out["steps"] = int(raw["steps"])
+    if num(raw.get("cfg")) and 0 <= raw["cfg"] <= 30:
+        out["cfg"] = float(raw["cfg"])
+    if isinstance(raw.get("sampler"), str) and re.fullmatch(r"[a-z0-9_]{1,40}", raw["sampler"]):
+        out["sampler"] = raw["sampler"]
+    sig = raw.get("sigmas")
+    if isinstance(sig, list) and 2 <= len(sig) <= 101 and all(num(v) and 0 <= v <= 1 for v in sig):
+        out["sigmas"] = [float(v) for v in sig]
+    if num(raw.get("resolution")) and 256 <= raw["resolution"] <= 4096:
+        out["resolution"] = int(raw["resolution"])
+    if num(raw.get("seed")) and raw["seed"] >= 0:
+        out["seed"] = int(raw["seed"])
+    if isinstance(raw.get("scheduler"), str) and re.fullmatch(r"[a-z0-9_]{1,40}", raw["scheduler"]):
+        out["scheduler"] = raw["scheduler"]
+    loras = []
+    for l in raw.get("loras") or []:
+        if not isinstance(l, dict) or not isinstance(l.get("file"), str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.safetensors", l["file"]):
+            continue
+        strength = float(l["strength"]) if num(l.get("strength")) and 0 <= l["strength"] <= 2 else 1.0
+        hf = l.get("hf_url") if isinstance(l.get("hf_url"), str) and l["hf_url"].startswith("https://huggingface.co/") else None
+        loras.append({"file": l["file"], "strength": strength, **({"hf_url": hf} if hf else {})})
+    if loras:
+        out["loras"] = loras[:4]
+    return out
+
+
+def image_models() -> dict[str, dict[str, Any]]:
+    """workflows/image_models.json: the pod's image models, their graph and where each value goes."""
+    path = POD_DIR / "workflows" / "image_models.json"
+    if not path.is_file():
+        return {}
+    data = json.loads(path.read_text())
+    return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, dict)}
+
+
+def models_dir() -> Path:
+    if os.environ.get("MODELS_DIR"):
+        return Path(os.environ["MODELS_DIR"])
+    if os.environ.get("LORA_DIR"):
+        return Path(os.environ["LORA_DIR"]).parent
+    return Path("/workspace/runpod-slim/ComfyUI/models")
+
+
+def model_files(entry: dict[str, Any]) -> list[tuple[str, str]]:
+    """(subdir, file name) of every weight the model needs, from its download list."""
+    listing = POD_DIR / str(entry.get("files") or "")
+    if not listing.is_file():
+        return []
+    out = []
+    for line in listing.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        subdir, _, url = line.partition("\t")
+        out.append((subdir.strip(), url.strip().rsplit("/", 1)[-1]))
+    return out
+
+
+def missing_files(entry: dict[str, Any], base: Path | None = None) -> list[str]:
+    base = base or models_dir()
+    files = model_files(entry)
+    if not files:
+        return ["(no download list)"]
+    missing = []
+    for subdir, name in files:
+        # unet and diffusion_models are the same folder type to ComfyUI
+        dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
+        if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
+            missing.append(f"{subdir}/{name}")
+    return missing
+
+
+def comfy_backends(http: Any = requests) -> list[str]:
+    """The image models this pod can draw now (comfy:<id>): ComfyUI answers and every weight is on disk."""
+    models = image_models()
+    if not models:
+        return []
+    try:
+        if not http.get(f"{COMFY_URL}/system_stats", timeout=5).ok:
+            return []
+    except requests.RequestException:
+        return []
+    return [f"comfy:{k}" for k, v in models.items() if not missing_files(v)]
+
+
+def _combo(spec: Any) -> list[str] | None:
+    if isinstance(spec, list) and spec and isinstance(spec[0], list):
+        return [str(x) for x in spec[0]]
+    if isinstance(spec, list) and spec and spec[0] == "COMBO" and len(spec) > 1 and isinstance(spec[1], dict):
+        return [str(x) for x in spec[1].get("options", [])]
+    return None
+
+
+def comfy_preflight(graph: dict[str, Any], http: Any) -> None:
+    """Before queueing: every node class exists in this ComfyUI and every model file its loaders name is there."""
+    infos: dict[str, Any] = {}
+    missing_nodes = []
+    for cls in sorted({n["class_type"] for n in graph.values()}):
+        res = http.get(f"{COMFY_URL}/object_info/{cls}", timeout=30)
+        info = (res.json() or {}).get(cls) if res.ok else None
+        if not info:
+            missing_nodes.append(cls)
+        else:
+            infos[cls] = info
+    if missing_nodes:
+        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs a ComfyUI from September 2026 or later (a newer RUNPOD_POD_IMAGE)")
+    problems = []
+    for nid, node in graph.items():
+        spec = {**((infos[node["class_type"]].get("input") or {}).get("required") or {}), **((infos[node["class_type"]].get("input") or {}).get("optional") or {})}
+        for name, value in node["inputs"].items():
+            if isinstance(value, list) or "." in name or node["class_type"] == "LoadImage":
+                continue
+            if name not in spec:
+                problems.append(f"node {nid} ({node['class_type']}) has no input {name} here (it has {', '.join(sorted(spec)) or 'none'})")
+                continue
+            options = _combo(spec[name])
+            if options is not None and isinstance(value, str) and value not in options:
+                problems.append(f"{node['class_type']}.{name} = {value} is not in this ComfyUI (model file missing or not rescanned yet)")
+    if problems:
+        raise PaintError("the image workflow does not fit this ComfyUI: " + "; ".join(problems[:6]))
+
+
+def _put(graph: dict[str, Any], target: Any, value: Any) -> None:
+    if not target:
+        return
+    node, field = target
+    if node not in graph:
+        raise PaintError(f"image_models.json points at node {node}, which the workflow does not have")
+    graph[node]["inputs"][field] = value
+
+
+def lora_dir() -> Path:
+    return Path(os.environ["LORA_DIR"]) if os.environ.get("LORA_DIR") else models_dir() / "loras"
+
+
+def ensure_lora_files(loras: list[dict[str, Any]], http: Any) -> None:
+    """Each LoRA of the job in models/loras, fetched from its HuggingFace link when missing (once; ComfyUI rescans the folder)."""
+    for l in loras:
+        dest = lora_dir() / l["file"]
+        if dest.is_file() and dest.stat().st_size > 1_000_000:
+            continue
+        url = l.get("hf_url")
+        if not url:
+            raise PaintError(f"LoRA {l['file']} is not on the pod and has no HuggingFace link to fetch it from")
+        url = url.replace("/blob/", "/resolve/", 1)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        headers = {"Authorization": f"Bearer {os.environ['HF_TOKEN']}"} if os.environ.get("HF_TOKEN") else {}
+        part = dest.with_name(dest.name + ".part")
+        with http.get(url, stream=True, timeout=600, headers=headers) as res:
+            if res.status_code >= 400:
+                raise PaintError(f"could not download LoRA {l['file']} ({res.status_code})")
+            with open(part, "wb") as fh:
+                for chunk in res.iter_content(1 << 20):
+                    fh.write(chunk)
+        part.replace(dest)
+
+
+def chain_loras(graph: dict[str, Any], entry: dict[str, Any], loras: list[dict[str, Any]]) -> None:
+    """LoraLoaderModelOnly nodes between the model loader (lora_after) and its consumer (lora_into), in order."""
+    after, into = entry.get("lora_after"), entry.get("lora_into")
+    if not after or not into:
+        raise PaintError("this image model takes no LoRAs (image_models.json has no lora_after / lora_into)")
+    prev = str(after)
+    for i, l in enumerate(loras):
+        nid = f"lora{i + 1}"
+        graph[nid] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": [prev, 0], "lora_name": l["file"], "strength_model": l["strength"]}, "_meta": {"title": l["file"]}}
+        prev = nid
+    _put(graph, into, [prev, 0])
+
+
+def comfy_upload(path: Path, http: Any) -> str:
+    with open(path, "rb") as fh:
+        res = http.post(f"{COMFY_URL}/upload/image", files={"image": (path.name, fh, "image/png")}, data={"overwrite": "true", "subfolder": "studio"}, timeout=120)
+    if not res.ok:
+        raise PaintError(f"ComfyUI refused a reference picture ({res.status_code}): {res.text[:200]}")
+    data = res.json()
+    return f"{data['subfolder']}/{data['name']}" if data.get("subfolder") else data["name"]
+
+
+def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, settings: dict[str, Any], http: Any = requests) -> Any:
+    """One picture from an image model on the pod's ComfyUI: the model's API-format graph, its reference
+    slots filled in order (<image1> is the first), the Studio's settings applied, then the first saved image."""
+    Image = _pil()
+    import random
+    import uuid
+    from io import BytesIO
+
+    entry = image_models().get(model)
+    if not entry:
+        raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
+    missing = missing_files(entry)
+    if missing:
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1, /app/download_qwen_image*.log) when the disk has room")
+    if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
+        raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
+    graph = json.loads((POD_DIR / "workflows" / f"{entry['workflow']}.json").read_text())
+    graph = {k: v for k, v in graph.items() if not k.startswith("_")}
+    loaders = list(entry.get("image_loaders") or [])
+    if len(pictures) > len(loaders):
+        raise PaintError(f"{model}: the workflow has {len(loaders)} picture slots for {len(pictures)} pictures")
+    target = graph.get(str(entry.get("image_target")), {})
+    for i, node_id in enumerate(loaders):
+        if i >= len(pictures):
+            graph.pop(node_id, None)
+            target.get("inputs", {}).pop(f"{entry.get('image_prefix', 'images.image_')}{i + 1}", None)
+    if settings.get("loras"):
+        ensure_lora_files(settings["loras"], http)
+        chain_loras(graph, entry, settings["loras"])
+    comfy_preflight(graph, http)
+    for i, pic in enumerate(pictures):
+        graph[loaders[i]]["inputs"]["image"] = comfy_upload(pic, http)
+    m = int(entry.get("size_multiple") or 16)
+    _put(graph, entry.get("prompt"), prompt)
+    # above CFG 1 the negative branch runs: a single space, as the Omni card asks (empty would switch true CFG off)
+    _put(graph, entry.get("negative"), " " if settings.get("cfg", 1) > 1 else "")
+    _put(graph, entry.get("width"), max(m, round(w / m) * m))
+    _put(graph, entry.get("height"), max(m, round(h / m) * m))
+    _put(graph, entry.get("seed"), settings.get("seed", random.randint(1, 2**48)))
+    if "resolution" in settings:
+        _put(graph, entry.get("resolution"), settings["resolution"])
+    if "sampler" in settings:
+        _put(graph, entry.get("sampler"), settings["sampler"])
+    if "scheduler" in settings:
+        _put(graph, entry.get("scheduler"), settings["scheduler"])
+    if "cfg" in settings:
+        _put(graph, entry.get("cfg"), settings["cfg"])
+    if "sigmas" in settings:
+        _put(graph, entry.get("sigmas"), ", ".join(f"{s:g}" for s in settings["sigmas"]))
+    if "steps" in settings and entry.get("steps"):
+        _put(graph, entry.get("steps"), settings["steps"])
+    res = http.post(f"{COMFY_URL}/prompt", json={"prompt": graph, "client_id": f"studio-paint-{uuid.uuid4().hex[:12]}"}, timeout=60)
+    if not res.ok:
+        raise PaintError(f"ComfyUI rejected the image workflow ({res.status_code}): {res.text[:500]}")
+    prompt_id = (res.json() or {}).get("prompt_id")
+    if not prompt_id:
+        raise PaintError("ComfyUI returned no prompt_id")
+    deadline = time.monotonic() + COMFY_TIMEOUT_S
+    done = None
+    while time.monotonic() < deadline:
+        hist = http.get(f"{COMFY_URL}/history/{prompt_id}", timeout=30)
+        entry_h = (hist.json() or {}).get(prompt_id) if hist.ok else None
+        if entry_h:
+            status = entry_h.get("status") or {}
+            if status.get("status_str") == "error":
+                raise PaintError(f"ComfyUI failed the picture: {json.dumps(status.get('messages', []))[:600]}")
+            if entry_h.get("outputs"):
+                done = entry_h
+                break
+        time.sleep(COMFY_POLL_S)
+    if done is None:
+        try:
+            http.post(f"{COMFY_URL}/queue", json={"delete": [prompt_id]}, timeout=10)
+        except requests.RequestException:
+            pass
+        raise PaintError(f"ComfyUI did not finish the picture in {COMFY_TIMEOUT_S}s (the pod's queue may hold a long take)")
+    outputs = done["outputs"]
+    node_out = outputs.get(str(entry.get("output_node"))) or next(iter(outputs.values()), {})
+    files = node_out.get("images") or []
+    if not files:
+        raise PaintError("ComfyUI saved no picture")
+    meta = files[0]
+    view = http.get(f"{COMFY_URL}/view", params={"filename": meta["filename"], "subfolder": meta.get("subfolder", ""), "type": meta.get("type", "output")}, timeout=300)
+    if not view.ok:
+        raise PaintError(f"could not fetch the picture from ComfyUI ({view.status_code})")
+    return Image.open(BytesIO(view.content)).convert("RGB")
+
+
 # ---------- api ----------
 
 
@@ -671,6 +957,9 @@ def _draw(params: dict[str, Any], prompt: str, pictures: list[Path], has_base: b
     w, h = params["size"]
     if params["backend"] == "codex":
         return run_codex(prompt, pictures, w, h, workdir, codex_runner, has_base=has_base, tag=tag)
+    if params["backend"].startswith("comfy:"):
+        drawn = run_comfy(params["backend"][len("comfy:"):], prompt, pictures, w, h, params.get("settings") or {}, http)
+        return drawn, 1, drawn.size
     drawn, attempts = run_api(prompt, pictures, w, h, params["quality"], http)
     return drawn, attempts, drawn.size
 

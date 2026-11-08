@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { OpenOutIcon } from "./icons";
+import { describeParams, MODELS, type InferenceParams } from "@/studio/models";
 import { LORA_KINDS, type LoraInput } from "@/studio/schemas";
 import type { Lora } from "@/studio/types";
 
@@ -16,10 +17,13 @@ import { LORA_KIND_LABEL } from "./lora-picker";
 
 const WORKFLOWS = ["T2VA", "I2VA", "FL2VA", "R2VA"] as const;
 
+/* the model families a LoRA can be trained for, named after their first model */
+export const FAMILIES: Array<[string, string]> = MODELS.filter((m) => m.runtime === "pod").reduce<Array<[string, string]>>((out, m) => (out.some(([f]) => f === m.family) ? out : [...out, [m.family, `${m.label} (${m.kind})`]]), []);
+
 type Draft = LoraInput;
 
 function emptyDraft(): Draft {
-  return { name: "", kind: "speed", filename: "", hfUrl: undefined, triggerWords: "", defaultStrength: 1, stepsHint: undefined, workflows: [], notes: "" };
+  return { name: "", kind: "speed", filename: "", hfUrl: undefined, triggerWords: "", defaultStrength: 1, stepsHint: undefined, workflows: [], notes: "", baseModel: "minimax-h3", params: {} };
 }
 
 function hfLabel(url: string): string {
@@ -64,7 +68,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
       <div className="st-page-head" style={embedded ? { marginBottom: 4 } : undefined}>
         <div>
           {!embedded && <h1 className="st-title">LoRAs</h1>}
-          <p className="st-subtitle">Speed LoRAs cut the step count; style and effect LoRAs shape the look. Projects pick defaults on Brief & style; a shot can override.</p>
+          <p className="st-subtitle">Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on Brief & style; a shot can override.</p>
         </div>
         <div className="st-actions">
           <Button kind="primary" onClick={() => setEditing("new")}>
@@ -98,8 +102,8 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
                   <tr>
                     <th>Name</th>
                     <th>File</th>
-                    <th>Strength</th>
-                    <th>Steps</th>
+                    <th>Model</th>
+                    <th>Recommended</th>
                     <th>Trigger words</th>
                     <th>Workflows</th>
                     <th>Source</th>
@@ -116,8 +120,8 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
                         {l.notes && <div className="st-muted st-lora-notes">{l.notes}</div>}
                       </td>
                       <td className="st-num st-lora-file">{l.filename}</td>
-                      <td className="st-num">{l.defaultStrength}</td>
-                      <td className="st-num">{l.stepsHint ?? "—"}</td>
+                      <td>{FAMILIES.find(([f]) => f === l.baseModel)?.[1] ?? l.baseModel}</td>
+                      <td className="st-num">{describeParams(l.recommended) || "—"}</td>
                       <td className="st-lora-trigger">{l.triggerWords || "—"}</td>
                       <td>{l.workflows.length ? l.workflows.join(", ") : "all"}</td>
                       <td>
@@ -161,10 +165,18 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
 function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose: () => void; onSaved: () => Promise<void>; onDelete?: () => void }) {
   const [draft, setDraft] = useState<Draft>(
     lora
-      ? { name: lora.name, kind: lora.kind, filename: lora.filename, hfUrl: lora.hfUrl, triggerWords: lora.triggerWords, defaultStrength: lora.defaultStrength, stepsHint: lora.stepsHint, workflows: lora.workflows as Draft["workflows"], notes: lora.notes }
+      ? { name: lora.name, kind: lora.kind, filename: lora.filename, hfUrl: lora.hfUrl, triggerWords: lora.triggerWords, defaultStrength: lora.defaultStrength, stepsHint: lora.stepsHint, workflows: lora.workflows as Draft["workflows"], notes: lora.notes, baseModel: lora.baseModel, params: lora.params }
       : emptyDraft(),
   );
   const set = <K extends keyof Draft>(key: K, v: Draft[K]) => setDraft({ ...draft, [key]: v });
+  const setParam = <K extends keyof InferenceParams>(key: K, v: InferenceParams[K] | undefined) => {
+    const next = { ...draft.params } as InferenceParams;
+    if (v === undefined || v === "" || (Array.isArray(v) && v.some((x) => x === undefined))) delete next[key];
+    else next[key] = v;
+    setDraft({ ...draft, params: next });
+  };
+  /* what the Studio already knows (its card, as seeded) shows through as placeholders */
+  const known = lora?.recommended ?? {};
 
   const save = useAction(async () => {
     const body = { ...draft, hfUrl: draft.hfUrl?.trim() ? draft.hfUrl.trim() : lora ? null : undefined, stepsHint: draft.stepsHint ?? (lora ? null : undefined) };
@@ -222,6 +234,24 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
           <Field label="Steps hint" hint="Speed LoRAs: the step count they are trained for; becomes the project default.">
             <NumberInput min={1} max={60} allowEmpty value={draft.stepsHint} onCommit={(v) => set("stepsHint", v ?? undefined)} placeholder="8" />
           </Field>
+        </div>
+        <Field label="Base model" hint="The model family it was trained for; it only loads with that family's workflows.">
+          <select className="st-select" value={draft.baseModel} onChange={(e) => set("baseModel", e.target.value)}>
+            {FAMILIES.map(([f, label]) => <option key={f} value={f}>{label}</option>)}
+          </select>
+        </Field>
+        <div className="st-stack st-stack--tight">
+          <span className="st-label">Recommended settings <span className="st-muted">— from its model card; a speed LoRA's replace the base model's when it is picked</span></span>
+          <div className="st-fields st-canvas-fields">
+            <Field label="Sampler"><input className="st-input" value={draft.params.sampler ?? ""} placeholder={known.sampler ?? "euler"} onChange={(e) => setParam("sampler", e.target.value.trim() || undefined)} /></Field>
+            <Field label="Scheduler"><input className="st-input" value={draft.params.scheduler ?? ""} placeholder={known.scheduler ?? "simple"} onChange={(e) => setParam("scheduler", e.target.value.trim() || undefined)} /></Field>
+            <Field label="CFG"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.cfg} placeholder={known.cfg !== undefined ? String(known.cfg) : "—"} onCommit={(v) => setParam("cfg", v ?? undefined)} /></Field>
+            <Field label="Shift (video)"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftVideo} placeholder={known.shiftVideo !== undefined ? String(known.shiftVideo) : "—"} onCommit={(v) => setParam("shiftVideo", v ?? undefined)} /></Field>
+            <Field label="Shift (audio)"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftAudio} placeholder={known.shiftAudio !== undefined ? String(known.shiftAudio) : "—"} onCommit={(v) => setParam("shiftAudio", v ?? undefined)} /></Field>
+            <Field label="Strength from"><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[0]} placeholder={known.strengthRange ? String(known.strengthRange[0]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [v, draft.params.strengthRange?.[1] ?? known.strengthRange?.[1] ?? 2])} /></Field>
+            <Field label="Strength to"><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[1]} placeholder={known.strengthRange ? String(known.strengthRange[1]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [draft.params.strengthRange?.[0] ?? known.strengthRange?.[0] ?? 0, v])} /></Field>
+          </div>
+          {lora && <span className="st-muted st-num">In effect: {describeParams(lora.recommended) || "the base model's settings"}</span>}
         </div>
         <Field label="Trigger words" hint="Appended to the LOOK block when this LoRA is active.">
           <input className="st-input" value={draft.triggerWords} onChange={(e) => set("triggerWords", e.target.value)} placeholder="anime style, flat shading" />

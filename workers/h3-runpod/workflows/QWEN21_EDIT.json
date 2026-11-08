@@ -1,0 +1,312 @@
+{
+  "_comment": "Qwen-Image 2.1 Turbo, multi-reference edit (API format). Built from Comfy-Org's template image_qwen_image_2_1_turbo_image_edit.json without its prompt-enhancer branch: TextEncodeQwenImage21 reads up to ten pictures (images.image_N, named <imageN> in the prompt), QwenImage21Cache caches the prefix, the fixed 8-step Turbo sigma schedule, CFG 1, euler, custom canvas size. The painter (paint.py run_comfy) drops the unused LoadImage slots and fills the values listed in image_models.json.",
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "Qwen-Image 2.1 Turbo"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "Qwen3-VL 8B text encoder"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+    },
+    "_meta": {
+      "title": "Qwen-Image 2.1 VAE"
+    }
+  },
+  "4": {
+    "class_type": "QwenImage21Cache",
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "device": "auto",
+      "dtype": "default"
+    },
+    "_meta": {
+      "title": "Prefix cache"
+    }
+  },
+  "31": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_1.png"
+    },
+    "_meta": {
+      "title": "<image1>"
+    }
+  },
+  "32": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_2.png"
+    },
+    "_meta": {
+      "title": "<image2>"
+    }
+  },
+  "33": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_3.png"
+    },
+    "_meta": {
+      "title": "<image3>"
+    }
+  },
+  "34": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_4.png"
+    },
+    "_meta": {
+      "title": "<image4>"
+    }
+  },
+  "35": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_5.png"
+    },
+    "_meta": {
+      "title": "<image5>"
+    }
+  },
+  "36": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_6.png"
+    },
+    "_meta": {
+      "title": "<image6>"
+    }
+  },
+  "37": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_7.png"
+    },
+    "_meta": {
+      "title": "<image7>"
+    }
+  },
+  "38": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_8.png"
+    },
+    "_meta": {
+      "title": "<image8>"
+    }
+  },
+  "39": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_9.png"
+    },
+    "_meta": {
+      "title": "<image9>"
+    }
+  },
+  "40": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_10.png"
+    },
+    "_meta": {
+      "title": "<image10>"
+    }
+  },
+  "20": {
+    "class_type": "TextEncodeQwenImage21",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "prompt": "",
+      "negative_prompt": "",
+      "resolution": 1024,
+      "images.image_1": [
+        "31",
+        0
+      ],
+      "images.image_2": [
+        "32",
+        0
+      ],
+      "images.image_3": [
+        "33",
+        0
+      ],
+      "images.image_4": [
+        "34",
+        0
+      ],
+      "images.image_5": [
+        "35",
+        0
+      ],
+      "images.image_6": [
+        "36",
+        0
+      ],
+      "images.image_7": [
+        "37",
+        0
+      ],
+      "images.image_8": [
+        "38",
+        0
+      ],
+      "images.image_9": [
+        "39",
+        0
+      ],
+      "images.image_10": [
+        "40",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Prompt + reference pictures"
+    }
+  },
+  "21": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1536,
+      "batch_size": 1
+    },
+    "_meta": {
+      "title": "Canvas size"
+    }
+  },
+  "22": {
+    "class_type": "RandomNoise",
+    "inputs": {
+      "noise_seed": 424242
+    },
+    "_meta": {
+      "title": "Seed"
+    }
+  },
+  "23": {
+    "class_type": "KSamplerSelect",
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "_meta": {
+      "title": "Sampler"
+    }
+  },
+  "24": {
+    "class_type": "ManualSigmas",
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0"
+    },
+    "_meta": {
+      "title": "Turbo 8-step schedule"
+    }
+  },
+  "25": {
+    "class_type": "CFGGuider",
+    "inputs": {
+      "model": [
+        "4",
+        0
+      ],
+      "positive": [
+        "20",
+        0
+      ],
+      "negative": [
+        "20",
+        1
+      ],
+      "cfg": 1.0
+    },
+    "_meta": {
+      "title": "CFG"
+    }
+  },
+  "26": {
+    "class_type": "SamplerCustomAdvanced",
+    "inputs": {
+      "noise": [
+        "22",
+        0
+      ],
+      "guider": [
+        "25",
+        0
+      ],
+      "sampler": [
+        "23",
+        0
+      ],
+      "sigmas": [
+        "24",
+        0
+      ],
+      "latent_image": [
+        "21",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Sample"
+    }
+  },
+  "27": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "26",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode"
+    }
+  },
+  "28": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "27",
+        0
+      ],
+      "filename_prefix": "studio/canvas"
+    },
+    "_meta": {
+      "title": "Save"
+    }
+  }
+}
