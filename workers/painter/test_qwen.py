@@ -159,11 +159,15 @@ def test_a_job_rehosts_its_references_mirrored_and_reports_the_cost(tokensail, t
             return Res(content=buf.getvalue() if "gallery" in url else png((200, 30, 30), (1024, 1536)))
 
     class Up:
+        """Like painter.PresignedUploader: the public /media url back, the signed R2 link in fetch_urls."""
+
         def __init__(self):
             self.files = {}
+            self.fetch_urls = {}
 
         def upload(self, path, key, ctype):
             self.files[key] = (Image.open(path).copy(), ctype)
+            self.fetch_urls[key] = f"https://acct.r2.cloudflarestorage.com/studio/{key}?X-Amz-Signature=s"
             return f"https://studio.test/media/{key}"
 
     vendor, up = Http([OK_TOKENSAIL]), Up()
@@ -175,7 +179,8 @@ def test_a_job_rehosts_its_references_mirrored_and_reports_the_cost(tokensail, t
     assert ref0[1] == "image/jpeg" and min(ref0[0].size) >= 384  # small pictures are brought up to the vendor's minimum
     assert ref0[0].getpixel((5, 5))[0] > 200 and ref1[0].getpixel((5, 5))[2] > 200  # the second one went up mirrored
     _, headers, body = vendor.posts[0]
-    assert body["image"] == ["https://studio.test/media/projects/p/images/j1.ref0.jpg", "https://studio.test/media/projects/p/images/j1.ref1.jpg"]
+    # the vendor gets the signed R2 links, not /media (which may sit behind Cloudflare Access)
+    assert body["image"] == [f"https://acct.r2.cloudflarestorage.com/studio/projects/p/images/j1.ref{i}.jpg?X-Amz-Signature=s" for i in (0, 1)]
     assert headers["X-TokenSail-Request-Id"] == "j1-r0"
     assert out["backend"] == "qwen" and out["api"] == [{"route": "tokensail", "model": "qwen-image-3.0-pro", "cost_usd": "0.0712"}]
     assert out["url"] == "https://studio.test/media/projects/p/images/j1.png"

@@ -78,10 +78,14 @@ class PresignedUploader:
 
     def __init__(self, studio: Studio, job_id: str, painter_id: str, http: Any = requests) -> None:
         self.studio, self.job_id, self.painter_id, self.http = studio, job_id, painter_id, http
+        # key → a signed R2 link for a vendor that fetches the file itself (Qwen-Image's references)
+        self.fetch_urls: dict[str, str] = {}
 
     def upload(self, path: Path, key: str, content_type: str) -> str:
         got = self.studio.post(f"/api/painter/jobs/{self.job_id}/uploads", {"painterId": self.painter_id, "keys": [key]})
         up = got["uploads"][0]
+        if up.get("fetchUrl"):
+            self.fetch_urls[key] = up["fetchUrl"]
         with open(path, "rb") as fh:
             res = self.http.put(up["putUrl"], data=fh, headers={"Content-Type": content_type}, timeout=300)
         if res.status_code >= 400:

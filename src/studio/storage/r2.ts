@@ -44,6 +44,15 @@ export async function presignPut(key: string, _contentType: string, _size: numbe
   return { url: signed.url, expiresAt: Date.now() + PRESIGN_SECONDS * 1000 };
 }
 
+/** A presigned GET, for a vendor that fetches a file by URL (Qwen-Image's references): straight from R2,
+    so neither Cloudflare Access nor the site's bot checks stand in front of it, and it expires. */
+export async function presignGet(key: string, seconds = 3600): Promise<{ url: string; expiresAt: number }> {
+  const url = new URL(objectUrl(key));
+  url.searchParams.set("X-Amz-Expires", String(seconds));
+  const signed = await s3().sign(new Request(url, { method: "GET" }), { aws: { signQuery: true } });
+  return { url: signed.url, expiresAt: Date.now() + seconds * 1000 };
+}
+
 export async function objectExists(key: string): Promise<boolean> {
   const res = await s3().fetch(objectUrl(key), { method: "HEAD" });
   return res.ok;
