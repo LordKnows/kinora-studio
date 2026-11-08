@@ -9,6 +9,7 @@ import * as painter from "@/studio/painter";
 import { painterPodEnv } from "@/studio/painter-pod";
 import { listReferences } from "@/studio/references";
 import * as repo from "@/studio/repo";
+import { PainterInfo } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
 /* Qwen-Image 3.0 Pro through an API (TokenSail or DashScope): the pose
@@ -97,6 +98,27 @@ describe("Qwen-Image 3.0 Pro through an API", () => {
     await painter.finish(r.job.id, "painter-pod-1", { error: "DashScope refused the picture" });
     expect(calls.filter((c) => c.method === "DELETE").map((c) => c.url.split("/").pop()).sort()).toEqual([0, 1, 2, 3].map((i) => `${r.job.id}.ref${i}.jpg`));
     expect((await repo.getJob(r.job.id)).status).toBe("failed");
+  });
+});
+
+describe("the painter heartbeat (/api/painter/claim)", () => {
+  /* what painter.py's info() sends: a CPU pod with a Qwen key, the GPU pod with its image models */
+  const heartbeat = (backends: string[]) => ({
+    version: "1", host: "abc123", backends, ops: ["paint", "crop", "extract"], features: ["mirror_refs"], slots: 2, running: [], onPod: false, instance: "i1",
+    runpodPodId: "pod1", codex: { installed: true, logged_in: true },
+  });
+
+  it("accepts every backend a painter can report, and keeps its features", () => {
+    for (const backends of [["codex", "qwen"], ["codex", "api", "comfy:qwen-image-2.1-turbo", "comfy:qwen-image-2.1", "comfy:qwen-image-edit-2509"]]) {
+      const parsed = PainterInfo.parse(heartbeat(backends));
+      expect(parsed.backends).toEqual(backends);
+      expect(parsed.features).toEqual(["mirror_refs"]);
+    }
+  });
+
+  it("still refuses a backend that is not one", () => {
+    expect(PainterInfo.safeParse(heartbeat(["comfy:../../etc"])).success).toBe(false);
+    expect(PainterInfo.safeParse(heartbeat(["midjourney"])).success).toBe(false);
   });
 });
 
