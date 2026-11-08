@@ -346,9 +346,9 @@ does. Same composed prompt (图1/图2/图3), up to three pictures, `watermark`
 off, and Canvas offers the gallery's `prompt_extend` (off by default: it
 rewrites the composed roles) and a negative prompt. The vendor fetches the
 references by URL, so the painter re-hosts them in R2 (`<job>.refN.jpg`,
-mirrored when asked) and hands the vendor a presigned R2 GET (an hour; straight from R2, so the
-site's own security rules — WAF, bot checks, Access — never stand in front of
-the vendor's fetcher); the Studio deletes them when the job ends. The
+mirrored when asked) and hands the vendor a presigned R2 GET (an hour; not
+`/media`, which sits behind Cloudflare Access); the Studio deletes them when
+the job ends. The
 picture comes back as a URL that expires in about an hour and is fetched at
 once; the cost TokenSail reports is kept in the job's output. Errors say what
 to do (402: top up; 403: allow the model for the key; a moderation refusal is

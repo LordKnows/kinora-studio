@@ -417,8 +417,8 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    （换接口地址，如国际站 `https://dashscope-intl.aliyuncs.com`）、`QWEN_IMAGE_API_MODEL`。
    CPU Pod **建立时**带上这些变量：加完 secret 后在 Machine → Painters 把正在运行的画图 Pod 停掉，
    下一张图会新建一个。参考图由阿里自己按 URL 抓取，所以画图机器先把它们放到 R2
-   （`…/<job>.ref0.jpg`），交给阿里的是 R2 的签名直链（1 小时有效，直接从 R2 取，
-   不经过 `/media`，站点的 WAF、Bot 防护和 Access 都管不到），任务结束即删除。按张计费（TokenSail：
+   （`…/<job>.ref0.jpg`），交给阿里的是 R2 的签名直链（1 小时有效，不经过 `/media` 和
+   Cloudflare Access，`/media/*` 不用对公网开放），任务结束即删除。按张计费（TokenSail：
    1K ¥0.25、2K ¥0.50，每张参考图另计），阿里云内容审核会拒绝色情内容。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
