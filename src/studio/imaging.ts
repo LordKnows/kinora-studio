@@ -106,10 +106,19 @@ export type ImageRequest = {
   model?: string;
   backend?: string;
   params?: PodParams;
+  /** Indexes into refUrls the painter flips left to right before drawing (a pose turned the other way). */
+  mirrorRefs?: number[];
 };
 
 /** What a pod model's job carries: the resolved settings, a seed, and its LoRAs (fetched by the pod when missing). */
-export type PodParams = InferenceParams & { seed?: number; loras?: Array<{ file: string; strength: number; name?: string; hf_url?: string }> };
+export type PodParams = InferenceParams & {
+  seed?: number;
+  loras?: Array<{ file: string; strength: number; name?: string; hf_url?: string }>;
+  /** API models (Qwen-Image 3.0 Pro): the vendor's model name and the pose gallery's 百炼 options. */
+  api_model?: string;
+  prompt_extend?: boolean;
+  negative_prompt?: string;
+};
 
 /** Queue an image job for the painters. Painting is gated by the project
     switch and quota; crop and extract are not. Nothing here needs the GPU:
@@ -142,7 +151,8 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
   const { wakeForWork } = await import("./painter-pod");
   const woke = await wakeForWork();
   if (woke) return { job, runner: `queued; ${woke}`, painters: { ...summary, note: woke } };
-  if (opts.startPod && config.painterOnPod() && gpu.gpuConfigured()) {
+  /* Qwen-Image 3.0 Pro is drawn by the CPU painter pod only (the GPU pod does not carry its key) */
+  if (opts.startPod && backend !== "qwen" && config.painterOnPod() && gpu.gpuConfigured()) {
     const pod = await repo.currentGpuPod();
     if (!pod || pod.status !== "running") {
       const state = await gpu.startGpu(actor, true);
@@ -163,6 +173,8 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
   if (job.status === "completed" || job.status === "failed") return job;
   const i = job.input as unknown as ImageRequest & { backend?: string; by?: string };
   if (status.state === "queued" || status.state === "running") return job.status === "running" ? job : repo.updateJob(job.id, { status: "running" });
+  /* the job is over: references re-hosted for an API (Qwen-Image 3.0 Pro) go */
+  await painter.removeRehosted(job);
   if (status.state !== "completed") {
     const error = status.state === "failed" ? status.error : status.state;
     if (/^quota:/i.test(error)) {

@@ -212,7 +212,7 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 4. **模型放哪**（默认：**本地盘，每次开机下载**）：`RUNPOD_NETWORK_VOLUME_ID` 留空、
    `RUNPOD_NETWORK_VOLUMES` 不填时，Pod 不挂任何卷，启动脚本用 aria2 十六线程把 `models.txt`
    里的 68 GB 下到容器盘（RunPod 机房到 HuggingFace 通常 300 MB/s 以上，几分钟），`/health` 报告
-   `models.ready`，齐了 Studio 才显示 running。容器盘默认 120 GB。Stop 会清空容器盘，所以
+   `models.ready`，齐了 Studio 才显示 running。容器盘默认 200 GB（H3、2K 重生成、Qwen-Image 2.1 与 Qwen-Image-Edit 2509 合计约 145 GB）。Stop 会清空容器盘，所以
    空闲自动关机默认 45 分钟。好处：不依赖任何卷，数据中心随便挑，没有全局盘的 venv 和读取
    速度问题。想不自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。
    用卷的两种方式如下。
@@ -409,6 +409,16 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    按 **Redraws on a blocker**（默认 1 次）带着问题重画；重画算图片额度，检查本身不算。
 6. **可选：API 后端**：在画图机器上设 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。
    GPU Pod 兜底画图时用 Worker 上的同名 secret（建 Pod 时传入）。
+6a. **可选：Qwen-Image 3.0 Pro（API，Canvas 里选 “Qwen-Image 3.0 Pro · API”）**：参考 repo 的
+   阿里云百炼画法，由 **CPU 画图 Pod** 调用，不用 GPU。Worker 加 secret `TOKENSAIL_API_KEY`
+   （TokenSail 的推理 key，`sk-tokensail-` 开头，不是 `sk-tokensail-mgmt-`；Cloudflare 网页：
+   Workers & Pages → 这个 Worker → Settings → Variables and Secrets → Add → 类型 Secret）。
+   直连百炼的话改设 `DASHSCOPE_API_KEY`（两者都设时用 TokenSail）。可选变量：`QWEN_API_BASE`
+   （换接口地址，如国际站 `https://dashscope-intl.aliyuncs.com`）、`QWEN_IMAGE_API_MODEL`。
+   CPU Pod **建立时**带上这些变量：加完 secret 后在 Machine → Painters 把正在运行的画图 Pod 停掉，
+   下一张图会新建一个。参考图由阿里自己按 URL 抓取，所以画图机器先把它们放到 R2
+   （`…/<job>.ref0.jpg`，`/media/*` 必须公网可访问），任务结束即删除。按张计费（TokenSail：
+   1K ¥0.25、2K ¥0.50，每张参考图另计），阿里云内容审核会拒绝色情内容。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
 8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。

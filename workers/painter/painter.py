@@ -148,12 +148,13 @@ class Painter:
 
     def info(self) -> dict[str, Any]:
         codex = self.codex_status()
-        backends = (["codex"] if codex.get("logged_in") else []) + (["api"] if os.environ.get("OPENAI_API_KEY") else []) + self.comfy_backends()
+        backends = ((["codex"] if codex.get("logged_in") else []) + (["api"] if os.environ.get("OPENAI_API_KEY") else [])
+                    + (["qwen"] if paint.qwen_route() else []) + self.comfy_backends())
         with self.lock:
             running = list(self.running)
         login = {k: v for k, v in self.login.state.items() if k in ("state", "url", "code", "lines", "error")}
         return {
-            "version": VERSION, "host": socket.gethostname()[:120], "backends": backends, "ops": ["paint", "crop", "extract"],
+            "version": VERSION, "host": socket.gethostname()[:120], "backends": backends, "ops": ["paint", "crop", "extract"], "features": ["mirror_refs"],
             "slots": self.slots, "running": running, "onPod": self.on_pod, "instance": self.instance,
             **({"runpodPodId": os.environ["RUNPOD_POD_ID"]} if os.environ.get("RUNPOD_POD_ID") else {}),
             "codex": {k: codex.get(k) for k in ("installed", "logged_in", "code_mode_host", "detail", "home", "bin")},

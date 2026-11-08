@@ -65,7 +65,7 @@ export const config = {
       return i > 0 ? { dataCenterId: pair.slice(0, i).trim(), volumeId: pair.slice(i + 1).trim() } : { dataCenterId: "", volumeId: pair };
     }),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
-    containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "120"),
+    containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "200"),
     /* Away from /workspace by default: a global volume only lends models (see workers/h3-runpod/start.sh). */
     volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/runpod-volume",
     /** Host CUDA versions to allow (RunPod enum, e.g. "13.0"). Empty = no

@@ -28,6 +28,8 @@ type Recipe = {
   costume?: Slot<RefCostume> & { view?: string };
   pose?: Slot<RefPose>;
   depth: boolean;
+  /** The pose flipped left to right (the painter mirrors the picture). */
+  mirror?: boolean;
   extras: Upload[];
   style: string;
   size: (typeof CANVAS_SIZES)[number];
@@ -36,6 +38,9 @@ type Recipe = {
   model?: string;
   /** Pod models: LoRAs from the library, trained for the model's family. */
   loras?: LoraRef[];
+  /** Qwen-Image 3.0 Pro (API): let the vendor rewrite the prompt, and what the picture must not show. */
+  promptExtend?: boolean;
+  negative?: string;
   note: string;
   /** The prompt typed over the composed one. */
   prompt?: string;
@@ -70,7 +75,7 @@ function toPromptRecipe(r: Recipe, refStyle?: "zh" | "qwen"): CanvasPromptRecipe
   return {
     portrait: r.portrait && (r.portrait.item ? { item: r.portrait.item } : { upload: { name: r.portrait.upload.name } }),
     costume: r.costume && (r.costume.item ? { item: r.costume.item } : { upload: { name: r.costume.upload.name } }),
-    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth } : { upload: { name: r.pose.upload.name } }),
+    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror }),
     extras: r.extras.map((e) => ({ name: e.name })),
     style: r.style,
     note: r.note,
@@ -192,6 +197,8 @@ export function CanvasPage() {
   const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
   const model: ModelEntry = findModel(recipe.model ?? "") ?? imageModelOfBackend(view?.project.imaging?.backend ?? "codex") ?? IMAGE_MODELS[0]!;
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
+  /* GPT Image's quality tiers; Qwen's API has none */
+  const takesQuality = model.backend === "codex" || model.backend === "api";
   const { loras: library } = useLoraLibrary();
   /* only the LoRAs of this model's family travel with the recipe */
   const activeLoras = model.runtime === "pod" ? (recipe.loras ?? []).flatMap((r) => {
@@ -251,6 +258,7 @@ export function CanvasPage() {
       if (!file) return;
       e.preventDefault();
       if (count >= maxRefs) return setError(new Error(`${model.label} takes at most ${maxRefs} pictures per call`));
+      if (model.poseRecipe) return setError(new Error(`${model.label} takes no extra pictures: drop it on the portrait, costume or pose`));
       tryUpload(file, "extra");
     };
     window.addEventListener("paste", onPaste);
@@ -273,13 +281,15 @@ export function CanvasPage() {
       const body = {
         portrait: recipe.portrait && (recipe.portrait.item ? { id: recipe.portrait.item.id } : { assetId: recipe.portrait.upload.assetId }),
         costume: recipe.costume && (recipe.costume.item ? { id: recipe.costume.item.id, view: recipe.costume.view } : { assetId: recipe.costume.upload.assetId }),
-        pose: recipe.pose && (recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId }),
+        pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId }), ...(recipe.mirror ? { mirror: true } : {}) },
         extras: recipe.extras.map((e) => ({ assetId: e.assetId, name: e.name })),
         style: recipe.style,
         size: recipe.size,
         model: model.id,
         ...(activeLoras.length ? { loras: activeLoras.map((l) => ({ id: l.id, strength: l.strength })) } : {}),
-        ...(recipe.quality && model.runtime === "api" ? { quality: recipe.quality } : {}),
+        ...(recipe.quality && takesQuality ? { quality: recipe.quality } : {}),
+        ...(model.options?.includes("prompt_extend") ? { promptExtend: !!recipe.promptExtend } : {}),
+        ...(model.options?.includes("negative_prompt") && recipe.negative?.trim() ? { negativePrompt: recipe.negative.trim() } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
         ...(prefs.attach ? { attach: prefs.attach } : {}),
@@ -302,9 +312,9 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; costumeView?: string; note?: string; model?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, note: c.note ?? "", ...(c.model ? { model: c.model } : {}) };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -323,7 +333,9 @@ export function CanvasPage() {
   const imaging = project?.imaging;
   const uploadedFaceAdult = !!recipe.portrait?.upload && [recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
   const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (the GPT Image switch)" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
-  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : adultLora && anyUpload ? `${adultLora.name} draws with library pictures only` : "");
+  /* Qwen-Image-Edit 2509: fixed slots, a pose and a portrait and/or a costume */
+  const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
+  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : adultLora && anyUpload ? `${adultLora.name} draws with library pictures only` : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -334,7 +346,7 @@ export function CanvasPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, or Qwen-Image on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
+          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
         </div>
         <div className="st-row">
           <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
@@ -408,10 +420,12 @@ export function CanvasPage() {
                   onRandom={(scope) => void randomize(k, scope).catch(setError)}
                   onUpload={(f) => tryUpload(f, k)}
                   onDepth={(d) => setRecipe((r) => ({ ...r, depth: d }))}
+                  onMirror={(m) => setRecipe((r) => ({ ...r, mirror: m }))}
                   onView={(v) => setRecipe((r) => (r.costume?.item ? { ...r, costume: { ...r.costume, view: v } } : r))} />
               ))}
             </div>
-            <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs} uploading={uploading === "extra"}
+            {model.poseRecipe && <p className="st-muted">{model.label} draws a pose with a portrait and/or a costume: portrait + costume + pose, or one of them + pose. No extra pictures.</p>}
+            <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs && !model.poseRecipe} uploading={uploading === "extra"}
               onAdd={(f) => tryUpload(f, "extra")}
               onRemove={(i) => setRecipe((r) => ({ ...r, extras: r.extras.filter((_, j) => j !== i) }))}
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
@@ -448,7 +462,7 @@ export function CanvasPage() {
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>
-              {model.runtime === "api" && (
+              {takesQuality && (
                 <Field label="Quality">
                   <select className="st-select" value={recipe.quality ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, quality: (e.target.value || undefined) as Recipe["quality"] }))}>
                     <option value="">Project default{imaging ? ` (${imaging.quality})` : ""}</option>
@@ -459,6 +473,16 @@ export function CanvasPage() {
                 </Field>
               )}
             </div>
+            {model.options?.includes("prompt_extend") && (
+              <label className="st-toggle" title="prompt_extend: the vendor rewrites the prompt before drawing (the pose gallery turns it on; off keeps the 图1/图2/图3 roles exactly as composed)">
+                <input type="checkbox" checked={!!recipe.promptExtend} onChange={(e) => setRecipe((r) => ({ ...r, promptExtend: e.target.checked }))} /> 智能改写 · let Qwen rewrite the prompt
+              </label>
+            )}
+            {model.options?.includes("negative_prompt") && (
+              <Field label="Negative prompt" hint="What the picture must not show, e.g. 多余的手指, 文字水印">
+                <input className="st-input" maxLength={500} value={recipe.negative ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, negative: e.target.value }))} />
+              </Field>
+            )}
             <Field label="Note" hint="Added to the prompt, e.g. 教室窗边逆光，微风吹拂发丝">
               <textarea className="st-textarea" rows={2} maxLength={600} value={recipe.note} onChange={(e) => setRecipe((r) => ({ ...r, note: e.target.value }))} />
             </Field>
@@ -527,7 +551,7 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
         </select>
       </Field>
       {loras}
-      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · up to {model.maxRefs ?? CANVAS_MAX_REFS} pictures{model.moderation === "openai" ? " · OpenAI moderation" : " · no content filter"}</span>
+      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {model.poseRecipe ? "pose + portrait and/or costume" : `up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : model.moderation === "alibaba" ? " · Alibaba Cloud moderation" : " · no content filter"}</span>
       {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
       {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
         <div className="st-alert st-alert--warn">
@@ -542,9 +566,9 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
 
 /* ---------- slots ---------- */
 
-function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onView }: {
+function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onMirror, onView }: {
   kind: SlotKind; recipe: Recipe; adult: boolean; uploading: boolean; canUpload: boolean;
-  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onView: (v: string) => void;
+  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onView: (v: string) => void;
 }) {
   const slot = recipe[kind] as Slot<RefItem> | undefined;
   const input = useRef<HTMLInputElement>(null);
@@ -561,16 +585,21 @@ function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear
     <div className="st-slot" data-drag={drag ? "true" : undefined} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
       <span className="st-label">{SLOT_LABEL[kind]}</span>
       <button type="button" className="st-slot-pic" onClick={onBrowse} title={slot ? "Change it in the library" : "Pick from the library"}>
-        {thumb ? <img src={thumb} alt={slotName(slot)} referrerPolicy="no-referrer" /> : <span className="st-muted">{uploading ? "Uploading…" : "Pick from the library, or drop a picture"}</span>}
+        {thumb ? <img src={thumb} alt={slotName(slot)} referrerPolicy="no-referrer" data-mirror={kind === "pose" && recipe.mirror ? "true" : undefined} /> : <span className="st-muted">{uploading ? "Uploading…" : "Pick from the library, or drop a picture"}</span>}
         {item?.nsfw && <span className="st-ref-badge">18+</span>}
       </button>
       <div className="st-slot-name" title={slotName(slot)}>{slotName(slot) || "—"}</div>
       {sub && <div className="st-muted st-slot-sub">{sub}</div>}
       {item?.nsfw && !adult && <div className="st-warn st-slot-sub">hidden now</div>}
-      {kind === "pose" && item && (
-        <div className="st-seg st-seg--sm" role="group" aria-label="Pose picture">
-          <button type="button" aria-pressed={!recipe.depth} title="Line art" onClick={() => onDepth(false)}>白模</button>
-          <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>
+      {kind === "pose" && slot && (
+        <div className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
+          {item && (
+            <div className="st-seg st-seg--sm" role="group" aria-label="Pose picture">
+              <button type="button" aria-pressed={!recipe.depth} title="Line art" onClick={() => onDepth(false)}>白模</button>
+              <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>
+            </div>
+          )}
+          <button type="button" className="st-chip st-chip--btn" aria-pressed={!!recipe.mirror} title="Flip the pose left to right" onClick={() => onMirror(!recipe.mirror)}>⇋ 镜像</button>
         </div>
       )}
       {kind === "costume" && item?.kind === "costume" && item.views && (

@@ -1,5 +1,5 @@
 {
-  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio. lora_after / lora_into: where the painter chains LoraLoaderModelOnly nodes for the job's LoRAs (fetched from their HuggingFace link into models/loras when missing).",
+  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio. lora_after / lora_into: where the painter chains LoraLoaderModelOnly nodes for the job's LoRAs (fetched from their HuggingFace link into models/loras when missing). min_images / variants: a model that needs a set number of pictures (Qwen-Image-Edit 2509: portrait + costume + pose, or person + pose) picks its graph and picture slots by the count.",
   "qwen-image-2.1-turbo": {
     "workflow": "QWEN21_EDIT",
     "files": "models-qwen-image.txt",
@@ -128,6 +128,72 @@
     "scheduler": [
       "29",
       "scheduler"
+    ]
+  },
+  "qwen-image-edit-2509": {
+    "workflow": "QIE2509_3IMG",
+    "files": "models-qie2509.txt",
+    "min_images": 2,
+    "max_images": 3,
+    "image_target": null,
+    "image_loaders": [
+      "1",
+      "2",
+      "3"
+    ],
+    "variants": {
+      "2": {
+        "workflow": "QIE2509_2IMG",
+        "image_loaders": [
+          "1",
+          "3"
+        ]
+      }
+    },
+    "prompt": [
+      "12",
+      "prompt"
+    ],
+    "negative": [
+      "13",
+      "prompt"
+    ],
+    "resolution": null,
+    "width": [
+      "10",
+      "width"
+    ],
+    "height": [
+      "10",
+      "height"
+    ],
+    "seed": [
+      "14",
+      "seed"
+    ],
+    "sampler": [
+      "14",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "14",
+      "scheduler"
+    ],
+    "sigmas": null,
+    "cfg": [
+      "14",
+      "cfg"
+    ],
+    "steps": [
+      "14",
+      "steps"
+    ],
+    "output_node": "16",
+    "size_multiple": 16,
+    "lora_after": "5",
+    "lora_into": [
+      "6",
+      "model"
     ]
   }
 }

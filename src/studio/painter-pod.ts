@@ -129,6 +129,16 @@ export async function painterPodState(): Promise<PainterPodState> {
   };
 }
 
+/** What the CPU painter pod starts with: how to reach the Studio, and the API keys of the models it draws without a GPU (Qwen-Image 3.0 Pro). */
+export function painterPodEnv(): Record<string, string> {
+  const env: Record<string, string> = { STUDIO_URL: config.publicUrl(), PAINTER_TOKEN: config.painterToken()!, PAINTER_NAME: "painter-pod", PAINTER_STATE_DIR: `${MOUNT_PATH}/painter`, PYTHONUNBUFFERED: "1" };
+  for (const name of ["TOKENSAIL_API_KEY", "DASHSCOPE_API_KEY", "QWEN_API_BASE", "QWEN_IMAGE_API_MODEL"]) {
+    const v = process.env[name];
+    if (v) env[name] = v;
+  }
+  return env;
+}
+
 /** Create the pod: each CPU flavor in turn while RunPod has none of it. */
 export async function startPainterPod(reason: string): Promise<PainterPodState> {
   const ok = podConfigured();
@@ -140,7 +150,7 @@ export async function startPainterPod(reason: string): Promise<PainterPodState> 
     try {
       const record = await client().createCpuPod({
         name: `${repo.PAINTER_POD_NAME}-${flavorId}`, image: c.image, flavorId, vcpuCount: c.vcpuCount, diskGb: c.diskGb,
-        env: { STUDIO_URL: config.publicUrl(), PAINTER_TOKEN: config.painterToken()!, PAINTER_NAME: "painter-pod", PAINTER_STATE_DIR: `${MOUNT_PATH}/painter`, PYTHONUNBUFFERED: "1" },
+        env: painterPodEnv(),
         entrypoint: ["bash", "-c", BOOT_SCRIPT], dataCenterId: c.dataCenterId, networkVolumeId: c.volumeId, mountPath: MOUNT_PATH,
       });
       await repo.insertPainterPod({ id: record.id, name: `${repo.PAINTER_POD_NAME}-${flavorId}`, status: "starting", costPerHr: record.costPerHr, startedAt: Date.now(), message: `created (${flavorId}, ${c.vcpuCount} vCPU, ${c.dataCenterId}) — ${reason}; installing and fetching the painter (1–3 min)` });

@@ -41,6 +41,9 @@ Input:
     {op, backend?, prompt?, refs?: [url], base?: url, region?: {x,y,w,h},
      crop?: {x,y,w,h}, video?: url, frame?: int, size: "WxH",
      quality?: low|medium|high, check?: {review?: bool, redraws?: int, kind?: str},
+     params?: {steps, cfg, sampler, scheduler, sigmas, resolution, seed, loras} (comfy:<model>),
+              {api_model, prompt_extend, negative_prompt} (qwen),
+     mirror_refs?: [index into refs] (flipped left to right before drawing),
      output: {key: "....png"}, studio_job_id?}
     (boxes are fractions of the picture: 0..1)
 Output:
@@ -76,10 +79,16 @@ REVIEW_TIMEOUT_S = int(os.environ.get("CODEX_REVIEW_TIMEOUT_S", "300"))
 QUOTA_WORDS = ("usage limit", "rate limit", "429", "quota", "insufficient_quota", "billing")
 MAX_REDRAWS = 2
 MAX_COMFY_PICTURES = 10
+MAX_QWEN_PICTURES = 3
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 # the pod's ComfyUI queue is shared with the video takes: a picture may wait behind one
 COMFY_TIMEOUT_S = int(os.environ.get("COMFY_PAINT_TIMEOUT_S", "2400"))
 COMFY_POLL_S = 2.0
+# Qwen-Image 3.0 Pro through an API (the pose gallery's 阿里云百炼 path): TokenSail's OpenAI-style
+# images endpoint, or DashScope's own multimodal-generation endpoint. The key picks the route.
+QWEN_TIMEOUT_S = int(os.environ.get("QWEN_API_TIMEOUT_S", "300"))
+QWEN_RETRY_S = 5.0
+QWEN_DEFAULT_MODEL = "qwen-image-3.0-pro"
 HERE = Path(__file__).resolve().parent
 # the job server's folder: next to this file on the pod (bundle or image), ../h3-runpod in the repo
 POD_DIR = Path(os.environ.get("POD_DIR") or (HERE if (HERE / "workflows").is_dir() else HERE.parent / "h3-runpod"))
@@ -158,8 +167,8 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
         if not isinstance(prompt, str) or len(prompt.strip()) < 5:
             raise PaintError("paint needs a prompt")
         backend = raw.get("backend", "codex")
-        if not isinstance(backend, str) or not (backend in ("codex", "api") or re.fullmatch(r"comfy:[a-z0-9][a-z0-9._-]{0,60}", backend)):
-            raise PaintError("backend must be codex, api or comfy:<model>")
+        if not isinstance(backend, str) or not (backend in ("codex", "api", "qwen") or re.fullmatch(r"comfy:[a-z0-9][a-z0-9._-]{0,60}", backend)):
+            raise PaintError("backend must be codex, api, qwen or comfy:<model>")
         refs = raw.get("refs") or []
         if not isinstance(refs, list) or not all(isinstance(u, str) and u.startswith(("http://", "https://")) for u in refs):
             raise PaintError("refs must be a list of image urls")
@@ -170,13 +179,18 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
             raise PaintError(f"Codex's image tool takes at most {MAX_CODEX_PICTURES} pictures (refs + base)")
         if backend.startswith("comfy:") and len(refs) + (1 if base else 0) > MAX_COMFY_PICTURES:
             raise PaintError(f"the pod's image models take at most {MAX_COMFY_PICTURES} pictures (refs + base)")
+        if backend == "qwen" and len(refs) + (1 if base else 0) > MAX_QWEN_PICTURES:
+            raise PaintError(f"Qwen-Image through the API takes at most {MAX_QWEN_PICTURES} pictures (refs + base)")
         region = _box(raw.get("region"), "region")
         if region and not base:
             raise PaintError("region needs a base image to paste back onto")
         quality = raw.get("quality", "low")
         if quality not in ("low", "medium", "high"):
             raise PaintError("quality must be low, medium or high")
-        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")), settings=_settings(raw.get("params")))
+        mirror = raw.get("mirror_refs") or []
+        if not isinstance(mirror, list) or not all(isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(refs) for i in mirror):
+            raise PaintError("mirror_refs must list indexes into refs")
+        params.update(prompt=prompt.strip(), backend=backend, refs=refs, base=base, region=region, quality=quality, check=_check_opts(raw.get("check")), settings=_settings(raw.get("params")), mirror_refs=sorted(set(mirror)))
     elif op == "crop":
         base = raw.get("base")
         if not isinstance(base, str) or not base.startswith(("http://", "https://")):
@@ -645,6 +659,12 @@ def _settings(raw: Any) -> dict[str, Any]:
         loras.append({"file": l["file"], "strength": strength, **({"hf_url": hf} if hf else {})})
     if loras:
         out["loras"] = loras[:4]
+    if isinstance(raw.get("api_model"), str) and re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,60}", raw["api_model"]):
+        out["api_model"] = raw["api_model"]
+    if isinstance(raw.get("prompt_extend"), bool):
+        out["prompt_extend"] = raw["prompt_extend"]
+    if isinstance(raw.get("negative_prompt"), str) and raw["negative_prompt"].strip():
+        out["negative_prompt"] = raw["negative_prompt"].strip()[:500]
     return out
 
 
@@ -813,9 +833,13 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1, /app/download_qwen_image*.log) when the disk has room")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
+    if len(pictures) < int(entry.get("min_images", 0)):
+        raise PaintError(f"{model} needs at least {entry.get('min_images')} pictures (a pose and a portrait or costume)")
+    # a model with a set number of slots (Qwen-Image-Edit 2509) has a graph per picture count
+    entry = {**entry, **((entry.get("variants") or {}).get(str(len(pictures))) or {})}
     graph = json.loads((POD_DIR / "workflows" / f"{entry['workflow']}.json").read_text())
     graph = {k: v for k, v in graph.items() if not k.startswith("_")}
     loaders = list(entry.get("image_loaders") or [])
@@ -888,6 +912,129 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
     return Image.open(BytesIO(view.content)).convert("RGB")
 
 
+# ---------- qwen: Qwen-Image 3.0 Pro through an API ----------
+
+
+def qwen_route() -> tuple[str, str, str] | None:
+    """(protocol, base url, key) from the painter's environment: TokenSail first, then DashScope; None without a key."""
+    base = (os.environ.get("QWEN_API_BASE") or "").rstrip("/")
+    if os.environ.get("TOKENSAIL_API_KEY"):
+        return "tokensail", base or "https://api.tokensail.ai/v1", os.environ["TOKENSAIL_API_KEY"]
+    if os.environ.get("DASHSCOPE_API_KEY"):
+        return "dashscope", base or "https://dashscope.aliyuncs.com", os.environ["DASHSCOPE_API_KEY"]
+    return None
+
+
+def rehost_picture(path: Path, out: Path) -> Path:
+    """A reference as the vendor fetches it: JPEG, the long side at most 2048 px, the short side at least 384 px."""
+    Image = _pil()
+    img = Image.open(path).convert("RGB")
+    scale = min(1.0, 2048 / max(img.size))
+    if min(img.size) * scale < 384:
+        scale = 384 / min(img.size)
+    if scale != 1.0:
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+    img.save(out, "JPEG", quality=92)
+    return out
+
+
+def _qwen_error(protocol: str, res: Any) -> tuple[str, str, float | None]:
+    """(code, message, seconds to wait) from either vendor's error envelope."""
+    try:
+        body = res.json() or {}
+    except ValueError:
+        body = {}
+    err = body.get("error") if isinstance(body.get("error"), dict) else body
+    code = str(err.get("code") or err.get("type") or res.status_code)
+    message = str(err.get("message") or (res.text or "")[:300])
+    wait = err.get("retry_after_seconds")
+    if wait is None and res.headers.get("Retry-After", "").isdigit():
+        wait = int(res.headers["Retry-After"])
+    return code, message, float(wait) if isinstance(wait, (int, float)) else None
+
+
+def _qwen_refusal(code: str, message: str) -> bool:
+    text = f"{code} {message}".lower()
+    return any(w in text for w in ("datainspection", "inappropriate", "sensitive", "content_policy", "moderation", "green"))
+
+
+def run_qwen(prompt: str, ref_urls: list[str], w: int, h: int, settings: dict[str, Any], http: Any = requests,
+             request_id: str | None = None) -> tuple[Any, dict[str, Any]]:
+    """One picture from Qwen-Image 3.0 Pro (the pose gallery's 阿里云百炼 call): the reference pictures as
+    public URLs (the vendor fetches them), the prompt naming them 图1, 图2 …, the canvas size. Returns the
+    picture and what the call cost."""
+    Image = _pil()
+    from io import BytesIO
+
+    route = qwen_route()
+    if not route:
+        raise PaintError("Qwen-Image through the API needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) on this painter")
+    protocol, base, key = route
+    model = settings.get("api_model") or os.environ.get("QWEN_IMAGE_API_MODEL") or QWEN_DEFAULT_MODEL
+    extend = bool(settings.get("prompt_extend", False))
+    negative = settings.get("negative_prompt")
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if protocol == "tokensail":
+        url = base if base.endswith("/images/generations") else f"{base}/images/generations"
+        # the documented fields, then the vendor's own ones (TokenSail passes the rest of the body upstream)
+        body: dict[str, Any] = {"model": model, "prompt": prompt, "n": 1, "size": f"{w}x{h}", "response_format": "url",
+                                **({"image": ref_urls} if ref_urls else {}), "prompt_extend": extend, "watermark": False,
+                                **({"negative_prompt": negative} if negative else {})}
+        if request_id:
+            # retrying with the same id is never charged twice
+            headers["X-TokenSail-Request-Id"] = request_id[:120]
+    else:
+        url = base if "/services/aigc/" in base else f"{re.sub(r'/api/v1$', '', base)}/api/v1/services/aigc/multimodal-generation/generation"
+        body = {"model": model, "input": {"messages": [{"role": "user", "content": [*({"image": u} for u in ref_urls), {"text": prompt}]}]},
+                "parameters": {"size": f"{w}*{h}", "n": 1, "prompt_extend": extend, "watermark": False,
+                               **({"negative_prompt": negative} if negative else {})}}
+    name = "TokenSail" if protocol == "tokensail" else "DashScope"
+    res = None
+    for attempt in range(3):
+        res = http.post(url, headers=headers, json=body, timeout=QWEN_TIMEOUT_S)
+        if res.status_code < 400:
+            break
+        code, message, wait = _qwen_error(protocol, res)
+        if res.status_code in (429, 500, 502, 503, 504) and attempt < 2 and not _qwen_refusal(code, message):
+            time.sleep(min(wait if wait is not None else QWEN_RETRY_S * (attempt + 1), 60))
+            continue
+        if _qwen_refusal(code, message):
+            raise PaintError(f"REFUSED by Alibaba Cloud's content moderation ({name} {res.status_code} {code}): {message[:300]}")
+        if res.status_code == 402 or code in ("balance_insufficient", "Arrearage"):
+            raise PaintError(f"{name}: the balance is used up ({res.status_code} {code}) — top it up (TokenSail: Console → Billing)")
+        if res.status_code == 401 or code in ("invalid_api_key", "InvalidApiKey"):
+            raise PaintError(f"{name} refused the key ({res.status_code} {code}): check {'TOKENSAIL_API_KEY' if protocol == 'tokensail' else 'DASHSCOPE_API_KEY'} (an inference key, not a management key)")
+        if res.status_code == 403 or code == "model_not_allowed":
+            raise PaintError(f"{name}: this key may not use {model} ({res.status_code} {code}) — allow the model for the key or its workspace")
+        raise PaintError(f"{name} refused the picture ({res.status_code} {code}): {message[:400]}")
+    data = res.json() or {}
+    picture_url, b64 = None, None
+    if protocol == "tokensail":
+        first = (data.get("data") or [{}])[0]
+        picture_url, b64 = first.get("url"), first.get("b64_json")
+    else:
+        for part in ((((data.get("output") or {}).get("choices") or [{}])[0].get("message") or {}).get("content") or []):
+            if isinstance(part, dict) and part.get("image"):
+                picture_url = part["image"]
+                break
+        picture_url = picture_url or (((data.get("output") or {}).get("results") or [{}])[0].get("url"))
+    if b64:
+        raw = base64.b64decode(b64)
+    elif picture_url:
+        # the hosted file is deleted after about an hour: fetch it now
+        got = http.get(picture_url, timeout=120)
+        if got.status_code >= 400:
+            raise PaintError(f"could not fetch the picture from {name} ({got.status_code})")
+        raw = got.content
+    else:
+        raise PaintError(f"{name} answered without a picture: {json.dumps(data)[:300]}")
+    meta: dict[str, Any] = {"route": protocol, "model": model}
+    cost = getattr(res, "headers", {}).get("X-TokenSail-Cost") if protocol == "tokensail" else None
+    if cost:
+        meta["cost_usd"] = cost
+    return Image.open(BytesIO(raw)).convert("RGB"), meta
+
+
 # ---------- api ----------
 
 
@@ -943,6 +1090,16 @@ def _download_picture(url: str, dest: Path, http: Any) -> Path:
     return out
 
 
+def mirror_picture(path: Path) -> Path:
+    """The picture flipped left to right (a pose turned the other way), next to the original."""
+    Image = _pil()
+    from PIL import ImageOps
+
+    out = path.with_name(f"{path.stem}.mirrored.png")
+    ImageOps.mirror(Image.open(path).convert("RGB")).save(out)
+    return out
+
+
 def extract_frame(video: Path, frame: int, out: Path) -> Path:
     """The exact frame `frame` (0-based) of the video, as PNG."""
     proc = subprocess.run([FFMPEG, "-v", "error", "-y", "-i", str(video), "-vf", f"select=eq(n\\,{frame})", "-vsync", "0",
@@ -959,6 +1116,12 @@ def _draw(params: dict[str, Any], prompt: str, pictures: list[Path], has_base: b
         return run_codex(prompt, pictures, w, h, workdir, codex_runner, has_base=has_base, tag=tag)
     if params["backend"].startswith("comfy:"):
         drawn = run_comfy(params["backend"][len("comfy:"):], prompt, pictures, w, h, params.get("settings") or {}, http)
+        return drawn, 1, drawn.size
+    if params["backend"] == "qwen":
+        api = params.setdefault("_api", {})
+        rid = f"{params['studio_job_id']}.{tag}" if params.get("studio_job_id") else None
+        drawn, meta = run_qwen(prompt, api.get("ref_urls") or [], w, h, params.get("settings") or {}, http, request_id=rid)
+        api.setdefault("calls", []).append(meta)
         return drawn, 1, drawn.size
     drawn, attempts = run_api(prompt, pictures, w, h, params["quality"], http)
     return drawn, attempts, drawn.size
@@ -1001,6 +1164,8 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
         w, h = params["size"]
         check = params.get("check") or {"review": False, "redraws": 0, "kind": ""}
         refs = [_download_picture(u, workdir / f"ref{i}", http) for i, u in enumerate(params["refs"])]
+        for i in params.get("mirror_refs") or []:
+            refs[i] = mirror_picture(refs[i])
         pictures = list(refs)
         base = None
         base_path = None
@@ -1008,6 +1173,10 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
             base_path = _download_picture(params["base"], workdir / "base", http)
             base = Image.open(base_path).convert("RGB")
             pictures.append(base_path)  # the picture being edited goes last, as the prompts say
+        if params["backend"] == "qwen":
+            # the vendor fetches the references itself: put them where it can (our R2, public, removed when the job ends)
+            params.setdefault("_api", {})["ref_urls"] = [
+                uploader.upload(rehost_picture(p, workdir / f"rehost{i}.jpg"), f"{stem}.ref{i}.jpg", "image/jpeg") for i, p in enumerate(pictures)]
         prompt = params["prompt"]
         drawn_count = 0
         attempts_total = 0
@@ -1031,6 +1200,8 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
                 note += "".join(f"\n- {c['message']}" for c in checks if c["level"] == "fail")
                 prompt = params["prompt"] + (note if note.strip() else "")
         out.update(backend=params["backend"], attempts=attempts_total, drawn=drawn_count, rounds=round_no + 1)
+        if (params.get("_api") or {}).get("calls"):
+            out["api"] = params["_api"]["calls"]
         if review is not None:
             out["review"] = review
     if params["op"] != "paint":

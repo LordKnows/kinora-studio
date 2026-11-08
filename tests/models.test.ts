@@ -84,7 +84,7 @@ describe("resolving the settings", () => {
 
 describe("the registry and the pod agree", () => {
   const pod = join(__dirname, "..", "workers", "h3-runpod");
-  const manifest = JSON.parse(readFileSync(join(pod, "workflows", "image_models.json"), "utf8")) as Record<string, { files: string; workflow: string }>;
+  const manifest = JSON.parse(readFileSync(join(pod, "workflows", "image_models.json"), "utf8")) as Record<string, { files: string; workflow: string; variants?: Record<string, { workflow?: string }> }>;
 
   it("every pod image model has a workflow, a manifest entry and the same download list", () => {
     for (const m of IMAGE_MODELS.filter((x) => x.runtime === "pod")) {
@@ -97,6 +97,8 @@ describe("the registry and the pod agree", () => {
       const graph = JSON.parse(readFileSync(join(pod, "workflows", `${entry.workflow}.json`), "utf8")) as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>;
       const loaded = Object.values(graph).flatMap((n) => Object.values(n.inputs ?? {})).filter((v) => typeof v === "string");
       for (const f of m.files!) expect(loaded).toContain(f.file);
+      /* a model with a graph per picture count lists them all */
+      for (const v of Object.values(entry.variants ?? {})) if (v.workflow) expect(m.workflows).toContain(v.workflow);
     }
   });
 
@@ -207,5 +209,58 @@ describe("Qwen-Image 2.1 base with ChatR Omni", () => {
   it("a deleted built-in LoRA stays deleted", async () => {
     await repo.deleteLora("lora_chatr_omni_v01");
     expect((await repo.listLoras()).some((l) => l.id === "lora_chatr_omni_v01")).toBe(false);
+  });
+});
+
+describe("Qwen-Image-Edit 2509: the pose gallery's workflow", () => {
+  const QIE = findModel("qwen-image-edit-2509") as ModelEntry;
+  let projectId = "";
+  const portrait = async () => (await listReferences("portrait", false)).items[2]!;
+  const costume = async () => (await listReferences("costume", false)).items.find((x) => x.kind === "costume" && x.source === "gia")!;
+  const pose = async () => (await listReferences("pose", false)).items[0]!;
+
+  it("is Apache-2.0, four Lightning steps, 图N references, pose recipes only", () => {
+    expect(QIE.commercial).toBe(true);
+    expect(QIE.refStyle).toBe("zh");
+    expect(QIE.poseRecipe).toBe(true);
+    expect(resolveParams(QIE).params).toEqual({ steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" });
+    expect(QIE.files!.reduce((n, f) => n + f.gb, 0)).toBeGreaterThan(30);
+  });
+
+  it("queues portrait + costume + pose with its settings and a 图N prompt", async () => {
+    projectId = (await repo.createProject({ name: "2509" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, web);
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-edit-2509", portrait: { id: (await portrait()).id }, costume: { id: (await costume()).id }, pose: { id: (await pose()).id } }), web);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.backend).toBe("comfy:qwen-image-edit-2509");
+    expect(job.input.params).toMatchObject({ steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" });
+    expect(job.input.refUrls).toHaveLength(3);
+    expect(String(job.input.prompt)).toContain("图3中人体模型");
+    expect(job.input.mirrorRefs).toBeUndefined();
+  });
+
+  it("needs a pose and a portrait or a costume, and no extra pictures", async () => {
+    const up = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/prop2.png", kind: "image", source: "upload", meta: {}, name: "prop" });
+    const go = (recipe: Record<string, unknown>) => composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-edit-2509", ...recipe }), web);
+    await expect(go({ portrait: { id: (await portrait()).id }, costume: { id: (await costume()).id } })).rejects.toThrow(/draws a pose/);
+    await expect(go({ pose: { id: (await pose()).id } })).rejects.toThrow(/portrait or a costume/);
+    await expect(go({ portrait: { id: (await portrait()).id }, pose: { id: (await pose()).id }, extras: [{ assetId: up.id }] })).rejects.toThrow(/extra pictures/);
+    /* person + pose: the two-picture graph */
+    const two = await go({ costume: { id: (await costume()).id }, pose: { id: (await pose()).id } });
+    expect((await repo.getJob(two.job.id)).input.refUrls).toHaveLength(2);
+  });
+
+  it("a flipped pose is mirrored by a painter that can, and the prompt says so", async () => {
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ model: "gpt-image-codex", portrait: { id: (await portrait()).id }, pose: { id: (await pose()).id, mirror: true } }), web);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.mirrorRefs).toEqual([1]);
+    expect(String(job.input.prompt)).toContain("已左右镜像");
+    expect((job.input.canvas as { mirror?: boolean }).mirror).toBe(true);
+    expect(painter.painterInput(job).mirror_refs).toEqual([1]);
+    /* an older painter would draw it unflipped: it leaves the job */
+    const old = await painter.claim({ painterId: "old-cpu", name: "old", want: 4, info: { backends: ["codex"], ops: ["paint", "crop", "extract"] } });
+    expect(old.jobs.some((j) => j.jobId === job.id)).toBe(false);
+    const fresh = await painter.claim({ painterId: "new-cpu", name: "new", want: 4, info: { backends: ["codex"], ops: ["paint", "crop", "extract"], features: ["mirror_refs"] } });
+    expect(fresh.jobs.find((j) => j.jobId === job.id)?.input.mirror_refs).toEqual([1]);
   });
 });

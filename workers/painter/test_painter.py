@@ -220,3 +220,12 @@ def test_install_codex_script_picks_the_arch():
     assert "uname -m" in script and "aarch64-unknown-linux-musl" in script
     assert subprocess.run(["bash", "-n", str(HERE / "install_codex.sh")]).returncode == 0
     assert threading.active_count() >= 1
+
+
+def test_an_api_key_for_qwen_is_advertised(monkeypatch):
+    monkeypatch.setenv("TOKENSAIL_API_KEY", "sk-tokensail-0000test")
+    fake = FakeStudio()
+    p = painter.Painter(painter.Studio("https://studio.test", "tok", http=fake), "box-1", "box", slots=1, login=FakeLogin(logged_in=False), http=fake)
+    p.tick()
+    info = fake.claims[0]["info"]
+    assert "qwen" in info["backends"] and "codex" not in info["backends"] and "mirror_refs" in info["features"]

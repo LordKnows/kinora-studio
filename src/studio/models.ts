@@ -7,7 +7,8 @@
  *   base model params → per-workflow variant → speed LoRA → user override
  *
  * Two runtimes. "api": drawn by a painter through a hosted service (GPT
- * Image via Codex or the images API). "pod": a ComfyUI workflow on the GPU
+ * Image via Codex or the images API; Qwen-Image 3.0 Pro through TokenSail
+ * or DashScope, on the CPU painter pod). "pod": a ComfyUI workflow on the GPU
  * pod — the same pod as the video models, so it draws only while the pod
  * runs. Pure data and functions: the pages import it too.
  */
@@ -53,11 +54,16 @@ export type ModelEntry = {
   /** Image models: reference pictures per call, and how the prompt names them. */
   maxRefs?: number;
   refStyle?: "zh" | "qwen";
+  /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
+  poseRecipe?: boolean;
+  /** API models: the vendor's model name, and the request options Canvas offers (the pose gallery's 百炼 settings). */
+  apiModel?: string;
+  options?: Array<"prompt_extend" | "negative_prompt">;
   files?: ModelFile[];
   license: string;
   commercial: boolean | "ask";
   /** Who refuses what: the hosted service's moderation, or nothing but the prompt. */
-  moderation: "openai" | "none";
+  moderation: "openai" | "alibaba" | "none";
   source: string;
   notes: string;
 };
@@ -77,6 +83,13 @@ export const MODELS: ModelEntry[] = [
     backend: "api", params: {}, maxRefs: 5, refStyle: "zh", license: "OpenAI terms of use", commercial: true, moderation: "openai",
     source: "https://platform.openai.com/docs/guides/image-generation",
     notes: "Drawn on a painter with OPENAI_API_KEY (IMAGE_MODEL, default gpt-image-2); paid per picture. Same moderation as Codex.",
+  },
+  {
+    id: "qwen-image-3.0-pro", kind: "image", runtime: "api", label: "Qwen-Image 3.0 Pro · API", zh: "通义 Qwen-Image 3.0 Pro（API，按张计费）", family: "qwen-image-3.0",
+    backend: "qwen", apiModel: "qwen-image-3.0-pro", params: {}, maxRefs: 3, refStyle: "zh", options: ["prompt_extend", "negative_prompt"],
+    license: "Alibaba Cloud Model Studio terms, through TokenSail (or DashScope directly); paid per picture and per reference picture", commercial: "ask", moderation: "alibaba",
+    source: "https://tokensail.ai/docs/api/images.html",
+    notes: "The pose gallery's 阿里云百炼 path (anhao/ai-pose-gallery-zh: qwen-image-3.0-pro, references as URLs, 图1/图2/图3 in the prompt, prompt_extend, watermark off, negative prompt). Drawn by the CPU painter pod with TOKENSAIL_API_KEY (TokenSail's /v1/images/generations) or DASHSCOPE_API_KEY (DashScope's multimodal-generation); no GPU. The vendor fetches the references itself, so the painter puts them in R2 for the job's length. TokenSail lists ¥0.25 per picture at 1K and ¥0.50 at 2K, each reference billed on top; cn region only. Alibaba Cloud moderates every request: sexual content is refused.",
   },
   {
     id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",
@@ -106,6 +119,22 @@ export const MODELS: ModelEntry[] = [
     license: "Qwen Research License: non-commercial (research or evaluation) only; a commercial license is requested from Qwen", commercial: false, moderation: "none",
     source: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1",
     notes: "The full (not distilled) Qwen-Image 2.1, for LoRAs trained on it — e.g. ChatR Labs' Omni LoRA (35 steps, CFG 5). Comfy-Org's image-edit template: KSampler, euler/simple, up to ten pictures (<image1>…). Slower than Turbo: about 4–5× the steps, and CFG above 1 runs each step twice. The text encoder and VAE are shared with Turbo; the base adds 7.3 GB on the pod.",
+  },
+  {
+    id: "qwen-image-edit-2509", kind: "image", runtime: "pod", label: "Qwen-Image-Edit 2509", zh: "通义 Qwen-Image-Edit 2509 三图合成（GPU pod，Lightning 4 步）", family: "qwen-image-edit-2509",
+    backend: "comfy:qwen-image-edit-2509", workflows: ["QIE2509_3IMG", "QIE2509_2IMG"],
+    /* the Lightning 4-step LoRA is part of the workflow: 4 steps, CFG 1, euler/simple, shift 3 (anhao/ai-pose-gallery-zh's graph) */
+    params: { steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" },
+    maxRefs: 3, refStyle: "zh", poseRecipe: true,
+    files: [
+      { dir: "diffusion_models", file: "qwen_image_edit_2509_fp8_e4m3fn.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-Edit/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors", gb: 20.4 },
+      { dir: "text_encoders", file: "qwen_2.5_vl_7b_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", gb: 9.4 },
+      { dir: "vae", file: "qwen_image_vae.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/vae/qwen_image_vae.safetensors", gb: 0.25 },
+      { dir: "loras", file: "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors", gb: 0.85 },
+    ],
+    license: "Apache-2.0 (Qwen-Image-Edit 2509, Comfy-Org's repackage, lightx2v Lightning)", commercial: true, moderation: "none",
+    source: "https://huggingface.co/Qwen/Qwen-Image-Edit-2509",
+    notes: "The ComfyUI workflow the pose gallery recommends (anhao/ai-pose-gallery-zh, qwen_image_edit_2509_3img): 图1 portrait and 图2 costume are pixel references (ReferenceLatent), 图3 pose reaches the model only through the text encoder, so the grey mannequin's look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm, KSampler euler/simple, CFG 1. Needs a pose and a portrait and/or a costume (two pictures: person + pose; three: portrait + costume + pose), no extra pictures. The canvas is the size you pick (the original took the pose's aspect). About 31 GB on the pod.",
   },
   {
     id: "minimax-h3", kind: "video", runtime: "pod", label: "MiniMax H3", zh: "MiniMax H3 视频", family: "minimax-h3",

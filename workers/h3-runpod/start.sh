@@ -44,6 +44,15 @@ qwen_downloads() {
       echo "[start] skipping Qwen-Image 2.1 base: $(room_gb "$dir") GB free under $dir, it needs ~7.3 GB + margin"
     fi
   fi
+  if [ "${QWEN_EDIT_2509:-1}" = "1" ]; then
+    if [ "$(room_gb "$dir")" -ge 40 ] 2>/dev/null || [ -s "$dir/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors" ]; then
+      echo "[start] Qwen-Image-Edit 2509 + Lightning for Canvas (~31 GB); see /app/download_qie2509.log"
+      bash /app/h3-runpod/download_models.sh "$dir" /app/h3-runpod/models-qie2509.txt > /app/download_qie2509.log 2>&1
+      echo "[start] qwen edit 2509 download finished: $(tail -1 /app/download_qie2509.log)"
+    else
+      echo "[start] skipping Qwen-Image-Edit 2509: $(room_gb "$dir") GB free under $dir, it needs ~31 GB + margin (raise RUNPOD_CONTAINER_DISK_GB or use a volume)"
+    fi
+  fi
 }
 # No volume mounted (local-disk mode): the models live on the container disk
 # under the image's own models/ and are downloaded at every boot (aria2, 16
@@ -140,10 +149,10 @@ YAML
       echo "[start] downloading Open-H3-Regenerate-2K (~21 GB) onto the volume in the background; see /app/download_regen.log"
       (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1; echo "[start] regen download finished: $(tail -1 /app/download_regen.log)") &
     fi
-    # Qwen-Image 2.1 Turbo and base (Canvas, drawn by the pod's painter through ComfyUI): once, onto the
-    # volume, in the background (files already there are skipped). The painter advertises a model only
-    # when every file is there. QWEN_IMAGE=0 / QWEN_IMAGE_BASE=0 skip them.
-    if [ "${QWEN_IMAGE:-1}" = "1" ] || [ "${QWEN_IMAGE_BASE:-1}" = "1" ]; then
+    # Qwen-Image 2.1 Turbo and base, Qwen-Image-Edit 2509 (Canvas, drawn by the pod's painter through
+    # ComfyUI): once, onto the volume, in the background (files already there are skipped). The painter
+    # advertises a model only when every file is there. QWEN_IMAGE=0 / QWEN_IMAGE_BASE=0 / QWEN_EDIT_2509=0 skip them.
+    if [ "${QWEN_IMAGE:-1}" = "1" ] || [ "${QWEN_IMAGE_BASE:-1}" = "1" ] || [ "${QWEN_EDIT_2509:-1}" = "1" ]; then
       (qwen_downloads "$MODELS_SRC") &
     fi
     # The image's installer may replace models/ while it copies ComfyUI in;

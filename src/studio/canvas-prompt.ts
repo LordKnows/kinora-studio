@@ -41,7 +41,7 @@ export const CANVAS_STYLE_IDS = CANVAS_STYLES.map((s) => s.id) as [string, ...st
 export type CanvasPromptRecipe = {
   portrait?: { item?: RefPortrait; upload?: { name: string } };
   costume?: { item?: RefCostume; upload?: { name: string } };
-  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean };
+  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean; mirror?: boolean };
   extras?: Array<{ name: string }>;
   style?: string;
   note?: string;
@@ -77,8 +77,10 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
     const wear = costumeIdx ? `，穿着图${costumeIdx}的服装` : "";
     const body = isPhoto ? `最终画面中的人物是真人，皮肤真实自然${wear}` : `人物的肤色与质感按风格要求呈现${wear}`;
     const p = r.pose.item;
+    /* a flipped pose: its name's left and right are the other way round now */
+    const flipped = r.pose.mirror ? "，已左右镜像，以图中方向为准" : "";
     clauses.push(p
-      ? `• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}）；图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
+      ? `• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}${flipped}）；图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
       : `• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`);
     idx++;
   }

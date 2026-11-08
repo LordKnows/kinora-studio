@@ -269,8 +269,10 @@ pnpm --filter @openhiggsfield/director test
 **costume** and a **pose** — picked from a library of 1,439 pose pictures
 (grey mannequins, 288 poses × 5 camera angles, line art or depth map), 3,224
 costumes (ギア photo-real and anime, CharaDB, Shisei Chinese historical) and
-1,499 portraits (AI-generated adults), or uploaded — plus up to two more
-pictures. The prompt is composed for you (each picture named by its place and
+1,499 portraits (AI-generated adults), or uploaded — plus more pictures up
+to what the model takes. The pose can be flipped left to right (*⇋ 镜像*;
+the painter mirrors the picture before drawing, and the prompt says so). The
+prompt is composed for you (each picture named by its place and
 given one job, ported from anhao/ai-pose-gallery-zh) and can be edited; GPT
 Image draws it on a painter into a project (`IMG-n`, recipe in
 `meta.canvas`), optionally straight onto an element as a reference view.
@@ -332,4 +334,39 @@ unlocked 18+, it never draws with an uploaded picture (an upload may be a real
 person), and the adult line stays in any prompt. Its weights use
 Diffusers/PEFT keys: if the pod's ComfyUI log says "lora key not loaded", the
 adapter did not apply.
+
+**Qwen-Image 3.0 Pro through an API (the pose gallery's 百炼 path).**
+anhao/ai-pose-gallery-zh calls `qwen-image-3.0-pro` on Alibaba Cloud Model
+Studio from the browser; here the CPU painter pod calls it — no GPU, and it is
+not a ComfyUI model (the weights are not published). With `TOKENSAIL_API_KEY`
+it goes through TokenSail's OpenAI-style `/v1/images/generations` (`image`:
+the reference URLs, `size` `WxH`); with `DASHSCOPE_API_KEY` through
+DashScope's own `multimodal-generation` endpoint, exactly as the gallery
+does. Same composed prompt (图1/图2/图3), up to three pictures, `watermark`
+off, and Canvas offers the gallery's `prompt_extend` (off by default: it
+rewrites the composed roles) and a negative prompt. The vendor fetches the
+references by URL, so the painter re-hosts them in R2 (`<job>.refN.jpg`,
+mirrored when asked) and the Studio deletes them when the job ends. The
+picture comes back as a URL that expires in about an hour and is fetched at
+once; the cost TokenSail reports is kept in the job's output. Errors say what
+to do (402: top up; 403: allow the model for the key; a moderation refusal is
+named). Set the key as a Worker secret: the CPU painter pod gets it when it
+is created (stop a running one once). Paid per picture and per reference;
+Alibaba Cloud moderates every request.
+
+**Qwen-Image-Edit 2509 (the pose gallery's workflow).** anhao/ai-pose-gallery-zh
+draws its recipes with `qwen_image_edit_2509_3img` in ComfyUI; it is ported as
+`workflows/QIE2509_3IMG.json` (portrait + costume + pose) and
+`QIE2509_2IMG.json` (portrait or costume + pose, the original's two-picture
+form). 图1 portrait and 图2 costume are pixel references (`ReferenceLatent`),
+the pose reaches the model only through the text encoder, so the mannequin's
+grey look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm,
+KSampler euler/simple, CFG 1. One change: the canvas is the size picked in
+Canvas (the original took the pose's aspect at 1 MP). `QWEN_EDIT_2509=1`
+(default) downloads ~31 GB (2509 fp8, Qwen2.5-VL 7B fp8, VAE, Lightning) when
+40 GB are free; the painter picks the graph by the number of pictures
+(`image_models.json` `min_images` / `variants`). Apache-2.0: commercial use
+allowed. The container disk default is now 200 GB (everything in local-disk
+mode is ~145 GB); a pod created at 120 GB keeps its disk when resumed —
+terminate it once so the next Start creates a 200 GB one.
 

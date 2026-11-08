@@ -315,6 +315,8 @@ export type Painter = {
     /** Paint backends it can serve right now (codex only once logged in, api only with a key). */
     backends?: string[];
     ops?: string[];
+    /** Optional job inputs it understands (mirror_refs: flip a reference left to right). */
+    features?: string[];
     slots?: number;
     running?: string[];
     onPod?: boolean;
