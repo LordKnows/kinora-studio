@@ -91,15 +91,8 @@ describe("Qwen-Image 3.0 Pro through an API", () => {
     const got = cpu.jobs.find((j) => j.jobId === r.job.id)!;
     expect(got.input).toMatchObject({ backend: "qwen", params: { api_model: "qwen-image-3.0-pro", prompt_extend: true } });
     const stem = `projects/${projectId}/images/${r.job.id}`;
-    const ups = await painter.uploadUrls(r.job.id, "painter-pod-1", [`${stem}.ref0.jpg`, `${stem}.png`]);
+    const ups = await painter.uploadUrls(r.job.id, "painter-pod-1", [`${stem}.ref0.jpg`]);
     expect(ups[0]!.publicUrl).toBe(`https://studio.example/media/${stem}.ref0.jpg`);
-    /* the vendor fetches a signed R2 link (an hour), not /media behind Cloudflare Access; the picture itself gets none */
-    const fetchUrl = new URL(ups[0]!.fetchUrl!);
-    expect(fetchUrl.host).toBe("acct.r2.cloudflarestorage.com");
-    expect(fetchUrl.pathname).toBe(`/studio/${stem}.ref0.jpg`);
-    expect(fetchUrl.searchParams.get("X-Amz-Expires")).toBe("3600");
-    expect(fetchUrl.searchParams.get("X-Amz-Signature")).toBeTruthy();
-    expect(ups[1]!.fetchUrl).toBeUndefined();
     await expect(painter.uploadUrls(r.job.id, "painter-pod-1", [`${stem}.ref9.jpg`])).rejects.toMatchObject({ code: "validation" });
     calls.length = 0;
     await painter.finish(r.job.id, "painter-pod-1", { error: "DashScope refused the picture" });

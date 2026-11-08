@@ -229,22 +229,3 @@ def test_an_api_key_for_qwen_is_advertised(monkeypatch):
     p.tick()
     info = fake.claims[0]["info"]
     assert "qwen" in info["backends"] and "codex" not in info["backends"] and "mirror_refs" in info["features"]
-
-
-def test_the_uploader_keeps_the_signed_link_for_a_vendor():
-    class Studio:
-        def post(self, path, body):
-            key = body["keys"][0]
-            return {"uploads": [{"key": key, "putUrl": f"https://r2.test/put/{key}", "publicUrl": f"https://studio.test/media/{key}",
-                                 **({"fetchUrl": f"https://acct.r2.cloudflarestorage.com/studio/{key}?sig"} if ".ref" in key else {})}]}
-
-    class Http:
-        def put(self, url, data=None, headers=None, timeout=0):
-            return Res(200)
-
-    up = painter.PresignedUploader(Studio(), "job_1", "box-1", http=Http())
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".jpg") as fh:
-        assert up.upload(Path(fh.name), "projects/p/images/job_1.ref0.jpg", "image/jpeg") == "https://studio.test/media/projects/p/images/job_1.ref0.jpg"
-        up.upload(Path(fh.name), "projects/p/images/job_1.png", "image/png")
-    assert up.fetch_urls == {"projects/p/images/job_1.ref0.jpg": "https://acct.r2.cloudflarestorage.com/studio/projects/p/images/job_1.ref0.jpg?sig"}

@@ -1175,14 +1175,9 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
             base = Image.open(base_path).convert("RGB")
             pictures.append(base_path)  # the picture being edited goes last, as the prompts say
         if params["backend"] == "qwen":
-            # the vendor fetches the references itself: put them in our R2 (removed when the job ends) and hand it
-            # the signed R2 link the Studio gives for them — /media may sit behind Cloudflare Access
-            ref_urls = []
-            for n, pic in enumerate(pictures):
-                ref_key = f"{stem}.ref{n}.jpg"
-                public = uploader.upload(rehost_picture(pic, workdir / f"rehost{n}.jpg"), ref_key, "image/jpeg")
-                ref_urls.append((getattr(uploader, "fetch_urls", None) or {}).get(ref_key, public))
-            params.setdefault("_api", {})["ref_urls"] = ref_urls
+            # the vendor fetches the references itself: put them where it can (our R2, public, removed when the job ends)
+            params.setdefault("_api", {})["ref_urls"] = [
+                uploader.upload(rehost_picture(p, workdir / f"rehost{i}.jpg"), f"{stem}.ref{i}.jpg", "image/jpeg") for i, p in enumerate(pictures)]
         prompt = params["prompt"]
         drawn_count = 0
         attempts_total = 0

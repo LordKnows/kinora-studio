@@ -2,7 +2,7 @@ import { config } from "./config";
 import { StudioError } from "./errors";
 import { newId } from "./ids";
 import * as repo from "./repo";
-import { presignGet, presignPut, publicUrl } from "./storage/r2";
+import { presignPut, publicUrl } from "./storage/r2";
 import type { Job, Painter } from "./types";
 
 /*
@@ -188,7 +188,7 @@ async function heldJob(jobId: string, painterId: string): Promise<Job> {
 /** Pictures an API job may put in R2 for the vendor to fetch (Qwen-Image 3.0 Pro: three references + an edited picture). */
 const MAX_REHOSTED = 4;
 
-export async function uploadUrls(jobId: string, painterId: string, keys: string[]): Promise<Array<{ key: string; putUrl: string; publicUrl: string; fetchUrl?: string }>> {
+export async function uploadUrls(jobId: string, painterId: string, keys: string[]): Promise<Array<{ key: string; putUrl: string; publicUrl: string }>> {
   const job = await heldJob(jobId, painterId);
   const stem = outputKey(job).slice(0, -".png".length);
   /* an API that fetches its references by URL (Qwen-Image 3.0 Pro): the painter puts them next to the picture for the job's length */
@@ -197,9 +197,7 @@ export async function uploadUrls(jobId: string, painterId: string, keys: string[
   const out = [];
   for (const key of keys.slice(0, 6)) {
     if (!allowed.has(key)) throw new StudioError("validation", `a painter may only write ${[...allowed].join(", ")}`);
-    /* a re-hosted reference is fetched by the vendor: a signed R2 link (an hour), not /media behind Cloudflare Access */
-    const fetchUrl = refs.includes(key) ? (await presignGet(key, 3600)).url : undefined;
-    out.push({ key, putUrl: (await presignPut(key, "", 0)).url, publicUrl: publicUrl(key), ...(fetchUrl ? { fetchUrl } : {}) });
+    out.push({ key, putUrl: (await presignPut(key, "", 0)).url, publicUrl: publicUrl(key) });
   }
   return out;
 }
