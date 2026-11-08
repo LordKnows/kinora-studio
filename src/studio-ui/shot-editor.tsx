@@ -380,7 +380,7 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <span className="st-label" style={{ marginBottom: 0 }}>Sound</span>
-        <Field label="SFX (events)">
+        <Field label="SFX (events)" group>
           <Chips values={value.sound.sfx} onRemove={(i) => set("sound", { ...value.sound, sfx: value.sound.sfx.filter((_, j) => j !== i) })} onAdd={(v) => value.sound.sfx.length < 8 && set("sound", { ...value.sound, sfx: [...value.sound.sfx, v] })} placeholder="rain on tin roof" />
         </Field>
         <div className="st-fields">

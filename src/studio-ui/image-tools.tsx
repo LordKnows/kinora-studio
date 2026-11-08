@@ -72,27 +72,30 @@ export function useImageAction() {
   return { ...act, status };
 }
 
-/** A button that runs one image action, with its status beside it. */
-export function ImageButton({ label, body, paint = true, title, size = "sm", kind = "default" }: { label: string; body: Record<string, unknown>; paint?: boolean; title?: string; size?: "sm" | "md"; kind?: "default" | "primary" | "quiet" }) {
+/** A button that runs one image action, with its status beside it. `blocked` disables it and says why. */
+export function ImageButton({ label, body, paint = true, title, size = "sm", kind = "default", blocked }: { label: string; body: Record<string, unknown>; paint?: boolean; title?: string; size?: "sm" | "md"; kind?: "default" | "primary" | "quiet"; blocked?: string }) {
   const { projectId } = useProjectContext();
   const imaging = useImagingOn();
   const a = useImageAction();
-  const disabled = paint && !imaging.on;
+  const off = paint && !imaging.on;
   const fire = () => void a.fire(body);
   return (
     <span className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
-      <Button size={size === "sm" ? "sm" : undefined} kind={kind} busy={a.busy} disabled={disabled} title={disabled ? imaging.why : title} onClick={fire}>{label}</Button>
+      <Button size={size === "sm" ? "sm" : undefined} kind={kind} busy={a.busy} disabled={off || !!blocked} title={blocked ?? (off ? imaging.why : title)} onClick={fire}>{label}</Button>
       {a.status && <span className="st-muted st-num">{a.status}</span>}
       <ErrorBanner error={a.error} projectId={projectId} onDismiss={a.dismiss} />
     </span>
   );
 }
 
-/** Drag a box on a picture; reports it as fractions of the picture. */
-export function RegionPicker({ src, value, onChange, height }: { src: string; value?: Box; onChange: (b: Box | undefined) => void; height?: number }) {
+/** Drag a box on a picture; reports it as fractions of the picture. The box
+    takes the picture's own aspect ratio (a 9:16 frame is shown whole, at most
+    `height` px tall), so the fractions are fractions of the picture itself. */
+export function RegionPicker({ src, value, onChange, height = 480 }: { src: string; value?: Box; onChange: (b: Box | undefined) => void; height?: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const start = useRef<{ x: number; y: number } | null>(null);
   const [draft, setDraft] = useState<Box | undefined>(value);
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 16, h: 9 });
   useEffect(() => setDraft(value), [value]);
   const at = (e: ReactPointerEvent) => {
     const r = ref.current!.getBoundingClientRect();
@@ -103,13 +106,13 @@ export function RegionPicker({ src, value, onChange, height }: { src: string; va
     <div className="st-stack st-stack--tight">
       <div
         ref={ref}
-        style={{ position: "relative", width: "100%", aspectRatio: "16 / 9", maxHeight: height, borderRadius: 6, overflow: "hidden", background: "#000", touchAction: "none", cursor: "crosshair" }}
+        style={{ position: "relative", width: `min(100%, ${Math.round((height * size.w) / size.h)}px)`, aspectRatio: `${size.w} / ${size.h}`, margin: "0 auto", borderRadius: 6, overflow: "hidden", background: "#000", touchAction: "none", cursor: "crosshair" }}
         onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); start.current = at(e); setDraft(undefined); }}
         onPointerMove={(e) => { if (start.current) setDraft(box(start.current, at(e))); }}
         onPointerUp={(e) => { if (!start.current) return; const b = box(start.current, at(e)); start.current = null; const ok = b.w > 0.01 && b.h > 0.01; setDraft(ok ? b : undefined); onChange(ok ? b : undefined); }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt="" draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", userSelect: "none", pointerEvents: "none" }} />
+        <img src={src} alt="" draggable={false} onLoad={(e) => { const { naturalWidth: w, naturalHeight: h } = e.currentTarget; if (w && h) setSize({ w, h }); }} style={{ width: "100%", height: "100%", objectFit: "fill", userSelect: "none", pointerEvents: "none" }} />
         {draft && <div style={{ position: "absolute", left: `${draft.x * 100}%`, top: `${draft.y * 100}%`, width: `${draft.w * 100}%`, height: `${draft.h * 100}%`, border: "2px solid #ffd166", background: "rgba(255,209,102,.15)", pointerEvents: "none" }} />}
       </div>
       <span className="st-muted">{draft ? `region ${Math.round(draft.w * 100)}% × ${Math.round(draft.h * 100)}% — only this box will change` : "Drag a box over the part to change (no box: the whole picture is redrawn)."}</span>

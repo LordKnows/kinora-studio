@@ -606,7 +606,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   });
   const [remakeOpen, setRemakeOpen] = useState(false);
   const [resolution, setResolution] = useState<"1080p" | "2k" | "4k">("2k");
-  const [closeToDraft, setCloseToDraft] = useState(false);
+  const [closeToDraft, setCloseToDraft] = useState(true);
   const [show2k, setShow2k] = useState(true);
   const regen = useAction(async (confirm) => {
     await post(`/api/takes/${take.id}/regenerate`, { resolution, startSigma: closeToDraft ? 0.8 : 0, confirm });
@@ -683,7 +683,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
         {take.thumbUrls.length > 0 && (
           <div className="st-row" style={{ gap: 4 }}>
             {take.thumbUrls.map((u) => (
-              <img key={u} src={u} alt="" style={{ width: 64, aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
+              <img key={u} src={u} alt="" style={{ width: 64, aspectRatio: "16 / 9", objectFit: "contain", background: "#000", borderRadius: 4 }} />
             ))}
           </div>
         )}
