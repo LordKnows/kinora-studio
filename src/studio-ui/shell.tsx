@@ -14,7 +14,7 @@ import { useProject } from "./use-project";
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
    pill, the global pages. ProjectShell adds the left rail with the six
    steps of a film in working order and the budget; GlobalShell is the plain
-   frame for the home, Library, Machine and Connect pages. Pages read the
+   frame for the home, Canvas, Library, Machine and Connect pages. Pages read the
    shared project view through ProjectContext so one SSE subscription serves
    the whole project. */
 
@@ -40,6 +40,7 @@ export const PROJECT_NAV: Array<{ slug: string; label: string; step: string }> =
 
 const GLOBAL_NAV: Array<{ href: string; label: string }> = [
   { href: "/", label: "Projects" },
+  { href: "/canvas", label: "Canvas" },
   { href: "/library", label: "Library" },
   { href: "/machine", label: "Machine" },
   { href: "/connect", label: "Connect" },

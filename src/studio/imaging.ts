@@ -78,7 +78,7 @@ async function assertCanPaint(project: Project): Promise<number> {
 /* ---------- jobs ---------- */
 
 export type ImageOp = "paint" | "crop" | "extract";
-export type ImagePurpose = "element_sheet" | "shot_first" | "shot_last" | "edit" | "remake_key" | "style_frame" | "crop" | "extract";
+export type ImagePurpose = "element_sheet" | "shot_first" | "shot_last" | "edit" | "remake_key" | "style_frame" | "canvas" | "crop" | "extract";
 export type Attach = { heroOf?: string; endOf?: string; elementRef?: { elementId: string; view?: RefView }; styleFrame?: boolean };
 type Box = { x: number; y: number; w: number; h: number };
 
@@ -99,6 +99,8 @@ export type ImageRequest = {
   attach?: Attach;
   targetId: string;
   label?: string;
+  /** Canvas pictures: the recipe they were composed from (references, style), kept on the asset. */
+  canvas?: Record<string, unknown>;
 };
 
 /** Queue an image job for the painters. Painting is gated by the project
@@ -162,6 +164,7 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
       previewUrl: out.preview_url, diffUrl: out.diff_url, baseAssetId: i.baseAssetId, region: i.region, crop: i.crop, takeId: i.takeId, frame: i.frame,
       view: i.attach?.elementRef?.view, label: i.label, review: i.op === "paint" ? "pending" : undefined,
       checks: out.checks, autoReview: out.review, painter: painter.painterOfJob(job), drawn: out.drawn,
+      ...(i.canvas ? { canvas: i.canvas } : {}),
     },
     name: i.label,
   });

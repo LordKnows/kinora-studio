@@ -1,0 +1,108 @@
+import { angleZh, type RefCostume, type RefPortrait, type RefPose } from "./references-model";
+
+/*
+ * The Canvas prompt: portrait + costume + pose (+ extra pictures) → one
+ * character picture. Pure, so the page previews exactly what the server
+ * sends.
+ *
+ * Ported from anhao/ai-pose-gallery-zh (src/services/aiGenerator.ts,
+ * buildRecipePrompt; MIT, Copyright (c) 2026 Anhao), where it was tuned on
+ * multi-image edit models. What each line answers:
+ *  - every picture is named by its position (图1, 图2 …) and given ONE job,
+ *    or the model mixes them up;
+ *  - the face and hair come from the portrait, and all bare skin is unified
+ *    with the face (costume pictures show other skin tones);
+ *  - each garment comes from the costume picture, the name only helps;
+ *  - the pose picture is a grey mannequin: only its motion and camera angle
+ *    are taken, never its look, or the joints and panel lines come through;
+ *  - with no portrait, a faceless display figure, not an invented person.
+ * Added here: the people are adults (CharaDB forbids minors; it holds for
+ * every source), and an optional free-text note.
+ */
+
+export const CANVAS_STYLES: Array<{ id: string; label: string; zh: string; prompt: string; photo?: boolean }> = [
+  { id: "none", label: "Follow the references", zh: "无预设（跟随参考图）", prompt: "" },
+  { id: "realistic", label: "Photo portrait", zh: "写实人像写真", prompt: "写实商业摄影级质感，85mm 人像镜头，自然柔和光影，真实肌肤纹理与织物细节，8k 高清画质。", photo: true },
+  { id: "fashion", label: "Magazine editorial", zh: "日韩杂志画报", prompt: "日韩时尚穿搭杂志画报风格，干净极简摄影棚背景，高级色调，突出人物颜值与服装剪裁。", photo: true },
+  { id: "film", label: "Film photo", zh: "复古胶片写真", prompt: "35mm 富士胶片摄影质感，轻微胶片颗粒，柔和复古暖调，自然街拍光影与电影呼吸感。", photo: true },
+  { id: "semi_real", label: "2.5D game art", zh: "2.5D 游戏原画立绘", prompt: "2.5D 半写实高精度游戏角色原画，唯美厚涂光影，精致五官与华丽布料金属质感。" },
+  { id: "anime", label: "Anime illustration", zh: "日系二次元插画", prompt: "日系精致二次元插画风格，细腻赛璐璐与厚涂光影过渡，动漫角色立绘质感，色彩通透干净。" },
+  { id: "cel_anime", label: "Anime film", zh: "新海诚感动画电影", prompt: "动画电影级画面质感，清澈高饱和光影，细腻体积光与发丝高光，干净唯美的动漫色彩。" },
+  { id: "manga", label: "Black-and-white manga", zh: "日式黑白漫画网点", prompt: "日本黑白漫画原稿风格，利落精准的G笔线稿，细腻漫画网点纸阴影与层次对比。" },
+  { id: "render3d", label: "3D character render", zh: "3D 次世代角色渲染", prompt: "Unreal Engine 5 / Octane Render 次世代 3D 角色渲染，细腻次表面散射肌肤材质，电影级布光。" },
+  { id: "chibi_box", label: "Figure / toy", zh: "3D 潮玩手办质感", prompt: "高品质 PVC 涂装完成品手办质感，柔和摄影棚柔光箱布光，精致材质高光与微距景深。" },
+  { id: "cyberpunk", label: "Cyberpunk neon", zh: "赛博朋克霓虹", prompt: "赛博朋克科幻视觉风格，雨夜霓虹冷暖双色轮廓光，未来感材质反光与电影级氛围。" },
+  { id: "concept_sheet", label: "Character sheet (white)", zh: "角色设定集立绘（纯白底）", prompt: "标准角色设定集全身立绘，纯白干净无杂物背景，均匀漫反射布光，清晰展示全身服装结构与配饰细节。" },
+];
+
+export const CANVAS_STYLE_IDS = CANVAS_STYLES.map((s) => s.id) as [string, ...string[]];
+
+/** A slot holds a catalog item or an uploaded picture (named by the user). */
+export type CanvasPromptRecipe = {
+  portrait?: { item?: RefPortrait; upload?: { name: string } };
+  costume?: { item?: RefCostume; upload?: { name: string } };
+  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean };
+  extras?: Array<{ name: string }>;
+  style?: string;
+  note?: string;
+};
+
+export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
+  const style = CANVAS_STYLES.find((s) => s.id === (r.style ?? "realistic")) ?? CANVAS_STYLES[1]!;
+  const isPhoto = !!style.photo;
+  const faceless = !r.portrait && !!r.costume && !!r.pose;
+  const clauses: string[] = [];
+  let idx = 1;
+  let costumeIdx = 0;
+
+  if (r.portrait) {
+    const p = r.portrait.item;
+    const hair = p ? (p.hairstyle && p.hairstyle !== "标准基础款" ? p.title : p.hairLength) : "";
+    const skin = `人物的肤色必须与图${idx}人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。`;
+    const outfit = r.costume ? "" : `保留图${idx}人物原有可见服装与配饰，不复制姿势参考图的服装或白模外观。`;
+    clauses.push(p ? `• 人物：图${idx}中的人物，保持其脸型、五官、发型（${hair}）和发色一致。${skin}${outfit}` : `• 人物：图${idx}中的人物，保持其脸型、五官、发型和发色一致。${skin}${outfit}`);
+    idx++;
+  }
+  if (r.costume) {
+    costumeIdx = idx;
+    const c = r.costume.item;
+    clauses.push(c
+      ? `• 服装：让人物穿上图${idx}中展示的整套服装和配饰（参考名称：${c.name}），每件单品的颜色、款式、面料与配饰都以图${idx}为准，名称仅作辅助说明。`
+      : `• 服装：让人物穿上图${idx}中展示的整套服装和配饰，每件单品的颜色、款式、面料与配饰都以图${idx}为准。`);
+    idx++;
+  }
+  if (r.pose) {
+    const wear = costumeIdx ? `，穿着图${costumeIdx}的服装` : "";
+    const body = isPhoto ? `最终画面中的人物是真人，皮肤真实自然${wear}` : `人物的肤色与质感按风格要求呈现${wear}`;
+    const p = r.pose.item;
+    clauses.push(p
+      ? `• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}）；图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
+      : `• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`);
+    idx++;
+  }
+  if (faceless) {
+    clauses.push("• 无脸展示：生成一位穿着参考服装的成年展示人物，脸部保持无五官的自然肤色表面，不添加眼睛、鼻子、嘴巴或具体人物身份；全身裸露皮肤的颜色统一，不照搬服装图或姿势图的灰白人台材质。");
+  }
+  for (const extra of r.extras ?? []) {
+    clauses.push(`• 附加参考：融合图${idx}（${extra.name || "补充元素"}）中的元素、配饰、背景或光影细节。`);
+    idx++;
+  }
+  if (!clauses.length) return "";
+
+  const lines = [`请根据提供的 ${idx - 1} 张参考图，生成一张完整的${faceless ? "人物穿搭展示图" : isPhoto ? "真实人物照片" : "人物图像"}：`, ...clauses];
+  if (r.note?.trim()) lines.push(`• 补充要求：${r.note.trim()}`);
+  if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
+  lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");
+  return lines.join("\n");
+}
+
+export const CANVAS_SIZES = ["1024x1536", "1008x1344", "1024x1024", "1536x1024", "1344x768"] as const;
+export const CANVAS_SIZE_LABEL: Record<(typeof CANVAS_SIZES)[number], string> = {
+  "1024x1536": "2:3 portrait",
+  "1008x1344": "3:4 portrait",
+  "1024x1024": "1:1 square",
+  "1536x1024": "3:2 landscape",
+  "1344x768": "16:9 wide",
+};
+/** Codex's image tool takes at most five pictures per call (paint.py MAX_CODEX_PICTURES). */
+export const CANVAS_MAX_REFS = 5;

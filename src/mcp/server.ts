@@ -11,6 +11,8 @@ import * as craft from "@/studio/craft";
 import { imageBlock } from "@/studio/image-content";
 import { ImageAction, runImageAction } from "@/studio/image-actions";
 import * as imaging from "@/studio/imaging";
+import * as canvas from "@/studio/canvas";
+import * as references from "@/studio/references";
 import { remakeTake } from "@/studio/remake";
 import { config } from "@/studio/config";
 import * as gpu from "@/studio/gpu";
@@ -351,6 +353,19 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("edit_frame", "Edit a region of any project picture with GPT Image: describe the change; with region (fractions of the picture) only that box is pasted back, every other pixel stays the original's. Attach to a shot with heroOf / endOf; purpose remake_key for a Viggle Remake keyframe painted on an extracted take frame. Needs GPT Image on.", z.object({ projectId: id, assetId: id, instruction: z.string().min(5).max(800), region: z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1), w: z.number().gt(0).max(1), h: z.number().gt(0).max(1) }).optional(), refAssetIds: z.array(id).max(4).optional(), heroOf: id.optional(), endOf: id.optional(), purpose: z.enum(["edit", "remake_key"]).optional(), quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "edit", ...a, assetId: await repo.resolveAssetRef(projectId, a.assetId), refAssetIds: a.refAssetIds ? await Promise.all(a.refAssetIds.map((r) => repo.resolveAssetRef(projectId, r))) : undefined }));
   tool("extract_frame", "One exact frame of a finished take as a project picture (0 = first frame, 24 per second): the frame a Remake keyframe repaints, or a still to look at. Drawn by a painter; not image generation.", z.object({ projectId: id, takeId: id, frame: z.number().int().min(0).max(400), startPod }), async ({ projectId, ...a }) => run(projectId, { action: "extract", ...a }));
   tool("generate_style_frame", "Draw a frame that sets the film's look from the brief and the Look. When the user approves it (set it on the Look page, or update_look styleFrameAssetId), every sheet and frame takes it as a reference. Needs GPT Image on.", z.object({ projectId: id, quality, startPod }), async ({ projectId, ...a }) => run(projectId, { action: "style_frame", ...a }));
+  /* ---- Canvas: the reference library (poses, costumes, portraits) ---- */
+  tool("list_references", "Search the Canvas reference library: 1,439 pose pictures (grey mannequin line art and depth maps, 288 poses × 5 camera angles), 3,224 costumes (photo-real ギア, anime ギア, CharaDB, Chinese historical Shisei) and 1,499 portraits (AI-generated adults; face + hairstyle). Names and tags are Chinese; q matches words in them (e.g. 坐姿, 水手服, 短发) and ids. 18+ items are left out unless the user unlocked them on the Canvas page (adult: false says they are hidden). Use a portrait to lock a face, a costume for wardrobe, a pose (with the angle that matches the camera) for blocking; compose_character draws them together.", z.object({
+    kind: z.enum(["pose", "costume", "portrait"]).optional(), q: z.string().max(200).optional(), category: z.string().max(80).optional().describe("pose/costume category, or a portrait hairstyle"),
+    source: z.enum(["gia", "gia-anime", "charadb", "shisei"]).optional(), style: z.enum(["real", "anime"]).optional(), system: z.enum(["standard", "sensual", "upper", "couple"]).optional(),
+    angle: z.enum(["front", "diag", "side", "high", "low"]).optional(), section: z.string().max(40).optional().describe("portraits: 正脸参考 (clean face) or 造型氛围 (styling)"), hairLength: z.string().max(40).optional(), hot: z.boolean().optional(),
+    page: z.number().int().min(1).default(1), pageSize: z.number().int().min(1).max(50).default(20),
+  }), async (q) => {
+    const adult = await references.adultAllowed(actor);
+    return { adult, ...(await references.queryReferences(q, adult)) };
+  });
+  tool("get_reference", "One reference of the Canvas library by id: names, tags, the picture URLs (thumb, image; poses also depth), and for costumes their views.", z.object({ id }), async ({ id: refId }) => ({ item: await references.getReference(refId, await references.adultAllowed(actor)) }));
+  tool("compose_character", "Draw one character picture with GPT Image from Canvas references: a portrait (face, hair), a costume, a pose (line art, or depth: true) — library ids from list_references, or project pictures by assetId — plus up to two extra project pictures (at most 5 pictures in all). The prompt is composed for you (style: realistic, fashion, film, semi_real, anime, cel_anime, manga, render3d, chibi_box, cyberpunk, concept_sheet, none); note adds a line, prompt replaces it. attach puts the result on an element as a reference view (a character's look from the library). Needs GPT Image on for the project and counts against its quota; follow with get_image_job.", canvas.CanvasCompose.extend({ projectId: id }), async ({ projectId, ...input }) => canvas.composeCharacter(projectId, input, actor));
+
   tool("get_image_job", "An image job's status (painters report back as they finish); with wait (seconds, up to 25) it polls until the job is done. When completed: the picture's asset id, url, preview and (for edits) the diff.", z.object({ jobId: id, wait: z.number().int().min(0).max(25).default(0) }), async ({ jobId, wait }) => {
     const until = Date.now() + wait * 1000;
     let job = await imaging.refreshImageJob(jobId);

@@ -1,0 +1,140 @@
+import { z } from "zod";
+
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_SIZES, CANVAS_STYLE_IDS, type CanvasPromptRecipe } from "./canvas-prompt";
+import { StudioError } from "./errors";
+import * as imaging from "./imaging";
+import { importImageFromUrl } from "./images";
+import * as painter from "./painter";
+import { adultAllowed, getReference } from "./references";
+import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
+import * as repo from "./repo";
+import { REF_VIEWS } from "./schemas";
+import type { Actor, Asset, Job } from "./types";
+
+/*
+ * Canvas: compose one character picture from the reference library —
+ * a portrait (face, hair), a costume, a pose, up to two more pictures —
+ * drawn by GPT Image on a painter like every other Studio picture. The
+ * result is a project picture (IMG-n) with its recipe in meta.canvas, and
+ * can go straight onto a character as a reference view.
+ *
+ * The references are the galleries' own URLs: the painter downloads the
+ * few pictures a job uses, nothing is mirrored. "Add to pictures" imports a
+ * single reference picture into the project, for use as an element ref.
+ */
+
+const Slot = z.object({ id: z.string().max(80).optional(), assetId: z.string().max(80).optional() });
+const Quality = z.enum(["low", "medium", "high"]);
+
+export const CanvasCompose = z.object({
+  portrait: Slot.optional(),
+  costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
+  pose: Slot.extend({ depth: z.boolean().default(false) }).optional(),
+  extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS).default([]),
+  style: z.enum(CANVAS_STYLE_IDS).default("realistic"),
+  note: z.string().max(600).optional().describe("Free text added to the composed prompt"),
+  prompt: z.string().min(5).max(4000).optional().describe("Replace the composed prompt entirely"),
+  size: z.enum(CANVAS_SIZES).default("1024x1536"),
+  quality: Quality.optional(),
+  attach: z.object({ elementId: z.string(), view: z.enum(REF_VIEWS).default("full_body") }).optional().describe("Put the picture on this element as a reference view"),
+  startPod: z.boolean().default(false),
+});
+export type CanvasCompose = z.infer<typeof CanvasCompose>;
+
+export const CanvasImport = z.object({
+  id: z.string().max(80).describe("Reference id from the library"),
+  depth: z.boolean().default(false).describe("Poses: the depth map instead of the line art"),
+  view: z.string().max(20).optional().describe("Costumes with views: front, diag, side, back"),
+  attach: z.object({ elementId: z.string(), view: z.enum(REF_VIEWS).default("detail") }).optional(),
+});
+export type CanvasImport = z.infer<typeof CanvasImport>;
+
+type ResolvedSlot<T extends RefItem> = { item?: T; asset?: Asset; url: string; thumb: string; label: string };
+export type CanvasRef = { role: "portrait" | "costume" | "pose" | "extra"; label: string; url: string; thumb: string; refId?: string; assetId?: string };
+
+async function referenceOf<K extends RefKind>(id: string, kind: K, adult: boolean): Promise<Extract<RefItem, { kind: K }>> {
+  const item = await getReference(id, adult);
+  if (item.kind !== kind) throw new StudioError("validation", `${id} is a ${item.kind}, not a ${kind}`);
+  return item as Extract<RefItem, { kind: K }>;
+}
+
+async function projectPicture(projectId: string, assetId: string): Promise<Asset> {
+  const asset = await repo.getAsset(assetId);
+  if (asset.kind !== "image" || (asset.projectId !== null && asset.projectId !== projectId)) throw new StudioError("validation", `${assetId} is not a picture of this project`);
+  return asset;
+}
+
+async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId: string, kind: K, slot: { id?: string; assetId?: string; view?: string; depth?: boolean } | undefined, adult: boolean): Promise<ResolvedSlot<Extract<RefItem, { kind: K }>> | undefined> {
+  if (!slot || (!slot.id && !slot.assetId)) return undefined;
+  if (slot.id && slot.assetId) throw new StudioError("validation", `${kind}: give a library id or an uploaded picture, not both`);
+  if (slot.assetId) {
+    const asset = await projectPicture(projectId, slot.assetId);
+    return { asset, url: asset.url, thumb: (asset.meta.previewUrl as string | undefined) ?? asset.url, label: asset.name ?? asset.handle ?? "uploaded picture" };
+  }
+  const item = await referenceOf(slot.id!, kind, adult);
+  const pic = referenceImage(item, { depth: slot.depth, view: slot.view });
+  const label = referenceName(item);
+  return { item, url: pic.image, thumb: pic.thumb, label };
+}
+
+/** Draw a character from portrait + costume + pose. Gated like every picture: GPT Image on for the project, inside its quota. */
+export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[] }> {
+  await repo.getProject(projectId);
+  const adult = await adultAllowed(actor);
+  const portrait = await resolveSlot(projectId, "portrait", input.portrait, adult);
+  const costume = await resolveSlot(projectId, "costume", input.costume, adult);
+  const pose = await resolveSlot(projectId, "pose", input.pose, adult);
+  const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
+  if (!portrait && !costume && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
+  const count = [portrait, costume, pose].filter(Boolean).length + extras.length;
+  if (count > CANVAS_MAX_REFS) throw new StudioError("validation", `GPT Image takes at most ${CANVAS_MAX_REFS} pictures per call; this recipe has ${count}`);
+  /* CharaDB's terms: its outfits are never put on a real person. An uploaded face may be one. */
+  if ((costume?.item as RefCostume | undefined)?.source === "charadb" && portrait?.asset) {
+    throw new StudioError("validation", "CharaDB outfits cannot be put on an uploaded photo: its author forbids depicting real people. Use a library portrait, or another costume source.");
+  }
+  if (input.attach) {
+    const el = await repo.getElement(input.attach.elementId);
+    if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
+  }
+
+  const recipe: CanvasPromptRecipe = {
+    portrait: portrait && (portrait.item ? { item: portrait.item as RefPortrait } : { upload: { name: portrait.label } }),
+    costume: costume && (costume.item ? { item: costume.item as RefCostume } : { upload: { name: costume.label } }),
+    pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth } : { upload: { name: pose.label } }),
+    extras: extras.map((e) => ({ name: e.name || e.asset.name || "" })),
+    style: input.style,
+    note: input.note,
+  };
+  const prompt = input.prompt?.trim() || buildCanvasPrompt(recipe);
+  const refs: CanvasRef[] = [
+    ...(portrait ? [{ role: "portrait" as const, label: portrait.label, url: portrait.url, thumb: portrait.thumb, ...(portrait.item ? { refId: portrait.item.id } : { assetId: portrait.asset!.id }) }] : []),
+    ...(costume ? [{ role: "costume" as const, label: costume.label, url: costume.url, thumb: costume.thumb, ...(costume.item ? { refId: costume.item.id } : { assetId: costume.asset!.id }) }] : []),
+    ...(pose ? [{ role: "pose" as const, label: pose.label, url: pose.url, thumb: pose.thumb, ...(pose.item ? { refId: pose.item.id } : { assetId: pose.asset!.id }) }] : []),
+    ...extras.map((e) => ({ role: "extra" as const, label: e.name || e.asset.name || "picture", url: e.asset.url, thumb: (e.asset.meta.previewUrl as string | undefined) ?? e.asset.url, assetId: e.asset.id })),
+  ];
+  const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || "pictures"}`.slice(0, 80);
+  const r = await imaging.submitImage(projectId, {
+    op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size: input.size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
+    attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
+    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim() },
+  }, actor, { startPod: input.startPod });
+  return { ...r, prompt, refs };
+}
+
+/** Bring one reference picture into the project (a single fetch from its gallery), optionally onto an element. */
+export async function importReference(projectId: string, input: CanvasImport, actor: Actor): Promise<{ asset: Asset }> {
+  await repo.getProject(projectId);
+  const item = await getReference(input.id, await adultAllowed(actor));
+  if (input.attach) {
+    const el = await repo.getElement(input.attach.elementId);
+    if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
+  }
+  const pic = referenceImage(item, { depth: input.depth, view: input.view });
+  const name = referenceName(item);
+  const asset = await importImageFromUrl(projectId, pic.image, actor, { label: `ref · ${name}`.slice(0, 80), reference: { id: item.id, kind: item.kind, depth: input.depth || undefined, view: input.view } });
+  if (input.attach) {
+    const el = await repo.getElement(input.attach.elementId);
+    await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds.filter((x) => x !== asset.id), asset.id].slice(-6), refViews: { [asset.id]: input.attach.view } });
+  }
+  return { asset };
+}
