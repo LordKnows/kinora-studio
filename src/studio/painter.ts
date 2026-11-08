@@ -80,7 +80,11 @@ export async function runnerSummary(op = "paint", backend = "codex"): Promise<Ru
   const able = all.filter((p) => canServe(p, probe));
   const painters = all.map((p) => ({ id: p.id, name: p.name, onPod: !!p.info.onPod, backends: p.info.backends ?? [], busy: p.info.running?.length ?? 0 }));
   let note: string | undefined;
-  if (!all.length) note = "no painter is online: start the painter pod (Machine page → Painters), or the GPU pod, which draws when no painter does";
+  const podModel = op === "paint" && backend.startsWith("comfy:");
+  if (podModel && !able.length) note = all.some((p) => p.info.onPod)
+    ? `the GPU pod is up but cannot draw ${backend.slice(6)} yet: its model files are still downloading or ComfyUI lacks the nodes (Machine page → GPU pod)`
+    : `${backend.slice(6)} runs on the GPU pod: start it (top bar) and it draws while it runs`;
+  else if (!all.length) note = "no painter is online: start the painter pod (Machine page → Painters), or the GPU pod, which draws when no painter does";
   else if (!able.length) note = op === "paint" && backend === "codex"
     ? `painter${all.length > 1 ? "s" : ""} online (${all.map((p) => p.name).join(", ")}) but Codex is not logged in there: Machine page → Painters → Log in`
     : op === "paint" ? `no online painter has the images API (OPENAI_API_KEY) set` : `no online painter takes ${op} jobs`;
@@ -104,7 +108,7 @@ export function painterInput(job: Job): Record<string, unknown> {
   const i = job.input as Record<string, unknown> & { op: string };
   return {
     op: i.op, size: i.size, output: { key: outputKey(job) }, studio_job_id: job.id,
-    ...(i.op === "paint" ? { backend: i.backend, prompt: i.prompt, refs: i.refUrls ?? [], base: i.baseUrl, region: i.region, quality: i.quality, check: i.check } : {}),
+    ...(i.op === "paint" ? { backend: i.backend, prompt: i.prompt, refs: i.refUrls ?? [], base: i.baseUrl, region: i.region, quality: i.quality, check: i.check, ...(i.params ? { params: i.params } : {}) } : {}),
     ...(i.op === "crop" ? { base: i.baseUrl, crop: i.crop } : {}),
     ...(i.op === "extract" ? { video: i.videoUrl, frame: i.frame } : {}),
   };
@@ -148,10 +152,15 @@ export async function claim(input: ClaimInput): Promise<{ jobs: ClaimedJob[]; co
   }
   const commands = painter.commands;
   if (commands.length) await repo.setPainterCommands(id, []);
-  /* a painter pod that hands out or draws pictures is not idle */
+  /* a painter pod that hands out or draws pictures is not idle; nor is the GPU pod drawing them */
   if (jobs.length || running.size) {
-    const { touchPainterPod } = await import("./painter-pod");
-    await touchPainterPod(painter.info.runpodPodId);
+    if (painter.info.onPod) {
+      const { touchGpuActivity } = await import("./gpu");
+      await touchGpuActivity();
+    } else {
+      const { touchPainterPod } = await import("./painter-pod");
+      await touchPainterPod(painter.info.runpodPodId);
+    }
   }
   /* poll fast while something is pending (a login, jobs in the queue), slowly when idle */
   const pending = commands.length > 0 || painter.info.login?.state === "pending" || jobs.length > 0 || running.size > 0;
@@ -254,5 +263,11 @@ export async function sweepImageLeases(now = Date.now()): Promise<number> {
 export async function podIsPainting(): Promise<boolean> {
   const onPod = new Set((await repo.listPainters()).filter((p) => p.info.onPod && isOnline(p)).map((p) => p.id));
   if (!onPod.size) return false;
-  return (await repo.listActiveJobs()).some((j) => j.kind === "image" && j.status === "running" && onPod.has(painterOfJob(j) ?? ""));
+  /* drawing, or holding a picture only the pod can draw (a ComfyUI model) */
+  return (await repo.listActiveJobs()).some((j) => j.kind === "image" && ((j.status === "running" && onPod.has(painterOfJob(j) ?? "")) || (j.status === "queued" && isPodBackend(j))));
+}
+
+/** A picture only the GPU pod draws (a ComfyUI model, not a hosted service). */
+export function isPodBackend(job: Pick<Job, "input">): boolean {
+  return job.input.op === "paint" && String(job.input.backend ?? "").startsWith("comfy:");
 }

@@ -1,5 +1,6 @@
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
+import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
 import { CAMERA_MOVES, type Blocking, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink } from "./schemas";
 import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
@@ -36,7 +37,9 @@ export type WorkerInput = {
 
 export type ActiveLora = Lora & { strength: number };
 
-export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[]; effectiveSeconds: number };
+const H3_MODEL = findModel("minimax-h3") as ModelEntry;
+
+export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[]; effectiveSeconds: number; params: InferenceParams; paramSources: string[] };
 
 /* H3 renders 17k+5 frames at 24 fps (handoff): 5 s → 124 frames (5.17 s),
    10 s → 243 (10.1 s), 15 s → 362 (15.1 s). The worker does the same rounding. */
@@ -194,14 +197,17 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   const speed = loras.find((l) => l.kind === "speed");
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
-  if (ctx.steps !== undefined && speed?.stepsHint && ctx.steps !== speed.stepsHint) warnings.push(`${speed.name} is tuned for ${speed.stepsHint} steps; you asked for ${ctx.steps}`);
-  /* Without a speed LoRA the graphs' turbo sampling chain is wrong: switch
-     to the base chain and the base step count (HANDOFF §3). */
-  const baseSteps = Number(process.env.H3_BASE_STEPS ?? "20");
-  const steps = ctx.steps ?? speed?.stepsHint ?? (speed ? 8 : baseSteps);
-  const sampling = speed ? undefined : { sampler: "res_multistep", scheduler: workflow === "R2VA" ? "beta" : "simple", shift_video: 1.0, shift_audio: 1.0 };
-  if (!speed && steps < 12) warnings.push(`no speed LoRA: the base model wants about ${baseSteps} steps, not ${steps}`);
-  if (!speed) warnings.push(`no speed LoRA: base sampling chain (${sampling!.sampler}/${sampling!.scheduler}, no sigma shift), ${steps} steps — about ${Math.round((steps / 8) * 10) / 10}× the turbo render time`);
+  /* The settings follow the model and its speed LoRA (models.ts): the turbo
+     LoRA's chain is the one the graphs carry (euler/simple, shift 6/3, 8
+     steps), so nothing more is sent; without one, the base chain the
+     handoff measured (res_multistep, simple or beta, no shift, 20 steps). */
+  const h3 = { ...H3_MODEL, params: { ...H3_MODEL.params, steps: Number(process.env.H3_BASE_STEPS ?? H3_MODEL.params.steps) } };
+  const resolved = resolveParams(h3, { workflow, loras, steps: ctx.steps });
+  warnings.push(...resolved.warnings.map((w) => w.replace(/^MiniMax H3 wants about (\d+) steps/, "no speed LoRA: the base model wants about $1 steps")));
+  const p = resolved.params;
+  const steps = p.steps ?? 8;
+  const sampling = isGraphDefault(h3, p) ? undefined : { sampler: p.sampler ?? "euler", scheduler: p.scheduler ?? "simple", shift_video: p.shiftVideo ?? 1, shift_audio: p.shiftAudio ?? 1 };
+  if (!speed && sampling) warnings.push(`no speed LoRA: base sampling chain (${sampling.sampler}/${sampling.scheduler}, no sigma shift), ${steps} steps — about ${Math.round((steps / 8) * 10) / 10}× the turbo render time`);
 
   const input: WorkerInput = {
     workflow,
@@ -219,7 +225,7 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   };
   const effectiveSeconds = h3EffectiveSeconds(spec.durationS);
   if (Math.abs(effectiveSeconds - spec.durationS) > 0.5) warnings.push(`H3 renders ${effectiveSeconds} s for a ${spec.durationS} s shot (frame grid of 17k+5)`);
-  return { workflow, prompt, input, warnings, effectiveSeconds };
+  return { workflow, prompt, input, warnings, effectiveSeconds, params: p, paramSources: resolved.sources };
 }
 
 export class CompileError extends Error {

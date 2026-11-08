@@ -1101,9 +1101,33 @@ def models_status(models_dir: Path | None = None) -> dict[str, Any]:
     return {"ready": expected > 0 and not missing, "dir": str(base), "expected": expected, "missing": missing}
 
 
+def image_models_status(models_dir: Path | None = None) -> dict[str, Any]:
+    """The image models the pod's painter draws (workflows/image_models.json): which weights are still missing."""
+    path = WORKFLOW_DIR / "image_models.json"
+    if not path.is_file():
+        return {}
+    base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
+    out: dict[str, Any] = {}
+    for model, entry in json.loads(path.read_text()).items():
+        if model.startswith("_") or not isinstance(entry, dict):
+            continue
+        listing = HERE / str(entry.get("files") or "")
+        missing: list[str] = []
+        for line in (listing.read_text().splitlines() if listing.is_file() else []):
+            if not line.strip() or line.startswith("#"):
+                continue
+            subdir, _, url = line.partition("\t")
+            name = url.strip().rsplit("/", 1)[-1]
+            dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
+            if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
+                missing.append(f"{subdir}/{name}")
+        out[model] = {"ready": listing.is_file() and not missing, "missing": missing, "workflow": entry.get("workflow")}
+    return out
+
+
 def health(comfy: ComfyClient) -> dict[str, Any]:
-    loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem != "mapping")
-    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "remake": remake_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
+    loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem not in ("mapping", "image_models"))
+    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "remake": remake_status(), "image_models": image_models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
 def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:

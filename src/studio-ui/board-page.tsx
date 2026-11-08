@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
 import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
 import type { Take } from "@/studio/types";
@@ -403,6 +404,8 @@ type Compiled = {
   prompt: string;
   warnings: string[];
   estimate: { usd: number; gpuSeconds: number; steps: number; source?: "measured" | "placeholder"; perOutputSecond?: number };
+  params?: InferenceParams;
+  paramSources?: string[];
   input?: { loras?: Array<{ name: string; strength: number; kind: string }> };
 };
 
@@ -508,7 +511,7 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
         </div>
       )}
       <div className="st-row st-row--between">
-        <Field label="Steps" hint="empty = auto: the speed LoRA's count, or 20 on the base chain">
+        <Field label="Steps" hint="empty = auto: the model's and its speed LoRA's recommendation">
           <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder="auto" value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Number(e.target.value) : null)} style={{ width: 90 }} />
         </Field>
         {data && (
@@ -520,8 +523,11 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
               {usd(data.estimate.usd)} · {Math.round(data.estimate.gpuSeconds)} GPU s
               <span className="st-muted"> · {data.estimate.source === "measured" ? `measured on ${basisGpu ?? "your GPU"}` : "placeholder constants"}</span>
             </dd>
-            <dt>Steps</dt>
-            <dd className="st-num">{data.estimate.steps}</dd>
+            <dt>Settings</dt>
+            <dd className="st-num">
+              {data.params ? describeParams(data.params) : `${data.estimate.steps} steps`}
+              {data.paramSources?.length ? <span className="st-muted"> · from {data.paramSources.join(" → ")}</span> : null}
+            </dd>
             {data.input?.loras?.length ? (
               <>
                 <dt>LoRAs</dt>

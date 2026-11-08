@@ -1,3 +1,4 @@
+import type { InferenceParams } from "./models";
 import type { FixedFeature, LookSettings, RefView, ScenePalette, ShotInput, TakeFault, TimelineInput } from "./schemas";
 
 export type Approval = "draft" | "approved";
@@ -227,6 +228,11 @@ export type Lora = {
   stepsHint?: number;
   workflows: string[];
   notes: string;
+  /** The model family it was trained for (models.ts). */
+  baseModel: string;
+  /** Settings stored for it; `recommended` adds what the Studio knows from its card and its stepsHint. */
+  params: InferenceParams;
+  recommended: InferenceParams;
   createdAt: number;
   updatedAt: number;
 };

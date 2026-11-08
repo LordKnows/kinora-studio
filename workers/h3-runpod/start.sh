@@ -39,6 +39,11 @@ if [ "$VOLUME_PATH" != "/workspace" ] && ! mountpoint -q "$VOLUME_PATH" 2>/dev/n
         bash /app/h3-runpod/download_models.sh "$MODELS_DIR" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1
         echo "[start] regen download finished: $(tail -1 /app/download_regen.log)"
       fi
+      if [ "${QWEN_IMAGE:-1}" = "1" ]; then
+        echo "[start] downloading Qwen-Image 2.1 Turbo for Canvas (~17 GB); see /app/download_qwen_image.log"
+        bash /app/h3-runpod/download_models.sh "$MODELS_DIR" /app/h3-runpod/models-qwen-image.txt > /app/download_qwen_image.log 2>&1
+        echo "[start] qwen image download finished: $(tail -1 /app/download_qwen_image.log)"
+      fi
     ) &
   fi
   DOWNLOAD_MODELS=0
@@ -113,6 +118,12 @@ YAML
     if [ "${REGEN_2K:-1}" = "1" ] && [ ! -s "$MODELS_SRC/loras/open_h3_regenerate_2k_lora.safetensors" ]; then
       echo "[start] downloading Open-H3-Regenerate-2K (~21 GB) onto the volume in the background; see /app/download_regen.log"
       (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1; echo "[start] regen download finished: $(tail -1 /app/download_regen.log)") &
+    fi
+    # Qwen-Image 2.1 Turbo (Canvas, drawn by the pod's painter through ComfyUI): once, onto the volume.
+    # The painter advertises the model only when every file is there. QWEN_IMAGE=0 skips it.
+    if [ "${QWEN_IMAGE:-1}" = "1" ] && [ ! -s "$MODELS_SRC/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors" ] && [ ! -s "$MODELS_SRC/unet/qwen_image_2.1_turbo_int8_convrot.safetensors" ]; then
+      echo "[start] downloading Qwen-Image 2.1 Turbo (~17 GB) onto the volume in the background; see /app/download_qwen_image.log"
+      (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" /app/h3-runpod/models-qwen-image.txt > /app/download_qwen_image.log 2>&1; echo "[start] qwen image download finished: $(tail -1 /app/download_qwen_image.log)") &
     fi
     # The image's installer may replace models/ while it copies ComfyUI in;
     # keep re-applying the links. ComfyUI re-reads a folder whose mtime

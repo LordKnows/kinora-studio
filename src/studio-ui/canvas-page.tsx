@@ -3,14 +3,15 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
+import { describeParams, findModel, IMAGE_MODELS, imageModelOfBackend, type ModelEntry } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type RefView } from "@/studio/schemas";
 import type { Asset, Job, Project } from "@/studio/types";
 
 import { get, post, put } from "./api";
-import { Button, Empty, ErrorBanner, Field, Modal, Section } from "./common";
+import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./common";
 import { CanvasLibrary, loadReferences, type UseOptions } from "./canvas-library";
 import { CloseIcon, UploadIcon } from "./icons";
 import { uploadMedia } from "./upload";
@@ -30,6 +31,8 @@ type Recipe = {
   style: string;
   size: (typeof CANVAS_SIZES)[number];
   quality?: "low" | "medium" | "high";
+  /** The image model (models.ts); unset = the project's GPT Image backend. */
+  model?: string;
   note: string;
   /** The prompt typed over the composed one. */
   prompt?: string;
@@ -60,7 +63,7 @@ function writeStore(key: string, value: unknown) {
 
 const slotName = (s?: Slot<RefItem>) => (s?.item ? (s.item.kind === "portrait" ? s.item.title : s.item.name) : s?.upload?.name ?? "");
 
-function toPromptRecipe(r: Recipe): CanvasPromptRecipe {
+function toPromptRecipe(r: Recipe, refStyle?: "zh" | "qwen"): CanvasPromptRecipe {
   return {
     portrait: r.portrait && (r.portrait.item ? { item: r.portrait.item } : { upload: { name: r.portrait.upload.name } }),
     costume: r.costume && (r.costume.item ? { item: r.costume.item } : { upload: { name: r.costume.upload.name } }),
@@ -68,8 +71,11 @@ function toPromptRecipe(r: Recipe): CanvasPromptRecipe {
     extras: r.extras.map((e) => ({ name: e.name })),
     style: r.style,
     note: r.note,
+    refStyle,
   };
 }
+
+type ModelStatus = { id: string; painters?: { ready: boolean; note?: string; drawers: string[] } };
 
 type Settings = { adultContent: boolean };
 type Started = { job: Job; runner: string; painters: { ready: boolean; note?: string }; prompt: string };
@@ -89,6 +95,22 @@ export function CanvasPage() {
   const [uploading, setUploading] = useState<string>("");
   const [result, setResult] = useState<Asset | null>(null);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const [modelStatus, setModelStatus] = useState<ModelStatus[]>([]);
+  const [gpuStatus, setGpuStatus] = useState<{ status: string; configured: boolean } | null>(null);
+  const loadModels = useCallback(async () => {
+    try {
+      const r = await get<{ models: ModelStatus[]; gpu: { status: string; configured: boolean } | null }>("/api/models?kind=image");
+      setModelStatus(r.models);
+      setGpuStatus(r.gpu);
+    } catch {
+      /* the picker still works; readiness is a hint */
+    }
+  }, []);
+  useEffect(() => {
+    void loadModels();
+    const t = setInterval(() => void loadModels(), 20_000);
+    return () => clearInterval(t);
+  }, [loadModels]);
 
   /* ---------- load ---------- */
   useEffect(() => {
@@ -165,7 +187,9 @@ export function CanvasPage() {
   }, []);
   const selected = { portrait: recipe.portrait?.item?.id, costume: recipe.costume?.item?.id, pose: recipe.pose?.item?.id };
   const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
-  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(recipe)), [recipe]);
+  const model: ModelEntry = findModel(recipe.model ?? "") ?? imageModelOfBackend(view?.project.imaging?.backend ?? "codex") ?? IMAGE_MODELS[0]!;
+  const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
+  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(recipe, model.refStyle)), [recipe, model.refStyle]);
   const prompt = recipe.prompt ?? composed;
   const hiddenInRecipe = !adult && [recipe.portrait?.item, recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
   const charadbOnUpload = recipe.costume?.item?.source === "charadb" && !!recipe.portrait?.upload;
@@ -196,7 +220,7 @@ export function CanvasPage() {
     try {
       const { assetId, url } = await uploadMedia(file, projectId);
       const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture" };
-      setRecipe((r) => (target === "extra" ? { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS) } : { ...r, [target]: { upload: up } }));
+      setRecipe((r) => (target === "extra" ? { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS_ANY) } : { ...r, [target]: { upload: up } }));
     } finally {
       setUploading("");
     }
@@ -214,7 +238,7 @@ export function CanvasPage() {
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (!file) return;
       e.preventDefault();
-      if (count >= CANVAS_MAX_REFS) return setError(new Error(`At most ${CANVAS_MAX_REFS} pictures per call`));
+      if (count >= maxRefs) return setError(new Error(`${model.label} takes at most ${maxRefs} pictures per call`));
       tryUpload(file, "extra");
     };
     window.addEventListener("paste", onPaste);
@@ -241,7 +265,8 @@ export function CanvasPage() {
         extras: recipe.extras.map((e) => ({ assetId: e.assetId, name: e.name })),
         style: recipe.style,
         size: recipe.size,
-        ...(recipe.quality ? { quality: recipe.quality } : {}),
+        model: model.id,
+        ...(recipe.quality && model.runtime === "api" ? { quality: recipe.quality } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
         ...(prefs.attach ? { attach: prefs.attach } : {}),
@@ -264,9 +289,9 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; costumeView?: string; note?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; costumeView?: string; note?: string; model?: string } | undefined;
     if (!c?.refs) return;
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, note: c.note ?? "" };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, note: c.note ?? "", ...(c.model ? { model: c.model } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -283,8 +308,9 @@ export function CanvasPage() {
   /* ---------- view ---------- */
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
-  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "GPT Image is off for this project" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
-  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : count > CANVAS_MAX_REFS ? `At most ${CANVAS_MAX_REFS} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : "");
+  const uploadedFaceAdult = !!recipe.portrait?.upload && [recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
+  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (the GPT Image switch)" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
+  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -295,7 +321,7 @@ export function CanvasPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image draws it into a project, ready to become an element&apos;s look.</p>
+          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, or Qwen-Image on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
         </div>
         <div className="st-row">
           <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
@@ -357,7 +383,7 @@ export function CanvasPage() {
             )}
           </Section>
 
-          <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}><span className="st-muted st-num">{count}/{CANVAS_MAX_REFS} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button><Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
+          <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}><span className="st-muted st-num">{count}/{maxRefs} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button><Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
             <div className="st-slots">
               {(["portrait", "costume", "pose"] as const).map((k) => (
                 <SlotCard key={k} kind={k} recipe={recipe} adult={adult} uploading={uploading === k} canUpload={!!projectId}
@@ -372,15 +398,26 @@ export function CanvasPage() {
                   onView={(v) => setRecipe((r) => (r.costume?.item ? { ...r, costume: { ...r.costume, view: v } } : r))} />
               ))}
             </div>
-            <Extras recipe={recipe} canAdd={!!projectId && count < CANVAS_MAX_REFS} uploading={uploading === "extra"}
+            <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs} uploading={uploading === "extra"}
               onAdd={(f) => tryUpload(f, "extra")}
               onRemove={(i) => setRecipe((r) => ({ ...r, extras: r.extras.filter((_, j) => j !== i) }))}
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
+            {uploadedFaceAdult && <p className="st-danger">18+ references cannot be combined with an uploaded face: it may be a real person. Use a library portrait (AI-generated adults).</p>}
           </Section>
 
           <Section title="Picture">
+            <ModelPicker model={model} status={modelStatus.find((m) => m.id === model.id)} gpu={gpuStatus}
+              onModel={(id) => setRecipe((r) => ({ ...r, model: id }))}
+              onStartGpu={async () => {
+                try {
+                  await post("/api/gpu/start", { confirm: true });
+                  await loadModels();
+                } catch (e) {
+                  setError(e);
+                }
+              }} />
             <Field label="Style">
               <select className="st-select" value={recipe.style} onChange={(e) => setRecipe((r) => ({ ...r, style: e.target.value }))}>
                 {CANVAS_STYLES.map((s) => <option key={s.id} value={s.id}>{s.label} · {s.zh}</option>)}
@@ -392,14 +429,16 @@ export function CanvasPage() {
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>
-              <Field label="Quality">
-                <select className="st-select" value={recipe.quality ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, quality: (e.target.value || undefined) as Recipe["quality"] }))}>
-                  <option value="">Project default{imaging ? ` (${imaging.quality})` : ""}</option>
-                  <option value="low">Low · draft</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </Field>
+              {model.runtime === "api" && (
+                <Field label="Quality">
+                  <select className="st-select" value={recipe.quality ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, quality: (e.target.value || undefined) as Recipe["quality"] }))}>
+                    <option value="">Project default{imaging ? ` (${imaging.quality})` : ""}</option>
+                    <option value="low">Low · draft</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </Field>
+              )}
             </div>
             <Field label="Note" hint="Added to the prompt, e.g. 教室窗边逆光，微风吹拂发丝">
               <textarea className="st-textarea" rows={2} maxLength={600} value={recipe.note} onChange={(e) => setRecipe((r) => ({ ...r, note: e.target.value }))} />
@@ -451,6 +490,31 @@ export function CanvasPage() {
 
       {ageGate && <AgeGate onClose={() => setAgeGate(false)} onConfirm={async () => { await setAdult(true); setAgeGate(false); }} />}
       {result && <ResultModal asset={result} projectId={projectId!} onClose={() => setResult(null)} onRestore={() => void restore(result).catch(setError)} />}
+    </div>
+  );
+}
+
+/* ---------- the model ---------- */
+
+function ModelPicker({ model, status, gpu, onModel, onStartGpu }: { model: ModelEntry; status?: ModelStatus; gpu: { status: string; configured: boolean } | null; onModel: (id: string) => void; onStartGpu: () => Promise<void> }) {
+  const [starting, setStarting] = useState(false);
+  const ready = status?.painters?.ready;
+  const gpuDown = model.runtime === "pod" && gpu?.configured && !["running", "starting"].includes(gpu.status);
+  return (
+    <div className="st-stack st-stack--tight">
+      <Field label="Model">
+        <select className="st-select" value={model.id} onChange={(e) => onModel(e.target.value)}>
+          {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.runtime === "pod" ? "GPU pod" : m.backend === "codex" ? "ChatGPT plan" : "API, per picture"}</option>)}
+        </select>
+      </Field>
+      <span className="st-muted st-num">{describeParams(model.params) || "settings by the service"} · up to {model.maxRefs ?? CANVAS_MAX_REFS} pictures{model.moderation === "openai" ? " · OpenAI moderation" : " · no content filter"}</span>
+      {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
+        <div className="st-alert st-alert--warn">
+          <span>{status.painters.note}{gpu?.status === "starting" ? " The pod is starting; its painter reports once the model is loaded." : ""}</span>
+          {gpuDown && <Button size="sm" busy={starting} title="Bills per hour; stops by itself when idle" onClick={async () => { setStarting(true); try { await onStartGpu(); } finally { setStarting(false); } }}>Start GPU pod</Button>}
+        </div>
+      ))}
+      {model.commercial === false && <span className="st-warn">{model.license}</span>}
     </div>
   );
 }

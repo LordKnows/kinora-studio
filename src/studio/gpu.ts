@@ -69,7 +69,8 @@ function podEnv(): Record<string, string> {
 
 function imagesApiEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL"]) {
+  /* QWEN_IMAGE=0: skip the Qwen-Image 2.1 download (Canvas on the GPU pod); COMFY_PAINT_TIMEOUT_S: how long a picture may wait in the pod's ComfyUI queue */
+  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL", "QWEN_IMAGE", "COMFY_PAINT_TIMEOUT_S"]) {
     const v = process.env[name];
     if (v) out[name] = v;
   }

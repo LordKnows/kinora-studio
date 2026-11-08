@@ -1,0 +1,163 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { beforeAll, describe, expect, it } from "vitest";
+
+import { setDb, type Db } from "@/db";
+import { migrate } from "@/db/migrate";
+import { CanvasCompose, composeCharacter } from "@/studio/canvas";
+import * as imaging from "@/studio/imaging";
+import { describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
+import * as painter from "@/studio/painter";
+import { listReferences, setAdultContent } from "@/studio/references";
+import * as repo from "@/studio/repo";
+import type { Actor } from "@/studio/types";
+
+/* The model registry: every model with the settings its authors recommend,
+   resolved as base model → workflow variant → speed LoRA → the caller's
+   steps; LoRAs carrying their own settings; and an image model on the GPU
+   pod (Qwen-Image 2.1 Turbo) routed to the pod's painter only. */
+
+const web: Actor = { user: "models@local", via: "web" };
+
+async function memoryDb(): Promise<Db> {
+  const { default: Database } = await import("better-sqlite3");
+  const sqlite = new Database(":memory:");
+  sqlite.pragma("foreign_keys = ON");
+  const db: Db = {
+    async all<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).all(...(params as never[])) as T[]; },
+    async get<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).get(...(params as never[])) as T | undefined; },
+    async run(sql: string, params: unknown[] = []) { return { changes: Number(sqlite.prepare(sql).run(...(params as never[])).changes) }; },
+    async exec(sql: string) { sqlite.exec(sql); },
+  };
+  await migrate(db);
+  return db;
+}
+
+beforeAll(async () => {
+  process.env.STUDIO_PUBLIC_URL = "https://studio.example";
+  setDb(await memoryDb());
+  globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
+});
+
+const H3 = findModel("minimax-h3") as ModelEntry;
+const QWEN = findModel("qwen-image-2.1-turbo") as ModelEntry;
+const turbo = { id: "lora_h3_turbo_fl2v", name: "H3 turbo 8-step (fl2v)", kind: "speed" };
+
+describe("resolving the settings", () => {
+  it("takes the base model's recommendation, its workflow variant, then the speed LoRA's chain", () => {
+    const base = resolveParams(H3, { workflow: "I2VA" });
+    expect(base.params).toMatchObject({ steps: 20, sampler: "res_multistep", scheduler: "simple", shiftVideo: 1, shiftAudio: 1 });
+    expect(resolveParams(H3, { workflow: "R2VA" }).params.scheduler).toBe("beta");
+    expect(isGraphDefault(H3, base.params)).toBe(false);
+    const fast = resolveParams(H3, { workflow: "R2VA", loras: [turbo] });
+    expect(fast.params).toMatchObject({ steps: 8, sampler: "euler", scheduler: "simple", shiftVideo: 6, shiftAudio: 3 });
+    expect(fast.sources).toEqual(["MiniMax H3", "H3 turbo 8-step (fl2v)"]);
+    /* the turbo chain is what the graphs carry: nothing more to send */
+    expect(isGraphDefault(H3, fast.params)).toBe(true);
+  });
+
+  it("a speed LoRA with its own chain replaces the graph's, and one with only steps runs on the graph's", () => {
+    const own = resolveParams(H3, { loras: [{ id: "x", name: "4-step", kind: "speed", params: { steps: 4, shiftVideo: 5 } }] });
+    expect(own.params).toMatchObject({ steps: 4, sampler: "euler", shiftVideo: 5, shiftAudio: 3 });
+    expect(isGraphDefault(H3, own.params)).toBe(false);
+    const hintOnly = resolveParams(H3, { loras: [{ id: "y", name: "6-step", kind: "speed", stepsHint: 6 }] });
+    expect(hintOnly.params).toMatchObject({ steps: 6, sampler: "euler", scheduler: "simple", shiftVideo: 6 });
+  });
+
+  it("the caller's steps win with a warning; a fixed schedule ignores them", () => {
+    const r = resolveParams(H3, { loras: [turbo], steps: 12 });
+    expect(r.params.steps).toBe(12);
+    expect(r.warnings[0]).toContain("tuned for 8 steps");
+    const q = resolveParams(QWEN, { steps: 30 });
+    expect(q.params.steps).toBe(8);
+    expect(q.params.sigmas).toEqual(QWEN21_TURBO_SIGMAS);
+    expect(q.warnings[0]).toContain("fixed 8-step schedule");
+  });
+
+  it("flags a LoRA strength outside its card's range", () => {
+    const r = resolveParams(H3, { loras: [{ id: "lora_jojocodex_physics", name: "Physics", kind: "effect", strength: 0.9 }] });
+    expect(r.warnings.some((w) => w.includes("0.3–0.5"))).toBe(true);
+    expect(describeParams(resolveParams(H3, { loras: [turbo] }).params)).toBe("8 steps · euler/simple · shift 6/3");
+  });
+});
+
+describe("the registry and the pod agree", () => {
+  const pod = join(__dirname, "..", "workers", "h3-runpod");
+  const manifest = JSON.parse(readFileSync(join(pod, "workflows", "image_models.json"), "utf8")) as Record<string, { files: string; workflow: string }>;
+
+  it("every pod image model has a workflow, a manifest entry and the same download list", () => {
+    for (const m of IMAGE_MODELS.filter((x) => x.runtime === "pod")) {
+      expect(m.backend).toBe(`comfy:${m.id}`);
+      const entry = manifest[m.id]!;
+      expect(entry).toBeTruthy();
+      expect(m.workflows).toContain(entry.workflow);
+      const listed = readFileSync(join(pod, entry.files), "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#")).map((l) => l.split("\t")[1]);
+      expect(listed).toEqual(m.files!.map((f) => f.url));
+      const graph = JSON.parse(readFileSync(join(pod, "workflows", `${entry.workflow}.json`), "utf8")) as Record<string, { class_type?: string; inputs?: Record<string, unknown> }>;
+      const loaded = Object.values(graph).flatMap((n) => Object.values(n.inputs ?? {})).filter((v) => typeof v === "string");
+      for (const f of m.files!) expect(loaded).toContain(f.file);
+    }
+  });
+
+  it("ids are unique, image models name a backend, non-commercial licences say so", () => {
+    expect(new Set(MODELS.map((m) => m.id)).size).toBe(MODELS.length);
+    expect(IMAGE_MODELS.every((m) => !!m.backend)).toBe(true);
+    expect(QWEN.commercial).toBe(false);
+  });
+});
+
+describe("LoRAs carry their settings", () => {
+  it("seeded LoRAs know their card; a user's own values and its steps hint fill in the rest", async () => {
+    const fal = await repo.getLora("lora_fal_realism_people");
+    expect(fal.recommended.strengthRange).toEqual([0.6, 1]);
+    expect(fal.baseModel).toBe("minimax-h3");
+    const t = await repo.getLora("lora_h3_turbo_ref2v");
+    expect(t.recommended).toMatchObject({ steps: 8, sampler: "euler", shiftVideo: 6 });
+    const mine = await repo.createLora({ name: "Qwen 6-step", kind: "speed", filename: "p_q_image_2.1_6_steps.safetensors", triggerWords: "", defaultStrength: 1, workflows: [], notes: "", baseModel: "qwen-image-2.1", params: { steps: 6, cfg: 1 } });
+    expect(mine.recommended).toMatchObject({ steps: 6, cfg: 1, strength: 1 });
+    const edited = await repo.updateLora(mine.id, { params: { steps: 5 } });
+    expect(edited.params).toEqual({ steps: 5 });
+    expect(edited.baseModel).toBe("qwen-image-2.1");
+  });
+});
+
+describe("an image model on the GPU pod", () => {
+  let projectId = "";
+  const portrait = async () => (await listReferences("portrait", false)).items[0]!;
+  const costume = async () => (await listReferences("costume", false)).items.find((x) => x.kind === "costume" && x.source === "gia")!;
+
+  it("queues a Qwen job with its settings, <imageN> references and no Codex review", async () => {
+    projectId = (await repo.createProject({ name: "Qwen canvas" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, web);
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1-turbo", portrait: { id: (await portrait()).id }, costume: { id: (await costume()).id }, seed: 42 }), web);
+    expect(r.model).toBe("qwen-image-2.1-turbo");
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.backend).toBe("comfy:qwen-image-2.1-turbo");
+    expect(job.input.params).toMatchObject({ steps: 8, cfg: 1, sampler: "euler", sigmas: QWEN21_TURBO_SIGMAS, seed: 42 });
+    expect((job.input.check as { review: boolean }).review).toBe(false);
+    expect(String(job.input.prompt)).toContain("<image1>中的人物");
+    expect(String(job.input.prompt)).not.toContain("图1");
+    /* nobody but the GPU pod can draw it: the answer says so */
+    expect(r.runner).toContain("GPU pod");
+    expect(painter.isPodBackend(job)).toBe(true);
+  });
+
+  it("only a painter on the pod that has the model claims it, and it gets the settings", async () => {
+    const cpu = await painter.claim({ painterId: "cpu", name: "cpu", want: 4, info: { backends: ["codex"], ops: ["paint", "crop", "extract"] } });
+    expect(cpu.jobs.some((j) => j.input.backend === "comfy:qwen-image-2.1-turbo")).toBe(false);
+    const gpu = await painter.claim({ painterId: "gpu-pod-1", name: "gpu", want: 4, info: { backends: ["comfy:qwen-image-2.1-turbo"], ops: ["paint", "crop", "extract"], onPod: true } });
+    const got = gpu.jobs.find((j) => j.input.backend === "comfy:qwen-image-2.1-turbo")!;
+    expect(got.input.params).toMatchObject({ steps: 8, seed: 42 });
+  });
+
+  it("takes up to ten pictures, and never an 18+ reference on an uploaded face", async () => {
+    const up = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/face.png", kind: "image", source: "upload", meta: {}, name: "face" });
+    const nine = Array.from({ length: 9 }, () => ({ assetId: up.id }));
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1-turbo", portrait: { id: (await portrait()).id }, extras: nine }), web)).resolves.toBeTruthy();
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "gpt-image-codex", portrait: { id: (await portrait()).id }, extras: nine.slice(0, 5) }), web)).rejects.toMatchObject({ code: "validation" });
+    await setAdultContent(web, { enabled: true, confirmAdult: true });
+    const adultPose = (await listReferences("pose", true)).items.find((x) => x.nsfw)!;
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "qwen-image-2.1-turbo", portrait: { assetId: up.id }, pose: { id: adultPose.id } }), web)).rejects.toMatchObject({ code: "validation" });
+  });
+});

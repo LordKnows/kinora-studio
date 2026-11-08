@@ -12,6 +12,7 @@ import { imageBlock } from "@/studio/image-content";
 import { ImageAction, runImageAction } from "@/studio/image-actions";
 import * as imaging from "@/studio/imaging";
 import * as canvas from "@/studio/canvas";
+import * as models from "@/studio/models";
 import * as references from "@/studio/references";
 import { remakeTake } from "@/studio/remake";
 import { config } from "@/studio/config";
@@ -342,7 +343,7 @@ export function createStudioServer(actor: Actor): McpServer {
   const quality = z.enum(["low", "medium", "high"]).optional().describe("low for drafts (default from Settings), medium for finals");
   tool("image_status", "Whether GPT Image is on for this project (the user switches it in Settings, web only), the backend (codex = the user's ChatGPT plan; api = per call), the quota left, a stop after a quota error, which painters are online to draw (they run away from the GPU: pictures are made before the pod starts) and whether Codex is logged in there, and the pod's Viggle Remake readiness. Check it before planning pictures.", z.object({ projectId: id }), async ({ projectId }) => {
     const summary = imaging.imagingSummary(await repo.getProject(projectId));
-    const painters = { ...(await painterRunner(summary.backend)), pod: await import("@/studio/painter-pod").then((m) => m.painterPodState()).then((st) => (st.configured ? { status: st.pod?.live ? st.pod.status : "off", note: "a CPU pod is created by itself when pictures are queued (1–3 min) and terminated after idling" } : undefined)) };
+    const painters = { ...(await painterRunner("paint", summary.backend)), pod: await import("@/studio/painter-pod").then((m) => m.painterPodState()).then((st) => (st.configured ? { status: st.pod?.live ? st.pod.status : "off", note: "a CPU pod is created by itself when pictures are queued (1–3 min) and terminated after idling" } : undefined)) };
     const remake = await gpu.remakeStatus().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
     return { ...summary, painters, remake };
   });
@@ -362,6 +363,15 @@ export function createStudioServer(actor: Actor): McpServer {
   }), async (q) => {
     const adult = await references.adultAllowed(actor);
     return { adult, ...(await references.queryReferences(q, adult)) };
+  });
+  tool("list_models", "Every model the Studio runs, with the settings its authors recommend (steps, CFG, sampler, schedule, shift), its runtime (api = a hosted service drawn by a painter; pod = a ComfyUI workflow on the GPU pod, only while the pod runs), licence and moderation; image models say whether a painter can draw them now; and the LoRA library grouped by the model family each LoRA was trained for, with its recommended settings. Picking a model or a speed LoRA sets the settings: pass steps only to depart from them.", z.object({ kind: z.enum(["image", "video"]).optional() }), async ({ kind }) => {
+    const all = models.MODELS.filter((m) => !kind || m.kind === kind);
+    const loras = await repo.listLoras();
+    const ready = await Promise.all(all.map((m) => (m.kind === "image" && m.backend ? painterRunner("paint", m.backend) : Promise.resolve(undefined))));
+    return {
+      models: all.map((m, i) => ({ id: m.id, kind: m.kind, runtime: m.runtime, label: m.label, family: m.family, recommended: m.params, settings: models.describeParams(m.params), maxRefs: m.maxRefs, license: m.license, commercial: m.commercial, moderation: m.moderation, notes: m.notes, ...(ready[i] ? { canDrawNow: ready[i]!.ready, note: ready[i]!.note } : {}) })),
+      loras: loras.map((l) => ({ id: l.id, name: l.name, kind: l.kind, family: l.baseModel, recommended: l.recommended, settings: models.describeParams(l.recommended), workflows: l.workflows })),
+    };
   });
   tool("get_reference", "One reference of the Canvas library by id: names, tags, the picture URLs (thumb, image; poses also depth), and for costumes their views.", z.object({ id }), async ({ id: refId }) => ({ item: await references.getReference(refId, await references.adultAllowed(actor)) }));
   tool("compose_character", "Draw one character picture with GPT Image from Canvas references: a portrait (face, hair), a costume, a pose (line art, or depth: true) — library ids from list_references, or project pictures by assetId — plus up to two extra project pictures (at most 5 pictures in all). The prompt is composed for you (style: realistic, fashion, film, semi_real, anime, cel_anime, manga, render3d, chibi_box, cyberpunk, concept_sheet, none); note adds a line, prompt replaces it. attach puts the result on an element as a reference view (a character's look from the library). Needs GPT Image on for the project and counts against its quota; follow with get_image_job.", canvas.CanvasCompose.extend({ projectId: id }), async ({ projectId, ...input }) => canvas.composeCharacter(projectId, input, actor));

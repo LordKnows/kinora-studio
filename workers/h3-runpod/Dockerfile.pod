@@ -19,6 +19,7 @@ COPY h3-runpod/models-remake.txt /app/models-remake.txt
 COPY h3-runpod/start.sh /app/start.sh
 COPY h3-runpod/workflows /app/workflows
 COPY h3-runpod/models.txt /app/models.txt
+COPY h3-runpod/models-qwen-image.txt /app/models-qwen-image.txt
 COPY h3-runpod/download_models.sh /app/download_models.sh
 COPY assembler/handler.py /app/assembler_handler.py
 

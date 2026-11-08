@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { get } from "./api";
 import { Empty, ErrorBanner, Skeleton } from "./common";
 import { LorasPage } from "./loras-page";
+import { ModelsGallery } from "./models-page";
 
 /* Library: what every project draws from — the style presets of the
    director layer and the LoRA library. */
@@ -12,23 +13,23 @@ import { LorasPage } from "./loras-page";
 type StyleCard = { slug: string; en: string; cn: string; category: string; uses: string[]; line: string; line_cn: string };
 
 export function LibraryPage() {
-  const [tab, setTab] = useState<"styles" | "loras">("styles");
+  const [tab, setTab] = useState<"styles" | "loras" | "models">("styles");
   return (
     <div className="st-page">
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Library</h1>
-          <p className="st-subtitle">Style presets the director compiles into a Look, and the LoRAs a project can switch on. Shared across projects.</p>
+          <p className="st-subtitle">Style presets the director compiles into a Look, the LoRAs a project can switch on, and the models the Studio runs with the settings they recommend. Shared across projects.</p>
         </div>
-        <div className="st-tabs" role="tablist" style={{ width: 260 }}>
-          {(["styles", "loras"] as const).map((t) => (
+        <div className="st-tabs" role="tablist" style={{ width: 360 }}>
+          {(["styles", "loras", "models"] as const).map((t) => (
             <button key={t} type="button" role="tab" className="st-tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-              {t === "styles" ? "Styles" : "LoRAs"}
+              {t === "styles" ? "Styles" : t === "loras" ? "LoRAs" : "Models"}
             </button>
           ))}
         </div>
       </div>
-      {tab === "styles" ? <StyleGallery /> : <LorasPage embedded />}
+      {tab === "styles" ? <StyleGallery /> : tab === "loras" ? <LorasPage embedded /> : <ModelsGallery />}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import { getProjectView, type ProjectView, type ShotView } from "./orchestrator"
 import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
+import type { InferenceParams } from "./models";
 import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
 
 /*
@@ -101,6 +102,10 @@ export type ImageRequest = {
   label?: string;
   /** Canvas pictures: the recipe they were composed from (references, style), kept on the asset. */
   canvas?: Record<string, unknown>;
+  /** A model other than the project's GPT Image backend (models.ts): its painter backend and settings. */
+  model?: string;
+  backend?: string;
+  params?: InferenceParams;
 };
 
 /** Queue an image job for the painters. Painting is gated by the project
@@ -110,15 +115,26 @@ export type ImageRequest = {
 export async function submitImage(projectId: string, req: ImageRequest, actor: Actor, opts: { startPod?: boolean } = {}): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary }> {
   const project = await repo.getProject(projectId);
   const left = req.op === "paint" ? await assertCanPaint(project) : 0;
-  const backend = project.imaging?.backend ?? "codex";
-  /* the painter checks its own picture (a fresh Codex session, rubric as JSON) and may redraw a blocker, inside the quota */
-  const check = req.op === "paint" ? { review: project.imaging?.selfCheck ?? true, redraws: Math.max(0, Math.min(project.imaging?.autoRedraws ?? 1, left - 1)), kind: req.purpose } : undefined;
+  const backend = req.backend ?? project.imaging?.backend ?? "codex";
+  const podModel = backend.startsWith("comfy:");
+  /* the painter checks its own picture (a fresh Codex session, rubric as JSON) and may redraw a blocker, inside the quota;
+     not a pod model's picture: the review would send it to OpenAI, whose moderation the model was picked to avoid */
+  const check = req.op === "paint" ? { review: podModel ? false : project.imaging?.selfCheck ?? true, redraws: Math.max(0, Math.min(project.imaging?.autoRedraws ?? 1, left - 1)), kind: req.purpose } : undefined;
   const job = await repo.createJob({
     projectId, kind: "image", targetId: req.targetId, backend: req.op === "paint" ? `painter-${backend}` : "painter",
     input: { ...req, backend, quality: req.quality ?? project.imaging?.quality ?? "low", by: actor.via === "mcp" ? "agent" : actor.user, ...(check ? { check } : {}) },
   });
   const summary = await painter.runnerSummary(req.op, backend);
   if (summary.ready) return { job, runner: `queued; ${summary.drawers.join(" / ")} draws it`, painters: summary };
+  if (podModel) {
+    /* only the GPU pod draws it: start the pod when asked to, else say so */
+    if (opts.startPod && gpu.gpuConfigured()) {
+      const state = await gpu.startGpu(actor, true);
+      if (state.status === "unavailable") throw new StudioError("backend_error", state.message ?? "no GPU available right now", { noResources: true, job: job.id });
+      return { job, runner: `queued; the GPU pod is ${state.status}, it draws once its model is loaded (it bills per hour)`, painters: summary };
+    }
+    return { job, runner: `queued; ${summary.note ?? "waiting for the GPU pod"}`, painters: summary };
+  }
   /* nobody can draw it now: wake the painter pod, if the Studio manages one */
   const { wakeForWork } = await import("./painter-pod");
   const woke = await wakeForWork();
@@ -165,6 +181,7 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
       view: i.attach?.elementRef?.view, label: i.label, review: i.op === "paint" ? "pending" : undefined,
       checks: out.checks, autoReview: out.review, painter: painter.painterOfJob(job), drawn: out.drawn,
       ...(i.canvas ? { canvas: i.canvas } : {}),
+      ...(i.model ? { model: i.model, params: i.params } : {}),
     },
     name: i.label,
   });

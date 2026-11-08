@@ -20,6 +20,7 @@ import imaging from "./migrations/0012_imaging";
 import paintersNames from "./migrations/0013_painters_names";
 import painterPod from "./migrations/0014_painter_pod";
 import userSettings from "./migrations/0015_user_settings";
+import loraParams from "./migrations/0016_lora_params";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -37,6 +38,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0013_painters_names", sql: paintersNames },
   { name: "0014_painter_pod", sql: painterPod },
   { name: "0015_user_settings", sql: userSettings },
+  { name: "0016_lora_params", sql: loraParams },
 ];
 
 export async function migrate(db: Db): Promise<void> {

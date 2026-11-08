@@ -45,6 +45,8 @@ export type CanvasPromptRecipe = {
   extras?: Array<{ name: string }>;
   style?: string;
   note?: string;
+  /** How the model names the pictures: 图1, 图2 … (GPT Image), or <image1>, <image2> … (Qwen-Image 2.1). */
+  refStyle?: "zh" | "qwen";
 };
 
 export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
@@ -93,7 +95,9 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
   if (r.note?.trim()) lines.push(`• 补充要求：${r.note.trim()}`);
   if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
   lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");
-  return lines.join("\n");
+  const text = lines.join("\n");
+  /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10> */
+  return r.refStyle === "qwen" ? text.replace(/图(\d+)/g, "<image$1>") : text;
 }
 
 export const CANVAS_SIZES = ["1024x1536", "1008x1344", "1024x1024", "1536x1024", "1344x768"] as const;
@@ -104,5 +108,7 @@ export const CANVAS_SIZE_LABEL: Record<(typeof CANVAS_SIZES)[number], string> = 
   "1536x1024": "3:2 landscape",
   "1344x768": "16:9 wide",
 };
-/** Codex's image tool takes at most five pictures per call (paint.py MAX_CODEX_PICTURES). */
+/** Codex's image tool takes at most five pictures per call (paint.py MAX_CODEX_PICTURES); each model says its own (models.ts maxRefs). */
 export const CANVAS_MAX_REFS = 5;
+/** The most any model takes (Qwen-Image 2.1: ten). */
+export const CANVAS_MAX_REFS_ANY = 10;
