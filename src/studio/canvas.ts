@@ -5,7 +5,7 @@ import { StudioError } from "./errors";
 import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
 import * as painter from "./painter";
-import { findModel, IMAGE_MODELS, imageModelOfBackend, resolveParams, type ModelEntry } from "./models";
+import { findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
@@ -89,9 +89,9 @@ async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId:
 }
 
 /** Draw a character from portrait + costume + pose. Gated like every picture: GPT Image on for the project, inside its quota. */
-/** The image model a Canvas picture is drawn with: the one asked for, else the project's GPT Image backend. */
-export function canvasModel(id: string | undefined, projectBackend: string | undefined): ModelEntry {
-  const model = id ? findModel(id) : imageModelOfBackend(projectBackend ?? "codex");
+/** The image model a Canvas picture is drawn with: the one asked for, else the project's (Settings → Director). */
+export function canvasModel(id: string | undefined, imaging?: { model?: string; backend?: string } | null): ModelEntry {
+  const model = id ? findModel(id) : projectImageModel(imaging);
   if (!model || model.kind !== "image") throw new StudioError("validation", `${id} is not an image model (list_models)`);
   return model;
 }
@@ -104,7 +104,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const pose = await resolveSlot(projectId, "pose", input.pose, adult);
   const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
   if (!portrait && !costume && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
-  const model = canvasModel(input.model, (await repo.getProject(projectId)).imaging?.backend);
+  const model = canvasModel(input.model, (await repo.getProject(projectId)).imaging);
   const library = input.loras.length ? await repo.getLoras(input.loras.map((r) => r.id)) : new Map();
   const loras = input.loras.map((r) => {
     const l = library.get(r.id);
@@ -141,10 +141,6 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   if (input.attach) {
     const el = await repo.getElement(input.attach.elementId);
     if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
-  }
-  /* an API model whose key nobody has: the CPU painter pod would start for a picture it cannot draw */
-  if (model.backend === "qwen" && !painter.qwenApiKeyOnWorker() && !(await painter.runnerSummary("paint", "qwen")).ready) {
-    throw new StudioError("validation", `${model.label} needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret (Cloudflare → Workers → Settings → Variables and Secrets); the CPU painter pod gets it when it starts`);
   }
 
   const recipe: CanvasPromptRecipe = {

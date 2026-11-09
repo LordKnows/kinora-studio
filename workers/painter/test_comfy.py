@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,14 @@ MANIFEST = MANIFESTS["qwen-image-2.1-turbo"]
 GRAPH = json.loads((POD / "workflows" / "QWEN21_EDIT.json").read_text())
 BASE_GRAPH = json.loads((POD / "workflows" / "QWEN21_EDIT_BASE.json").read_text())
 OMNI = "chatrlabs-omni-lora-v0.1-bf16.safetensors"
+
+
+def whole(path: Path, line: str) -> None:
+    """A model file of the list's size (sparse: no disk used)."""
+    size = int(line.split("\t")[2])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.truncate(size)
 
 
 def png(color=(10, 120, 200), size=(512, 768)) -> bytes:
@@ -113,10 +122,8 @@ def weights(tmp_path, monkeypatch):
     for line in (POD / MANIFEST["files"]).read_text().splitlines() + (POD / MANIFESTS["qwen-image-2.1"]["files"]).read_text().splitlines():
         if not line.strip() or line.startswith("#"):
             continue
-        subdir, _, url = line.partition("\t")
-        d = tmp_path / subdir
-        d.mkdir(parents=True, exist_ok=True)
-        (d / url.rsplit("/", 1)[-1]).write_bytes(b"\0" * 1_000_001)
+        subdir, url = line.split("\t")[:2]
+        whole(tmp_path / subdir / url.rsplit("/", 1)[-1], line)
     monkeypatch.setenv("MODELS_DIR", str(tmp_path))
     monkeypatch.setattr(paint, "COMFY_POLL_S", 0)
     return tmp_path
@@ -136,11 +143,24 @@ def test_the_painter_advertises_a_model_only_with_its_weights(tmp_path, monkeypa
     assert paint.comfy_backends(FakeComfy()) == []
     for line in (POD / MANIFEST["files"]).read_text().splitlines():
         if line.strip() and not line.startswith("#"):
-            subdir, _, url = line.partition("\t")
+            subdir, url = line.split("\t")[:2]
             # diffusion_models and unet are one folder type to ComfyUI
-            d = tmp_path / ("unet" if subdir == "diffusion_models" else subdir)
-            d.mkdir(parents=True, exist_ok=True)
-            (d / url.rsplit("/", 1)[-1]).write_bytes(b"\0" * 1_000_001)
+            whole(tmp_path / ("unet" if subdir == "diffusion_models" else subdir) / url.rsplit("/", 1)[-1], line)
+    assert paint.comfy_backends(FakeComfy()) == ["comfy:qwen-image-2.1-turbo"]
+    # a cut-off file is not the model
+    vae = next(tmp_path.glob("vae/*.safetensors"))
+    with open(vae, "r+b") as fh:
+        fh.truncate(vae.stat().st_size - 1)
+    assert paint.comfy_backends(FakeComfy()) == []
+    with open(vae, "r+b") as fh:
+        fh.truncate(vae.stat().st_size + 1)
+    # while the pod downloads, it holds its models: a picture would crawl
+    state = tmp_path / "dl"
+    state.mkdir()
+    (state / "chain.pid").write_text(str(os.getpid()))
+    monkeypatch.setenv("DOWNLOAD_STATE_DIR", str(state))
+    assert paint.comfy_backends(FakeComfy()) == []
+    (state / "chain.pid").write_text("999999")
     assert paint.comfy_backends(FakeComfy()) == ["comfy:qwen-image-2.1-turbo"]
 
     class Down(FakeComfy):
@@ -261,10 +281,8 @@ def weights2509(tmp_path, monkeypatch):
     for line in (POD / QIE["files"]).read_text().splitlines():
         if not line.strip() or line.startswith("#"):
             continue
-        subdir, _, url = line.partition("\t")
-        d = tmp_path / subdir
-        d.mkdir(parents=True, exist_ok=True)
-        (d / url.rsplit("/", 1)[-1]).write_bytes(b"\0" * 1_000_001)
+        subdir, url = line.split("\t")[:2]
+        whole(tmp_path / subdir / url.rsplit("/", 1)[-1], line)
     monkeypatch.setenv("MODELS_DIR", str(tmp_path))
     monkeypatch.setattr(paint, "COMFY_POLL_S", 0)
     return tmp_path

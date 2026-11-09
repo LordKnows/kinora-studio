@@ -20,39 +20,43 @@ SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
 # into the volume. The directory is created before the image's start.sh
 # runs because its sync skips /models and /extra_model_paths.yaml.
 VOLUME_PATH="${STUDIO_VOLUME_PATH:-/workspace}"
-# Optional image models for Canvas (Qwen-Image 2.1 Turbo, and the base for LoRAs) come after the
-# video models, one list after the other (they share the text encoder and VAE), each only when the
-# disk has room for it plus a margin: a full disk would break the video renders.
+# Every boot runs one download chain, one list after the other (two lists at
+# once would halve both and starve a render reading the same disk): the H3
+# video models, then the image models for Canvas and the director, then
+# Open-H3-Regenerate-2K. download_models.sh keeps files whose size is the
+# list's, resumes or refetches the rest and goes on past a failure, so a
+# chain cut short (a stop, a timeout) is finished by the next boot. The
+# optional lists start only when the disk has room for them plus a margin
+# (a full disk would break the renders) or when they are partly there. While
+# the chain runs, /app/downloads/chain.pid says so: the job server's /health
+# reports it and the Studio holds pod work until it is done.
 room_gb() { df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'; }
-qwen_downloads() {
+export DOWNLOAD_STATE_DIR="${DOWNLOAD_STATE_DIR:-/app/downloads}"
+fetch_list() { # dir list log label room_gb_needed first_file
+  local dir="$1" list="$2" log="$3" label="$4" need="$5" first="$6"
+  if [ "$need" -gt 0 ] && ! [ "$(room_gb "$dir")" -ge "$need" ] 2>/dev/null && [ ! -e "$dir/$first" ]; then
+    echo "[start] skipping $label: $(room_gb "$dir") GB free under $dir, it needs about $need GB (raise RUNPOD_CONTAINER_DISK_GB or use a bigger volume)"
+    echo "skipped $list" >> "$DOWNLOAD_STATE_DIR/skipped"
+    return
+  fi
+  echo "[start] $label: fetching what is missing; see $log"
+  # a list with a failed file still lets the chain go on (start.sh runs under set -e)
+  bash /app/h3-runpod/download_models.sh "$dir" "/app/h3-runpod/$list" > "$log" 2>&1 || true
+  echo "[start] $label: $(tail -1 "$log")"
+}
+fetch_models() {
   local dir="$1"
-  if [ "${QWEN_IMAGE:-1}" = "1" ]; then
-    if [ "$(room_gb "$dir")" -ge 30 ] 2>/dev/null || [ -s "$dir/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors" ]; then
-      echo "[start] Qwen-Image 2.1 Turbo for Canvas (~17 GB); see /app/download_qwen_image.log"
-      bash /app/h3-runpod/download_models.sh "$dir" /app/h3-runpod/models-qwen-image.txt > /app/download_qwen_image.log 2>&1
-      echo "[start] qwen image download finished: $(tail -1 /app/download_qwen_image.log)"
-    else
-      echo "[start] skipping Qwen-Image 2.1 Turbo: $(room_gb "$dir") GB free under $dir, it needs ~17 GB + margin (raise RUNPOD_CONTAINER_DISK_GB or use a volume)"
-    fi
-  fi
-  if [ "${QWEN_IMAGE_BASE:-1}" = "1" ]; then
-    if [ "$(room_gb "$dir")" -ge 15 ] 2>/dev/null || [ -s "$dir/diffusion_models/qwen_image_2.1_int8_convrot.safetensors" ]; then
-      echo "[start] Qwen-Image 2.1 base for LoRAs (+7.3 GB); see /app/download_qwen_image_base.log"
-      bash /app/h3-runpod/download_models.sh "$dir" /app/h3-runpod/models-qwen-image-base.txt > /app/download_qwen_image_base.log 2>&1
-      echo "[start] qwen image base download finished: $(tail -1 /app/download_qwen_image_base.log)"
-    else
-      echo "[start] skipping Qwen-Image 2.1 base: $(room_gb "$dir") GB free under $dir, it needs ~7.3 GB + margin"
-    fi
-  fi
-  if [ "${QWEN_EDIT_2509:-1}" = "1" ]; then
-    if [ "$(room_gb "$dir")" -ge 40 ] 2>/dev/null || [ -s "$dir/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors" ]; then
-      echo "[start] Qwen-Image-Edit 2509 + Lightning for Canvas (~31 GB); see /app/download_qie2509.log"
-      bash /app/h3-runpod/download_models.sh "$dir" /app/h3-runpod/models-qie2509.txt > /app/download_qie2509.log 2>&1
-      echo "[start] qwen edit 2509 download finished: $(tail -1 /app/download_qie2509.log)"
-    else
-      echo "[start] skipping Qwen-Image-Edit 2509: $(room_gb "$dir") GB free under $dir, it needs ~31 GB + margin (raise RUNPOD_CONTAINER_DISK_GB or use a volume)"
-    fi
-  fi
+  mkdir -p "$DOWNLOAD_STATE_DIR" "$dir"
+  rm -f "$DOWNLOAD_STATE_DIR/failed" "$DOWNLOAD_STATE_DIR/skipped" "$DOWNLOAD_STATE_DIR/current"
+  echo "$BASHPID" > "$DOWNLOAD_STATE_DIR/chain.pid"
+  [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ] && fetch_list "$dir" models.txt /app/download_models.log "H3 models (~68 GB)" 0 ""
+  [ "${QWEN_EDIT_2509:-1}" = "1" ] && fetch_list "$dir" models-qie2509.txt /app/download_qie2509.log "Qwen-Image-Edit 2509 (~31 GB)" 40 diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors
+  [ "${QWEN_IMAGE:-1}" = "1" ] && fetch_list "$dir" models-qwen-image.txt /app/download_qwen_image.log "Qwen-Image 2.1 Turbo (~17 GB)" 30 diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
+  [ "${QWEN_IMAGE_BASE:-1}" = "1" ] && fetch_list "$dir" models-qwen-image-base.txt /app/download_qwen_image_base.log "Qwen-Image 2.1 base (+7.3 GB)" 15 diffusion_models/qwen_image_2.1_int8_convrot.safetensors
+  [ "${REGEN_2K:-1}" = "1" ] && fetch_list "$dir" models-regen.txt /app/download_regen.log "Open-H3-Regenerate-2K (~21 GB)" 30 loras/open_h3_regenerate_2k_lora.safetensors
+  rm -f "$DOWNLOAD_STATE_DIR/chain.pid" "$DOWNLOAD_STATE_DIR/current"
+  echo "[start] model downloads finished$( [ -s "$DOWNLOAD_STATE_DIR/failed" ] && echo "; failed: $(tr '\n' ' ' < "$DOWNLOAD_STATE_DIR/failed")")"
+  return 0
 }
 # No volume mounted (local-disk mode): the models live on the container disk
 # under the image's own models/ and are downloaded at every boot (aria2, 16
@@ -63,19 +67,8 @@ if [ "$VOLUME_PATH" != "/workspace" ] && ! mountpoint -q "$VOLUME_PATH" 2>/dev/n
   export MODELS_DIR="$SLIM_DIR/models"
   export LORA_DIR="${LORA_DIR:-$SLIM_DIR/models/loras}"
   mkdir -p "$MODELS_DIR"
-  if [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ]; then
-    echo "[start] downloading the H3 models (~68 GB) in the background; see /app/download_models.log"
-    (
-      bash /app/h3-runpod/download_models.sh "$MODELS_DIR" > /app/download_models.log 2>&1
-      echo "[start] model download finished: $(tail -1 /app/download_models.log)"
-      if [ "${REGEN_2K:-1}" = "1" ]; then
-        echo "[start] downloading Open-H3-Regenerate-2K (~21 GB); see /app/download_regen.log"
-        bash /app/h3-runpod/download_models.sh "$MODELS_DIR" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1
-        echo "[start] regen download finished: $(tail -1 /app/download_regen.log)"
-      fi
-      qwen_downloads "$MODELS_DIR"
-    ) &
-  fi
+  echo "[start] downloading the models in the background (the container disk is empty at every boot)"
+  (fetch_models "$MODELS_DIR") &
   DOWNLOAD_MODELS=0
   VOLUME_PATH=/workspace
 fi
@@ -102,8 +95,7 @@ if [ "$VOLUME_PATH" != "/workspace" ] && [ -d "$VOLUME_PATH" ]; then
       done
       MODELS_SRC="${MODELS_SRC:-$VOLUME_PATH/models}"
       mkdir -p "$MODELS_SRC"
-      echo "[start] downloading the H3 models (~68 GB, once) into $MODELS_SRC in the background; the pod reports models.ready=false until they are all there"
-      (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" > /app/download_models.log 2>&1; echo "[start] model download finished: $(tail -1 /app/download_models.log)") &
+      echo "[start] the models go onto the volume at $MODELS_SRC (once; the chain below fetches them)"
       DOWNLOAD_MODELS=0
     fi
   fi
@@ -145,16 +137,10 @@ studio_volume:
 YAML
     export MODELS_DIR="$MODELS_SRC"
     export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
-    if [ "${REGEN_2K:-1}" = "1" ] && [ ! -s "$MODELS_SRC/loras/open_h3_regenerate_2k_lora.safetensors" ]; then
-      echo "[start] downloading Open-H3-Regenerate-2K (~21 GB) onto the volume in the background; see /app/download_regen.log"
-      (bash /app/h3-runpod/download_models.sh "$MODELS_SRC" /app/h3-runpod/models-regen.txt > /app/download_regen.log 2>&1; echo "[start] regen download finished: $(tail -1 /app/download_regen.log)") &
-    fi
-    # Qwen-Image 2.1 Turbo and base, Qwen-Image-Edit 2509 (Canvas, drawn by the pod's painter through
-    # ComfyUI): once, onto the volume, in the background (files already there are skipped). The painter
-    # advertises a model only when every file is there. QWEN_IMAGE=0 / QWEN_IMAGE_BASE=0 / QWEN_EDIT_2509=0 skip them.
-    if [ "${QWEN_IMAGE:-1}" = "1" ] || [ "${QWEN_IMAGE_BASE:-1}" = "1" ] || [ "${QWEN_EDIT_2509:-1}" = "1" ]; then
-      (qwen_downloads "$MODELS_SRC") &
-    fi
+    # Every model list, onto the volume, in the background: at every boot, so whatever an earlier boot
+    # left unfinished (a stop, a timeout, a wrong size) is finished; complete files are only checked.
+    # QWEN_IMAGE=0 / QWEN_IMAGE_BASE=0 / QWEN_EDIT_2509=0 / REGEN_2K=0 skip a list.
+    (fetch_models "$MODELS_SRC") &
     # The image's installer may replace models/ while it copies ComfyUI in;
     # keep re-applying the links. ComfyUI re-reads a folder whose mtime
     # changed, so a late link is picked up without a restart.

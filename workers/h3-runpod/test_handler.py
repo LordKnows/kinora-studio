@@ -296,12 +296,43 @@ def test_models_status_reports_missing_and_accepts_unet_alias(tmp_path):
     base = tmp_path / "models"
     (base / "unet").mkdir(parents=True)
     (base / "vae").mkdir()
-    (base / "unet" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors").write_bytes(b"x" * 2_000_000)
+    # whole (the list's size; a sparse file) under the unet alias: present
+    with open(base / "unet" / "minimax_h3_fl2va_pruned_int8_convrot.safetensors", "wb") as fh:
+        fh.truncate(20970379616)
+    # cut off: missing, so the next boot fetches it again
+    (base / "vae" / "minimax_h3_video_vae_fp16.safetensors").write_bytes(b"x" * 2_000_000)
     status = handler.models_status(base)
     assert status["expected"] == 7
     assert status["ready"] is False
     assert "diffusion_models/minimax_h3_fl2va_pruned_int8_convrot.safetensors" not in status["missing"]
     assert "vae/minimax_h3_video_vae_fp16.safetensors" in status["missing"]
+
+
+def test_downloads_status_says_what_is_left_and_whether_the_chain_runs(tmp_path, monkeypatch):
+    import os
+
+    import handler
+    state, base = tmp_path / "state", tmp_path / "models"
+    (base / "vae").mkdir(parents=True)
+    state.mkdir()
+    monkeypatch.setenv("DOWNLOAD_STATE_DIR", str(state))
+    for switch in ("QWEN_EDIT_2509", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "REGEN_2K"):
+        monkeypatch.setenv(switch, "0")
+    idle = handler.downloads_status(base)
+    assert idle["active"] is False and idle["gb_left"] > 60 and len(idle["missing"]) == 7
+    # the chain runs (its pid is this process), on a file half down
+    (state / "chain.pid").write_text(str(os.getpid()))
+    (state / "current").write_text("models.txt minimax_h3_video_vae_fp16.safetensors 5207808496")
+    with open(base / "vae" / "minimax_h3_video_vae_fp16.safetensors.part", "wb") as fh:
+        fh.truncate(5_000_000_000)
+    (state / "failed").write_text("models.txt minimax_h3_audio_vae_fp32.safetensors\n")
+    busy = handler.downloads_status(base)
+    assert busy["active"] is True and busy["current"].startswith("models.txt minimax_h3_video_vae")
+    assert round(idle["gb_left"] - busy["gb_left"], 1) == 5.0
+    assert busy["failed"] == ["models.txt minimax_h3_audio_vae_fp32.safetensors"]
+    # a pid that is gone: the chain is not running any more
+    (state / "chain.pid").write_text("999999")
+    assert handler.downloads_status(base)["active"] is False
 
 
 def test_sampling_profile_patches_sampler_scheduler_and_shift():

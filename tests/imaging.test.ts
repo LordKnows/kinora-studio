@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
+import { canvasModel } from "@/studio/canvas";
 import * as craft from "@/studio/craft";
 import * as imaging from "@/studio/imaging";
 import * as orch from "@/studio/orchestrator";
@@ -374,7 +375,77 @@ describe("remote MCP image tools", () => {
     const content = res.content as Array<{ type: string; mimeType?: string }>;
     expect(content.some((c) => c.type === "image" && c.mimeType === "image/png")).toBe(true);
     const off = await client.callTool({ name: "generate_style_frame", arguments: { projectId: p.id } });
-    expect(JSON.stringify(off.content)).toContain("GPT Image is off");
+    expect(JSON.stringify(off.content)).toContain("image generation is off");
     await client.close();
+  });
+});
+
+describe("the agent draws with the project's image model", () => {
+  let projectId = "";
+  let shotId = "";
+
+  it("is chosen on the web among the models the director may use; older projects keep GPT Image", async () => {
+    const p = await repo.createProject({ name: "Models" });
+    projectId = p.id;
+    expect(imaging.imagingSummary(p)).toMatchObject({ model: "gpt-image-codex", backend: "codex", runtime: "api" });
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
+    /* 2509 only composes a portrait or costume with a pose: Canvas only */
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-edit-2509" }, web)).rejects.toMatchObject({ code: "validation" });
+    /* an older client still sends backend */
+    await imaging.setImaging(projectId, { enabled: true, backend: "api" }, web);
+    expect(imaging.imagingSummary(await repo.getProject(projectId))).toMatchObject({ model: "gpt-image-api", backend: "api" });
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, web);
+    const summary = imaging.imagingSummary(await repo.getProject(projectId));
+    expect(summary).toMatchObject({ enabled: true, model: "qwen-image-2.1-turbo", runtime: "pod", backend: "comfy:qwen-image-2.1-turbo", maxRefs: 10 });
+    expect(summary.license).toMatch(/non-commercial/);
+    /* a project saved before models could be chosen */
+    await repo.setImaging(projectId, { ...(await repo.getProject(projectId)).imaging!, model: undefined, backend: "codex" });
+    expect(imaging.imagingSummary(await repo.getProject(projectId)).model).toBe("gpt-image-codex");
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, web);
+    /* Canvas starts from the project's model */
+    expect(canvasModel(undefined, (await repo.getProject(projectId)).imaging).id).toBe("qwen-image-2.1-turbo");
+  });
+
+  it("a GPU model's frame carries its settings, names its pictures <imageN> and gets no Codex review", async () => {
+    const sc = await repo.createScript(projectId, "EXT. MARKET - DAY");
+    await repo.approveScript(sc.id);
+    const pic = async (n: string) => (await repo.createAsset({ projectId, url: `https://studio.example/media/projects/m/${n}.png`, kind: "image", source: "generated" })).id;
+    const person = async (name: string) => {
+      const el = await repo.createElement(projectId, { kind: "character", name, description: `${name}, a stall keeper` });
+      const a = await pic(name);
+      await repo.updateElement(el.id, { refAssetIds: [a], refViews: { [a]: "front" } });
+      return el.id;
+    };
+    const ids = [await person("Ana"), await person("Bo"), await person("Cy")];
+    const loc = await repo.createElement(projectId, { kind: "location", name: "the market", description: "a covered market" });
+    await repo.updateElement(loc.id, { refAssetIds: [await pic("market")] });
+    await repo.setProjectLook(projectId, { styleFrameAssetId: await pic("style") });
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "market", shots: [shot({ characters: ids, location: loc.id, intent: "Three keepers argue" })] }] }));
+    shotId = (await repo.listShots(projectId))[0]!.id;
+    const r = await imaging.generateShotFrame(shotId, "first", mcp, { method: "new" });
+    const input = r.job!.input as { backend: string; model: string; params: { steps: number; sigmas: number[] }; prompt: string; refUrls: string[]; check: { review: boolean } };
+    expect(input).toMatchObject({ backend: "comfy:qwen-image-2.1-turbo", model: "qwen-image-2.1-turbo", params: { steps: 8 } });
+    expect(input.refUrls).toHaveLength(5);
+    expect(input.prompt).toContain("<image1> is Ana");
+    expect(input.prompt).not.toMatch(/\bPicture \d/);
+    expect(input.check.review).toBe(false);
+  });
+
+  it("Qwen-Image 3.0 Pro: at most three pictures, its model name, and a key somewhere first", async () => {
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-3.0-pro" }, web);
+    await expect(imaging.generateShotFrame(shotId, "first", mcp, { method: "new" })).rejects.toThrow(/TOKENSAIL_API_KEY/);
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-0000test";
+    try {
+      const r = await imaging.generateShotFrame(shotId, "first", mcp, { method: "new" });
+      const input = r.job!.input as { backend: string; params: Record<string, unknown>; prompt: string; refUrls: string[] };
+      expect(input.backend).toBe("qwen");
+      expect(input.params).toEqual({ api_model: "qwen-image-3.0-pro", prompt_extend: false });
+      /* the three characters stay; the place and the style frame are dropped, and the prompt only names what was sent */
+      expect(input.refUrls).toHaveLength(3);
+      expect(input.prompt).toContain("Picture 3 is Cy");
+      expect(input.prompt).not.toContain("Picture 4");
+    } finally {
+      delete process.env.TOKENSAIL_API_KEY;
+    }
   });
 });

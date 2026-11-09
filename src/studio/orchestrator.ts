@@ -242,6 +242,8 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   const estimate = estimateTake(ctx.shot.spec.durationS, compiled.input.steps, req.n, await gpu.measuredForEstimate());
   const reserved = reservedUsd(await repo.listProjectActiveTakes(ctx.project.id));
   assertBudget(ctx.project, estimate.usd + reserved);
+  /* the GPU pod still downloading models: refuse before anything is spent (the envelope included) */
+  await gpu.assertPodCanWork("a take");
 
   /* Keep errors in front of the spend: a cold-reader review of this exact
      prompt and these frames, and no blind re-render of a rejected input. */
@@ -405,6 +407,7 @@ export async function regenerateTake(takeId: string, req: UpscaleRequest, actor:
   const seconds = take.outputSeconds ?? num(take.input.seconds) ?? 5;
   const estimate = estimateUpscale(seconds, req.resolution, await gpu.measuredForEstimate());
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
+  await gpu.assertPodCanWork("a 2K regeneration");
   const picked = (await repo.getShot(take.shotId)).selectedTakeId === take.id;
   if (actor.via === "mcp" && !req.confirm && picked && autopilotCovers(project, estimate.usd)) await consumeAutopilot(project, estimate.usd, `regenerate take #${take.n} at ${req.resolution}`, "the user picked this take; inside the envelope", take.shotId);
   else if (actor.via === "mcp") assertConfirmed(req.confirm, estimate.usd, `regenerate take ${take.n} at ${req.resolution}`);
@@ -518,6 +521,7 @@ export async function retryTake(takeId: string, actor: Actor, confirm: boolean):
   const project = await repo.getProject(take.projectId);
   const estimate = estimateTake(shot.spec.durationS, num(take.input.steps) ?? 8);
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
+  await gpu.assertPodCanWork("a retried take");
   if (actor.via === "mcp" && !confirm && autopilotCovers(project, estimate.usd)) await consumeAutopilot(project, estimate.usd, `retry take #${take.n}`, "the take failed on the backend, not on review; inside the envelope", shot.id);
   else if (actor.via === "mcp") assertConfirmed(confirm, estimate.usd, "retrying this take");
   if (config.runpodMode() === "pod") {

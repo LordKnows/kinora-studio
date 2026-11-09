@@ -106,6 +106,8 @@ export async function remakeTake(takeId: string, input: { mode: "edit" | "swap";
   if (!prompt.includes("retention_analysis")) throw new StudioError("validation", "the prompt must be the six-section format (subject_definitions … non_diegetic_music)");
 
   const estimate = estimateTake(frames / 24, 12, 1, await gpu.measuredForEstimate());
+  /* the GPU pod still downloading models: refuse before anything is spent */
+  await gpu.assertPodCanWork("a Remake");
   assertBudget(project, estimate.usd + reservedUsd(await repo.listProjectActiveTakes(project.id)));
   /* the painted keyframes should each have passed a frame review before money is spent */
   const states = await Promise.all(keyframes.map((k) => reviewState(project.id, "frame", hashOf(assets.get(k.assetId)!.url), k.assetId)));

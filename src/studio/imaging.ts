@@ -10,15 +10,18 @@ import { getProjectView, type ProjectView, type ShotView } from "./orchestrator"
 import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
-import type { InferenceParams } from "./models";
+import { AGENT_IMAGE_MODELS, defaultImageParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, type InferenceParams, type ModelEntry } from "./models";
 import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
 
 /*
- * GPT Image in the Studio: character sheets, first and last frames, region
+ * Pictures in the Studio: character sheets, first and last frames, region
  * edits, style frames and the painted keyframes Viggle Remake reads. One
- * image job type, queued here and drawn by a painter away from the GPU
- * (painter.ts, workers/painter): Codex's image_gen on the user's ChatGPT
- * plan, or the images API. Pictures are ready before the GPU pod starts.
+ * image job type, queued here and drawn by a painter (painter.ts,
+ * workers/painter) with the image model the user chose for the project
+ * (Settings → Director, models.ts AGENT_IMAGE_MODELS): GPT Image (Codex's
+ * image_gen on the ChatGPT plan, or the images API) or Qwen-Image 3.0 Pro
+ * away from the GPU, or an image model on the GPU pod (Qwen-Image 2.1),
+ * which draws while the pod runs.
  *
  * Painting is off per project until switched on in Settings (web only) and
  * counts against a quota; crop and frame extraction are not painting and are
@@ -28,16 +31,20 @@ import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
 
 /* ---------- the switch ---------- */
 
-export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
+export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, model: "gpt-image-codex", backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
 
-export async function setImaging(projectId: string, input: { enabled: boolean; backend?: Imaging["backend"]; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
-  if (actor.via !== "web") throw new StudioError("forbidden", "GPT Image is switched on in Settings, on the web only");
+export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
+  if (actor.via !== "web") throw new StudioError("forbidden", "image generation is switched on in Settings, on the web only");
   const project = await repo.getProject(projectId);
   const cur = project.imaging ?? { ...DEFAULT_IMAGING, grantedBy: actor.user, grantedAt: Date.now() };
+  /* the model: the one asked for, else the GPT Image backend asked for (older clients), else the current one */
+  const model = input.model ? AGENT_IMAGE_MODELS.find((m) => m.id === input.model) : input.backend ? imageModelOfBackend(input.backend) : projectImageModel(cur);
+  if (!model) throw new StudioError("validation", `${input.model} is not an image model the director can draw with (${AGENT_IMAGE_MODELS.map((m) => m.id).join(", ")})`);
   const next: Imaging = {
     ...cur,
     enabled: input.enabled,
-    backend: input.backend ?? cur.backend,
+    model: model.id,
+    backend: model.backend!,
     maxImages: input.maxImages ?? cur.maxImages,
     quality: input.quality ?? cur.quality,
     selfCheck: input.selfCheck ?? cur.selfCheck ?? true,
@@ -47,30 +54,47 @@ export async function setImaging(projectId: string, input: { enabled: boolean; b
     ...(input.clearStop || (input.enabled && !cur.enabled) ? { stoppedReason: undefined } : {}),
   };
   const updated = await repo.setImaging(projectId, next);
-  if (cur.enabled !== next.enabled || cur.backend !== next.backend) {
-    await repo.insertNote(projectId, "decision", "standing", { decision: next.enabled ? `GPT Image on (${next.backend}, up to ${next.maxImages} images)` : "GPT Image off", why: "", by: actor.user, confidence: "user" });
+  if (cur.enabled !== next.enabled || projectImageModel(cur).id !== model.id) {
+    await repo.insertNote(projectId, "decision", "standing", { decision: next.enabled ? `Image generation on: ${model.label}, up to ${next.maxImages} images` : "Image generation off", why: "", by: actor.user, confidence: "user" });
   }
   return updated;
 }
 
+/** What the model needs before it can draw, said where the user picks it. */
+function modelNote(model: ModelEntry): string | undefined {
+  if (model.backend === "codex") return "Codex must be logged in on a painter (Machine page → Painters)";
+  if (model.backend === "api") return "the painter needs OPENAI_API_KEY (paid per picture)";
+  if (model.backend === "qwen") return "the CPU painter pod needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret; paid per picture";
+  if (model.runtime === "pod") return "draws on the GPU pod, only while it runs (it bills per hour); no Codex self-check — the review would send the picture to OpenAI";
+  return undefined;
+}
+
 export function imagingSummary(project: Project) {
   const i = project.imaging;
+  const model = projectImageModel(i);
   /* whether a painter can serve the backend right now is in runnerSummary (image_status, the button answers) */
   const backendReady = !!i;
   return {
-    enabled: !!i?.enabled, backend: i?.backend ?? "codex", maxImages: i?.maxImages ?? DEFAULT_IMAGING.maxImages, usedImages: i?.usedImages ?? 0,
+    enabled: !!i?.enabled, model: model.id, modelLabel: model.label, runtime: model.runtime, backend: model.backend ?? "codex",
+    maxRefs: model.maxRefs, moderation: model.moderation, ...(model.commercial === false ? { license: model.license } : {}),
+    maxImages: i?.maxImages ?? DEFAULT_IMAGING.maxImages, usedImages: i?.usedImages ?? 0,
     leftImages: Math.max(0, (i?.maxImages ?? DEFAULT_IMAGING.maxImages) - (i?.usedImages ?? 0)), quality: i?.quality ?? "low",
     selfCheck: i?.selfCheck ?? true, autoRedraws: i?.autoRedraws ?? 1,
     stoppedReason: i?.stoppedReason, backendReady,
-    note: i?.backend === "api" ? "the painter needs OPENAI_API_KEY (paid per picture)" : i?.backend === "codex" ? "Codex must be logged in on a painter (Machine page → Painters)" : undefined,
+    note: modelNote(model),
   };
+}
+
+/** How many pictures a call may send with the project's model (a picture being edited counts). */
+export function refCap(project: Project, hasBase: boolean): number {
+  return Math.max(0, (projectImageModel(project.imaging).maxRefs ?? 5) - (hasBase ? 1 : 0));
 }
 
 /** Throws unless the project may paint; answers how many pictures are left after the running ones. */
 async function assertCanPaint(project: Project): Promise<number> {
   const i = project.imaging;
-  if (!i?.enabled) throw new StudioError("forbidden", "GPT Image is off for this project: the user switches it on in Settings → Director → GPT Image (web only)", { imaging: false });
-  if (i.stoppedReason) throw new StudioError("forbidden", `GPT Image stopped: ${i.stoppedReason}. The user clears it in Settings once the quota is back.`, { imaging: "stopped" });
+  if (!i?.enabled) throw new StudioError("forbidden", "image generation is off for this project: the user switches it on in Settings → Director → Allow image generation by agent (web only)", { imaging: false });
+  if (i.stoppedReason) throw new StudioError("forbidden", `image generation stopped: ${i.stoppedReason}. The user clears it in Settings once the quota is back.`, { imaging: "stopped" });
   const active = (await repo.listProjectJobs(project.id, 200)).filter((j) => j.kind === "image" && (j.status === "queued" || j.status === "running") && j.input.op === "paint").length;
   if (i.usedImages + active >= i.maxImages) throw new StudioError("budget_exceeded", `the image quota of this project is used (${i.usedImages} done + ${active} running of ${i.maxImages}); the user raises it in Settings`, { imaging: "quota" });
   return i.maxImages - i.usedImages - active;
@@ -121,14 +145,38 @@ export type PodParams = InferenceParams & {
 };
 
 /** Queue an image job for the painters. Painting is gated by the project
-    switch and quota; crop and extract are not. Nothing here needs the GPU:
-    with no painter online and startPod, the GPU pod is started as the
-    fallback painter. */
+    switch and quota; crop and extract are not. A picture is drawn with the
+    project's image model (Settings → Director) unless the caller names one
+    (Canvas): its painter backend, its recommended settings, at most its
+    number of pictures, and its way of naming them. A model on the GPU pod
+    draws while the pod runs (startPod starts it); otherwise, with no painter
+    online and startPod, the GPU pod is started as the fallback painter. */
 export async function submitImage(projectId: string, req: ImageRequest, actor: Actor, opts: { startPod?: boolean } = {}): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary }> {
   const project = await repo.getProject(projectId);
   const left = req.op === "paint" ? await assertCanPaint(project) : 0;
-  const backend = req.backend ?? project.imaging?.backend ?? "codex";
+  if (req.op === "paint" && !req.model) {
+    const model = projectImageModel(project.imaging);
+    const cap = Math.max(0, (model.maxRefs ?? 5) - (req.baseUrl ? 1 : 0));
+    req = {
+      ...req, model: model.id, backend: model.backend,
+      ...(req.prompt ? { prompt: namePicturesFor(model, req.prompt) } : {}),
+      ...(!req.params && defaultImageParams(model) ? { params: defaultImageParams(model) } : {}),
+      /* the callers keep within the model's pictures; this only guards the painter's own limit */
+      ...(req.refUrls && req.refUrls.length > cap ? { refUrls: req.refUrls.slice(0, cap) } : {}),
+    };
+  }
+  /* crop and extract are not drawn by a model: any painter takes them */
+  const backend = req.op === "paint" ? req.backend ?? findModel(req.model ?? "")?.backend ?? "codex" : "codex";
   const podModel = backend.startsWith("comfy:");
+  /* a model on the GPU pod: not while the pod downloads models, nor before this model's files are there whole */
+  if (podModel) {
+    const m = findModel(req.model ?? "") ?? { id: backend.slice("comfy:".length), label: backend.slice("comfy:".length) };
+    await gpu.assertPodCanWork("a picture", { id: m.id, label: m.label });
+  }
+  /* an API model whose key nobody has: the CPU painter pod would start for a picture it cannot draw */
+  if (backend === "qwen" && !painter.qwenApiKeyOnWorker() && !(await painter.runnerSummary("paint", "qwen")).ready) {
+    throw new StudioError("validation", `${findModel(req.model ?? "")?.label ?? "Qwen-Image 3.0 Pro"} needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret (Cloudflare → Workers → Settings → Variables and Secrets); the CPU painter pod gets it when it starts`);
+  }
   /* the painter checks its own picture (a fresh Codex session, rubric as JSON) and may redraw a blocker, inside the quota;
      not a pod model's picture: the review would send it to OpenAI, whose moderation the model was picked to avoid */
   const check = req.op === "paint" ? { review: podModel ? false : project.imaging?.selfCheck ?? true, redraws: Math.max(0, Math.min(project.imaging?.autoRedraws ?? 1, left - 1)), kind: req.purpose } : undefined;
@@ -180,7 +228,7 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
     if (/^quota:/i.test(error)) {
       const project = await repo.getProject(job.projectId);
       if (project.imaging) await repo.setImaging(project.id, { ...project.imaging, stoppedReason: error.slice(0, 300) });
-      await repo.insertNote(job.projectId, "decision", "standing", { decision: "GPT Image stopped: out of image quota", why: error.slice(0, 300), by: "studio", confidence: "system" });
+      await repo.insertNote(job.projectId, "decision", "standing", { decision: "Image generation stopped: out of image quota", why: error.slice(0, 300), by: "studio", confidence: "system" });
     }
     return repo.updateJob(job.id, { status: "failed", error, finishedAt: Date.now() });
   }
@@ -523,8 +571,8 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   const style = assetUrl(pv, pv.project.look.styleFrameAssetId);
   if (style) refs.push({ url: style, name: "the film's style frame", role: "style" });
   if (method === "new") {
-    /* at most five pictures: characters first, then the place, the style frame last (dropped first) */
-    const use = refs.slice(0, 5);
+    /* at most five pictures, or fewer when the project's model takes fewer: characters first, then the place, the style frame last (dropped first) */
+    const use = refs.slice(0, Math.min(5, refCap(pv.project, false)));
     const prompt = shotFramePrompt(sh, which, { elements, palette: scene.palette, look: pv.project.look, refs: use });
     const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: use.map((x) => x.url), size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
     return { ...r, method, prompt };
@@ -555,7 +603,7 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
     instruction ||= `time has passed: ${sh.spec.frames?.first ?? sh.spec.beats[0]?.action}. Same place, same camera, same framing.`;
   }
   if (!base) throw new StudioError("validation", `${method}: the frame to edit from does not exist yet (${method === "edit_from_last" ? "draw the last frame first" : method === "edit_anchor" ? "the anchor shot needs a finished take" : "the earlier shot has no first frame"})`);
-  const extra = refs.filter((r) => r.role !== "style").slice(0, 4);
+  const extra = refs.filter((r) => r.role !== "style").slice(0, Math.min(4, refCap(pv.project, true)));
   const prompt = editPrompt(instruction, { refsFirst: extra.length });
   const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: extra.map((x) => x.url), baseUrl: base.url, baseAssetId: base.id || undefined, size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
   return { ...r, method, prompt };
@@ -566,7 +614,7 @@ export async function editFrame(assetId: string, input: { instruction: string; r
   const asset = await repo.getAsset(assetId);
   if (!asset.projectId || asset.kind !== "image") throw new StudioError("validation", "edit a project image");
   const pv = await getProjectView(asset.projectId);
-  const refs = (input.refAssetIds ?? []).map((id) => assetUrl(pv, id)).filter((u): u is string => !!u).slice(0, 4);
+  const refs = (input.refAssetIds ?? []).map((id) => assetUrl(pv, id)).filter((u): u is string => !!u).slice(0, Math.min(4, refCap(pv.project, true)));
   const prompt = editPrompt(input.instruction, { refsFirst: refs.length });
   const size = asset.width && asset.height ? `${asset.width}x${asset.height}` : sizeFor(pv.project.look);
   const takeId = typeof asset.meta.takeId === "string" ? asset.meta.takeId : undefined;

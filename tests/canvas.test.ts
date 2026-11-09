@@ -225,7 +225,7 @@ describe("Canvas MCP tools", () => {
     expect(body.hidden).toBeGreaterThan(0);
     const p = await repo.createProject({ name: "Agent canvas" });
     const off = await client.callTool({ name: "compose_character", arguments: { projectId: p.id, pose: { id: listReferences("pose", false).items[0]!.id } } });
-    expect(JSON.stringify(off.content)).toContain("GPT Image is off");
+    expect(JSON.stringify(off.content)).toContain("image generation is off");
     await client.close();
   });
 });
