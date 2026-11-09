@@ -746,7 +746,7 @@ def comfy_preflight(graph: dict[str, Any], http: Any) -> None:
         else:
             infos[cls] = info
     if missing_nodes:
-        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs a ComfyUI from September 2026 or later (a newer RUNPOD_POD_IMAGE)")
+        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later — the pod swaps it in at boot from COMFYUI_VERSION (default v0.44.2; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
     problems = []
     for nid, node in graph.items():
         spec = {**((infos[node["class_type"]].get("input") or {}).get("required") or {}), **((infos[node["class_type"]].get("input") or {}).get("optional") or {})}

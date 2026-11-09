@@ -49,7 +49,7 @@ export const config = {
   /** The pod the studio manages: what image, which GPUs it may land on, where
       the models live. The pod runs workers/h3-runpod/server.py on podPort. */
   runpodPod: () => ({
-    image: env("RUNPOD_POD_IMAGE") ?? "runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0",
+    image: env("RUNPOD_POD_IMAGE") ?? "runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0",
     /** Stock image: the pod fetches the job server from /api/pod/bundle at
         boot. Set to "0" when RUNPOD_POD_IMAGE already contains it (Dockerfile.pod). */
     bootstrap: env("RUNPOD_POD_BOOTSTRAP") !== "0",

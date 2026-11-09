@@ -199,7 +199,11 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 准备工作：
 
 1. **镜像**：默认不需要自己构建。`RUNPOD_POD_IMAGE` 用 RunPod 官方的
-   `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`，`RUNPOD_POD_BOOTSTRAP=1` 时 Pod 启动会
+   `runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0`（宿主 CUDA ≥ 13.0）。官方镜像自带的 ComfyUI
+   最新也只到 v0.35.0，而 Qwen-Image 2.1 的节点要 v0.37 以上，所以启动脚本会在镜像的入口跑之前
+   把 ComfyUI 换成 `COMFYUI_VERSION`（默认 `v0.44.2`，从 GitHub 拉，几秒钟），镜像入口再按这个
+   版本装它钉死的依赖包（前端、comfy-kitchen 等，torch 不动，约半分钟）。在 Worker 上设
+   `COMFYUI_VERSION` 会传给 Pod：设成别的版本号就用那个版本，设成 `image` 就退回镜像自带的版本。`RUNPOD_POD_BOOTSTRAP=1` 时 Pod 启动会
    先跑镜像自己的入口（ComfyUI），再从 `https://studio.zyhu.dev/api/pod/bundle` 拉取作业
    服务（handler、server、工作流 JSON，约 22 KB）并在 8000 端口启动。代码永远和仓库同步。
    想要自带作业服务的镜像，用 `workers/h3-runpod/Dockerfile.pod` 构建后把
@@ -304,7 +308,8 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   generation]）/ retention_analysis（<Subject N> (appears in [Shot 1]): fully_preserved - …）/
   detailed_description / overall_soundscape / non_diegetic_music`；没有音乐写 `N/A`。镜头内的硬切
   变成 `[Shot 2]`、`[Shot 3]` 段。
-- 镜像用交接的 `runpod/comfyui:1.3.3-comfyuiv0.30.0-cuda13.0`（宿主 CUDA ≥ 13）。这个镜像把
+- 镜像用 `runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0`（交接时是 1.3.3 / ComfyUI v0.30.0；宿主
+  CUDA ≥ 13），ComfyUI 在启动时换成 `COMFYUI_VERSION`（默认 v0.44.2）。这个镜像把
   ComfyUI 装在卷上的 `/workspace/runpod-slim/ComfyUI`，模型目录就是它下面的
   `models/{unet,text_encoders,vae,loras}`；作业服务启动时自动把 `MODELS_DIR` / `LORA_DIR`
   指到那里。`workers/h3-runpod/download_models.sh` 按 `models.txt` 下载约 68 GB 的底模、
