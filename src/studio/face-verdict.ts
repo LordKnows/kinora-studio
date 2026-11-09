@@ -25,6 +25,21 @@ export function faceAllowed(v: FaceVerdict | undefined): boolean {
   return (v.kind === "render_3d" || v.kind === "illustration") && v.age === "adult";
 }
 
+/**
+ * The picture's label: 放行 (its faces may be the reference of any picture, R18 included) or 不放行 (not for
+ * R18; every other picture as before). A picture with no check yet is 不放行 until it is checked.
+ */
+export function faceLabel(v: FaceVerdict | undefined): { allowed: boolean; label: "放行" | "不放行"; title: string } {
+  const allowed = faceAllowed(v);
+  return {
+    allowed,
+    label: allowed ? "放行" : "不放行",
+    title: allowed
+      ? `放行: can be the reference of any picture, R18 included (${describeVerdict(v)})`
+      : `不放行: not for R18 pictures; every other picture is fine (${v ? describeVerdict(v) : "not checked yet: it is checked when an R18 picture would use it"})`,
+  };
+}
+
 /** The verdict in a few words, for a refusal or the picture's facts. */
 export function describeVerdict(v: FaceVerdict | undefined): string {
   if (!v) return "face not checked";

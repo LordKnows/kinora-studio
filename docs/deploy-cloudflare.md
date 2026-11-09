@@ -450,7 +450,10 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    （TokenSail `qwen3.7-plus`，DashScope `qwen-vl-max-latest`；可用 `FACE_CHECK_MODEL` 改），
    结论记在图片上（Pictures 页 → Face check）。3D 渲染或插画、成年、不是真实名人 → 可以用；
    照片、看起来像照片、名人肖像、未成年或看不出年龄、模型没把握 → 不行。没配 key 时上传的脸
-   一律不能用于 18+。每张图只查一次，费用很低。
+   一律不能用于 18+。每张图只查一次，费用很低。每次上传（网页、MCP `commit_upload`）和导入
+   （`import_image`）时都会马上检查，图片带上标签：**放行**（可作任何生成的参考，包括 R18）或
+   **不放行**（不能用于 R18，其他生成照常）；Pictures 页的缩略图和 Canvas 的上传格子都能看到。
+   检查失败或超时的图先标为不放行，等它被 R18 作品用到时再查一次。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
 8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。

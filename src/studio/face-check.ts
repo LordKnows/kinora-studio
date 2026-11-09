@@ -35,7 +35,7 @@ export function faceCheckAvailable(): boolean {
 
 const MAX_BYTES = 7 * 1024 * 1024;
 
-const ASK = `You check one picture uploaded to an image tool, before it is used as a face reference for adult (18+) artwork.
+const ASK = `You check one picture uploaded to an image tool: are the people in it photographed real humans, or rendered or drawn characters, and do they look adult?
 Answer with JSON only: {"kind": ..., "likeness": ..., "age": ..., "confidence": ..., "reason": ...}
 - kind: "real_photo" (a camera photograph of a real human, filters and retouching included), "photoreal" (looks like a photograph of a human but may be generated or rendered; you cannot be sure it is not a real photo), "render_3d" (visibly a 3D / CG character render: game, Blender, Daz, MetaHuman and the like, stylised or realistic but clearly rendered), "illustration" (drawing, painting, anime, comic, cartoon), or "no_face" (no human or humanoid face in the picture).
 - likeness: true when the face is a recognisable real person (a celebrity, a public figure), whether photographed, rendered or drawn; else false.
@@ -99,4 +99,18 @@ export async function faceVerdict(asset: Asset): Promise<FaceVerdict | undefined
   const verdict = parse(body?.choices?.[0]?.message?.content ?? "", r.model);
   if (verdict) await repo.updateAssetMeta(asset.id, { ...asset.meta, faceCheck: verdict }).catch(() => undefined);
   return verdict;
+}
+
+const ARRIVAL_TIMEOUT_MS = 25_000;
+
+/**
+ * The face check of a picture as it arrives (an upload, an import): run now so the picture carries its label
+ * (放行 / 不放行) from the start. A check that takes too long or fails leaves the picture unchecked; it is then
+ * checked again when an R18 picture would use it. Library pictures (meta.reference) need none.
+ */
+export async function checkOnArrival(asset: Asset): Promise<Asset> {
+  if (asset.kind !== "image" || asset.meta.reference || asset.meta.faceCheck || !route()) return asset;
+  const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ARRIVAL_TIMEOUT_MS));
+  const verdict = await Promise.race([faceVerdict(asset).catch(() => undefined), timeout]);
+  return verdict ? { ...asset, meta: { ...asset.meta, faceCheck: verdict } } : asset;
 }

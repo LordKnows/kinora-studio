@@ -8,6 +8,7 @@ import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolvePara
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
+import { faceAllowed, type FaceVerdict } from "@/studio/face-verdict";
 import type { Asset, Element, Job, Project } from "@/studio/types";
 
 import { get, post, put } from "./api";
@@ -15,13 +16,15 @@ import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./commo
 import { CanvasLibrary, loadReferences, type UseOptions } from "./canvas-library";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { CloseIcon, UploadIcon } from "./icons";
+import { FaceBadge } from "./pictures";
 import { uploadMedia } from "./upload";
 
 /* Canvas: pick a portrait, a costume and a pose from the reference library
    (or upload your own), and an image model draws the character into a project —
    a picture with a handle, ready to go onto an element as its look. */
 
-type Upload = { assetId: string; url: string; name: string };
+/** face: its face check (放行 / 不放行 for R18), null when it could not be checked, absent when not known here */
+type Upload = { assetId: string; url: string; name: string; face?: FaceVerdict | null };
 type Slot<T> = { item: T; upload?: undefined } | { item?: undefined; upload: Upload };
 type Recipe = {
   portrait?: Slot<RefPortrait>;
@@ -274,7 +277,9 @@ export function CanvasPage() {
   const hiddenInRecipe = !adult && nsfwInRecipe;
   const charadbOnUpload = (recipe.costume?.item?.source === "charadb" && !castA && !!recipe.portrait?.upload) || (recipe.two && recipe.partner?.costume?.item?.source === "charadb" && !castB && !!recipe.partner?.portrait?.upload);
   /* 18+: the faces come from the library (uploaded outfits and poses are fine) */
-  const uploadedFace = (!castA && !!recipe.portrait?.upload) || (recipe.two && !castB && !!recipe.partner?.portrait?.upload) || recipe.extras.length > 0;
+  /* a face known to be 放行 is fine; one 不放行, or not known here, may be refused */
+  const notCleared = (u?: Upload) => !!u && !faceAllowed(u.face ?? undefined);
+  const uploadedFace = (!castA && notCleared(recipe.portrait?.upload)) || (!!recipe.two && !castB && notCleared(recipe.partner?.portrait?.upload)) || recipe.extras.some((e) => notCleared(e));
 
   const randomize = async (slot: SlotKind, scope: "similar" | "any", who: Who = "a") => {
     const pool = (await loadReferences(slot, adultVersion)).items;
@@ -303,8 +308,8 @@ export function CanvasPage() {
     if (!file.type.startsWith("image/")) throw new Error("Pick an image file (PNG, JPEG or WebP)");
     setUploading(target);
     try {
-      const { assetId, url } = await uploadMedia(file, projectId);
-      const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture" };
+      const { assetId, url, faceCheck } = await uploadMedia(file, projectId);
+      const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture", face: faceCheck };
       setRecipe((r) => {
         if (target === "extra") return { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS_ANY) };
         if (target === "portrait_b" || target === "costume_b") return { ...r, partner: { ...r.partner, [target === "portrait_b" ? "portrait" : "costume"]: { upload: up } }, ...(target === "portrait_b" ? { characterB: undefined } : {}) };
@@ -601,7 +606,7 @@ export function CanvasPage() {
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
-            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. A face{recipe.extras.length ? " or extra picture" : ""} you uploaded goes in only when its face check (a vision model, once per picture) finds a 3D render or an illustration of an adult who is no real person; a photograph or anything photorealistic is refused. Studio pictures are traced when you generate; uploaded outfits and poses are fine.</p>}
+            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. An uploaded face{recipe.extras.length ? " or extra picture" : ""} goes in only when its face check labels it 放行 (a 3D render or an illustration of an adult who is no real person); 不放行 — a photograph or anything photorealistic — is refused for R18 and fine for everything else. Studio pictures are traced when you generate; uploaded outfits and poses are fine.</p>}
             </>)}
           </Section>
 
@@ -760,6 +765,7 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
       </button>
       <div className="st-slot-name" title={slotName(slot)}>{slotName(slot) || "—"}</div>
       {sub && <div className="st-muted st-slot-sub">{sub}</div>}
+      {slot?.upload && slot.upload.face !== undefined && <div><FaceBadge verdict={slot.upload.face} /></div>}
       {item?.nsfw && !adult && <div className="st-warn st-slot-sub">hidden now</div>}
       {kind === "pose" && slot && (
         <div className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -819,6 +825,7 @@ function Extras({ recipe, canAdd, uploading, onAdd, onRemove, onRename }: { reci
         {recipe.extras.map((x, i) => (
           <div key={x.assetId} className="st-extra">
             <img src={x.url} alt={x.name} />
+            {x.face !== undefined && <FaceBadge verdict={x.face} />}
             <input className="st-input st-input--sm" value={x.name} maxLength={60} aria-label="Name" onChange={(e) => onRename(i, e.target.value)} />
             <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={`Remove ${x.name}`} onClick={() => onRemove(i)}><CloseIcon size={12} /></button>
           </div>

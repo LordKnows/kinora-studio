@@ -2519,3 +2519,23 @@ button.st-pill {
   position: static;
   margin-left: 4px;
 }
+
+/* the face check's label on an uploaded or imported picture: 放行 (any reference, R18 included) / 不放行 (not for R18) */
+.studio .st-face {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px solid var(--line-2);
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.studio .st-face[data-allowed="true"] {
+  color: var(--ok);
+  border-color: var(--ok);
+  background: var(--ok-bg);
+}
