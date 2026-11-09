@@ -325,7 +325,7 @@ The director gets the same library through `list_references`,
   follows each face back through the jobs; outfits, poses, places and style
   frames are only borrowed, so uploaded ones are fine). An uploaded or
   imported face goes in when its face check — a vision model (TokenSail's
-  `qwen3.7-plus`, or DashScope's Qwen-VL, with the Worker's
+  `qwen3.8-max-0902`, or DashScope's Qwen-VL, with the Worker's
   `TOKENSAIL_API_KEY` / `DASHSCOPE_API_KEY`) looking once per picture
   (`src/studio/face-check.ts`) — finds a 3D render or an illustration of an
   adult who is no real person, or no face. A photograph, anything
