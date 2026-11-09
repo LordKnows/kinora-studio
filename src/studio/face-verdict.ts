@@ -29,8 +29,9 @@ export function faceAllowed(v: FaceVerdict | undefined): boolean {
  * The picture's label: 放行 (its faces may be the reference of any picture, R18 included) or 不放行 (not for
  * R18; every other picture as before). A picture with no check yet is 不放行 until it is checked.
  */
-export function faceLabel(v: FaceVerdict | undefined): { allowed: boolean; label: "放行" | "不放行"; title: string } {
+export function faceLabel(v: FaceVerdict | undefined, error?: { why?: string }): { allowed: boolean; label: "放行" | "不放行"; title: string } {
   const allowed = faceAllowed(v);
+  if (!v && error?.why) return { allowed: false, label: "不放行", title: `不放行: the face check did not run (${error.why}); check again on the Pictures page` };
   return {
     allowed,
     label: allowed ? "放行" : "不放行",

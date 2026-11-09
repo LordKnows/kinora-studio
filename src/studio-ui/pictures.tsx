@@ -25,8 +25,8 @@ export function pictureTitle(a: Asset): string {
 }
 
 /** The face check's label: 放行 (any reference, R18 included) or 不放行 (not for R18). */
-export function FaceBadge({ verdict }: { verdict: FaceVerdict | null | undefined }) {
-  const l = faceLabel(verdict ?? undefined);
+export function FaceBadge({ verdict, error }: { verdict: FaceVerdict | null | undefined; error?: { why?: string } | string }) {
+  const l = faceLabel(verdict ?? undefined, typeof error === "string" ? { why: error } : error);
   return <span className="st-face" data-allowed={l.allowed ? "true" : undefined} title={l.title}>{l.label}</span>;
 }
 
@@ -42,7 +42,7 @@ export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNo
       <span className="st-pic-line">
         {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
         <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
-        {fromOutside(asset) && <FaceBadge verdict={asset.meta.faceCheck as FaceVerdict | undefined} />}
+        {fromOutside(asset) && <FaceBadge verdict={asset.meta.faceCheck as FaceVerdict | undefined} error={asset.meta.faceCheckError as { why?: string } | undefined} />}
       </span>
       {extra && <span className="st-pic-extra">{extra}</span>}
     </span>
@@ -234,7 +234,7 @@ export function PicturesPage() {
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 8 }} />
           )}
-          <PictureFacts asset={current} uses={current.uses} />
+          <PictureFacts asset={current} uses={current.uses} projectId={projectId} onChanged={after} />
         </div>
       )}
     </div>
@@ -242,10 +242,15 @@ export function PicturesPage() {
 }
 
 /** What a picture is, where it is used, and what the checks said. */
-export function PictureFacts({ asset, uses }: { asset: Asset; uses?: Use[] }) {
+export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Asset; uses?: Use[]; projectId?: string; onChanged?: () => Promise<void> | void }) {
+  const recheck = useAction(async () => {
+    await post(`/api/projects/${projectId}/pictures/${encodeURIComponent(asset.id)}/face-check`, {});
+    await onChanged?.();
+  });
   const m = asset.meta;
   const checks = (m.checks as Array<{ id: string; level: string; message: string }> | undefined) ?? [];
   const face = m.faceCheck as FaceVerdict | undefined;
+  const faceError = m.faceCheckError as { why?: string } | undefined;
   const auto = m.autoReview as { verdict?: string; summary?: string; findings?: Array<{ code?: string; severity?: string; where?: string; what?: string; fix?: string }> } | undefined;
   const findings = (m.reviewFindings as Array<{ code?: string; severity?: string; where?: string; problem?: string; fix?: string }> | undefined) ?? [];
   return (
@@ -258,10 +263,17 @@ export function PictureFacts({ asset, uses }: { asset: Asset; uses?: Use[] }) {
           <dd>{uses.length ? uses.map((u) => u.label).join("; ") : <span className="st-muted">nothing — safe to delete</span>}</dd>
         </>
       )}
-      {face && (
+      {(face || faceError || fromOutside(asset)) && (
         <>
           <dt>Face check</dt>
-          <dd className={faceAllowed(face) ? undefined : "st-muted"}><FaceBadge verdict={face} /> {faceAllowed(face) ? "any reference, R18 included" : "not for R18; every other picture is fine"} · {describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</dd>
+          <dd className={faceAllowed(face) ? undefined : "st-muted"}>
+            <FaceBadge verdict={face} error={faceError} />{" "}
+            {face
+              ? <>{faceAllowed(face) ? "any reference, R18 included" : "not for R18; every other picture is fine"} · {describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</>
+              : faceError?.why ? <>the check did not run: {faceError.why}</> : <>not checked yet</>}
+            {projectId && <>{" "}<Button size="sm" kind="quiet" busy={recheck.busy} onClick={() => void recheck.fire()}>Check again</Button></>}
+            <ErrorBanner error={recheck.error} projectId={projectId} onDismiss={recheck.dismiss} />
+          </dd>
         </>
       )}
       {checks.length > 0 && (

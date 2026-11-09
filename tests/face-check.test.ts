@@ -20,6 +20,7 @@ import type { Actor } from "@/studio/types";
 const user: Actor = { user: "faces3d@local", via: "web" };
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 3, 132, 0, 0, 4, 176, 8, 2, 0, 0, 0]);
 let answer: Record<string, unknown> | string = {};
+let failWith = "";
 const asked: Array<{ url: string; auth: string | null; body: { model: string; messages: Array<{ content: Array<{ type: string; image_url?: { url: string } }> }> } }> = [];
 
 async function memoryDb(): Promise<Db> {
@@ -53,6 +54,7 @@ beforeAll(async () => {
     }
     if (url.endsWith("/chat/completions")) {
       asked.push({ url, auth: new Headers(init?.headers).get("authorization"), body: JSON.parse(String(init?.body)) });
+      if (failWith) return new Response(failWith, { status: 500 });
       const content = typeof answer === "string" ? answer : JSON.stringify(answer);
       return new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200, headers: { "content-type": "application/json" } });
     }
@@ -177,5 +179,28 @@ describe("every upload and import gets its label as it arrives", () => {
     expect(later.meta.faceCheck).toBeUndefined();
     answer = { kind: "illustration", likeness: false, age: "adult", confidence: 0.9, reason: "anime" };
     expect(await firstUploadedFaceIn(projectId, [later.url])).toBeUndefined();
+  });
+});
+
+describe("when a check fails, the picture says why, and can be checked again", () => {
+  it("keeps the reason, labels the picture 不放行 with it, and a recheck replaces it with a verdict", async () => {
+    process.env.AUTH_MODE = "dev";
+    process.env.DEV_USER = "faces3d@local";
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    const projectId = (await repo.createProject({ name: "Rechecks" })).id;
+    failWith = "upstream overloaded";
+    const shot = await checkOnArrival(await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/game.png", kind: "image", source: "upload", meta: { key: "uploads/u/game.png" }, name: "game scene" }));
+    failWith = "";
+    const why = (shot.meta.faceCheckError as { why: string }).why;
+    expect(why).toContain("qwen3.7-plus answered 500: upstream overloaded");
+    expect(faceLabel(undefined, { why })).toMatchObject({ label: "不放行" });
+    expect(faceLabel(undefined, { why }).title).toContain("the face check did not run");
+    answer = { kind: "no_face", likeness: false, age: "adult", confidence: 0.9, reason: "a game scene, figures far away" };
+    const { POST } = await import("@/app/api/projects/[id]/pictures/[ref]/face-check/route");
+    const res = await POST(new Request(`https://studio.example/api/projects/${projectId}/pictures/${shot.id}/face-check`, { method: "POST", body: "{}" }), { params: Promise.resolve({ id: projectId, ref: shot.id }) });
+    const { picture } = (await res.json()) as { picture: { meta: { faceCheck?: FaceVerdict; faceCheckError?: unknown } } };
+    expect(picture.meta.faceCheck?.kind).toBe("no_face");
+    expect(picture.meta.faceCheckError).toBeUndefined();
+    expect(faceLabel(picture.meta.faceCheck)).toMatchObject({ allowed: true, label: "放行" });
   });
 });
