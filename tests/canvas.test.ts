@@ -3,7 +3,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { buildCanvasPrompt } from "@/studio/canvas-prompt";
-import { CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
+import { agentComposeCharacter, CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
+import { firstUploadedFaceIn } from "@/studio/provenance";
 import * as imaging from "@/studio/imaging";
 import { adultAllowed, getReference, listReferences as loadList, queryReferences, setAdultContent } from "@/studio/references";
 import type { RefCostume, RefPortrait, RefPose } from "@/studio/references-model";
@@ -144,6 +145,15 @@ describe("the composed prompt", () => {
     expect(text).toContain("人物穿搭展示图");
     expect(buildCanvasPrompt({})).toBe("");
   });
+
+  it("says what an uploaded pose is: a photo (pose only), a mannequin, or a depth map", () => {
+    const photo = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" } } });
+    expect(photo).toContain("图2中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图2人物的外观与服装");
+    const mannequin = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" }, picture: "mannequin", mirror: true } });
+    expect(mannequin).toContain("图2中人体模型（白模）的动作和镜头角度摆姿势（已左右镜像，以图中方向为准）；图2只是动作示意，不照搬白模的灰白材质");
+    const depth = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" }, picture: "depth" } });
+    expect(depth).toContain("图2是灰度深度图，只表示动作与远近");
+  });
 });
 
 describe("compose and import", () => {
@@ -195,6 +205,17 @@ describe("compose and import", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: elsewhere.id } }), web)).rejects.toMatchObject({ code: "validation" });
   });
 
+  it("takes the user's own face, outfit and pose (a mannequin or a depth map) and records what the pose picture is", async () => {
+    const face = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/my-face.png", kind: "image", source: "upload", meta: {}, name: "my face" });
+    const outfit = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/coat.png", kind: "image", source: "upload", meta: {}, name: "coat" });
+    const mannequin = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/pose.png", kind: "image", source: "upload", meta: {}, name: "pose" });
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, costume: { assetId: outfit.id }, pose: { assetId: mannequin.id, picture: "depth" } }), web);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.refUrls).toEqual([face.url, outfit.url, mannequin.url]);
+    expect(String(job.input.prompt)).toContain("图3是灰度深度图");
+    expect((job.input.canvas as { posePicture?: string }).posePicture).toBe("depth");
+  });
+
   it("imports one reference picture into the project, fetched once from its gallery", async () => {
     fetched.length = 0;
     const p = pose() as RefPose;
@@ -225,7 +246,200 @@ describe("Canvas MCP tools", () => {
     expect(body.hidden).toBeGreaterThan(0);
     const p = await repo.createProject({ name: "Agent canvas" });
     const off = await client.callTool({ name: "compose_character", arguments: { projectId: p.id, pose: { id: listReferences("pose", false).items[0]!.id } } });
-    expect(JSON.stringify(off.content)).toContain("image generation is off");
+    expect(JSON.stringify(off.content)).toContain("Agent use Canvas is off");
     await client.close();
+  });
+});
+
+describe("Agent use Canvas (Settings → Director)", () => {
+  const owner: Actor = { user: "agent-canvas@local", via: "web" };
+  const director: Actor = { user: "agent-canvas@local", via: "mcp" };
+  const portrait = () => listReferences("portrait", false).items[3]!;
+  const costume = () => listReferences("costume", false).items.find((x) => (x as RefCostume).source === "gia")!;
+  const pose = () => listReferences("pose", false).items[0]!;
+  const recipe = () => CanvasCompose.omit({ loras: true }).parse({ portrait: { id: portrait().id }, costume: { id: costume().id }, pose: { id: pose().id } });
+
+  it("is off by default: the director composes only once the user switches it on, on the web, and it is logged", async () => {
+    const projectId = (await repo.createProject({ name: "Agent canvas on" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, owner);
+    expect(imaging.imagingSummary(await repo.getProject(projectId)).agentCanvas).toBe(false);
+    await expect(agentComposeCharacter(projectId, recipe(), director)).rejects.toMatchObject({ code: "forbidden", details: { agentCanvas: false } });
+    await expect(imaging.setImaging(projectId, { enabled: true, agentCanvas: true }, director)).rejects.toMatchObject({ code: "forbidden" });
+    await imaging.setImaging(projectId, { enabled: true, agentCanvas: true }, owner);
+    expect(imaging.imagingSummary(await repo.getProject(projectId)).agentCanvas).toBe(true);
+    const r = await agentComposeCharacter(projectId, recipe(), director);
+    expect(r.model).toBe("gpt-image-codex");
+    expect((await repo.getJob(r.job.id)).input.purpose).toBe("canvas");
+    /* the model is the user's: no other one, and 2509 only beside a model on the GPU pod */
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-2.1" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    const notes = await repo.listNotes(projectId, "decision");
+    expect(notes.map((n) => (n.body as { decision: string }).decision)).toContain("Agent use Canvas on: the director may compose characters from the Canvas library with GPT Image · Codex");
+    /* switching the model keeps the switch */
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-3.0-pro" }, owner);
+    expect((await repo.getProject(projectId)).imaging!.agentCanvas).toBe(true);
+  });
+
+  it("draws with the project's GPU model and its LoRAs, or 2509 for a pose; an 18+ LoRA never with an upload", async () => {
+    const projectId = (await repo.createProject({ name: "Agent canvas pod" })).id;
+    await setAdultContent(owner, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [{ id: "lora_chatr_omni_v01" }], agentCanvas: true }, owner);
+    const r = await agentComposeCharacter(projectId, recipe(), director);
+    const input = (await repo.getJob(r.job.id)).input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string }> }; prompt: string };
+    expect(input.backend).toBe("comfy:qwen-image-2.1");
+    expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors" }] });
+    expect(input.prompt).toContain("画面中的人物均为成年人。");
+    const pose2509 = await agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director);
+    const i2509 = (await repo.getJob(pose2509.job.id)).input as { backend: string; params: { loras?: unknown[] } };
+    expect(i2509.backend).toBe("comfy:qwen-image-edit-2509");
+    expect(i2509.params.loras).toBeUndefined();
+    /* an uploaded face, or a picture drawn from one, is refused with the 18+ LoRA; a picture drawn from the library is not */
+    const upload = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/me.png", kind: "image", source: "upload", meta: {}, name: "me" });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ portrait: { assetId: upload.id }, pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
+    const fromUpload = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [upload.url] } });
+    const tainted = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/x/t.png", kind: "image", source: "generated", meta: { jobId: fromUpload.id } });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: tainted.id }], pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
+    const fromLibrary = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [(portrait() as RefPortrait).image] } });
+    const clean = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/x/c.png", kind: "image", source: "generated", meta: { jobId: fromLibrary.id } });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: clean.id }], pose: { id: pose().id } }), director)).resolves.toMatchObject({ model: "qwen-image-2.1" });
+  });
+});
+
+describe("two people (Canvas)", () => {
+  const duo: Actor = { user: "duo@local", via: "web" };
+  let projectId = "";
+  let mia = "";
+  const portrait = (i = 3) => listReferences("portrait", false).items[i]! as RefPortrait;
+  const costume = () => listReferences("costume", false).items.find((x) => (x as RefCostume).source === "gia")! as RefCostume;
+  const charadb = () => listReferences("costume", false).items.find((x) => (x as RefCostume).source === "charadb")!;
+  const couple = () => listReferences("pose", true).items.find((x) => (x as RefPose).system === "couple")! as RefPose;
+  const upload = (name: string) => repo.createAsset({ projectId, url: `https://studio.example/media/uploads/u/${name}.png`, kind: "image", source: "upload", meta: {}, name });
+
+  it("names each person's pictures, says which figure of the pose is whom, and keeps them apart", () => {
+    const text = buildCanvasPrompt({
+      portrait: { item: portrait() }, costume: { item: costume() }, name: "Mia",
+      partner: { portrait: { upload: { name: "him" } }, costume: { upload: { name: "suit" } } },
+      aIs: "right", pose: { item: couple(), mirror: true }, style: "realistic",
+    });
+    expect(text).toContain("请根据提供的 5 张参考图，生成一张完整的真实人物照片，画面中是Mia和人物B两个人");
+    expect(text).toContain("• Mia：图1中的人物");
+    expect(text).toContain("• Mia的服装：让Mia穿上图2中展示的整套服装");
+    expect(text).toContain("• 人物B：图3中的人物");
+    expect(text).toContain("• 人物B的服装：让人物B穿上图4");
+    expect(text).toContain("图5中两个人体模型的动作和镜头角度摆姿势");
+    expect(text).toContain("已左右镜像，以图中方向为准");
+    expect(text).toContain("图5中右边的人是Mia，另一个人是人物B");
+    expect(text).toContain("Mia穿着图2的服装，人物B穿着图4的服装");
+    expect(text).toContain("不要互相混合，也不要画成同一个人");
+    /* a project character stands for the face and the outfit in one picture; Qwen names the pictures <imageN> */
+    const sheet = buildCanvasPrompt({ character: { name: "Lin" }, partner: { portrait: { item: portrait(5) } }, pose: { upload: { name: "duo" }, picture: "depth" }, aIs: "front", refStyle: "qwen" });
+    expect(sheet).toContain("• Lin：<image1>是Lin的角色参考（同一个人），保持其脸型、五官、发型、发色、肤色和服装配饰一致。");
+    expect(sheet).toContain("<image3>中前面（离镜头近）的人是Lin");
+    expect(sheet).toContain("<image3>是灰度深度图");
+  });
+
+  it("draws a project character with a library face in a two-person pose, in the prompt's order", async () => {
+    projectId = (await repo.createProject({ name: "Duo" })).id;
+    await setAdultContent(duo, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true }, duo);
+    const el = await repo.createElement(projectId, { kind: "character", name: "Mia", description: "a dancer" });
+    const job = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [portrait().image] } });
+    const sheet = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/d/mia-front.png", kind: "image", source: "generated", meta: { jobId: job.id } });
+    await repo.updateElement(el.id, { refAssetIds: [sheet.id], refViews: { [sheet.id]: "front" } });
+    mia = el.id;
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ character: { elementId: mia }, partner: { portrait: { id: portrait(5).id }, name: "Kai" }, pose: { id: couple().id }, aIs: "top" }), duo);
+    const input = (await repo.getJob(r.job.id)).input as { refUrls: string[]; prompt: string; canvas: { people?: number; aIs?: string; nameB?: string } };
+    expect(r.refs.map((x) => x.role)).toEqual(["character", "portrait_b", "pose"]);
+    expect(input.refUrls).toEqual([sheet.url, portrait(5).image, couple().image]);
+    expect(input.prompt).toContain("图3中上方的人是Mia，另一个人是Kai");
+    expect(input.canvas).toMatchObject({ people: 2, aIs: "top", nameB: "Kai" });
+  });
+
+  it("refuses an empty person B, a model short of pictures, 2509, and attaching a two-person picture to one character", async () => {
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: {}, pose: { id: couple().id } }), duo)).rejects.toMatchObject({ code: "validation" });
+    const full = { portrait: { id: portrait().id }, costume: { id: costume().id }, partner: { portrait: { id: portrait(5).id } }, pose: { id: couple().id } };
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, model: "qwen-image-3.0-pro" }), duo)).rejects.toThrow(/at most 3 pictures/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, model: "qwen-image-edit-2509" }), duo)).rejects.toThrow(/draws one person/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, attach: { elementId: mia } }), duo)).rejects.toThrow(/two people is not one character/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ character: { elementId: mia }, portrait: { id: portrait().id } }), duo)).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("takes uploads freely; with 18+ the faces come from the library, outfits and poses may be uploads; CharaDB never on a real face", async () => {
+    const face = await upload("face");
+    const coat = await upload("coat");
+    const duoPose = await upload("duo-pose");
+    /* no 18+: any upload, for both people */
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, costume: { assetId: coat.id }, partner: { portrait: { id: portrait(5).id } }, pose: { assetId: duoPose.id, picture: "mannequin" } }), duo)).resolves.toMatchObject({ model: "gpt-image-codex" });
+    /* an 18+ pose: library faces, uploaded outfit and pose are fine; an uploaded face is not, for either person */
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, partner: { portrait: { id: portrait(5).id } }, pose: { id: couple().id } }), duo)).resolves.toBeTruthy();
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id } }, pose: { id: couple().id } }), duo)).rejects.toThrow(/every face must be AI-generated/);
+    /* an 18+ LoRA: an uploaded outfit and pose go in, a face does not */
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1" }, duo);
+    const omni = [{ id: "lora_chatr_omni_v01" }];
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, pose: { assetId: duoPose.id, picture: "depth" }, model: "qwen-image-2.1", loras: omni }), duo)).resolves.toMatchObject({ model: "qwen-image-2.1" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, pose: { assetId: duoPose.id }, model: "qwen-image-2.1", loras: omni }), duo)).rejects.toThrow(/every face must be AI-generated/);
+    /* CharaDB: on a library face yes, on an uploaded one (person B's too) no */
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { id: charadb().id } }), duo)).resolves.toBeTruthy();
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id }, costume: { id: charadb().id } }, pose: { assetId: duoPose.id } }), duo)).rejects.toThrow(/CharaDB/);
+  });
+});
+
+describe("whose face a picture shows (18+ needs AI-generated faces)", () => {
+  const who: Actor = { user: "faces@local", via: "web" };
+  let projectId = "";
+  const portrait = () => listReferences("portrait", false).items[3]! as RefPortrait;
+  const couple = () => listReferences("pose", true).items.find((x) => (x as RefPose).system === "couple")! as RefPose;
+  const asset = (name: string, source: "upload" | "generated", meta: Record<string, unknown> = {}) => repo.createAsset({ projectId, url: `https://studio.example/media/p/${name}.png`, kind: "image", source, meta, name });
+  const drawn = async (name: string, input: Record<string, unknown>) => {
+    const job = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", ...input } });
+    return asset(name, "generated", { jobId: job.id });
+  };
+
+  it("follows faces back, not outfits, poses, places or style frames", async () => {
+    projectId = (await repo.createProject({ name: "Faces" })).id;
+    const face = await asset("real-face", "upload");
+    const coat = await asset("coat", "upload");
+    const street = await asset("street", "upload");
+    const imported = await asset("from-the-web", "generated");
+    const check = async (a: { url: string }) => firstUploadedFaceIn(projectId, [a.url]);
+    /* drawn from text alone, from a library face with an uploaded outfit, from an AI sheet in an uploaded street */
+    const fromText = await drawn("from-text", {});
+    expect(await check(fromText)).toBeUndefined();
+    const dressed = await drawn("dressed", { refUrls: [portrait().image, coat.url], refRoles: ["face", "outfit"] });
+    expect(await check(dressed)).toBeUndefined();
+    const inStreet = await drawn("in-street", { refUrls: [fromText.url, street.url], refRoles: ["face", "scene"] });
+    expect(await check(inStreet)).toBeUndefined();
+    /* a Canvas job read by its recipe's roles (no refRoles): an uploaded costume and pose are borrowed */
+    const canvasOld = await drawn("canvas-old", { refUrls: [portrait().image, coat.url], canvas: { refs: [{ role: "portrait", url: portrait().image }, { role: "costume", url: coat.url }] } });
+    expect(await check(canvasOld)).toBeUndefined();
+    /* a kept face is real however far back: drawn from it, an edit of that, a crop of the edit */
+    const fromFace = await drawn("from-face", { refUrls: [face.url], refRoles: ["face"] });
+    expect(await check(fromFace)).toBe(face.handle);
+    const edit = await drawn("edit", { baseUrl: fromFace.url });
+    expect(await check(edit)).toBe(face.handle);
+    const crop = await drawn("crop", { op: "crop", baseUrl: edit.url });
+    expect(await check(crop)).toBe(face.handle);
+    /* a reference of no known role counts as a face (older jobs); an import is not known to be AI */
+    expect(await check(await drawn("old-job", { refUrls: [coat.url] }))).toBe(coat.handle);
+    expect(await check(imported)).toBe(imported.handle);
+    expect(await check(face)).toBe(face.handle);
+  });
+
+  it("lets Canvas use a Studio picture whose face is AI-generated, even one made with an uploaded outfit", async () => {
+    await setAdultContent(who, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true }, who);
+    const coat = await asset("coat-2", "upload");
+    /* a Canvas picture of a library face in an uploaded coat, then used as the face of an 18+ picture */
+    const first = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id } }), who);
+    const job = await repo.getJob(first.job.id);
+    expect(job.input.refRoles).toEqual(["face", "outfit"]);
+    const done = await imaging.applyImageStatus(job, { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${job.id}.png`, width: 1024, height: 1536 } });
+    const look = done.assetIds[0]!;
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: look }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).resolves.toBeTruthy();
+    /* the same with an uploaded face underneath is refused */
+    const face = await asset("face-2", "upload");
+    const second = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id } }), who);
+    const done2 = await imaging.applyImageStatus(await repo.getJob(second.job.id), { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${second.job.id}.png`, width: 1024, height: 1536 } });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: done2.assetIds[0]! }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`${face.handle} is an uploaded or imported picture`);
   });
 });

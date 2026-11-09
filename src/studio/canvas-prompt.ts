@@ -2,7 +2,8 @@ import { angleZh, type RefCostume, type RefPortrait, type RefPose } from "./refe
 
 /*
  * The Canvas prompt: portrait + costume + pose (+ extra pictures) → one
- * character picture. Pure, so the page previews exactly what the server
+ * character picture, or two people (a face and an outfit each, or a project
+ * character) in one two-person pose, told apart by where each stands. Pure, so the page previews exactly what the server
  * sends.
  *
  * Ported from anhao/ai-pose-gallery-zh (src/services/aiGenerator.ts,
@@ -37,11 +38,32 @@ export const CANVAS_STYLES: Array<{ id: string; label: string; zh: string; promp
 
 export const CANVAS_STYLE_IDS = CANVAS_STYLES.map((s) => s.id) as [string, ...string[]];
 
-/** A slot holds a catalog item or an uploaded picture (named by the user). */
-export type CanvasPromptRecipe = {
+/** What an uploaded pose picture is: a photo of a person, a mannequin (白模 / line art), a depth map. */
+export const POSE_PICTURES = ["photo", "mannequin", "depth"] as const;
+export type PosePicture = (typeof POSE_PICTURES)[number];
+
+/** Which figure of a two-person pose is person A (the other one is B). */
+export const PLACES = ["left", "right", "front", "back", "top", "bottom"] as const;
+export type Place = (typeof PLACES)[number];
+export const PLACE_ZH: Record<Place, string> = { left: "左边", right: "右边", front: "前面（离镜头近）", back: "后面（离镜头远）", top: "上方", bottom: "下方" };
+
+/** One person of the picture: a face (portrait) or a project character's reference, and an outfit. */
+export type CanvasPerson = {
   portrait?: { item?: RefPortrait; upload?: { name: string } };
   costume?: { item?: RefCostume; upload?: { name: string } };
-  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean; mirror?: boolean };
+  /** A project character: its reference picture is the face, the hair and (without a costume) the outfit. */
+  character?: { name: string };
+  /** How the prompt calls the person (two people); else 人物A / 人物B, or the character's name. */
+  name?: string;
+};
+
+/** A slot holds a catalog item or an uploaded picture (named by the user). */
+export type CanvasPromptRecipe = CanvasPerson & {
+  /** picture: what an uploaded pose picture is — a photo of a person (default), a mannequin (白模 / line art) or a depth map */
+  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean; mirror?: boolean; picture?: PosePicture };
+  /** Two people: person B, and which figure of the pose is person A. */
+  partner?: CanvasPerson;
+  aIs?: Place;
   extras?: Array<{ name: string }>;
   style?: string;
   note?: string;
@@ -49,40 +71,75 @@ export type CanvasPromptRecipe = {
   refStyle?: "zh" | "qwen";
 };
 
+const SKIN = (i: number) => `肤色必须与图${i}人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。`;
+
 export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
   const style = CANVAS_STYLES.find((s) => s.id === (r.style ?? "realistic")) ?? CANVAS_STYLES[1]!;
   const isPhoto = !!style.photo;
-  const faceless = !r.portrait && !!r.costume && !!r.pose;
+  const two = !!r.partner;
   const clauses: string[] = [];
   let idx = 1;
-  let costumeIdx = 0;
 
-  if (r.portrait) {
-    const p = r.portrait.item;
-    const hair = p ? (p.hairstyle && p.hairstyle !== "标准基础款" ? p.title : p.hairLength) : "";
-    const skin = `人物的肤色必须与图${idx}人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。`;
-    const outfit = r.costume ? "" : `保留图${idx}人物原有可见服装与配饰，不复制姿势参考图的服装或白模外观。`;
-    clauses.push(p ? `• 人物：图${idx}中的人物，保持其脸型、五官、发型（${hair}）和发色一致。${skin}${outfit}` : `• 人物：图${idx}中的人物，保持其脸型、五官、发型和发色一致。${skin}${outfit}`);
-    idx++;
+  /* ---- the people: each face, then each outfit ---- */
+  const nameOf = (p: CanvasPerson, fallback: string) => p.name?.trim() || p.character?.name || fallback;
+  const people = two ? [{ p: r as CanvasPerson, name: nameOf(r, "人物A") }, { p: r.partner!, name: nameOf(r.partner!, "人物B") }] : [{ p: r as CanvasPerson, name: "人物" }];
+  const faceless = !two && !r.portrait && !r.character && !!r.costume && !!r.pose;
+  const wearAt: number[] = [];
+  for (const [n, { p, name }] of people.entries()) {
+    const who = two ? name : "人物";
+    const other = two ? people[1 - n]!.name : "";
+    if (p.character) {
+      const outfit = p.costume ? "" : "和服装配饰";
+      clauses.push(`• ${who}：图${idx}是${p.character.name}的角色参考（同一个人），保持其脸型、五官、发型、发色、肤色${outfit}一致。`);
+      idx++;
+    } else if (p.portrait) {
+      const it = p.portrait.item;
+      const hair = it ? (it.hairstyle && it.hairstyle !== "标准基础款" ? it.title : it.hairLength) : "";
+      const outfit = p.costume ? "" : `保留图${idx}人物原有可见服装与配饰，不复制姿势参考图的服装或白模外观。`;
+      clauses.push(`• ${who}：图${idx}中的人物，保持其脸型、五官、${hair ? `发型（${hair}）` : "发型"}和发色一致。${who === "人物" ? "人物的" : `${who}的`}${SKIN(idx)}${outfit}`);
+      idx++;
+    } else if (two) {
+      clauses.push(`• ${who}：一位成年人，相貌自然，与${other}明显不同。`);
+    }
+    if (p.costume) {
+      wearAt[n] = idx;
+      const c = p.costume.item;
+      const dress = two ? `让${who}穿上` : "让人物穿上";
+      clauses.push(c
+        ? `• ${two ? `${who}的服装` : "服装"}：${dress}图${idx}中展示的整套服装和配饰（参考名称：${c.name}），每件单品的颜色、款式、面料与配饰都以图${idx}为准，名称仅作辅助说明。`
+        : `• ${two ? `${who}的服装` : "服装"}：${dress}图${idx}中展示的整套服装和配饰，每件单品的颜色、款式、面料与配饰都以图${idx}为准。`);
+      idx++;
+    }
   }
-  if (r.costume) {
-    costumeIdx = idx;
-    const c = r.costume.item;
-    clauses.push(c
-      ? `• 服装：让人物穿上图${idx}中展示的整套服装和配饰（参考名称：${c.name}），每件单品的颜色、款式、面料与配饰都以图${idx}为准，名称仅作辅助说明。`
-      : `• 服装：让人物穿上图${idx}中展示的整套服装和配饰，每件单品的颜色、款式、面料与配饰都以图${idx}为准。`);
-    idx++;
-  }
+
+  /* ---- the pose ---- */
   if (r.pose) {
-    const wear = costumeIdx ? `，穿着图${costumeIdx}的服装` : "";
-    const body = isPhoto ? `最终画面中的人物是真人，皮肤真实自然${wear}` : `人物的肤色与质感按风格要求呈现${wear}`;
+    const wear = two
+      ? people.map(({ name }, n) => (wearAt[n] ? `${name}穿着图${wearAt[n]}的服装` : "")).filter(Boolean).join("，")
+      : wearAt[0] ? `穿着图${wearAt[0]}的服装` : "";
+    const real = two ? "最终画面中的两个人是真人，皮肤真实自然" : "最终画面中的人物是真人，皮肤真实自然";
+    const body = (isPhoto ? real : two ? "两个人的肤色与质感按风格要求呈现" : "人物的肤色与质感按风格要求呈现") + (wear ? `，${wear}` : "");
     const p = r.pose.item;
     /* a flipped pose: its name's left and right are the other way round now */
-    const flipped = r.pose.mirror ? "，已左右镜像，以图中方向为准" : "";
+    const flipped = r.pose.mirror ? "已左右镜像，以图中方向为准" : "";
+    const figures = two ? "两个人体模型" : "人体模型";
+    const people2 = two ? "两个人的" : "人物";
+    /* two people: which figure is who, read on the picture as given (after the flip) */
+    const cast = two ? `图${idx}中${PLACE_ZH[r.aIs ?? "left"]}的人是${people[0]!.name}，另一个人是${people[1]!.name}；` : "";
+    const picture = r.pose.picture ?? "photo";
     clauses.push(p
-      ? `• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}${flipped}）；图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
-      : `• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`);
+      ? `• 姿势：按照图${idx}中${figures}的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}${flipped ? `，${flipped}` : ""}）；${cast}图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
+      : picture === "mannequin"
+        ? `• 姿势：按照图${idx}中${figures}（白模）的动作和镜头角度摆姿势${flipped ? `（${flipped}）` : ""}；${cast}图${idx}只是动作示意，不照搬白模的灰白材质，${body}。`
+        : picture === "depth"
+          ? `• 姿势：按照图${idx}的${people2}动作和镜头角度摆姿势${flipped ? `（${flipped}）` : ""}；${cast}图${idx}是灰度深度图，只表示动作与远近，${body}。`
+          : `• 姿势：按照图${idx}中的${people2}动作和镜头角度摆姿势${flipped ? `（${flipped}）` : ""}；${cast}仅参考姿势与构图，不复制图${idx}${two ? "中人物" : "人物"}的外观与服装，${body}。`);
     idx++;
+  } else if (two) {
+    clauses.push(`• 构图：${people[0]!.name}和${people[1]!.name}自然地同框互动。`);
+  }
+  if (two) {
+    clauses.push(`• 两个人的脸、发型、肤色和服装各自以自己的参考图为准，不要互相混合，也不要画成同一个人；画面中恰好只有这两个人。`);
   }
   if (faceless) {
     clauses.push("• 无脸展示：生成一位穿着参考服装的成年展示人物，脸部保持无五官的自然肤色表面，不添加眼睛、鼻子、嘴巴或具体人物身份；全身裸露皮肤的颜色统一，不照搬服装图或姿势图的灰白人台材质。");
@@ -93,7 +150,8 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
   }
   if (!clauses.length) return "";
 
-  const lines = [`请根据提供的 ${idx - 1} 张参考图，生成一张完整的${faceless ? "人物穿搭展示图" : isPhoto ? "真实人物照片" : "人物图像"}：`, ...clauses];
+  const what = faceless ? "人物穿搭展示图" : two ? (isPhoto ? `真实人物照片，画面中是${people[0]!.name}和${people[1]!.name}两个人` : `人物图像，画面中是${people[0]!.name}和${people[1]!.name}两个人`) : isPhoto ? "真实人物照片" : "人物图像";
+  const lines = [`请根据提供的 ${idx - 1} 张参考图，生成一张完整的${what}：`, ...clauses];
   if (r.note?.trim()) lines.push(`• 补充要求：${r.note.trim()}`);
   if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
   lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");

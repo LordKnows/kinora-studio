@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, PLACE_ZH, PLACES, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
 import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
-import type { Asset, Job, Project } from "@/studio/types";
+import type { Asset, Element, Job, Project } from "@/studio/types";
 
 import { get, post, put } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./common";
@@ -18,7 +18,7 @@ import { CloseIcon, UploadIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
 /* Canvas: pick a portrait, a costume and a pose from the reference library
-   (or upload your own), and GPT Image draws the character into a project —
+   (or upload your own), and an image model draws the character into a project —
    a picture with a handle, ready to go onto an element as its look. */
 
 type Upload = { assetId: string; url: string; name: string };
@@ -30,11 +30,23 @@ type Recipe = {
   depth: boolean;
   /** The pose flipped left to right (the painter mirrors the picture). */
   mirror?: boolean;
+  /** An uploaded pose: a photo of a person, a mannequin (白模) or a depth map. */
+  posePicture?: PosePicture;
+  /** Two people (双人): person B's face and outfit, and which figure of the pose is person A. */
+  two?: boolean;
+  partner?: { portrait?: Slot<RefPortrait>; costume?: Slot<RefCostume> & { view?: string } };
+  aIs?: Place;
+  /** A project character (element id) instead of a portrait, for person A / person B. */
+  characterA?: string;
+  characterB?: string;
+  /** What the prompt calls each person (two people). */
+  nameA?: string;
+  nameB?: string;
   extras: Upload[];
   style: string;
   size: (typeof CANVAS_SIZES)[number];
   quality?: "low" | "medium" | "high";
-  /** The image model (models.ts); unset = the project's GPT Image backend. */
+  /** The image model (models.ts); unset = the project's (Settings → Director). */
   model?: string;
   /** Pod models: LoRAs from the library, trained for the model's family. */
   loras?: LoraRef[];
@@ -46,6 +58,8 @@ type Recipe = {
   prompt?: string;
 };
 type SlotKind = "portrait" | "costume" | "pose";
+type Who = "a" | "b";
+type UploadTarget = SlotKind | "extra" | "portrait_b" | "costume_b";
 type Prefs = { projectId?: string; kind: RefKind; attach?: { elementId: string; view: RefView } };
 
 const SLOT_LABEL: Record<SlotKind, string> = { portrait: "Portrait · 人像", costume: "Costume · 服装", pose: "Pose · 姿势" };
@@ -69,13 +83,30 @@ function writeStore(key: string, value: unknown) {
   }
 }
 
+const slotBody = (x?: Slot<RefItem>) => (x ? (x.item ? { id: x.item.id } : { assetId: x.upload.assetId }) : undefined);
 const slotName = (s?: Slot<RefItem>) => (s?.item ? (s.item.kind === "portrait" ? s.item.title : s.item.name) : s?.upload?.name ?? "");
 
-function toPromptRecipe(r: Recipe, refStyle?: "zh" | "qwen"): CanvasPromptRecipe {
+const slotPrompt = <T extends RefPortrait | RefCostume>(x?: Slot<T>) => x && (x.upload ? { upload: { name: x.upload.name } } : { item: x.item });
+
+/** A project character's picture for Canvas: its front reference, else full body, three-quarter, the first. */
+function characterPicture(el: Element | undefined, assets: Asset[]): Asset | undefined {
+  if (!el) return undefined;
+  const views = el.refViews ?? {};
+  const id = (["front", "full_body", "three_quarter"] as const).map((v) => el.refAssetIds.find((x) => views[x] === v)).find(Boolean) ?? el.refAssetIds[0];
+  return assets.find((a) => a.id === id);
+}
+
+function toPromptRecipe(r: Recipe, refStyle: "zh" | "qwen" | undefined, elements: Element[]): CanvasPromptRecipe {
+  const charName = (id?: string) => (id ? elements.find((e) => e.id === id)?.name ?? "character" : undefined);
+  const person = (portrait: Slot<RefPortrait> | undefined, costume: Slot<RefCostume> | undefined, character: string | undefined, name: string | undefined): CanvasPerson => ({
+    ...(character ? { character: { name: charName(character)! } } : portrait ? { portrait: slotPrompt(portrait) } : {}),
+    ...(costume ? { costume: slotPrompt(costume) } : {}),
+    ...(name?.trim() ? { name: name.trim() } : {}),
+  });
   return {
-    portrait: r.portrait && (r.portrait.item ? { item: r.portrait.item } : { upload: { name: r.portrait.upload.name } }),
-    costume: r.costume && (r.costume.item ? { item: r.costume.item } : { upload: { name: r.costume.upload.name } }),
-    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror }),
+    ...person(r.portrait, r.costume, r.characterA, r.two ? r.nameA : undefined),
+    ...(r.two ? { partner: person(r.partner?.portrait, r.partner?.costume, r.characterB, r.nameB), aIs: r.aIs ?? "left" } : {}),
+    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror, picture: r.posePicture ?? "photo" }),
     extras: r.extras.map((e) => ({ name: e.name })),
     style: r.style,
     note: r.note,
@@ -186,15 +217,36 @@ export function CanvasPage() {
 
   /* ---------- recipe ---------- */
   const adult = !!settings?.adultContent;
+  /* two people: the library fills the person picked here (a click on that person's slot picks them too) */
+  const [fillFor, setFillFor] = useState<Who>("a");
+  const filling: Who = recipe.two ? fillFor : "a";
   const use = useCallback((item: RefItem, opts: UseOptions) => {
     setRecipe((r) => {
-      if (item.kind === "portrait") return { ...r, portrait: r.portrait?.item?.id === item.id ? undefined : { item } };
+      const who: Who = r.two ? fillFor : "a";
+      if (who === "b" && (item.kind === "portrait" || item.kind === "costume")) {
+        const cur = r.partner?.[item.kind];
+        const same = cur?.item?.id === item.id && (item.kind === "portrait" || !opts.view);
+        const next = same ? undefined : item.kind === "costume" ? { item, view: opts.view } : { item };
+        return { ...r, partner: { ...r.partner, [item.kind]: next }, ...(item.kind === "portrait" && next ? { characterB: undefined } : {}) };
+      }
+      if (item.kind === "portrait") {
+        const next = r.portrait?.item?.id === item.id ? undefined : { item };
+        return { ...r, portrait: next, ...(next ? { characterA: undefined } : {}) };
+      }
       if (item.kind === "costume") return { ...r, costume: r.costume?.item?.id === item.id && !opts.view ? undefined : { item, view: opts.view } };
-      return { ...r, pose: r.pose?.item?.id === item.id ? undefined : { item }, depth: opts.depth ?? r.depth };
+      /* a two-person pose turns on two people */
+      const pose = r.pose?.item?.id === item.id ? undefined : { item };
+      return { ...r, pose, depth: opts.depth ?? r.depth, ...(pose && item.system === "couple" ? { two: true } : {}) };
     });
-  }, []);
-  const selected = { portrait: recipe.portrait?.item?.id, costume: recipe.costume?.item?.id, pose: recipe.pose?.item?.id };
-  const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
+  }, [fillFor]);
+  const selected = filling === "b"
+    ? { portrait: recipe.partner?.portrait?.item?.id, costume: recipe.partner?.costume?.item?.id, pose: recipe.pose?.item?.id }
+    : { portrait: recipe.portrait?.item?.id, costume: recipe.costume?.item?.id, pose: recipe.pose?.item?.id };
+  const elements = useMemo(() => (view?.elements ?? []).filter((e) => e.projectId === projectId), [view, projectId]);
+  const castA = recipe.characterA && elements.some((e) => e.id === recipe.characterA) ? recipe.characterA : undefined;
+  const castB = recipe.two && recipe.characterB && elements.some((e) => e.id === recipe.characterB) ? recipe.characterB : undefined;
+  const personB = recipe.two ? [castB ?? recipe.partner?.portrait, recipe.partner?.costume].filter(Boolean).length : 0;
+  const count = [castA ?? recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + personB + recipe.extras.length;
   const model: ModelEntry = findModel(recipe.model ?? "") ?? projectImageModel(view?.project.imaging);
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   /* GPT Image's quality tiers; Qwen's API has none */
@@ -207,15 +259,19 @@ export function CanvasPage() {
   }) : [];
   const resolved = resolveParams(model, { loras: activeLoras });
   const adultLora = activeLoras.find((l) => l.adult);
-  const anyUpload = !!(recipe.portrait?.upload || recipe.costume?.upload || recipe.pose?.upload || recipe.extras.length);
-  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(recipe, model.refStyle)), [recipe, model.refStyle]);
+  const effective: Recipe = { ...recipe, characterA: castA, characterB: castB };
+  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(effective, model.refStyle, elements)), [effective, model.refStyle, elements]);
   const prompt = recipe.prompt ?? composed;
-  const hiddenInRecipe = !adult && [recipe.portrait?.item, recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
-  const charadbOnUpload = recipe.costume?.item?.source === "charadb" && !!recipe.portrait?.upload;
+  const partnerItems = recipe.two ? [recipe.partner?.portrait?.item, recipe.partner?.costume?.item] : [];
+  const nsfwInRecipe = [recipe.portrait?.item, recipe.costume?.item, recipe.pose?.item, ...partnerItems].some((x) => x?.nsfw);
+  const hiddenInRecipe = !adult && nsfwInRecipe;
+  const charadbOnUpload = (recipe.costume?.item?.source === "charadb" && !castA && !!recipe.portrait?.upload) || (recipe.two && recipe.partner?.costume?.item?.source === "charadb" && !castB && !!recipe.partner?.portrait?.upload);
+  /* 18+: the faces come from the library (uploaded outfits and poses are fine) */
+  const uploadedFace = (!castA && !!recipe.portrait?.upload) || (recipe.two && !castB && !!recipe.partner?.portrait?.upload) || recipe.extras.length > 0;
 
-  const randomize = async (slot: SlotKind, scope: "similar" | "any") => {
+  const randomize = async (slot: SlotKind, scope: "similar" | "any", who: Who = "a") => {
     const pool = (await loadReferences(slot, adultVersion)).items;
-    const cur = recipe[slot]?.item;
+    const cur = who === "b" && slot !== "pose" ? recipe.partner?.[slot]?.item : recipe[slot]?.item;
     const candidates = pool.filter((x) => {
       if (x.id === cur?.id) return false;
       if (scope === "any" || !cur) return slot !== "costume" || (x as RefCostume).style === "real" || !!cur;
@@ -226,25 +282,32 @@ export function CanvasPage() {
     });
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     if (!pick) return;
-    setRecipe((r) => ({ ...r, [slot]: { item: pick } }));
+    setRecipe((r) => (who === "b" && slot !== "pose"
+      ? { ...r, partner: { ...r.partner, [slot]: { item: pick } }, ...(slot === "portrait" ? { characterB: undefined } : {}) }
+      : { ...r, [slot]: { item: pick }, ...(slot === "portrait" ? { characterA: undefined } : {}) }));
   };
   const randomizeAll = async () => {
     for (const s of ["portrait", "costume", "pose"] as const) await randomize(s, "any");
+    if (recipe.two) for (const s of ["portrait", "costume"] as const) await randomize(s, "any", "b");
   };
 
-  const uploadTo = async (file: File, target: SlotKind | "extra") => {
+  const uploadTo = async (file: File, target: UploadTarget) => {
     if (!projectId) throw new Error("Pick a project first: uploads belong to a project");
     if (!file.type.startsWith("image/")) throw new Error("Pick an image file (PNG, JPEG or WebP)");
     setUploading(target);
     try {
       const { assetId, url } = await uploadMedia(file, projectId);
       const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture" };
-      setRecipe((r) => (target === "extra" ? { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS_ANY) } : { ...r, [target]: { upload: up } }));
+      setRecipe((r) => {
+        if (target === "extra") return { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS_ANY) };
+        if (target === "portrait_b" || target === "costume_b") return { ...r, partner: { ...r.partner, [target === "portrait_b" ? "portrait" : "costume"]: { upload: up } }, ...(target === "portrait_b" ? { characterB: undefined } : {}) };
+        return { ...r, [target]: { upload: up }, ...(target === "portrait" ? { characterA: undefined } : {}) };
+      });
     } finally {
       setUploading("");
     }
   };
-  const tryUpload = (file: File | undefined, target: SlotKind | "extra") => {
+  const tryUpload = (file: File | undefined, target: UploadTarget) => {
     if (!file) return;
     setError(null);
     uploadTo(file, target).catch(setError);
@@ -279,9 +342,18 @@ export function CanvasPage() {
     setError(null);
     try {
       const body = {
-        portrait: recipe.portrait && (recipe.portrait.item ? { id: recipe.portrait.item.id } : { assetId: recipe.portrait.upload.assetId }),
-        costume: recipe.costume && (recipe.costume.item ? { id: recipe.costume.item.id, view: recipe.costume.view } : { assetId: recipe.costume.upload.assetId }),
-        pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId }), ...(recipe.mirror ? { mirror: true } : {}) },
+        ...(castA ? { character: { elementId: castA } } : { portrait: slotBody(recipe.portrait) }),
+        costume: recipe.costume && { ...slotBody(recipe.costume), ...(recipe.costume.item ? { view: recipe.costume.view } : {}) },
+        ...(recipe.two ? {
+          ...(recipe.nameA?.trim() ? { name: recipe.nameA.trim() } : {}),
+          partner: {
+            ...(castB ? { character: { elementId: castB } } : { portrait: slotBody(recipe.partner?.portrait) }),
+            costume: recipe.partner?.costume && { ...slotBody(recipe.partner.costume), ...(recipe.partner.costume.item ? { view: recipe.partner.costume.view } : {}) },
+            ...(recipe.nameB?.trim() ? { name: recipe.nameB.trim() } : {}),
+          },
+          aIs: recipe.aIs ?? "left",
+        } : {}),
+        pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId, picture: recipe.posePicture ?? "photo" }), ...(recipe.mirror ? { mirror: true } : {}) },
         extras: recipe.extras.map((e) => ({ assetId: e.assetId, name: e.name })),
         style: recipe.style,
         size: recipe.size,
@@ -292,7 +364,7 @@ export function CanvasPage() {
         ...(model.options?.includes("negative_prompt") && recipe.negative?.trim() ? { negativePrompt: recipe.negative.trim() } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
-        ...(prefs.attach ? { attach: prefs.attach } : {}),
+        ...(prefs.attach && !recipe.two ? { attach: prefs.attach } : {}),
       };
       const r = await post<Started>(`/api/projects/${projectId}/canvas`, body);
       setJobs((m) => ({ ...m, [r.job.id]: { status: r.job.status, runner: r.painters.ready ? undefined : r.runner } }));
@@ -312,9 +384,9 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, ...(c.posePicture ? { posePicture: c.posePicture } : {}), ...(c.people === 2 ? { two: true, partner: {}, aIs: c.aIs ?? "left", nameA: c.nameA, nameB: c.nameB } : {}), note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -323,6 +395,10 @@ export function CanvasPage() {
       else if (ref.role === "portrait") next.portrait = item?.kind === "portrait" ? { item } : up ? { upload: up } : undefined;
       else if (ref.role === "costume") next.costume = item?.kind === "costume" ? { item, view: c.costumeView } : up ? { upload: up } : undefined;
       else if (ref.role === "pose") next.pose = item?.kind === "pose" ? { item } : up ? { upload: up } : undefined;
+      else if (ref.role === "character") next.characterA = ref.elementId;
+      else if (ref.role === "character_b") next.characterB = ref.elementId;
+      else if (ref.role === "portrait_b") next.partner = { ...next.partner, portrait: item?.kind === "portrait" ? { item } : up ? { upload: up } : undefined };
+      else if (ref.role === "costume_b") next.partner = { ...next.partner, costume: item?.kind === "costume" ? { item } : up ? { upload: up } : undefined };
     }
     setRecipe(next);
     setResult(null);
@@ -331,15 +407,66 @@ export function CanvasPage() {
   /* ---------- view ---------- */
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
-  const uploadedFaceAdult = !!recipe.portrait?.upload && [recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
-  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (the GPT Image switch)" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
+  const uploadedFaceAdult = uploadedFace && (nsfwInRecipe || !!adultLora);
+  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (Settings → Director)" : imaging.stoppedReason ? `Image generation stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
   /* Qwen-Image-Edit 2509: fixed slots, a pose and a portrait and/or a costume */
-  const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
-  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : adultLora && anyUpload ? `${adultLora.name} draws with library pictures only` : "");
+  const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : recipe.two ? `${model.label} draws one person: pick GPT Image or Qwen-Image 2.1 for two` : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !castA && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
+  const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? "Person A: pick a portrait, a costume or a character" : !personB ? "Person B: pick a portrait, a costume or a character" : "";
+  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
   const characters = (view?.elements ?? []).filter((e) => e.projectId === projectId);
+
+  /* ---------- recipe slots (one person, or two) ---------- */
+  const people = elements.filter((e) => e.kind === "character" && e.refAssetIds.length > 0);
+  const castSelect = (who: Who) => (people.length ? (
+    <select className="st-select st-input--sm" style={{ width: 210 }} value={(who === "b" ? castB : castA) ?? ""} aria-label={`Person ${who.toUpperCase()}: a project character instead of a portrait`}
+      onChange={(e) => setRecipe((r) => ({ ...r, [who === "b" ? "characterB" : "characterA"]: e.target.value || undefined }))}>
+      <option value="">Face: the portrait slot</option>
+      {people.map((el) => <option key={el.id} value={el.id}>Character: {el.name}</option>)}
+    </select>
+  ) : null);
+  const personHead = (who: Who) => {
+    const b = who === "b";
+    const castName = elements.find((e) => e.id === (b ? castB : castA))?.name;
+    return (
+      <div className="st-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <button type="button" className="st-chip st-chip--btn" aria-pressed={filling === who} title="The library fills this person" onClick={() => setFillFor(who)}>{b ? "Person B · 人物B" : "Person A · 人物A"}</button>
+        <input className="st-input st-input--sm" style={{ width: 150 }} maxLength={40} placeholder={castName ?? (b ? "人物B" : "人物A")} aria-label={`Person ${who.toUpperCase()}'s name in the prompt`}
+          value={(b ? recipe.nameB : recipe.nameA) ?? ""} onChange={(e) => { const v = e.target.value; setRecipe((r) => ({ ...r, [b ? "nameB" : "nameA"]: v || undefined })); }} />
+        {castSelect(who)}
+      </div>
+    );
+  };
+  const slotCard = (k: SlotKind, who: Who = "a") => {
+    const b = who === "b" && k !== "pose";
+    const cast = k === "portrait" ? (b ? castB : castA) : undefined;
+    const label = recipe.two && k !== "pose" ? `${b ? "B" : "A"} · ${SLOT_LABEL[k]}` : undefined;
+    if (cast) {
+      const el = elements.find((e) => e.id === cast)!;
+      return <CharacterCard key={`${who}-${k}`} label={label ?? "Character · 角色"} element={el} picture={characterPicture(el, view?.assets ?? [])} onClear={() => setRecipe((r) => ({ ...r, [b ? "characterB" : "characterA"]: undefined }))} />;
+    }
+    const shown: Recipe = b ? { ...recipe, portrait: recipe.partner?.portrait, costume: recipe.partner?.costume } : recipe;
+    const target = (b ? `${k}_b` : k) as UploadTarget;
+    return (
+      <SlotCard key={`${who}-${k}`} kind={k} label={label} active={!!recipe.two && k !== "pose" && filling === who} recipe={shown} adult={adult} uploading={uploading === target} canUpload={!!projectId}
+        onBrowse={() => {
+          if (k !== "pose") setFillFor(who);
+          setPrefs((p) => ({ ...p, kind: k }));
+          if (window.innerWidth < 1100) document.getElementById("canvas-library")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+        onClear={() => setRecipe((r) => (b ? { ...r, partner: { ...r.partner, [k]: undefined } } : { ...r, [k]: undefined }))}
+        onRandom={(scope) => void randomize(k, scope, b ? "b" : "a").catch(setError)}
+        onUpload={(f) => tryUpload(f, target)}
+        onDepth={(d) => setRecipe((r) => ({ ...r, depth: d }))}
+        onMirror={(m) => setRecipe((r) => ({ ...r, mirror: m }))}
+        onPosePicture={(pp) => setRecipe((r) => ({ ...r, posePicture: pp }))}
+        onView={(v) => setRecipe((r) => (b
+          ? (r.partner?.costume?.item ? { ...r, partner: { ...r.partner, costume: { ...r.partner.costume, view: v } } } : r)
+          : (r.costume?.item ? { ...r, costume: { ...r.costume, view: v } } : r)))} />
+    );
+  };
 
   return (
     <div className="st-page st-page--wide">
@@ -381,7 +508,7 @@ export function CanvasPage() {
                     <span className="st-muted st-num">{projectImageModel(imaging).label} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
-                      <span>GPT Image is off for this project. Pictures are drawn by a painter with Codex on your ChatGPT plan (up to 100, change it in Project settings).</span>
+                      <span>Image generation is off for this project. Turned on, pictures are drawn with {projectImageModel(imaging).label} (up to 100; the model and the limit are in Project settings → Director).</span>
                       <Button size="sm" onClick={async () => {
                         try {
                           await put(`/api/projects/${projectId}/imaging`, { enabled: true });
@@ -409,21 +536,39 @@ export function CanvasPage() {
           </Section>
 
           <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}><span className="st-muted st-num">{count}/{maxRefs} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button><Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
-            <div className="st-slots">
-              {(["portrait", "costume", "pose"] as const).map((k) => (
-                <SlotCard key={k} kind={k} recipe={recipe} adult={adult} uploading={uploading === k} canUpload={!!projectId}
-                  onBrowse={() => {
-                    setPrefs((p) => ({ ...p, kind: k }));
-                    if (window.innerWidth < 1100) document.getElementById("canvas-library")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  }}
-                  onClear={() => setRecipe((r) => ({ ...r, [k]: undefined }))}
-                  onRandom={(scope) => void randomize(k, scope).catch(setError)}
-                  onUpload={(f) => tryUpload(f, k)}
-                  onDepth={(d) => setRecipe((r) => ({ ...r, depth: d }))}
-                  onMirror={(m) => setRecipe((r) => ({ ...r, mirror: m }))}
-                  onView={(v) => setRecipe((r) => (r.costume?.item ? { ...r, costume: { ...r.costume, view: v } } : r))} />
-              ))}
+            <div className="st-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <label className="st-row" style={{ gap: 8 }} title="Two people in one picture: a face and an outfit each (or a project character), in a two-person pose">
+                <input type="checkbox" checked={!!recipe.two} onChange={(e) => { const on = e.target.checked; setRecipe((r) => ({ ...r, two: on })); setFillFor("a"); }} />
+                <span>Two people · 双人</span>
+              </label>
+              {!recipe.two && castSelect("a")}
             </div>
+            {recipe.two ? (
+              <>
+                <div className="st-stack st-stack--tight">{personHead("a")}{personHead("b")}</div>
+                <div className="st-slots st-slots--duo">
+                  {slotCard("portrait", "a")}
+                  {slotCard("costume", "a")}
+                  {slotCard("pose")}
+                  {slotCard("portrait", "b")}
+                  {slotCard("costume", "b")}
+                </div>
+                {recipe.pose && (
+                  <Field label="Person A in the pose" hint="Which figure of the pose picture, as shown (after a flip), is person A; the other is person B">
+                    <div className="st-seg st-seg--sm" role="group" aria-label="Person A in the pose">
+                      {PLACES.map((pl) => <button key={pl} type="button" aria-pressed={(recipe.aIs ?? "left") === pl} onClick={() => setRecipe((r) => ({ ...r, aIs: pl }))}>{PLACE_ZH[pl].replace(/（.*）/, "")}</button>)}
+                    </div>
+                  </Field>
+                )}
+                <p className="st-muted">Library picks go to person {filling.toUpperCase()} (click a slot of the other person to switch). A character sheet stands for a face and an outfit in one picture and keeps the faces apart best. A picture of two people stays in Pictures.</p>
+              </>
+            ) : (
+              <div className="st-slots">
+                {slotCard("portrait")}
+                {slotCard("costume")}
+                {slotCard("pose")}
+              </div>
+            )}
             {model.poseRecipe && <p className="st-muted">{model.label} draws a pose with a portrait and/or a costume: portrait + costume + pose, or one of them + pose. No extra pictures.</p>}
             <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs && !model.poseRecipe} uploading={uploading === "extra"}
               onAdd={(f) => tryUpload(f, "extra")}
@@ -431,8 +576,7 @@ export function CanvasPage() {
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
-            {uploadedFaceAdult && <p className="st-danger">18+ references cannot be combined with an uploaded face: it may be a real person. Use a library portrait (AI-generated adults).</p>}
-            {adultLora && anyUpload && <p className="st-danger">{adultLora.name} draws with library pictures only (AI-generated adults): remove the uploaded pictures — an upload may be a real person.</p>}
+            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. A face{recipe.extras.length ? " or extra picture" : ""} you uploaded is refused (it may be a real person); a Studio picture is checked when you generate. Uploaded outfits and poses are fine.</p>}
           </Section>
 
           <Section title="Picture">
@@ -566,9 +710,9 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
 
 /* ---------- slots ---------- */
 
-function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onMirror, onView }: {
-  kind: SlotKind; recipe: Recipe; adult: boolean; uploading: boolean; canUpload: boolean;
-  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onView: (v: string) => void;
+function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onMirror, onPosePicture, onView }: {
+  kind: SlotKind; label?: string; active?: boolean; recipe: Recipe; adult: boolean; uploading: boolean; canUpload: boolean;
+  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onPosePicture: (p: PosePicture) => void; onView: (v: string) => void;
 }) {
   const slot = recipe[kind] as Slot<RefItem> | undefined;
   const input = useRef<HTMLInputElement>(null);
@@ -582,8 +726,8 @@ function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear
     if (canUpload) onUpload(e.dataTransfer.files?.[0]);
   };
   return (
-    <div className="st-slot" data-drag={drag ? "true" : undefined} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
-      <span className="st-label">{SLOT_LABEL[kind]}</span>
+    <div className="st-slot" data-kind={kind} data-active={active ? "true" : undefined} data-drag={drag ? "true" : undefined} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
+      <span className="st-label">{label ?? SLOT_LABEL[kind]}</span>
       <button type="button" className="st-slot-pic" onClick={onBrowse} title={slot ? "Change it in the library" : "Pick from the library"}>
         {thumb ? <img src={thumb} alt={slotName(slot)} referrerPolicy="no-referrer" data-mirror={kind === "pose" && recipe.mirror ? "true" : undefined} /> : <span className="st-muted">{uploading ? "Uploading…" : "Pick from the library, or drop a picture"}</span>}
         {item?.nsfw && <span className="st-ref-badge">18+</span>}
@@ -599,6 +743,13 @@ function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear
               <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>
             </div>
           )}
+          {slot.upload && (
+            <div className="st-seg st-seg--sm" role="group" aria-label="What the uploaded pose picture is">
+              <button type="button" aria-pressed={(recipe.posePicture ?? "photo") === "photo"} title="A photo of a person: only the pose and framing are taken, not their looks or clothes" onClick={() => onPosePicture("photo")}>照片</button>
+              <button type="button" aria-pressed={recipe.posePicture === "mannequin"} title="A mannequin (白模) or line art" onClick={() => onPosePicture("mannequin")}>白模</button>
+              <button type="button" aria-pressed={recipe.posePicture === "depth"} title="A grey depth map" onClick={() => onPosePicture("depth")}>深度</button>
+            </div>
+          )}
           <button type="button" className="st-chip st-chip--btn" aria-pressed={!!recipe.mirror} title="Flip the pose left to right" onClick={() => onMirror(!recipe.mirror)}>⇋ 镜像</button>
         </div>
       )}
@@ -611,6 +762,22 @@ function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e: ChangeEvent<HTMLInputElement>) => { onUpload(e.target.files?.[0]); e.target.value = ""; }} />
         <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!canUpload || uploading} title={canUpload ? "Upload your own picture" : "Pick a project first"} onClick={() => input.current?.click()} aria-label={`Upload a ${kind} picture`}><UploadIcon size={12} /></button>
         {slot && <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Clear" aria-label={`Clear the ${kind}`} onClick={onClear}><CloseIcon size={12} /></button>}
+      </div>
+    </div>
+  );
+}
+
+/** A project character in a person's face slot: its reference picture is the face, hair and (without a costume) outfit. */
+function CharacterCard({ label, element, picture, onClear }: { label: string; element: Element; picture?: Asset; onClear: () => void }) {
+  const thumb = picture ? ((picture.meta.previewUrl as string | undefined) ?? picture.url) : undefined;
+  return (
+    <div className="st-slot" data-kind="character">
+      <span className="st-label">{label}</span>
+      <div className="st-slot-pic">{thumb ? <img src={thumb} alt={element.name} /> : <span className="st-muted">no picture</span>}</div>
+      <div className="st-slot-name" title={element.name}>{element.name}</div>
+      <div className="st-muted st-slot-sub">project character · its sheet</div>
+      <div className="st-slot-actions">
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Use the portrait slot instead" aria-label={`Take ${element.name} out`} onClick={onClear}><CloseIcon size={12} /></button>
       </div>
     </div>
   );

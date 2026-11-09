@@ -7,7 +7,7 @@ import type { Asset } from "@/studio/types";
 import { ApiError, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
-import { EditRegion, reviewChip } from "./image-tools";
+import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
 import { useProjectContext } from "./shell";
 
 /* Pictures as things to talk about and tidy up: every picture shows its
@@ -133,6 +133,7 @@ export function PicturesPage() {
   const [filter, setFilter] = useState("all");
   const [open, setOpen] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const imaging = useImagingOn();
   const [error, setError] = useState<unknown>(null);
   const sel = usePictureSelection();
   const load = useCallback(async () => {
@@ -177,7 +178,7 @@ export function PicturesPage() {
       {!pictures ? (
         <Skeleton />
       ) : shown.length === 0 ? (
-        <Empty title="No pictures here" hint="Uploads, GPT Image sheets and frames, edits and frames grabbed from takes all land here." />
+        <Empty title="No pictures here" hint="Uploads, generated sheets and frames, edits and frames grabbed from takes all land here." />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {shown.map((a) => {
@@ -203,7 +204,7 @@ export function PicturesPage() {
             <strong>{pictureTitle(current)}</strong>
             <span className="st-row" style={{ gap: 6 }}>
               <Button size="sm" busy={rename.busy} onClick={() => void rename.fire(current)}>Rename</Button>
-              <Button size="sm" kind={editing === current.id ? "primary" : "default"} onClick={() => setEditing(editing === current.id ? null : current.id)} title="Box the part to change and say what it should become; GPT Image draws a new picture">
+              <Button size="sm" kind={editing === current.id ? "primary" : "default"} onClick={() => setEditing(editing === current.id ? null : current.id)} title={`Box the part to change and say what it should become; ${imaging.label} draws a new picture`}>
                 Edit a region
               </Button>
               <a className="st-btn st-btn--sm st-btn--quiet" href={current.url} target="_blank" rel="noreferrer">Open full size</a>

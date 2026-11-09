@@ -13,7 +13,7 @@ import { useProjectContext } from "./shell";
 type Change = { subject: string; target: string };
 
 /* Viggle Remake of one take: grab the frames where it goes wrong, paint them
-   right (GPT Image on a region, or upload your own), say what changes, and
+   right (the project's image model on a region, or upload your own), say what changes, and
    render a new take that keeps the motion, camera, timing and sound. */
 export function RemakePanel({ take, onClose }: { take: Take; onClose: () => void }) {
   const { projectId, view, reload } = useProjectContext();

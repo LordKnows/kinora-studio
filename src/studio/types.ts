@@ -40,6 +40,9 @@ export type Imaging = {
   model?: string;
   /** LoRAs the director's pictures load with that model (models on the GPU pod; trained for its family). */
   loras?: Array<{ id: string; strength?: number }>;
+  /** Agent use Canvas: the director may compose characters from the Canvas reference library over MCP
+      (compose_character), with the model above. Off unless the user switches it on (web only). */
+  agentCanvas?: boolean;
   /** The painter backend of that model: codex = the user's ChatGPT plan through the Codex CLI on a
       painter; api = OPENAI_API_KEY, paid per call; qwen = Qwen-Image 3.0 Pro's API; comfy:<model> = the GPU pod. */
   backend: string;

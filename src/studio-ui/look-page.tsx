@@ -245,7 +245,7 @@ function styleFrameBlocker(p: Project): string | undefined {
 
 /* The style frame: one picture that sets the film's look. Up to three
    candidates, generated (once the brief and the style are saved) or
-   uploaded; the one chosen is a reference for every GPT Image sheet and
+   uploaded; the one chosen is a reference for every generated sheet and
    frame. Each candidate has its own delete button. */
 function StyleFrameCard() {
   const { projectId, view, reload } = useProjectContext();

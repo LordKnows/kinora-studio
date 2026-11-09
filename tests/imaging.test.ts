@@ -492,6 +492,8 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
     const input = r.job!.input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string; strength: number; hf_url?: string }> }; prompt: string };
     expect(input.backend).toBe("comfy:qwen-image-2.1");
     expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors", strength: 1 }] });
+    /* the job says what each reference is, so provenance follows only the faces */
+    expect((r.job!.input as { refRoles?: string[] }).refRoles).toEqual(["face"]);
     expect(input.params.loras[0]!.hf_url).toMatch(/^https:\/\/huggingface\.co\/chatrlabs\//);
     expect(input.prompt).toMatch(/<image1> is Lin/);
     expect(input.prompt.trim().endsWith("Everyone in the picture is an adult.")).toBe(true);
@@ -507,9 +509,14 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
     /* an image the director imported by URL is not traceable either */
     const imported = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/d/web.png", kind: "image", source: "generated", name: "from the web" });
     for (const bad of [upload, a2, imported]) {
-      await expect(imaging.editFrame(bad.id, { instruction: "make the light warmer" }, mcp)).rejects.toThrow(/draws only from pictures the Studio drew and the reference library/);
+      await expect(imaging.editFrame(bad.id, { instruction: "make the light warmer" }, mcp)).rejects.toThrow(/every face it draws must be AI-generated/);
     }
     await expect(imaging.editFrame(clean, { instruction: "make the light warmer" }, mcp)).resolves.toBeTruthy();
+    /* a frame drawn from an AI sheet in an uploaded place keeps an AI face: borrowed places are fine */
+    const place = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/street.png", kind: "image", source: "upload", name: "street" });
+    const j3 = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [(await repo.getAsset(clean)).url, place.url], refRoles: ["face", "scene"] } });
+    const inPlace = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/in-place.png", kind: "image", source: "generated", meta: { jobId: j3.id } });
+    await expect(imaging.editFrame(inPlace.id, { instruction: "make the light warmer" }, mcp)).resolves.toBeTruthy();
     await setAdultContent(owner, { enabled: false });
     await expect(imaging.editFrame(clean, { instruction: "make the light warmer" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
   });

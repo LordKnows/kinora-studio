@@ -427,7 +427,10 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
 5. **按项目开启**：项目 Settings → Director → *Allow image generation by agent*，打开开关、选模型
    （GPT Image 选后端 Codex / API）、设图片上限。GPU Pod 模型（Qwen-Image 2.1）下面还能选 **LoRAs**
    （只列为该模型训练的；勾选后按 LoRA 卡片的推荐设置画，如 ChatR Omni：35 步、CFG 5）。18+ 的 LoRA
-   要先在 Canvas 打开 18+，而且只用 Studio 自己画的图和参考库的图，上传或导入的图（可能是真人）会被拒绝。**Self-check every picture**（默认开）：每张图画完由一个全新的 Codex 会话对照
+   要先在 Canvas 打开 18+，而且只用 Studio 自己画的图和参考库的图，上传或导入的图（可能是真人）会被拒绝。
+   **Agent use Canvas**（默认关）：打开后 Claude / Grok 可以通过 MCP 的 `compose_character` 用 Canvas 的参考库
+   （脸、服装、姿势）给角色做造型，由 agent 自己判断什么时候用；用的是这里选的模型和 LoRA（GPU 模型旁边还可以用
+   Qwen-Image-Edit 2509 做姿势组合），算图片额度。关闭时 agent 调用会被拒绝，Canvas 页面本身不受影响。**Self-check every picture**（默认开）：每张图画完由一个全新的 Codex 会话对照
    参考图和要求检查一遍（手、人数、长相、左右是否镜像、文字水印、构图、风格），发现硬伤
    按 **Redraws on a blocker**（默认 1 次）带着问题重画；重画算图片额度，检查本身不算。
 6. **可选：API 后端**：在画图机器上设 `OPENAI_API_KEY`（可选 `OPENAI_BASE_URL`、`IMAGE_MODEL`）。
