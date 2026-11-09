@@ -147,7 +147,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
           return (
             <div className="st-stack st-stack--tight">
               {has && family ? (
-                <Field label="LoRAs" hint="Trained for this model; picking one applies its card's settings to every picture the director draws">
+                <Field label="LoRAs" hint="Trained for this model; picking one applies its card's settings to every picture the director draws" group>
                   <LoraPicker compact family={family} adult={adult} value={loraDraft ?? (img.loras ?? []).map((l) => ({ id: l.id, strength: l.strength }))} onChange={pickLoras} />
                 </Field>
               ) : (

@@ -231,7 +231,7 @@ function ElementEditor({
         <Field label="Visual description" hint="Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.">
           <textarea className="st-textarea" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile.">
+        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile." group>
           <div className="st-stack st-stack--tight">
             {features.map((f, i) => (
               <div key={i} className="st-line">

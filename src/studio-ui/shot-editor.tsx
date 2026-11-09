@@ -171,7 +171,7 @@ export function ShotEditor({
         {CINEMA.filter((c) => c.multi).map((c) => {
           const chosen = (cine[c.key] as string[] | undefined) ?? [];
           return (
-            <Field key={c.key} label={`${c.label} (max 4)`}>
+            <Field key={c.key} label={`${c.label} (max 4)`} group>
               <div className="st-chips">
                 {c.terms.map((t) => {
                   const on = chosen.includes(t.key);
@@ -282,7 +282,7 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <span className="st-label" style={{ marginBottom: 0 }}>Staging</span>
-        <Field label="What moves" hint="At least one; a static camera with nothing moving is a dead frame.">
+        <Field label="What moves" hint="At least one; a static camera with nothing moving is a dead frame." group>
           <div className="st-chips">
             {MOTION_SOURCES.map((m) => {
               const on = (value.motion ?? []).includes(m);
@@ -395,7 +395,7 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <span className="st-label" style={{ marginBottom: 0 }}>Who and where</span>
-        <Field label="Characters (max 3)">
+        <Field label="Characters (max 3)" group>
           <ElementPick options={characters} value={value.characters} max={3} onChange={(v) => set("characters", v)} />
         </Field>
         <Field label="Location">
@@ -408,7 +408,7 @@ export function ShotEditor({
             ))}
           </select>
         </Field>
-        <Field label="Props (max 3)">
+        <Field label="Props (max 3)" group>
           <ElementPick options={props} value={value.props} max={3} onChange={(v) => set("props", v)} />
         </Field>
       </div>

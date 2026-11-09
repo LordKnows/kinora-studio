@@ -234,7 +234,7 @@ export function TimelinePage() {
         </div>
         <div className="st-card st-stack">
           <span className="st-h2">Audio mix</span>
-          <Field label="Music track">
+          <Field label="Music track" group>
             <UploadButton accept="audio/mpeg,audio/wav,audio/x-wav" projectId={projectId} label="Upload music" onUploaded={async ({ assetId }) => { await reload(); set({ ...timeline, music: assetId }); }} />
             <select className="st-select" value={timeline.music ?? ""} onChange={(e) => set({ ...timeline, music: e.target.value || undefined })}>
               <option value="">None</option>
