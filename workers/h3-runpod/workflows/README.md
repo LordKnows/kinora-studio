@@ -92,8 +92,10 @@ Copyright (c) 2026 Anhao): Qwen-Image-Edit 2509 fp8 with the Lightning
 4-step LoRA, shift 3, CFGNorm, `TextEncodeQwenImageEditPlus` for the prompt
 and every picture, `ReferenceLatent` for the portrait and the costume only
 (the pose steers through the text encoder, so the grey mannequin's look
-never comes through), KSampler euler/simple, CFG 1. One change: node 10
-scales the pose to the Studio's canvas size (`ImageScale`) instead of the
-pose's own aspect at 1 MP; at denoise 1 only the latent's shape counts. The
+never comes through), KSampler euler/simple, CFG 1. Node 10 is the
+original's: the canvas takes the pose picture's aspect at 1 MP (3:4 for every
+library pose). An earlier port sized it to the Canvas pick instead; at 2:3,
+the costume picture's own shape, the model redrew the costume picture in
+place with the face put in and ignored the pose. The
 manifest's `variants` pick the graph by the number of pictures (three:
 portrait, costume, pose; two: person, pose), `min_images` refuses one.

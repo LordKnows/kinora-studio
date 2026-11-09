@@ -214,6 +214,45 @@ if [ -n "${MODELS_LINK_FROM:-}" ] && [ -n "${MODELS_LINK_TO:-}" ]; then
   fi
 fi
 
+# The ComfyUI release the pod runs. runpod/comfyui bakes one under
+# /opt/comfyui-baked (v0.35.0 in the newest image) and its own start.sh copies
+# it into the workspace, upgrading a workspace whose bundle manifest differs;
+# Qwen-Image 2.1's nodes need v0.37 or later. The release named here replaces
+# the baked core before that happens (custom nodes, models and user data are
+# not touched) and the manifest says so; the image's start.sh then installs
+# the exact packages that release pins (frontend, comfy-kitchen…) with torch
+# held where the image has it. COMFYUI_VERSION=image runs the image's own.
+: "${COMFYUI_VERSION:=v0.44.2}"
+[ "$COMFYUI_VERSION" = "image" ] && COMFYUI_VERSION=""
+BAKED_COMFYUI="/opt/comfyui-baked"
+if [ -n "$COMFYUI_VERSION" ] && [ -f "$BAKED_COMFYUI/.runpod-bundle-version" ] \
+   && ! grep -qx "COMFYUI_VERSION=$COMFYUI_VERSION" "$BAKED_COMFYUI/.runpod-bundle-version"; then
+  baked_from="$(sed -n 's/^COMFYUI_VERSION=//p' "$BAKED_COMFYUI/.runpod-bundle-version")"
+  src="$(mktemp -d)/ComfyUI"
+  # ComfyUI's core only: the image's custom nodes, models and user data stay (rsync drops files the
+  # release no longer has; without rsync a tar copy lays the release over the old core)
+  copy_core() {
+    if command -v rsync >/dev/null 2>&1; then
+      rsync -a --delete --exclude=/.git --exclude=/custom_nodes --exclude=/models --exclude=/user \
+        --exclude=/input --exclude=/output --exclude=/.runpod-bundle-version "$1/" "$2/"
+    else
+      (cd "$1" && tar cf - --exclude=./.git --exclude=./custom_nodes --exclude=./models --exclude=./user \
+        --exclude=./input --exclude=./output .) | (cd "$2" && tar xf -)
+    fi
+  }
+  # every step sits in the condition: under set -e a failure must not stop the boot, only skip the swap
+  if git clone -q --depth 1 --branch "$COMFYUI_VERSION" https://github.com/comfyanonymous/ComfyUI "$src" 2>/app/comfyui_version.log \
+     && [ -f "$src/main.py" ] && copy_core "$src" "$BAKED_COMFYUI" 2>>/app/comfyui_version.log \
+     && sed -i "s/^COMFYUI_VERSION=.*/COMFYUI_VERSION=$COMFYUI_VERSION/" "$BAKED_COMFYUI/.runpod-bundle-version"; then
+    echo "[start] ComfyUI $COMFYUI_VERSION in place of the image's ${baked_from:-?}"
+  else
+    echo "[start] could not put ComfyUI $COMFYUI_VERSION in place (/app/comfyui_version.log); running the image's ${baked_from:-?} — Qwen-Image 2.1 will report missing nodes"
+  fi
+  rm -rf "$(dirname "$src")"
+elif [ -n "$COMFYUI_VERSION" ] && [ ! -d "$BAKED_COMFYUI" ]; then
+  echo "[start] this image has no $BAKED_COMFYUI: COMFYUI_VERSION=$COMFYUI_VERSION is not applied (use a runpod/comfyui image)"
+fi
+
 # Open-H3-Regenerate-2K node packs (rdh9616's nodes + LBH-123-AI's latent
 # upscaler). The container disk is fresh at every boot, so they are cloned
 # each time (a few MB); the image's installer keeps custom_nodes/ untouched.

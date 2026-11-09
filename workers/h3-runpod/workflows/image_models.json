@@ -159,14 +159,8 @@
       "prompt"
     ],
     "resolution": null,
-    "width": [
-      "10",
-      "width"
-    ],
-    "height": [
-      "10",
-      "height"
-    ],
+    "width": null,
+    "height": null,
     "seed": [
       "14",
       "seed"

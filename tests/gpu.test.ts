@@ -29,7 +29,7 @@ async function memoryDb(): Promise<Db> {
   return db;
 }
 
-type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global" };
+type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global"; noresWithVolume?: boolean };
 const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false, volumeKind: "network" };
 const calls: Array<{ method: string; url: string; body?: unknown }> = [];
 const podsV2 = new Map<string, { env?: Record<string, string>; args?: string }>();
@@ -51,17 +51,18 @@ beforeAll(async () => {
     const json = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
     /* v2 (api.runpod.io/v2): the default. One gpu per create, mounts.network, /action, PATCH. */
     if (url === "https://api.runpod.io/v2/pods" && method === "POST") {
-      if (scenario.createMode === "nores") return json(500, { error: "There are no longer any instances available with the requested specifications." });
+      if (scenario.createMode === "nores" || (scenario.noresWithVolume && body.mounts)) return json(500, { error: "There are no longer any instances available with the requested specifications." });
       if (!body.gpu?.id || body.gpu.count !== 1) return json(422, { error: "gpu.id and gpu.count are required" });
       if (scenario.volumeKind === "global") {
         if (body.mounts?.network) return json(400, { error: `Network volume "${body.mounts.network[0].volumeId}" not found` });
         if (!body.mounts?.global?.[0]?.volumeId) return json(422, { error: "unknown mount kind" });
-      } else if (!body.mounts?.network?.[0]?.volumeId || !body.mounts.network[0].path) return json(422, { error: "mounts.network[].volumeId and path are required" });
+      } else if (body.mounts && (!body.mounts.network?.[0]?.volumeId || !body.mounts.network[0].path)) return json(422, { error: "mounts.network[].volumeId and path are required" });
       if (body.args !== undefined && typeof body.args !== "string") return json(422, { error: "args must be a string" });
       if (body.entrypoint !== undefined && !Array.isArray(body.entrypoint)) return json(422, { error: "entrypoint must be an array" });
       podCounter++;
       podsV2.set(`pod${podCounter}`, { env: body.env, args: body.args });
-      return json(201, { id: `pod${podCounter}`, name: body.name, status: "RUNNING", cost: 2.5, gpu: { id: body.gpu.id, count: 1 }, dataCenterId: "EU-RO-1", mounts: body.mounts });
+      /* a pod without a volume lands wherever RunPod has the card */
+      return json(201, { id: `pod${podCounter}`, name: body.name, status: "RUNNING", cost: 2.5, gpu: { id: body.gpu.id, count: 1 }, dataCenterId: body.mounts ? body.dataCenterIds?.[0] ?? "EU-RO-1" : "US-KS-2", mounts: body.mounts });
     }
     if (/\/v2\/pods\/pod\d+$/.test(url) && method === "GET") {
       const id = url.split("/").pop()!;
@@ -145,7 +146,8 @@ describe("pod mode", () => {
     expect(create.gpu).toEqual({ id: "NVIDIA H100 80GB HBM3", count: 1 });
     expect(create.image).toBe("me/comfy:1");
     expect(create.cloud).toBe("SECURE");
-    expect(create.disk).toBe(200);
+    /* on a model volume the container disk only holds ComfyUI and outputs */
+    expect(create.disk).toBe(80);
     expect(create.ports).toEqual(["8000/http", "8188/http"]);
     expect(create.env.STUDIO_WORKER_TOKEN).toBe("tok");
     expect(create.env.STUDIO_BUNDLE_URL).toBe("https://studio.example/api/pod/bundle?token=tok");
@@ -286,15 +288,56 @@ describe("pod mode", () => {
     const before = calls.length;
     const state = await gpu.startGpu(web, true);
     expect(state.status).toBe("unavailable");
-    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).map((c) => c.body as { dataCenterIds: string[]; mounts: { network: Array<{ volumeId: string }> }; gpu: { id: string } });
-    /* placements outermost, every allowed GPU type inside each */
-    expect(creates).toHaveLength(8);
-    expect([...new Set(creates.map((c) => c.mounts.network[0]!.volumeId))]).toEqual(["vol_eu", "vol_us"]);
+    const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).map((c) => c.body as { dataCenterIds: string[]; mounts: { network: Array<{ volumeId: string }> }; gpu: { id: string }; disk: number; name: string });
+    /* placements outermost, every allowed GPU type inside each; last, no volume in any data center */
+    expect(creates).toHaveLength(12);
+    expect([...new Set(creates.slice(0, 8).map((c) => c.mounts.network[0]!.volumeId))]).toEqual(["vol_eu", "vol_us"]);
+    expect(creates.slice(8).every((c) => !c.mounts && !c.dataCenterIds && c.disk === 200 && c.name.endsWith("-local"))).toBe(true);
+    expect(creates.slice(0, 8).every((c) => c.disk === 80)).toBe(true);
     expect(creates.slice(0, 4).every((c) => c.dataCenterIds[0] === "EU-RO-1" && c.mounts.network[0]!.volumeId === "vol_eu")).toBe(true);
-    expect(creates.slice(4).every((c) => c.dataCenterIds[0] === "US-TX-3" && c.mounts.network[0]!.volumeId === "vol_us")).toBe(true);
+    expect(creates.slice(4, 8).every((c) => c.dataCenterIds[0] === "US-TX-3" && c.mounts.network[0]!.volumeId === "vol_us")).toBe(true);
     expect(creates.slice(0, 4).map((c) => c.gpu.id)).toEqual(["NVIDIA H100 80GB HBM3", "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition", "NVIDIA RTX PRO 6000 Blackwell Server Edition", "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"]);
     scenario.createMode = "ok";
     delete process.env.RUNPOD_NETWORK_VOLUMES;
+  });
+
+  it("with no GPU in the volume's data center, starts a local-disk pod anywhere; once stopped, it is replaced and the volume tried first", async () => {
+    process.env.RUNPOD_NETWORK_VOLUMES = "EU-RO-1:vol_eu";
+    await gpu.terminateGpu();
+    scenario.noresWithVolume = true;
+    let state = await gpu.startGpu(web, true);
+    expect(state.status).toBe("starting");
+    expect(state.pod).toMatchObject({ dataCenter: "US-KS-2", name: "cinema-studio-h3-local" });
+    expect(state.message).toMatch(/^without the model volume: no listed GPU in EU-RO-1/);
+    /* stopped (idle), then started again: EU-RO-1 has a card now */
+    await gpu.stopGpu();
+    scenario.podStatus = "EXITED";
+    expect((await gpu.getGpuState()).status).toBe("stopped");
+    scenario.noresWithVolume = false;
+    const before = calls.length;
+    state = await gpu.startGpu(web, true);
+    scenario.podStatus = "RUNNING";
+    const after = calls.slice(before);
+    expect(after.some((c) => c.method === "DELETE")).toBe(true);
+    expect(after.some((c) => c.url.endsWith("/action") && (c.body as { action?: string } | undefined)?.action === "start")).toBe(false);
+    const create = after.find((c) => c.method === "POST" && c.url.endsWith("/pods"))!.body as { mounts: { network: Array<{ volumeId: string }> }; dataCenterIds: string[]; disk: number };
+    expect(create).toMatchObject({ dataCenterIds: ["EU-RO-1"], disk: 80 });
+    expect(create.mounts.network[0]!.volumeId).toBe("vol_eu");
+    expect(state.pod).toMatchObject({ dataCenter: "EU-RO-1", name: "cinema-studio-h3" });
+    delete process.env.RUNPOD_NETWORK_VOLUMES;
+  });
+
+  it("RUNPOD_VOLUME_FALLBACK=none waits for the volume's data center instead", async () => {
+    Object.assign(process.env, { RUNPOD_NETWORK_VOLUMES: "EU-RO-1:vol_eu", RUNPOD_VOLUME_FALLBACK: "none" });
+    await gpu.terminateGpu();
+    scenario.noresWithVolume = true;
+    const before = calls.length;
+    const state = await gpu.startGpu(web, true);
+    expect(state.status).toBe("unavailable");
+    expect(calls.slice(before).filter((c) => c.method === "POST" && c.url.endsWith("/pods")).every((c) => (c.body as { mounts?: unknown }).mounts)).toBe(true);
+    scenario.noresWithVolume = false;
+    delete process.env.RUNPOD_NETWORK_VOLUMES;
+    delete process.env.RUNPOD_VOLUME_FALLBACK;
   });
 });
 

@@ -178,11 +178,13 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...(model.options?.includes("prompt_extend") ? { prompt_extend: input.promptExtend } : {}),
     ...(model.options?.includes("negative_prompt") && input.negativePrompt?.trim() ? { negative_prompt: input.negativePrompt.trim() } : {}),
   } : undefined;
+  /* a model whose canvas follows a picture (2509: the pose) is delivered at that shape, not cropped to the one picked */
+  const size = model.canvasSize ?? input.size;
   const r = await imaging.submitImage(projectId, {
-    op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size: input.size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
+    op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size: input.size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }
