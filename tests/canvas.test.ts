@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { buildCanvasPrompt } from "@/studio/canvas-prompt";
-import { CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
+import { agentComposeCharacter, CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
 import * as imaging from "@/studio/imaging";
 import { adultAllowed, getReference, listReferences as loadList, queryReferences, setAdultContent } from "@/studio/references";
 import type { RefCostume, RefPortrait, RefPose } from "@/studio/references-model";
@@ -225,7 +225,61 @@ describe("Canvas MCP tools", () => {
     expect(body.hidden).toBeGreaterThan(0);
     const p = await repo.createProject({ name: "Agent canvas" });
     const off = await client.callTool({ name: "compose_character", arguments: { projectId: p.id, pose: { id: listReferences("pose", false).items[0]!.id } } });
-    expect(JSON.stringify(off.content)).toContain("image generation is off");
+    expect(JSON.stringify(off.content)).toContain("Agent use Canvas is off");
     await client.close();
+  });
+});
+
+describe("Agent use Canvas (Settings → Director)", () => {
+  const owner: Actor = { user: "agent-canvas@local", via: "web" };
+  const director: Actor = { user: "agent-canvas@local", via: "mcp" };
+  const portrait = () => listReferences("portrait", false).items[3]!;
+  const costume = () => listReferences("costume", false).items.find((x) => (x as RefCostume).source === "gia")!;
+  const pose = () => listReferences("pose", false).items[0]!;
+  const recipe = () => CanvasCompose.omit({ loras: true }).parse({ portrait: { id: portrait().id }, costume: { id: costume().id }, pose: { id: pose().id } });
+
+  it("is off by default: the director composes only once the user switches it on, on the web, and it is logged", async () => {
+    const projectId = (await repo.createProject({ name: "Agent canvas on" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, owner);
+    expect(imaging.imagingSummary(await repo.getProject(projectId)).agentCanvas).toBe(false);
+    await expect(agentComposeCharacter(projectId, recipe(), director)).rejects.toMatchObject({ code: "forbidden", details: { agentCanvas: false } });
+    await expect(imaging.setImaging(projectId, { enabled: true, agentCanvas: true }, director)).rejects.toMatchObject({ code: "forbidden" });
+    await imaging.setImaging(projectId, { enabled: true, agentCanvas: true }, owner);
+    expect(imaging.imagingSummary(await repo.getProject(projectId)).agentCanvas).toBe(true);
+    const r = await agentComposeCharacter(projectId, recipe(), director);
+    expect(r.model).toBe("gpt-image-codex");
+    expect((await repo.getJob(r.job.id)).input.purpose).toBe("canvas");
+    /* the model is the user's: no other one, and 2509 only beside a model on the GPU pod */
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-2.1" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    const notes = await repo.listNotes(projectId, "decision");
+    expect(notes.map((n) => (n.body as { decision: string }).decision)).toContain("Agent use Canvas on: the director may compose characters from the Canvas library with GPT Image · Codex");
+    /* switching the model keeps the switch */
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-3.0-pro" }, owner);
+    expect((await repo.getProject(projectId)).imaging!.agentCanvas).toBe(true);
+  });
+
+  it("draws with the project's GPU model and its LoRAs, or 2509 for a pose; an 18+ LoRA never with an upload", async () => {
+    const projectId = (await repo.createProject({ name: "Agent canvas pod" })).id;
+    await setAdultContent(owner, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [{ id: "lora_chatr_omni_v01" }], agentCanvas: true }, owner);
+    const r = await agentComposeCharacter(projectId, recipe(), director);
+    const input = (await repo.getJob(r.job.id)).input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string }> }; prompt: string };
+    expect(input.backend).toBe("comfy:qwen-image-2.1");
+    expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors" }] });
+    expect(input.prompt).toContain("画面中的人物均为成年人。");
+    const pose2509 = await agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director);
+    const i2509 = (await repo.getJob(pose2509.job.id)).input as { backend: string; params: { loras?: unknown[] } };
+    expect(i2509.backend).toBe("comfy:qwen-image-edit-2509");
+    expect(i2509.params.loras).toBeUndefined();
+    /* an uploaded face, or a picture drawn from one, is refused with the 18+ LoRA; a picture drawn from the library is not */
+    const upload = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/me.png", kind: "image", source: "upload", meta: {}, name: "me" });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ portrait: { assetId: upload.id }, pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
+    const fromUpload = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [upload.url] } });
+    const tainted = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/x/t.png", kind: "image", source: "generated", meta: { jobId: fromUpload.id } });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: tainted.id }], pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
+    const fromLibrary = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [(portrait() as RefPortrait).image] } });
+    const clean = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/x/c.png", kind: "image", source: "generated", meta: { jobId: fromLibrary.id } });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: clean.id }], pose: { id: pose().id } }), director)).resolves.toMatchObject({ model: "qwen-image-2.1" });
   });
 });

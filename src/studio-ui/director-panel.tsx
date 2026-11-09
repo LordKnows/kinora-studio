@@ -14,7 +14,7 @@ import { useProjectContext } from "./shell";
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
 type ImagingSummary = {
   enabled: boolean; model: string; modelLabel: string; runtime: "api" | "pod"; backend: string; license?: string;
-  loras?: Array<{ id: string; name: string; strength: number; adult?: boolean }>; settings?: string; settingsFrom?: string[]; warnings?: string[]; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
+  loras?: Array<{ id: string; name: string; strength: number; adult?: boolean }>; agentCanvas?: boolean; settings?: string; settingsFrom?: string[]; warnings?: string[]; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
 type ModelReadiness = { id: string; painters?: { ready: boolean; note?: string } };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
@@ -70,7 +70,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await put(`/api/projects/${projectId}/delegation`, next);
     await refresh();
   });
-  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; loras: LoraRef[]; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
+  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; loras: LoraRef[]; agentCanvas: boolean; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
     if (next.enabled && !img?.enabled && !window.confirm(`Allow image generation on this project? The director (Claude, Grok…) and the buttons may then draw pictures with ${img?.modelLabel ?? "the model below"}, up to the image limit below.`)) return;
     const pick = next.model ? findModel(next.model) : undefined;
     if (pick?.runtime === "pod" && img?.enabled && !window.confirm(`${pick.label} draws on the GPU pod, only while it runs (it bills per hour); its pictures get no Codex self-check. Use it for this project's pictures?`)) return;
@@ -109,7 +109,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
       <div className="st-stack st-stack--tight">
         <strong>Image generation</strong>
         <span className="st-muted">
-          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. Qwen-Image 2.1 draws on the GPU pod, only while it runs. Qwen-Image-Edit 2509 only composes a portrait or costume with a pose: it stays in Canvas.
+          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. Qwen-Image 2.1 draws on the GPU pod, only while it runs. Qwen-Image-Edit 2509 only composes a portrait or costume with a pose: it is used on the Canvas page, and by the director with Agent use Canvas below.
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
@@ -163,6 +163,19 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
             </div>
           );
         })()}
+        {img?.enabled && (
+          <div className="st-stack st-stack--tight">
+            <label className="st-row" style={{ gap: 8 }}>
+              <input type="checkbox" disabled={setImaging.busy} checked={!!img.agentCanvas} onChange={(e) => void setImaging.fire({ agentCanvas: e.target.checked })} />
+              <span>Agent use Canvas</span>
+            </label>
+            <span className="st-muted">
+              {img.agentCanvas
+                ? `The director may compose a character from the Canvas library — a portrait, a costume, a pose — when it decides a look is needed (compose_character), drawn with ${img.modelLabel}${img.loras?.length ? " and the LoRAs above" : ""}${img.runtime === "pod" ? ", or with Qwen-Image-Edit 2509 for a pose on the same GPU pod" : ""}, and put it on the character as its look. It counts against the image limit.`
+                : "Off: the director draws characters with element sheets only; the Canvas page stays yours."}
+            </span>
+          </div>
+        )}
         {img?.enabled && img.runtime !== "pod" && (
           <div className="st-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <label className="st-row" style={{ gap: 8 }} title="A fresh Codex session looks at every drawn picture beside its references and brief (anatomy, extra people, identity, mirrored features, text, framing) before it reaches you. Uses Codex usage, not image quota.">

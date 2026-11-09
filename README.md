@@ -79,9 +79,11 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   GPU pod while it runs, with the LoRAs the user picks for it there (each
   card's settings applied; an 18+ LoRA needs 18+ on and draws only from
   pictures the Studio drew or the reference library, never from an upload or
-  an imported picture). A picture takes the model's settings, at most its
-  number of reference pictures (the prompt names only those), and its way of
-  naming them (`<imageN>` for Qwen-Image 2.1). Buttons on every page and
+  an imported picture). With *Agent use Canvas* on, the director may also
+  compose a character's look from the Canvas library (`compose_character`)
+  when it judges one is needed, with the same model. A picture takes the
+  model's settings, at most its number of reference pictures (the prompt
+  names only those), and its way of naming them (`<imageN>` for Qwen-Image 2.1). Buttons on every page and
   the director (following a picture plan: reuse, crop, edit, then draw) queue
   them. Each picture comes back with pixel checks and a Codex self-check
   (a blocker is redrawn once with the findings), then a fresh reviewer's

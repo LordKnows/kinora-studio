@@ -6,6 +6,7 @@ import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
 import * as painter from "./painter";
 import { findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
+import { firstUploadIn } from "./provenance";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
@@ -36,7 +37,7 @@ export const CanvasCompose = z.object({
   portrait: Slot.optional(),
   costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
   pose: Slot.extend({ depth: z.boolean().default(false), mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)") }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's GPT Image backend."),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's model (Settings → Director)."),
   promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
   negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
@@ -88,7 +89,6 @@ async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId:
   return { item, url: pic.image, thumb: pic.thumb, label };
 }
 
-/** Draw a character from portrait + costume + pose. Gated like every picture: GPT Image on for the project, inside its quota. */
 /** The image model a Canvas picture is drawn with: the one asked for, else the project's (Settings → Director). */
 export function canvasModel(id: string | undefined, imaging?: { model?: string; backend?: string } | null): ModelEntry {
   const model = id ? findModel(id) : projectImageModel(imaging);
@@ -118,8 +118,10 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   /* LoRAs made for adult content: only for a user who unlocked 18+, and only on library pictures (an upload may be a real person) */
   const adultLora = loras.find((l) => l.adult);
   if (adultLora && !adult) throw new StudioError("forbidden", `${adultLora.name} is 18+: the user shows 18+ references on the Canvas page first (web only)`, { adult: false });
-  if (adultLora && (portrait?.asset || costume?.asset || pose?.asset || extras.length)) {
-    throw new StudioError("validation", `${adultLora.name} draws with library pictures only (AI-generated adults): remove the uploaded pictures — an upload may be a real person`);
+  if (adultLora) {
+    /* a project picture only when the Studio drew it from library or Studio pictures, traced back to the first one */
+    const upload = await firstUploadIn(projectId, [portrait?.asset?.url, costume?.asset?.url, pose?.asset?.url, ...extras.map((e) => e.asset.url)]);
+    if (upload) throw new StudioError("validation", `${adultLora.name} draws only from the library's pictures (AI-generated adults) and pictures the Studio drew from them: ${upload} is, or was drawn from, an uploaded or imported picture — it may be a real person; remove it`);
   }
   /* Qwen-Image-Edit 2509's graph has fixed slots: portrait, costume, pose (or person + pose) */
   if (model.poseRecipe) {
@@ -183,6 +185,25 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
+}
+
+/**
+ * compose_character for the director (MCP): only with Agent use Canvas on for the project (Settings →
+ * Director, web only), and with the project's model and its LoRAs — the user's choice, not the agent's —
+ * or, beside a model on the GPU pod, Qwen-Image-Edit 2509 (Canvas's pose recipe, on the same pod).
+ */
+export async function agentComposeCharacter(projectId: string, input: Omit<CanvasCompose, "loras">, actor: Actor): ReturnType<typeof composeCharacter> {
+  const imaging = (await repo.getProject(projectId)).imaging;
+  if (!imaging?.agentCanvas) {
+    throw new StudioError("forbidden", "Agent use Canvas is off for this project: the user switches it on in Settings → Director (web only). Draw the character with generate_element_sheet instead.", { agentCanvas: false });
+  }
+  const own = projectImageModel(imaging);
+  const picked = input.model ? findModel(input.model) : own;
+  if (!picked || picked.kind !== "image") throw new StudioError("validation", `${input.model} is not an image model (list_models)`);
+  if (picked.id !== own.id && !(picked.poseRecipe && own.runtime === "pod")) {
+    throw new StudioError("forbidden", `this project's pictures are drawn with ${own.label} (Settings → Director, the user's choice): leave model out${own.runtime === "pod" ? ", or pick qwen-image-edit-2509 to compose a pose with a portrait and/or a costume" : ""}`);
+  }
+  return composeCharacter(projectId, { ...input, model: picked.id, loras: picked.id === own.id ? imaging.loras ?? [] : [] }, actor);
 }
 
 /** Bring one reference picture into the project (a single fetch from its gallery), optionally onto an element. */

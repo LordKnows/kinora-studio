@@ -35,7 +35,7 @@ import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types
 
 export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, model: "gpt-image-codex", backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
 
-export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; loras?: Array<{ id: string; strength?: number }>; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
+export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; loras?: Array<{ id: string; strength?: number }>; agentCanvas?: boolean; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
   if (actor.via !== "web") throw new StudioError("forbidden", "image generation is switched on in Settings, on the web only");
   const project = await repo.getProject(projectId);
   const cur = project.imaging ?? { ...DEFAULT_IMAGING, grantedBy: actor.user, grantedAt: Date.now() };
@@ -66,6 +66,7 @@ export async function setImaging(projectId: string, input: { enabled: boolean; m
     enabled: input.enabled,
     model: model.id,
     loras,
+    agentCanvas: input.agentCanvas ?? cur.agentCanvas ?? false,
     backend: model.backend!,
     maxImages: input.maxImages ?? cur.maxImages,
     quality: input.quality ?? cur.quality,
@@ -78,6 +79,9 @@ export async function setImaging(projectId: string, input: { enabled: boolean; m
   const updated = await repo.setImaging(projectId, next);
   if (cur.enabled !== next.enabled || projectImageModel(cur).id !== model.id) {
     await repo.insertNote(projectId, "decision", "standing", { decision: next.enabled ? `Image generation on: ${model.label}, up to ${next.maxImages} images` : "Image generation off", why: "", by: actor.user, confidence: "user" });
+  }
+  if (!!cur.agentCanvas !== !!next.agentCanvas) {
+    await repo.insertNote(projectId, "decision", "standing", { decision: next.agentCanvas ? `Agent use Canvas on: the director may compose characters from the Canvas library with ${model.label}` : "Agent use Canvas off", why: "", by: actor.user, confidence: "user" });
   }
   return updated;
 }
@@ -102,6 +106,7 @@ export function imagingSummary(project: Project) {
     maxImages: i?.maxImages ?? DEFAULT_IMAGING.maxImages, usedImages: i?.usedImages ?? 0,
     leftImages: Math.max(0, (i?.maxImages ?? DEFAULT_IMAGING.maxImages) - (i?.usedImages ?? 0)), quality: i?.quality ?? "low",
     selfCheck: i?.selfCheck ?? true, autoRedraws: i?.autoRedraws ?? 1,
+    agentCanvas: !!i?.agentCanvas,
     stoppedReason: i?.stoppedReason, backendReady,
     note: modelNote(model),
   };

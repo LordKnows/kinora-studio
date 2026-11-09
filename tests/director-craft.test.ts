@@ -308,6 +308,13 @@ describe("remote MCP", () => {
     expect(JSON.stringify(res.content)).toContain("30 seconds");
     const lint = await client.callTool({ name: "lint_shotlist", arguments: { shotlist: { scenes: [{ slug: "a", shots: [shot({ motion: [] })] }] } } });
     expect(JSON.stringify(lint.content)).toContain("motion.dead");
+    /* save_shotlist answers with the Board's lint and what to do next, so no client presents a shotlist with errors */
+    const saved = await client.callTool({ name: "save_shotlist", arguments: { projectId: p.id, scenes: [{ slug: "a", shots: [shot({ motion: [] })] }] } });
+    const body = JSON.parse((saved.content as Array<{ text: string }>)[0]!.text) as { lint?: { counts: { error: number; warn: number } }; next: string };
+    expect(body.lint?.counts).toBeDefined();
+    expect(body.next).toMatch(body.lint!.counts.error ? /lint error/ : /lint (warning|clean)/);
+    const instructions = client.getInstructions() ?? "";
+    expect(instructions).toContain("do not stop after each picture");
     await client.close();
   });
 });
