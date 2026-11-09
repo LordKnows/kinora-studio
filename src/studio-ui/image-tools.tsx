@@ -2,25 +2,39 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
+import { projectImageModel } from "@/studio/models";
 import type { Asset, Job } from "@/studio/types";
 
 import { get, post } from "./api";
 import { Button, ErrorBanner, useAction } from "./common";
 import { useProjectContext } from "./shell";
 
-/* The web side of GPT Image: every button posts one action to
-   /api/projects/:id/images and follows the job until a painter has drawn
-   it. The buttons are disabled while GPT Image is off for the project. */
+/* The web side of the project's pictures: every button posts one action to
+   /api/projects/:id/images and follows the job until it is drawn, with the
+   image model chosen in Settings → Director (a painter for GPT Image and
+   Qwen-Image 3.0 Pro, the GPU pod for its models). The buttons are disabled
+   while image generation is off for the project. */
 
 export type Box = { x: number; y: number; w: number; h: number };
 
-export function useImagingOn(): { on: boolean; why?: string } {
+export type ImagingOn = { on: boolean; why?: string; label: string; runtime: "api" | "pod"; backend: string; drawnBy: string };
+
+/** Whether the project draws pictures now, and with which model (Settings → Director). */
+export function useImagingOn(): ImagingOn {
   const { view } = useProjectContext();
   const i = view?.project.imaging;
-  if (!i?.enabled) return { on: false, why: "GPT Image is off for this project: switch it on in Settings → Director" };
-  if (i.stoppedReason) return { on: false, why: `GPT Image stopped: ${i.stoppedReason}` };
-  if (i.usedImages >= i.maxImages) return { on: false, why: `image quota used (${i.usedImages}/${i.maxImages}); raise it in Settings` };
-  return { on: true };
+  const model = projectImageModel(i);
+  const pod = model.runtime === "pod";
+  const base = { label: model.label, runtime: model.runtime, backend: model.backend ?? "", drawnBy: pod ? `${model.label}, on the GPU pod while it runs` : `${model.label}, by a painter` };
+  if (!i?.enabled) return { ...base, on: false, why: "image generation is off for this project: switch it on in Settings → Director" };
+  if (i.stoppedReason) return { ...base, on: false, why: `image generation stopped: ${i.stoppedReason}` };
+  if (i.usedImages >= i.maxImages) return { ...base, on: false, why: `image quota used (${i.usedImages}/${i.maxImages}); raise it in Settings` };
+  return { ...base, on: true };
+}
+
+/** GPT Image's quality tiers mean something; the other models have none. */
+export function hasQualityTiers(i: { backend: string }): boolean {
+  return i.backend === "codex" || i.backend === "api";
 }
 
 type Started = { job?: Job; runner?: string; painters?: { ready: boolean; note?: string }; note?: string; queued?: Array<{ jobId: string }>; later?: string[] };
@@ -119,6 +133,7 @@ export function RegionPicker({ src, value, onChange, height }: { src: string; va
 
 /** Edit a region of a picture: box + instruction → a new picture (attached where asked). */
 export function EditRegion({ asset, attach, purpose, onClose }: { asset: Asset; attach?: { heroOf?: string; endOf?: string }; purpose?: "edit" | "remake_key"; onClose?: () => void }) {
+  const imaging = useImagingOn();
   const [box, setBox] = useState<Box | undefined>();
   const [text, setText] = useState("");
   return (
@@ -126,7 +141,7 @@ export function EditRegion({ asset, attach, purpose, onClose }: { asset: Asset; 
       <RegionPicker src={(asset.meta.previewUrl as string | undefined) ?? asset.url} value={box} onChange={setBox} />
       <textarea className="st-textarea" rows={2} placeholder="What it should look like, e.g. 'he wears a red wool beret'" value={text} onChange={(e) => setText(e.target.value)} />
       <div className="st-row st-row--between">
-        <ImageButton label="Edit with GPT Image" body={{ action: "edit", assetId: asset.id, instruction: text, ...(box ? { region: box } : {}), ...(attach ?? {}), ...(purpose ? { purpose } : {}) }} />
+        <ImageButton label={`Edit with ${imaging.label}`} body={{ action: "edit", assetId: asset.id, instruction: text, ...(box ? { region: box } : {}), ...(attach ?? {}), ...(purpose ? { purpose } : {}) }} />
         {onClose && <Button size="sm" kind="quiet" onClick={onClose}>Close</Button>}
       </div>
     </div>

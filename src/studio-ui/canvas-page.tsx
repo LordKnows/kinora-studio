@@ -18,7 +18,7 @@ import { CloseIcon, UploadIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
 /* Canvas: pick a portrait, a costume and a pose from the reference library
-   (or upload your own), and GPT Image draws the character into a project —
+   (or upload your own), and an image model draws the character into a project —
    a picture with a handle, ready to go onto an element as its look. */
 
 type Upload = { assetId: string; url: string; name: string };
@@ -34,7 +34,7 @@ type Recipe = {
   style: string;
   size: (typeof CANVAS_SIZES)[number];
   quality?: "low" | "medium" | "high";
-  /** The image model (models.ts); unset = the project's GPT Image backend. */
+  /** The image model (models.ts); unset = the project's (Settings → Director). */
   model?: string;
   /** Pod models: LoRAs from the library, trained for the model's family. */
   loras?: LoraRef[];
@@ -332,7 +332,7 @@ export function CanvasPage() {
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
   const uploadedFaceAdult = !!recipe.portrait?.upload && [recipe.costume?.item, recipe.pose?.item].some((x) => x?.nsfw);
-  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (the GPT Image switch)" : imaging.stoppedReason ? `GPT Image stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
+  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (Settings → Director)" : imaging.stoppedReason ? `Image generation stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
   /* Qwen-Image-Edit 2509: fixed slots, a pose and a portrait and/or a costume */
   const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
   const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : uploadedFaceAdult ? "18+ references cannot go on an uploaded face" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : adultLora && anyUpload ? `${adultLora.name} draws with library pictures only` : "");
@@ -381,7 +381,7 @@ export function CanvasPage() {
                     <span className="st-muted st-num">{projectImageModel(imaging).label} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
-                      <span>GPT Image is off for this project. Pictures are drawn by a painter with Codex on your ChatGPT plan (up to 100, change it in Project settings).</span>
+                      <span>Image generation is off for this project. Turned on, pictures are drawn with {projectImageModel(imaging).label} (up to 100; the model and the limit are in Project settings → Director).</span>
                       <Button size="sm" onClick={async () => {
                         try {
                           await put(`/api/projects/${projectId}/imaging`, { enabled: true });

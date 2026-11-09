@@ -114,7 +114,7 @@ export async function setAutopilot(id: string, autopilot: Autopilot | null): Pro
   return getProject(id);
 }
 
-/** GPT Image state of a project (switch, quota, stop). */
+/** Image generation state of a project (switch, model, quota, stop). */
 export async function setImaging(id: string, imaging: Imaging | null): Promise<Project> {
   await (await db()).run("UPDATE projects SET imaging_json = ?, updated_at = ? WHERE id = ?", [imaging ? JSON.stringify(imaging) : null, Date.now(), id]);
   return getProject(id);

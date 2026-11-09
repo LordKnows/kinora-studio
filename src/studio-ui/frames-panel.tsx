@@ -8,7 +8,7 @@ import type { Asset } from "@/studio/types";
 
 import { get, post } from "./api";
 import { Button, Empty, ErrorBanner, Field, Modal, Section, UploadButton, useAction } from "./common";
-import { EditRegion, ImageButton, reviewChip, useImagingOn } from "./image-tools";
+import { EditRegion, hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
 import { PictureCaption, pictureTitle, SelectBar, SelectMark, useDeletePictures, usePictureSelection } from "./pictures";
 import { useProjectContext } from "./shell";
 
@@ -206,7 +206,7 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
     <div className="st-gen">
       <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
         <strong style={{ fontSize: 15 }}>Generate a frame</strong>
-        <span className="st-muted">drawn by the painter with GPT Image{imaging.on ? "" : ` — ${imaging.why}`}</span>
+        <span className="st-muted">drawn with {imaging.drawnBy}{imaging.on ? "" : ` — ${imaging.why}`}</span>
       </div>
 
       {targets.length > 1 && (
@@ -268,7 +268,7 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
       )}
 
       <div className="st-row st-row--between" style={{ flexWrap: "wrap", gap: 10 }}>
-        {how !== "crop" ? (
+        {how !== "crop" && hasQualityTiers(imaging) ? (
           <Field label="Quality">
             <select className="st-select st-input--sm" value={quality} onChange={(e) => setQuality(e.target.value as typeof quality)}>
               <option value="">project default</option>

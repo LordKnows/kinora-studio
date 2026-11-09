@@ -187,7 +187,7 @@ export function LookPage() {
 }
 
 /* The style frame: one picture that sets the film's look. Once chosen, every
-   GPT Image sheet and frame takes it as a reference. */
+   generated sheet and frame takes it as a reference. */
 function StyleFrameCard() {
   const { projectId, view, reload } = useProjectContext();
   const current = view?.project.look.styleFrameAssetId;

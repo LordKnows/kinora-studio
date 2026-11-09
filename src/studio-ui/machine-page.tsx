@@ -43,7 +43,7 @@ export function MachinePage() {
               <dt>R2 storage</dt>
               <dd><Lamp state={me.r2Configured ? "ok" : "warn"} label={me.r2Configured ? "configured" : "missing R2_* secrets"} /></dd>
               <dt>Image models</dt>
-              <dd><Lamp state="ok" label="GPT Image on the painters (Codex or the API), switched per project in Settings" /></dd>
+              <dd><Lamp state="ok" label="GPT Image and Qwen-Image 3.0 Pro on the painters, Qwen-Image on the GPU pod; the model is picked per project in Settings → Director" /></dd>
             </dl>
           ) : (
             <span className="st-muted">Loading…</span>

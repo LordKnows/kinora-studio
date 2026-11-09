@@ -174,7 +174,7 @@ export function PicturesPage() {
       {!pictures ? (
         <Skeleton />
       ) : shown.length === 0 ? (
-        <Empty title="No pictures here" hint="Uploads, GPT Image sheets and frames, edits and frames grabbed from takes all land here." />
+        <Empty title="No pictures here" hint="Uploads, generated sheets and frames, edits and frames grabbed from takes all land here." />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {shown.map((a) => {
