@@ -82,8 +82,8 @@ type ResolvedSlot<T extends RefItem> = { item?: T; asset?: Asset; url: string; t
 export type CanvasRole = "portrait" | "costume" | "character" | "portrait_b" | "costume_b" | "character_b" | "pose" | "extra";
 export type CanvasRef = { role: CanvasRole; label: string; url: string; thumb: string; refId?: string; assetId?: string; elementId?: string };
 
-async function referenceOf<K extends RefKind>(id: string, kind: K, adult: boolean): Promise<Extract<RefItem, { kind: K }>> {
-  const item = await getReference(id, adult);
+async function referenceOf<K extends RefKind>(id: string, kind: K, adult: boolean, user?: string): Promise<Extract<RefItem, { kind: K }>> {
+  const item = await getReference(id, adult, user);
   if (item.kind !== kind) throw new StudioError("validation", `${id} is a ${item.kind}, not a ${kind}`);
   return item as Extract<RefItem, { kind: K }>;
 }
@@ -94,14 +94,14 @@ async function projectPicture(projectId: string, assetId: string): Promise<Asset
   return asset;
 }
 
-async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId: string, kind: K, slot: { id?: string; assetId?: string; view?: string; depth?: boolean } | undefined, adult: boolean): Promise<ResolvedSlot<Extract<RefItem, { kind: K }>> | undefined> {
+async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId: string, kind: K, slot: { id?: string; assetId?: string; view?: string; depth?: boolean } | undefined, adult: boolean, user?: string): Promise<ResolvedSlot<Extract<RefItem, { kind: K }>> | undefined> {
   if (!slot || (!slot.id && !slot.assetId)) return undefined;
   if (slot.id && slot.assetId) throw new StudioError("validation", `${kind}: give a library id or an uploaded picture, not both`);
   if (slot.assetId) {
     const asset = await projectPicture(projectId, slot.assetId);
     return { asset, url: asset.url, thumb: (asset.meta.previewUrl as string | undefined) ?? asset.url, label: asset.name ?? asset.handle ?? "uploaded picture" };
   }
-  const item = await referenceOf(slot.id!, kind, adult);
+  const item = await referenceOf(slot.id!, kind, adult, user);
   const pic = referenceImage(item, { depth: slot.depth, view: slot.view });
   const label = referenceName(item);
   return { item, url: pic.image, thumb: pic.thumb, label };
@@ -135,16 +135,16 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const adult = await adultAllowed(actor);
   if (input.character && input.portrait) throw new StudioError("validation", "person A: a character or a portrait, not both");
   if (input.partner?.character && input.partner.portrait) throw new StudioError("validation", "person B: a character or a portrait, not both");
-  const portrait = await resolveSlot(projectId, "portrait", input.portrait, adult);
-  const costume = await resolveSlot(projectId, "costume", input.costume, adult);
+  const portrait = await resolveSlot(projectId, "portrait", input.portrait, adult, actor.user);
+  const costume = await resolveSlot(projectId, "costume", input.costume, adult, actor.user);
   const character = input.character ? await characterOf(projectId, input.character.elementId) : undefined;
   const partner = input.partner ? {
-    portrait: await resolveSlot(projectId, "portrait", input.partner.portrait, adult),
-    costume: await resolveSlot(projectId, "costume", input.partner.costume, adult),
+    portrait: await resolveSlot(projectId, "portrait", input.partner.portrait, adult, actor.user),
+    costume: await resolveSlot(projectId, "costume", input.partner.costume, adult, actor.user),
     character: input.partner.character ? await characterOf(projectId, input.partner.character.elementId) : undefined,
     name: input.partner.name,
   } : undefined;
-  const pose = await resolveSlot(projectId, "pose", input.pose, adult);
+  const pose = await resolveSlot(projectId, "pose", input.pose, adult, actor.user);
   const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
   if (partner && !partner.portrait && !partner.costume && !partner.character) throw new StudioError("validation", "person B needs a portrait, a costume or a character");
   if (partner && !portrait && !costume && !character) throw new StudioError("validation", "person A needs a portrait, a costume or a character");
@@ -169,13 +169,15 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
      an upload or import its face check found 3D, illustrated or faceless, a Studio picture drawn only from those */
   const nsfw = [portrait?.item, costume?.item, pose?.item, partner?.portrait?.item, partner?.costume?.item].some((x) => x?.nsfw);
   if (adultLora || nsfw) {
-    const real = await firstRealIn(projectId, [portrait, costume, pose, partner?.portrait, partner?.costume].map((x) => x?.asset?.url).concat(character?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)));
+    /* a project picture, or one of the user's own (我的: a portrait by its face check; a costume or a pose is 模拟) */
+    const real = await firstRealIn(projectId, [portrait, costume, pose, partner?.portrait, partner?.costume].map((x) => x?.asset?.url ?? (x?.item?.mine ? x.url : undefined)).concat(character?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)));
     if (real) {
       throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: R18 pictures are drawn only from 模拟 pictures, and ${real} — it may show a real person. 模拟 are the library's pictures, uploads whose face check found a 3D render, an illustration or no face, and Studio pictures drawn only from those.`);
     }
   }
   /* CharaDB's terms: its outfits are never put on a real person — an uploaded face, or a picture drawn from one */
-  for (const [who, p] of [["person A", { costume, face: portrait?.asset?.url ?? character?.url }], ["person B", { costume: partner?.costume, face: partner?.portrait?.asset?.url ?? partner?.character?.url }]] as const) {
+  const faceUrl = (s?: ResolvedSlot<RefItem>) => s?.asset?.url ?? (s?.item?.mine ? s.url : undefined);
+  for (const [who, p] of [["person A", { costume, face: faceUrl(portrait) ?? character?.url }], ["person B", { costume: partner?.costume, face: faceUrl(partner?.portrait) ?? partner?.character?.url }]] as const) {
     if ((p.costume?.item as RefCostume | undefined)?.source !== "charadb" || !p.face) continue;
     if (await firstRealIn(projectId, [p.face])) {
       throw new StudioError("validation", `CharaDB outfits cannot be put on an uploaded photo (${partner ? who : "the portrait"}): its author forbids depicting real people. Use a library portrait, or another costume source.`);
@@ -272,14 +274,17 @@ export async function agentComposeCharacter(projectId: string, input: Omit<Canva
 /** Bring one reference picture into the project (a single fetch from its gallery), optionally onto an element. */
 export async function importReference(projectId: string, input: CanvasImport, actor: Actor): Promise<{ asset: Asset }> {
   await repo.getProject(projectId);
-  const item = await getReference(input.id, await adultAllowed(actor));
+  const item = await getReference(input.id, await adultAllowed(actor), actor.user);
   if (input.attach) {
     const el = await repo.getElement(input.attach.elementId);
     if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
   }
   const pic = referenceImage(item, { depth: input.depth, view: input.view });
   const name = referenceName(item);
-  const asset = await importImageFromUrl(projectId, pic.image, actor, { label: `ref · ${name}`.slice(0, 80), reference: { id: item.id, kind: item.kind, depth: input.depth || undefined, view: input.view } });
+  /* one of the user's own pictures keeps what it is: a portrait its face check (模拟 / 真实) */
+  const mine = item.mine ? { mine: true } : {};
+  const face = item.kind === "portrait" && item.mine ? (item.mine.faceCheck ? { faceCheck: item.mine.faceCheck } : { faceCheckError: item.mine.faceCheckError ?? { why: "not checked" } }) : {};
+  const asset = await importImageFromUrl(projectId, pic.image, actor, { label: `ref · ${name}`.slice(0, 80), reference: { id: item.id, kind: item.kind, depth: input.depth || undefined, view: input.view, ...mine }, ...face });
   if (input.attach) {
     const el = await repo.getElement(input.attach.elementId);
     await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds.filter((x) => x !== asset.id), asset.id].slice(-6), refViews: { [asset.id]: input.attach.view } });

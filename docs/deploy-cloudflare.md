@@ -453,7 +453,9 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
      `qwen3.8-max-0902`，DashScope `qwen-vl-max-latest`，可用 `FACE_CHECK_MODEL` 改。3D 渲染或插画、
      成年、不是名人，或没有人脸（含远景、背影的游戏场景）→ 模拟；照片、看起来像照片、名人肖像、
      未成年或看不出年龄、模型没把握、没检查成 → 真实（Pictures 页写明原因，可点 **Check again**）。
-   - **图库**：全部是模拟。
+   - **图库**：全部是模拟。**我的**（Canvas 图库的 Mine 分类，用户自己上传的人像、服装、姿势）：人像在上传时
+     检查一次，按结果打模拟或真实；服装和姿势不检查，按模拟处理。它们存在 `user_references` 表（应用第一次用
+     时自动建表；也可以跑 `npx wrangler d1 migrations apply studio --remote` 应用 0018）。
    - **生成的图**：不调用模型。文生图 → 模拟；参考图模式下只要任何一张输入（参考图、被编辑的图、
      视频的输入图）是真实 → 真实，否则模拟。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页

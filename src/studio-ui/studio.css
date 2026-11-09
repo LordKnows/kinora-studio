@@ -2539,3 +2539,15 @@ button.st-pill {
   border-color: var(--ok);
   background: var(--ok-bg);
 }
+
+/* 我的: the upload card of the user's own library pictures */
+.studio .st-mine-upload[data-drag="true"] {
+  border-color: var(--accent);
+  background: var(--accent-08);
+}
+.studio .st-mine-actions .st-btn--sm {
+  padding: 0 6px;
+}
+.studio .st-ref-cap .st-face {
+  align-self: flex-start;
+}

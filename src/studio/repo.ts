@@ -1244,3 +1244,81 @@ export async function setUserSettings(user: string, patch: { [K in keyof UserSet
   );
   return getUserSettings(user);
 }
+
+/* ---------- 我的: a user's own pictures in the Canvas library ---------- */
+
+export type UserReference = {
+  id: string;
+  user: string;
+  kind: "portrait" | "costume" | "pose";
+  name: string;
+  tags: string[];
+  url: string;
+  key: string;
+  width?: number;
+  height?: number;
+  /** a pose: what its picture is (photo / mannequin / depth) */
+  picture?: string;
+  meta: Record<string, unknown>;
+  createdAt: number;
+};
+
+/* Created on first use as well as by migration 0018 (one statement each: D1's exec splits on newlines). */
+const USER_REFERENCES_SQL = [
+  "CREATE TABLE IF NOT EXISTS user_references (id TEXT PRIMARY KEY, user TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, tags_json TEXT NOT NULL DEFAULT '[]', url TEXT NOT NULL, key TEXT NOT NULL, width INTEGER, height INTEGER, picture TEXT, meta_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS user_references_user ON user_references (user, created_at)",
+];
+let userReferencesReady = false;
+
+async function userReferencesDb(): Promise<Db> {
+  const d = await db();
+  if (!userReferencesReady) {
+    for (const sql of USER_REFERENCES_SQL) await d.run(sql);
+    userReferencesReady = true;
+  }
+  return d;
+}
+
+function mapUserReference(r: Record<string, unknown>): UserReference {
+  return {
+    id: String(r.id), user: String(r.user), kind: r.kind as UserReference["kind"], name: String(r.name), tags: json<string[]>(r.tags_json, []),
+    url: String(r.url), key: String(r.key), ...(r.width != null ? { width: Number(r.width) } : {}), ...(r.height != null ? { height: Number(r.height) } : {}),
+    ...(r.picture ? { picture: String(r.picture) } : {}), meta: json<Record<string, unknown>>(r.meta_json, {}), createdAt: Number(r.created_at),
+  };
+}
+
+export async function listUserReferences(user: string): Promise<UserReference[]> {
+  const rows = await (await userReferencesDb()).all<Record<string, unknown>>("SELECT * FROM user_references WHERE user = ? ORDER BY created_at DESC", [user]);
+  return rows.map(mapUserReference);
+}
+
+export async function getUserReference(id: string): Promise<UserReference | undefined> {
+  const row = await (await userReferencesDb()).get<Record<string, unknown>>("SELECT * FROM user_references WHERE id = ?", [id]);
+  return row ? mapUserReference(row) : undefined;
+}
+
+export async function findUserReferenceByUrl(url: string): Promise<UserReference | undefined> {
+  const row = await (await userReferencesDb()).get<Record<string, unknown>>("SELECT * FROM user_references WHERE url = ?", [url]);
+  return row ? mapUserReference(row) : undefined;
+}
+
+export async function createUserReference(input: Omit<UserReference, "id" | "createdAt">): Promise<UserReference> {
+  const id = newId("myref");
+  await (await userReferencesDb()).run(
+    "INSERT INTO user_references (id, user, kind, name, tags_json, url, key, width, height, picture, meta_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, input.user, input.kind, input.name, JSON.stringify(input.tags), input.url, input.key, input.width ?? null, input.height ?? null, input.picture ?? null, JSON.stringify(input.meta), Date.now()],
+  );
+  return (await getUserReference(id))!;
+}
+
+export async function updateUserReference(id: string, patch: Partial<Pick<UserReference, "name" | "tags" | "picture" | "meta">>): Promise<UserReference> {
+  const cur = await getUserReference(id);
+  if (!cur) throw notFound("reference", id);
+  const next = { ...cur, ...patch };
+  await (await userReferencesDb()).run("UPDATE user_references SET name = ?, tags_json = ?, picture = ?, meta_json = ? WHERE id = ?", [next.name, JSON.stringify(next.tags), next.picture ?? null, JSON.stringify(next.meta), id]);
+  return (await getUserReference(id))!;
+}
+
+export async function deleteUserReference(id: string): Promise<void> {
+  await (await userReferencesDb()).run("DELETE FROM user_references WHERE id = ?", [id]);
+}

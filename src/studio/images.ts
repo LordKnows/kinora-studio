@@ -1,6 +1,7 @@
 import { config } from "./config";
 import { StudioError } from "./errors";
 import { checkOnArrival } from "./face-check";
+import { faceAllowed, type FaceVerdict } from "./face-verdict";
 import * as repo from "./repo";
 import { nameOfUploadKey, publicUrl, putObject, uploadKey } from "./storage/r2";
 import type { Actor, Asset } from "./types";
@@ -55,8 +56,11 @@ export async function storeImage(projectId: string, bytes: Uint8Array, filename:
   const key = uploadKey(actor.user, filename.includes(".") ? filename : `${filename}.${ext}`);
   await putObject(key, bytes, TYPES[info.type]!);
   const name = typeof meta.label === "string" ? meta.label : nameOfUploadKey(key);
-  /* a library picture is 模拟 as it is; anything else gets its face check below */
-  const asset = await repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta, ...(meta.reference ? { realness: "sim" } : {}) }, name });
+  /* a library picture is 模拟 as it is, and so is one of the user's own costumes or poses; one of their own
+     portraits brings its face check; anything else gets its face check below */
+  const ref = meta.reference as { kind?: string; mine?: boolean } | undefined;
+  const realness = ref ? (ref.mine && ref.kind === "portrait" ? (faceAllowed(meta.faceCheck as FaceVerdict | undefined) ? "sim" : "real") : "sim") : undefined;
+  const asset = await repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta, ...(realness ? { realness } : {}) }, name });
   /* an imported picture is labelled as it arrives (模拟 / 真实), like an upload; library pictures need none */
   return checkOnArrival(asset);
 }

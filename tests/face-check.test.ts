@@ -2,14 +2,14 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
-import { CanvasCompose, composeCharacter } from "@/studio/canvas";
+import { CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
 import { checkOnArrival, describeVerdict, faceAllowed, faceVerdict, type FaceVerdict } from "@/studio/face-check";
-import { faceLabel } from "@/studio/face-verdict";
+import { faceLabel, pictureTag } from "@/studio/face-verdict";
 import { importImageFromBase64 } from "@/studio/images";
 import * as imaging from "@/studio/imaging";
 import { firstRealIn } from "@/studio/provenance";
-import { listReferences, setAdultContent } from "@/studio/references";
-import type { RefPose } from "@/studio/references-model";
+import { addMyReference, deleteMyReference, getReference, listMyReferences, listReferences, queryReferences, recheckMyReference, setAdultContent, updateMyReference } from "@/studio/references";
+import { referenceName, type RefItem, type RefPose } from "@/studio/references-model";
 import * as repo from "@/studio/repo";
 import type { Actor } from "@/studio/types";
 
@@ -52,6 +52,8 @@ beforeAll(async () => {
       if (init?.method === "HEAD" || init?.method === "PUT") return new Response(null, { status: 200 });
       return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
     }
+    /* our own media (a 我的 picture brought into a project is fetched by its URL) */
+    if (url.startsWith("https://studio.example/media/") && url.endsWith(".png")) return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
     if (url.endsWith("/chat/completions")) {
       asked.push({ url, auth: new Headers(init?.headers).get("authorization"), body: JSON.parse(String(init?.body)) });
       if (failWith) return new Response(failWith, { status: 500 });
@@ -212,5 +214,79 @@ describe("when a check fails, the picture says why, and can be checked again", (
     expect(picture.meta.faceCheck?.kind).toBe("no_face");
     expect(picture.meta.faceCheckError).toBeUndefined();
     expect(faceLabel(picture.meta.faceCheck)).toMatchObject({ allowed: true, label: "模拟" });
+  });
+});
+
+describe("我的: the user's own pictures in the Canvas library", () => {
+  const me: Actor = { user: "mine@local", via: "web" };
+  const other: Actor = { user: "someone@else", via: "web" };
+  let projectId = "";
+  const add = (kind: "portrait" | "costume" | "pose", name: string, extra: Record<string, unknown> = {}) =>
+    addMyReference(me, { key: `uploads/mine/${name}.png`, kind, name, tags: ["3D", "测试"], ...extra });
+
+  it("adds a portrait with its face check, a costume and a pose without one, listed first and only for their owner", async () => {
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    answer = { kind: "render_3d", likeness: false, age: "adult", confidence: 0.9, reason: "a 3D head" };
+    const before = asked.length;
+    const head = await add("portrait", "my-head");
+    expect(asked.length).toBe(before + 1);
+    expect(head).toMatchObject({ kind: "portrait", title: "my-head", section: "我的", mine: { tags: ["3D", "测试"], faceCheck: { kind: "render_3d" } } });
+    const coat = await add("costume", "my-coat");
+    const pose = await add("pose", "my-pose", { picture: "mannequin" });
+    expect(asked.length).toBe(before + 1);
+    expect(coat).toMatchObject({ kind: "costume", source: "mine", mine: { tags: ["3D", "测试"] } });
+    expect((coat as RefItem).mine?.faceCheck).toBeUndefined();
+    expect(pose).toMatchObject({ kind: "pose", system: "mine", mine: { picture: "mannequin" } });
+    const portraits = (await listReferences("portrait", false, me.user)).items;
+    expect(portraits[0]!.id).toBe(head.id);
+    expect((await listReferences("portrait", false, other.user)).items.some((x) => x.id === head.id)).toBe(false);
+    expect((await queryReferences({ q: "测试" }, false, me.user)).total).toBe(3);
+    await expect(getReference(head.id, false, other.user)).rejects.toMatchObject({ code: "not_found" });
+    expect(await getReference(head.id, false, me.user)).toMatchObject({ id: head.id });
+  });
+
+  it("draws from them in Canvas: a 模拟 portrait and any costume or pose go into R18, a 真实 portrait does not", async () => {
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    projectId = (await repo.createProject({ name: "Mine" })).id;
+    await setAdultContent(me, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true }, me);
+    const couple = (await listReferences("pose", true)).items.find((x) => (x as RefPose).system === "couple")!;
+    const mine = (await listMyReferences(me)).reduce<Record<string, RefItem>>((m, x) => ({ ...m, [x.kind]: x }), {});
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: mine.portrait!.id }, costume: { id: mine.costume!.id }, pose: { id: couple.id } }), me);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.refUrls).toEqual([mine.portrait!.image, mine.costume!.image, (couple as RefPose).image]);
+    expect(String(job.input.prompt)).toContain("图1中的人物，保持其脸型、五官、发型和发色一致");
+    expect(String(job.input.prompt)).toContain("让人物穿上图2中展示的整套服装和配饰，每件单品");
+    const done = await imaging.applyImageStatus(job, { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${job.id}.png`, width: 1024, height: 1536 } });
+    expect((await repo.getAsset(done.assetIds[0]!)).meta.realness).toBe("sim");
+    /* my pose: described by what its picture is */
+    const withPose = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: mine.portrait!.id }, pose: { id: mine.pose!.id } }), me);
+    expect(String((await repo.getJob(withPose.job.id)).input.prompt)).toContain("人体模型（白模）");
+    /* a 真实 portrait of mine */
+    answer = { kind: "real_photo", likeness: false, age: "adult", confidence: 0.95, reason: "a selfie" };
+    const selfie = await add("portrait", "my-selfie");
+    expect(selfie.mine?.faceCheck?.kind).toBe("real_photo");
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: selfie.id }, pose: { id: couple.id } }), me)).rejects.toThrow(/my-selfie \(我的 · 真实: a photograph/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: selfie.id } }), me)).resolves.toBeTruthy();
+  });
+
+  it("keeps the tag when one is brought into a project, and is renamed, retagged, rechecked and deleted by its owner only", async () => {
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    const mine = await listMyReferences(me);
+    const selfie = mine.find((x) => x.kind === "portrait" && referenceName(x) === "my-selfie")!;
+    const coat = mine.find((x) => x.kind === "costume")!;
+    const real = await importReference(projectId, { id: selfie.id, depth: false }, me);
+    expect(pictureTag(real.asset.meta, false)).toMatchObject({ label: "真实" });
+    expect(await firstRealIn(projectId, [real.asset.url])).toMatch(/真实/);
+    const sim = await importReference(projectId, { id: coat.id, depth: false }, me);
+    expect(pictureTag(sim.asset.meta, false)).toMatchObject({ label: "模拟" });
+    expect(await firstRealIn(projectId, [sim.asset.url])).toBeUndefined();
+    await expect(updateMyReference(other, selfie.id, { name: "x" })).rejects.toMatchObject({ code: "not_found" });
+    expect(await updateMyReference(me, selfie.id, { name: "me, 3D now", tags: ["a", "a", "b"] })).toMatchObject({ title: "me, 3D now", mine: { tags: ["a", "b"] } });
+    answer = { kind: "illustration", likeness: false, age: "adult", confidence: 0.9, reason: "a drawing" };
+    expect((await recheckMyReference(me, selfie.id)).mine?.faceCheck?.kind).toBe("illustration");
+    await expect(recheckMyReference(me, coat.id)).rejects.toMatchObject({ code: "validation" });
+    await deleteMyReference(me, selfie.id);
+    await expect(getReference(selfie.id, false, me.user)).rejects.toMatchObject({ code: "not_found" });
   });
 });

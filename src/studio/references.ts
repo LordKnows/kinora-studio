@@ -1,4 +1,8 @@
+import type { PosePicture } from "./canvas-prompt";
 import { StudioError } from "./errors";
+import { checkPicture } from "./face-check";
+import { faceAllowed } from "./face-verdict";
+import { imageInfo } from "./images";
 import {
   NSFW_COSTUME_CATEGORIES,
   POSE_SYSTEMS,
@@ -12,8 +16,10 @@ import {
   type RefKind,
   type RefPortrait,
   type RefPose,
+  MINE_LABEL,
 } from "./references-model";
 import * as repo from "./repo";
+import { getObject, objectExists, publicUrl } from "./storage/r2";
 import type { Actor } from "./types";
 
 /*
@@ -59,6 +65,7 @@ function costumeUrls(src: CostumeSource, id: string): { thumb: string; image: st
       return { thumb: `https://charadb-2fi.pages.dev/thumb/${k}.webp`, image: `https://charadb-2fi.pages.dev/img/${k}.jpg`, original: `https://charadb-2fi.pages.dev/img/${k}.jpg` };
     }
     case "shisei":
+    case "mine":
       return { thumb: "", image: "", original: "" };
   }
 }
@@ -145,22 +152,24 @@ function matches(item: RefItem, q: ReferenceQuery, text: string): boolean {
   return true;
 }
 
-/** Every item of a kind the caller may see, and how many 18+ items were left out. */
-export async function listReferences(kind: RefKind, adult: boolean): Promise<{ items: RefItem[]; hidden: number }> {
+/** Every item of a kind the caller may see (the user's own first), and how many 18+ items were left out. */
+export async function listReferences(kind: RefKind, adult: boolean, user?: string): Promise<{ items: RefItem[]; hidden: number }> {
   const all = (await catalog()).items.filter((x) => x.kind === kind);
   const items = adult ? all : all.filter((x) => !x.nsfw);
-  return { items, hidden: all.length - items.length };
+  const mine = user ? (await myItems(user)).filter((x) => x.kind === kind) : [];
+  return { items: [...mine, ...items], hidden: all.length - items.length };
 }
 
 /** A page of matching items (the agent's view, and search). */
-export async function queryReferences(q: ReferenceQuery, adult: boolean): Promise<{ items: RefItem[]; total: number; page: number; pageSize: number; hidden: number }> {
+export async function queryReferences(q: ReferenceQuery, adult: boolean, user?: string): Promise<{ items: RefItem[]; total: number; page: number; pageSize: number; hidden: number }> {
   const c = await catalog();
   const pageSize = Math.max(1, Math.min(100, q.pageSize ?? 20));
   const page = Math.max(1, q.page ?? 1);
   let hidden = 0;
   const hits: RefItem[] = [];
-  for (const item of c.items) {
-    if (!matches(item, q, c.text.get(item.id) ?? "")) continue;
+  const mine = user ? await myItems(user) : [];
+  for (const item of [...mine, ...c.items]) {
+    if (!matches(item, q, item.mine ? searchText(item) : c.text.get(item.id) ?? "")) continue;
     if (item.nsfw && !adult) {
       hidden++;
       continue;
@@ -170,8 +179,13 @@ export async function queryReferences(q: ReferenceQuery, adult: boolean): Promis
   return { items: hits.slice((page - 1) * pageSize, page * pageSize), total: hits.length, page, pageSize, hidden };
 }
 
-/** One item; an 18+ item answers forbidden until the user has unlocked them. */
-export async function getReference(id: string, adult: boolean): Promise<RefItem> {
+/** One item; an 18+ item answers forbidden until the user has unlocked them. A 我的 item only for its owner. */
+export async function getReference(id: string, adult: boolean, user?: string): Promise<RefItem> {
+  if (id.startsWith(MINE_PREFIX)) {
+    const row = await repo.getUserReference(id.slice(MINE_PREFIX.length));
+    if (!row || row.user !== user) throw new StudioError("not_found", `no reference ${id}`);
+    return mineItem(row);
+  }
   const item = (await catalog()).byId.get(id);
   if (!item) throw new StudioError("not_found", `no reference ${id}`);
   if (item.nsfw && !adult) throw new StudioError("forbidden", "this reference is 18+; the user shows 18+ references on the Canvas page (web only)", { adult: false });
@@ -187,4 +201,100 @@ export async function referenceSummary(): Promise<{ counts: Record<RefKind, numb
     if (x.nsfw) nsfw[x.kind]++;
   }
   return { counts, nsfw, source: c.source, terms: REFERENCE_TERMS };
+}
+
+/* ---------- 我的: the user's own pictures ---------- */
+
+const MINE_PREFIX = "mine-";
+export const MY_TAGS_MAX = 12;
+
+/** A user's own picture as a library item: listed under 我的, its URL our own (R2). */
+export function mineItem(r: repo.UserReference): RefItem {
+  const mine = {
+    tags: r.tags, createdAt: r.createdAt,
+    ...(r.picture ? { picture: r.picture as PosePicture } : {}),
+    ...(r.meta.faceCheck ? { faceCheck: r.meta.faceCheck as NonNullable<RefPortrait["mine"]>["faceCheck"] } : {}),
+    ...(r.meta.faceCheckError ? { faceCheckError: r.meta.faceCheckError as { why?: string } } : {}),
+  };
+  const id = `${MINE_PREFIX}${r.id}`;
+  if (r.kind === "portrait") {
+    return { kind: "portrait", id, section: MINE_LABEL, hairLength: "", hairstyle: MINE_LABEL, title: r.name, width: r.width ?? 0, height: r.height ?? 0, featured: false, hot: false, nsfw: false, thumb: r.url, image: r.url, mine };
+  }
+  if (r.kind === "costume") {
+    return { kind: "costume", id, source: "mine", style: "real", category: MINE_LABEL, name: r.name, tags: r.tags, keywords: "", nsfw: false, thumb: r.url, image: r.url, original: r.url, mine };
+  }
+  return { kind: "pose", id, system: "mine", group: id, number: "", category: MINE_LABEL, name: r.name, angle: "front", nsfw: false, thumb: r.url, image: r.url, depthThumb: r.url, depthImage: r.url, mine };
+}
+
+async function myItems(user: string): Promise<RefItem[]> {
+  return (await repo.listUserReferences(user).catch(() => [])).map(mineItem);
+}
+
+/** The user's own pictures, newest first. */
+export async function listMyReferences(actor: Actor): Promise<RefItem[]> {
+  return myItems(actor.user);
+}
+
+async function ownRow(actor: Actor, id: string): Promise<repo.UserReference> {
+  const row = await repo.getUserReference(id.startsWith(MINE_PREFIX) ? id.slice(MINE_PREFIX.length) : id);
+  if (!row || row.user !== actor.user) throw new StudioError("not_found", `no reference ${id} of yours`);
+  return row;
+}
+
+function cleanTags(tags: string[] | undefined): string[] {
+  return [...new Set((tags ?? []).map((t) => t.trim()).filter(Boolean).map((t) => t.slice(0, 30)))].slice(0, MY_TAGS_MAX);
+}
+
+/**
+ * Add a picture the browser put in R2 (presign → PUT) to the user's library. A portrait gets its face check now
+ * (模拟 / 真实, the only time a model looks); a costume or a pose gets none.
+ */
+export async function addMyReference(actor: Actor, input: { key: string; kind: RefKind; name: string; tags?: string[]; picture?: PosePicture }): Promise<RefItem> {
+  if (actor.user === "anonymous" || actor.user === "mcp-static") throw new StudioError("forbidden", "sign in to keep pictures of your own");
+  if (!input.key.startsWith("uploads/")) throw new StudioError("validation", "key must be under uploads/");
+  if (!(await objectExists(input.key))) throw new StudioError("validation", "object not found in the bucket; upload first");
+  let size: { width?: number; height?: number } = {};
+  try {
+    const head = await getObject(input.key, "bytes=0-131071");
+    const info = head.ok ? imageInfo(new Uint8Array(await head.arrayBuffer())) : undefined;
+    if (info) size = { width: info.width, height: info.height };
+  } catch {
+    /* the size is a nicety */
+  }
+  const url = publicUrl(input.key);
+  let meta: Record<string, unknown> = {};
+  if (input.kind === "portrait") {
+    const { verdict, why } = await checkPicture({ url, key: input.key });
+    meta = verdict ? { faceCheck: verdict, realness: faceAllowed(verdict) ? "sim" : "real" } : { realness: "real", faceCheckError: { why: why ?? "no verdict", at: Date.now() } };
+  }
+  const row = await repo.createUserReference({
+    user: actor.user, kind: input.kind, name: input.name.trim().slice(0, 60) || "my picture", tags: cleanTags(input.tags), url, key: input.key, ...size,
+    ...(input.kind === "pose" ? { picture: input.picture ?? "photo" } : {}), meta,
+  });
+  return mineItem(row);
+}
+
+/** Rename, retag, or (a pose) say again what its picture is. */
+export async function updateMyReference(actor: Actor, id: string, patch: { name?: string; tags?: string[]; picture?: PosePicture }): Promise<RefItem> {
+  const row = await ownRow(actor, id);
+  return mineItem(await repo.updateUserReference(row.id, {
+    ...(patch.name !== undefined ? { name: patch.name.trim().slice(0, 60) || row.name } : {}),
+    ...(patch.tags !== undefined ? { tags: cleanTags(patch.tags) } : {}),
+    ...(patch.picture && row.kind === "pose" ? { picture: patch.picture } : {}),
+  }));
+}
+
+/** Take a picture out of the user's library. Pictures already drawn from it keep their copies. */
+export async function deleteMyReference(actor: Actor, id: string): Promise<void> {
+  const row = await ownRow(actor, id);
+  await repo.deleteUserReference(row.id);
+}
+
+/** Run a portrait's face check again. */
+export async function recheckMyReference(actor: Actor, id: string): Promise<RefItem> {
+  const row = await ownRow(actor, id);
+  if (row.kind !== "portrait") throw new StudioError("validation", "only portraits get a face check");
+  const { verdict, why } = await checkPicture({ url: row.url, key: row.key });
+  const meta = verdict ? { faceCheck: verdict, realness: faceAllowed(verdict) ? "sim" : "real" } : { ...row.meta, realness: "real", faceCheckError: { why: why ?? "no verdict", at: Date.now() } };
+  return mineItem(await repo.updateUserReference(row.id, { meta }));
 }

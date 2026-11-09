@@ -4,10 +4,19 @@
    catalog itself is server-side (references.ts) — so the Canvas page can
    import this file. */
 
+import type { PosePicture } from "./canvas-prompt";
+import type { FaceVerdict } from "./face-verdict";
+
 export type RefKind = "pose" | "costume" | "portrait";
-export type PoseSystem = "standard" | "sensual" | "upper" | "couple";
+export type PoseSystem = "standard" | "sensual" | "upper" | "couple" | "mine";
 export type PoseAngle = "front" | "diag" | "side" | "high" | "low";
-export type CostumeSource = "gia" | "gia-anime" | "charadb" | "shisei";
+export type CostumeSource = "gia" | "gia-anime" | "charadb" | "shisei" | "mine";
+
+/**
+ * 我的: a picture the signed-in user uploaded into the library (user_references), seen in every project of theirs.
+ * A portrait carries its face check (模拟 / 真实); a costume or a pose carries none. A pose says what its picture is.
+ */
+export type MineInfo = { tags: string[]; createdAt: number; picture?: PosePicture; faceCheck?: FaceVerdict; faceCheckError?: { why?: string } };
 
 export type RefPose = {
   kind: "pose";
@@ -24,6 +33,7 @@ export type RefPose = {
   image: string;
   depthThumb: string;
   depthImage: string;
+  mine?: MineInfo;
 };
 
 export type RefCostumeView = { id: string; label: string; thumb: string; image: string };
@@ -46,6 +56,7 @@ export type RefCostume = {
   /** The largest file the source publishes (for "open original"). */
   original: string;
   views?: RefCostumeView[];
+  mine?: MineInfo;
 };
 
 export type RefPortrait = {
@@ -62,6 +73,7 @@ export type RefPortrait = {
   nsfw: false;
   thumb: string;
   image: string;
+  mine?: MineInfo;
 };
 
 export type RefItem = RefPose | RefCostume | RefPortrait;
@@ -71,6 +83,7 @@ export const POSE_SYSTEMS: Array<{ id: PoseSystem; zh: string; en: string; nsfw:
   { id: "upper", zh: "上半身单人", en: "Upper body", nsfw: false },
   { id: "sensual", zh: "全身单人・性感系", en: "Full body · sensual", nsfw: true },
   { id: "couple", zh: "双人缠绵", en: "Couple", nsfw: true },
+  { id: "mine", zh: "我的", en: "Mine", nsfw: false },
 ];
 
 export const POSE_ANGLES: Array<{ id: PoseAngle; zh: string; en: string }> = [
@@ -91,7 +104,13 @@ export const COSTUME_SOURCES: Array<{ id: CostumeSource; label: string; site: st
   { id: "gia-anime", label: "ギア · 动漫", site: "https://ai-costume-anime-gallery.pages.dev/", terms: "Pictures load from ギア's site; follow its terms." },
   { id: "charadb", label: "たき AI · CharaDB", site: "https://github.com/taki-ttt/charadb/blob/main/LICENSE", terms: "Reference only: never on a real person's photo, never for a minor, no redistribution, the pictures themselves cannot be sold." },
   { id: "shisei", label: "Shisei · 中国历代", site: "https://github.com/wquguru/shisei", terms: "CC0 (wquguru). AI-generated references, not scholarly reconstructions." },
+  { id: "mine", label: "我的", site: "", terms: "Your own pictures, uploaded to the library." },
 ];
+
+/** The section, category or source a 我的 item is listed under. */
+export const MINE_LABEL = "我的";
+
+export const isMine = (item: RefItem | undefined): boolean => !!item?.mine;
 
 export const REFERENCE_TERMS = {
   poses: "Poses and depth maps: ギア (@giaaibusi), ai-pose-gallery.pages.dev. Free to use one picture at a time as a generation reference, commercial work included; bulk download, redistribution and resale are not allowed.",
@@ -111,11 +130,11 @@ export const referenceName = (item: RefItem): string => (item.kind === "portrait
 export function searchText(item: RefItem): string {
   switch (item.kind) {
     case "pose":
-      return `${item.id} ${item.category} ${item.name} ${item.number} ${POSE_SYSTEMS.find((s) => s.id === item.system)?.zh ?? ""} ${angleZh(item.angle)}`.toLowerCase();
+      return `${item.id} ${item.category} ${item.name} ${item.number} ${POSE_SYSTEMS.find((s) => s.id === item.system)?.zh ?? ""} ${angleZh(item.angle)} ${item.mine?.tags.join(" ") ?? ""}`.toLowerCase();
     case "costume":
       return `${item.id} ${item.category} ${item.name} ${item.nameJa ?? ""} ${item.tags.join(" ")} ${item.keywords}`.toLowerCase();
     case "portrait":
-      return `${item.id} ${item.section} ${item.hairLength} ${item.hairstyle} ${item.title}`.toLowerCase();
+      return `${item.id} ${item.section} ${item.hairLength} ${item.hairstyle} ${item.title} ${item.mine?.tags.join(" ") ?? ""}`.toLowerCase();
   }
 }
 
