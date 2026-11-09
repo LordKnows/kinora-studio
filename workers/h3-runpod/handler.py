@@ -562,7 +562,8 @@ def run_remake_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, wo
 def regen_status(models_dir: Path | None = None) -> dict[str, Any]:
     """Whether the Open-H3-Regenerate-2K weights and node pack are on the pod."""
     base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
-    missing = [f"{sub}/{name}" for sub, name in REGEN_FILES if not ((base / sub / name).is_file() and (base / sub / name).stat().st_size > 1_000_000)]
+    sizes = {name: size for _, name, size in list_entries(HERE / "models-regen.txt")}
+    missing = [f"{sub}/{name}" for sub, name in REGEN_FILES if not file_ok(base, sub, name, sizes.get(name))]
     nodes = Path(REGEN_NODE_DIR).is_dir()
     # What the boot-time download is doing, so a "not ready" answer can say
     # "still downloading" instead of just listing files.
@@ -1081,24 +1082,76 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     }
 
 
+def list_entries(listing: Path) -> list[tuple[str, str, int | None]]:
+    """(subdir, file name, bytes) of a model list: subdir<TAB>URL<TAB>bytes, the size optional."""
+    out: list[tuple[str, str, int | None]] = []
+    if not listing.is_file():
+        return out
+    for line in listing.read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        cols = [c.strip() for c in line.split("\t")]
+        if len(cols) < 2:
+            continue
+        size = int(cols[2]) if len(cols) > 2 and cols[2].isdigit() else None
+        out.append((cols[0], cols[1].rsplit("/", 1)[-1], size))
+    return out
+
+
+def file_ok(base: Path, subdir: str, name: str, size: int | None) -> bool:
+    """The file is there whole: the list's size when it names one (a cut-off download is not), else over 1 MB.
+    diffusion_models and unet are the same folder on the runpod image."""
+    dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
+    for d in dirs:
+        path = base / d / name
+        if path.is_file():
+            got = path.stat().st_size
+            if (got == size) if size else got > 1_000_000:
+                return True
+    return False
+
+
 def models_status(models_dir: Path | None = None) -> dict[str, Any]:
-    """Which of the files in models.txt are present under the models dir
-    (diffusion_models and unet are the same folder on the runpod image)."""
+    """Which of the files in models.txt are present, whole, under the models dir."""
     base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
-    listing = Path(__file__).resolve().parent / "models.txt"
+    entries = list_entries(Path(__file__).resolve().parent / "models.txt")
+    missing = [f"{sub}/{name}" for sub, name, size in entries if not file_ok(base, sub, name, size)]
+    return {"ready": bool(entries) and not missing, "dir": str(base), "expected": len(entries), "missing": missing}
+
+
+# The lists the boot chain fetches (start.sh fetch_models), with the switch that turns each off.
+DOWNLOAD_LISTS = [("models.txt", "AUTO_DOWNLOAD_MODELS"), ("models-qie2509.txt", "QWEN_EDIT_2509"), ("models-qwen-image.txt", "QWEN_IMAGE"),
+                  ("models-qwen-image-base.txt", "QWEN_IMAGE_BASE"), ("models-regen.txt", "REGEN_2K")]
+
+
+def downloads_status(models_dir: Path | None = None) -> dict[str, Any]:
+    """What the boot-time download chain is doing: whether it runs (its pid is alive), the file it is on,
+    what is left of the lists it fetches, and what failed or was skipped for room."""
+    state = Path(os.environ.get("DOWNLOAD_STATE_DIR", "/app/downloads"))
+    base = models_dir or Path(os.environ.get("MODELS_DIR", str(LORA_DIR.parent)))
+    active = False
+    pid_file = state / "chain.pid"
+    if pid_file.is_file():
+        try:
+            pid = int(pid_file.read_text().strip())
+            active = Path(f"/proc/{pid}").exists() if Path("/proc").is_dir() else True
+        except ValueError:
+            active = False
+    left = 0
     missing: list[str] = []
-    expected = 0
-    if listing.exists():
-        for line in listing.read_text().splitlines():
-            if not line.strip() or line.startswith("#"):
+    for listing, switch in DOWNLOAD_LISTS:
+        if os.environ.get(switch, "1") != "1":
+            continue
+        for sub, name, size in list_entries(HERE / listing):
+            if file_ok(base, sub, name, size) or f"{sub}/{name}" in missing:
                 continue
-            subdir, _, url = line.partition("\t")
-            name = url.strip().rsplit("/", 1)[-1]
-            expected += 1
-            dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
-            if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
-                missing.append(f"{subdir}/{name}")
-    return {"ready": expected > 0 and not missing, "dir": str(base), "expected": expected, "missing": missing}
+            missing.append(f"{sub}/{name}")
+            part = base / sub / f"{name}.part"
+            left += max(0, (size or 0) - (part.stat().st_size if part.is_file() else 0))
+    read = lambda f: [l.strip() for l in (state / f).read_text().splitlines() if l.strip()] if (state / f).is_file() else []  # noqa: E731
+    current = read("current")
+    return {"active": active, "current": current[0] if current and active else None, "gb_left": round(left / 1e9, 1),
+            "missing": missing, "failed": read("failed"), "skipped": read("skipped")}
 
 
 def image_models_status(models_dir: Path | None = None) -> dict[str, Any]:
@@ -1112,22 +1165,14 @@ def image_models_status(models_dir: Path | None = None) -> dict[str, Any]:
         if model.startswith("_") or not isinstance(entry, dict):
             continue
         listing = HERE / str(entry.get("files") or "")
-        missing: list[str] = []
-        for line in (listing.read_text().splitlines() if listing.is_file() else []):
-            if not line.strip() or line.startswith("#"):
-                continue
-            subdir, _, url = line.partition("\t")
-            name = url.strip().rsplit("/", 1)[-1]
-            dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
-            if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
-                missing.append(f"{subdir}/{name}")
+        missing = [f"{sub}/{name}" for sub, name, size in list_entries(listing) if not file_ok(base, sub, name, size)]
         out[model] = {"ready": listing.is_file() and not missing, "missing": missing, "workflow": entry.get("workflow")}
     return out
 
 
 def health(comfy: ComfyClient) -> dict[str, Any]:
     loaded = sorted(p.stem for p in WORKFLOW_DIR.glob("*.json") if p.stem not in ("mapping", "image_models"))
-    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "regen": regen_status(), "remake": remake_status(), "image_models": image_models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
+    return {"ok": True, "comfy": comfy.health(), "models": models_status(), "downloads": downloads_status(), "regen": regen_status(), "remake": remake_status(), "image_models": image_models_status(), "workflows": loaded, "workflow_dir": str(WORKFLOW_DIR)}
 
 
 def handler(event: dict[str, Any], should_cancel: Callable[[], bool] | None = None, report: Callable[[dict[str, Any]], Any] | None = None) -> dict[str, Any]:

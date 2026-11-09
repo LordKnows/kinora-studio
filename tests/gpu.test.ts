@@ -29,7 +29,7 @@ async function memoryDb(): Promise<Db> {
   return db;
 }
 
-type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global"; noresWithVolume?: boolean };
+type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global"; noresWithVolume?: boolean; health?: unknown };
 const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false, volumeKind: "network" };
 const calls: Array<{ method: string; url: string; body?: unknown }> = [];
 const podsV2 = new Map<string, { env?: Record<string, string>; args?: string }>();
@@ -95,7 +95,7 @@ beforeAll(async () => {
     /* the pod's job server through the proxy */
     if (url.includes(".proxy.runpod.net")) {
       if (!scenario.healthy) return new Response("bad gateway", { status: 502 });
-      if (url.endsWith("/health")) return json(200, { ok: true });
+      if (url.endsWith("/health")) return json(200, scenario.health ?? { ok: true });
       if (url.endsWith("/run") || url.endsWith("/assemble")) return json(200, { id: `job-${calls.length}`, status: "IN_QUEUE" });
       if (url.includes("/status/")) return json(200, { id: "job", status: "IN_PROGRESS" });
       if (url.includes("/cancel/")) return json(200, { id: "job", status: "CANCELLED" });
@@ -325,6 +325,30 @@ describe("pod mode", () => {
     expect(create.mounts.network[0]!.volumeId).toBe("vol_eu");
     expect(state.pod).toMatchObject({ dataCenter: "EU-RO-1", name: "cinema-studio-h3" });
     delete process.env.RUNPOD_NETWORK_VOLUMES;
+  });
+
+  it("while the pod downloads models, or lacks a model's files, GPU work is refused with the reason", async () => {
+    await gpu.terminateGpu();
+    scenario.createMode = "ok";
+    await gpu.startGpu(web, true);
+    scenario.health = { ok: true, models: { ready: true }, downloads: { active: true, gb_left: 42.5, current: "models-qie2509.txt qwen_image_edit_2509_fp8_e4m3fn.safetensors 20430698424", failed: [], skipped: [] } };
+    try {
+    await gpu.refreshGpu();
+    const state = await gpu.getGpuState();
+    expect(state.status).toBe("starting");
+    expect(state.message).toMatch(/downloading models: 42\.5 GB left \(now qwen_image_edit_2509_fp8_e4m3fn\.safetensors\)/);
+    await expect(gpu.assertPodCanWork("a take")).rejects.toThrow(/still downloading models \(42\.5 GB left, now qwen_image_edit_2509_fp8_e4m3fn\.safetensors\): a take now would crawl/);
+    /* done downloading, but one file of the model failed */
+    scenario.health = { ok: true, models: { ready: true }, downloads: { active: false, gb_left: 20.4, failed: ["models-qie2509.txt qwen_image_edit_2509_fp8_e4m3fn.safetensors"], skipped: [] },
+      image_models: { "qwen-image-edit-2509": { ready: false, missing: ["diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors"] }, "qwen-image-2.1-turbo": { ready: true, missing: [] } } };
+    await expect(gpu.assertPodCanWork("a picture", { id: "qwen-image-edit-2509", label: "Qwen-Image-Edit 2509" })).rejects.toThrow(/Qwen-Image-Edit 2509 is not on the GPU pod whole yet \(missing: qwen_image_edit_2509_fp8_e4m3fn\.safetensors; the last download failed for qwen_image_edit_2509_fp8_e4m3fn\.safetensors\)\. Restart the pod/);
+    await expect(gpu.assertPodCanWork("a picture", { id: "qwen-image-2.1-turbo", label: "Qwen-Image 2.1 Turbo" })).resolves.toBeUndefined();
+    await expect(gpu.assertPodCanWork("a take")).resolves.toBeUndefined();
+    await gpu.refreshGpu();
+    expect((await gpu.getGpuState()).status).toBe("running");
+    } finally {
+      scenario.health = undefined;
+    }
   });
 
   it("RUNPOD_VOLUME_FALLBACK=none waits for the volume's data center instead", async () => {

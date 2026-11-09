@@ -240,8 +240,11 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
      里能跑 H3 视频的几种；H100 / H200 只在退路上用得到。
      - **建卷**：RunPod → Storage → New Network Volume，数据中心 EU-RO-1，250 GB（模型约 145 GB，
        Viggle Remake 两个模型按需再下约 42 GB，LoRA 和 Codex 登录也在卷上；以后可以扩容）。
-       第一次开机时 Pod 自动把 `models.txt`、2K 重生成、Qwen-Image 2.1 和 2509 全部下到卷上
-       （H3 那部分下完才显示 running，其余在后台继续），以后开机零下载。
+       第一次开机时 Pod 把 `models.txt`、2509、Qwen-Image 2.1、2K 重生成一个接一个下到卷上；
+       **每次开机都会按清单里的字节数核对一遍**：大小对的跳过（只读一下大小，几秒钟），缺的、
+       断掉的、大小不对的接着下，某个文件失败不会影响后面的。下载进行中 Pod 显示「starting:
+       downloading models: N GB left」，这期间 Studio 会直接拒绝视频、2K、Remake 和 GPU 上的图片
+       （提示原因），等下完再做——边下边画会互相拖慢。下完以后开机基本零下载。
      - **容器盘**：挂卷的 Pod 只在容器盘上放 ComfyUI、venv 和输出，按 `RUNPOD_VOLUME_CONTAINER_DISK_GB`
        （默认 80）建；没挂卷的 Pod 仍按 `RUNPOD_CONTAINER_DISK_GB`（200）。
      - **退路**：卷所在的数据中心里列表上的 GPU 都没货时，Studio 在任意数据中心起一个不挂卷的 Pod

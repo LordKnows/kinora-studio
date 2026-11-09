@@ -2,7 +2,7 @@ import { assertConfirmed } from "./checkpoints";
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
-import { PodBackend } from "./backends/pod";
+import { PodBackend, type PodDownloads } from "./backends/pod";
 import { KNOWN_GPU_TYPES, KNOWN_GPU_TYPE_SET, RunPodPodsClient, podProxyUrl, type GpuType } from "./backends/runpod-pods";
 import type { Actor, GpuTypeStats } from "./types";
 
@@ -328,6 +328,39 @@ export async function terminateGpu(): Promise<GpuState> {
   const uptime = pod.status === "running" || pod.status === "starting" ? Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000)) : 0;
   await repo.updateGpuPod(pod.id, { status: "terminated", message: null, stoppedAt: Date.now(), startedAt: null, accumulatedSeconds: pod.accumulatedSeconds + uptime });
   return getGpuState();
+}
+
+/** What the GPU pod says right now (/health), or undefined when there is no pod up to ask (or it does not answer in 8 s). */
+async function livePodHealth(): Promise<{ downloads?: PodDownloads; image_models?: Record<string, { ready?: boolean; missing?: string[] }> } | undefined> {
+  const pod = await repo.currentGpuPod();
+  if (!pod?.hostUrl || (pod.status !== "running" && pod.status !== "starting")) return undefined;
+  const ask = new PodBackend({ hostUrl: pod.hostUrl, token: config.runpodPod().workerToken }).health().catch(() => undefined);
+  const h = await Promise.race([ask, new Promise<undefined>((r) => setTimeout(() => r(undefined), 8000))]);
+  return h?.detail && typeof h.detail === "object" ? (h.detail as never) : undefined;
+}
+
+/**
+ * Refuse work the GPU pod should not take now, with the reason the user
+ * sees: while its boot chain downloads models (a render or a picture would
+ * read from the disk being written, crawl, and slow the download), or, for
+ * an image model, while that model's files are not on it whole. A pod that
+ * is off or does not answer is not asked: the work queues as before.
+ */
+export async function assertPodCanWork(what: string, imageModel?: { id: string; label: string }): Promise<void> {
+  if (config.runpodMode() !== "pod" || !gpuConfigured()) return;
+  const h = await livePodHealth();
+  const d = h?.downloads;
+  if (d?.active) {
+    const now = d.current ? `, now ${d.current.split(" ")[1] ?? d.current}` : "";
+    throw new StudioError("validation", `The GPU pod is still downloading models (${d.gb_left ?? "?"} GB left${now}): ${what} now would crawl and slow the download. Try again when it is done — the GPU panel shows the progress.`, { downloading: d });
+  }
+  const m = imageModel ? h?.image_models?.[imageModel.id] : undefined;
+  if (imageModel && m && m.ready === false) {
+    const missing = (m.missing ?? []).map((f) => f.split("/").pop()).join(", ");
+    const failed = (d?.failed ?? []).length ? `; the last download failed for ${(d!.failed ?? []).map((f) => f.split(" ")[1] ?? f).join(", ")}` : "";
+    const skipped = (d?.skipped ?? []).length ? `; skipped for lack of disk room: ${(d!.skipped ?? []).map((f) => f.replace(/^skipped /, "")).join(", ")}` : "";
+    throw new StudioError("validation", `${imageModel.label} is not on the GPU pod whole yet (missing: ${missing}${failed}${skipped}). Restart the pod (Stop, then Start): every boot fetches what is missing or cut off.`, { missing: m.missing });
+  }
 }
 
 export async function touchGpuActivity(): Promise<void> {

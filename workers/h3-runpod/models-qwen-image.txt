@@ -1,5 +1,5 @@
-# Qwen-Image 2.1 Turbo for Canvas (Comfy-Org's ComfyUI repackage, ≈17 GB): ComfyUI subdir<TAB>URL. Downloaded after the core set when QWEN_IMAGE=1 (the default).
+# Qwen-Image 2.1 Turbo for Canvas (Comfy-Org's ComfyUI repackage, ≈17 GB): ComfyUI subdir<TAB>URL<TAB>bytes. Downloaded after the core set when QWEN_IMAGE=1 (the default).
 # Qwen Research License: non-commercial use only (https://huggingface.co/Qwen/Qwen-Image-2.1/blob/main/LICENSE).
-diffusion_models	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
-text_encoders	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors
-vae	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors
+diffusion_models	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors	7256787829
+text_encoders	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors	9350798360
+vae	https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors	675509688

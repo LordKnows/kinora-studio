@@ -9,6 +9,9 @@ import type { BackendStatus, GenerationBackend } from "./types";
 
 export type PodBackendOptions = { hostUrl: string; token: string; fetch?: typeof fetch; kind?: "video" | "assemble" };
 
+/** The pod's boot-time download chain, as its /health says (handler.py downloads_status). */
+export type PodDownloads = { active?: boolean; current?: string | null; gb_left?: number; missing?: string[]; failed?: string[]; skipped?: string[] };
+
 export class PodBackend implements GenerationBackend {
   private readonly fetchImpl: typeof fetch;
   private readonly runPath: string;
@@ -58,10 +61,14 @@ export class PodBackend implements GenerationBackend {
       says which half is still missing so the pod card can show it. */
   async health(): Promise<{ ok: boolean; why?: string; detail?: unknown }> {
     try {
-      const payload = (await this.call("GET", "/health")) as { ok?: unknown; comfy?: { reachable?: unknown; status?: unknown; error?: unknown }; models?: { ready?: unknown; missing?: unknown; dir?: unknown } };
+      const payload = (await this.call("GET", "/health")) as { ok?: unknown; comfy?: { reachable?: unknown; status?: unknown; error?: unknown }; models?: { ready?: unknown; missing?: unknown; dir?: unknown }; downloads?: PodDownloads };
       if (payload?.ok !== true) return { ok: false, why: "job server answered without ok", detail: payload };
       const comfy = payload.comfy;
       if (comfy && comfy.reachable === false) return { ok: false, why: `job server up; ComfyUI not answering yet${comfy.error ? ` (${String(comfy.error).slice(0, 120)})` : comfy.status ? ` (HTTP ${comfy.status})` : ""}`, detail: payload };
+      /* the boot chain still fetches models (start.sh): the pod is not ready for work — a render or a picture now
+         would read from the disk being written to, crawl, and slow the download */
+      const dl = payload.downloads;
+      if (dl?.active) return { ok: false, why: `downloading models: ${dl.gb_left ?? "?"} GB left${dl.current ? ` (now ${String(dl.current).split(" ")[1] ?? dl.current})` : ""} — work waits until it is done`, detail: payload };
       const models = payload.models;
       if (models && models.ready === false) {
         const missing = Array.isArray(models.missing) ? models.missing.map(String) : [];

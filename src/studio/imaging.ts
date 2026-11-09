@@ -168,6 +168,11 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
   /* crop and extract are not drawn by a model: any painter takes them */
   const backend = req.op === "paint" ? req.backend ?? findModel(req.model ?? "")?.backend ?? "codex" : "codex";
   const podModel = backend.startsWith("comfy:");
+  /* a model on the GPU pod: not while the pod downloads models, nor before this model's files are there whole */
+  if (podModel) {
+    const m = findModel(req.model ?? "") ?? { id: backend.slice("comfy:".length), label: backend.slice("comfy:".length) };
+    await gpu.assertPodCanWork("a picture", { id: m.id, label: m.label });
+  }
   /* an API model whose key nobody has: the CPU painter pod would start for a picture it cannot draw */
   if (backend === "qwen" && !painter.qwenApiKeyOnWorker() && !(await painter.runnerSummary("paint", "qwen")).ready) {
     throw new StudioError("validation", `${findModel(req.model ?? "")?.label ?? "Qwen-Image 3.0 Pro"} needs TOKENSAIL_API_KEY (or DASHSCOPE_API_KEY) as a Worker secret (Cloudflare → Workers → Settings → Variables and Secrets); the CPU painter pod gets it when it starts`);

@@ -685,8 +685,8 @@ def models_dir() -> Path:
     return Path("/workspace/runpod-slim/ComfyUI/models")
 
 
-def model_files(entry: dict[str, Any]) -> list[tuple[str, str]]:
-    """(subdir, file name) of every weight the model needs, from its download list."""
+def model_files(entry: dict[str, Any]) -> list[tuple[str, str, int | None]]:
+    """(subdir, file name, bytes) of every weight the model needs, from its download list (subdir<TAB>URL<TAB>bytes)."""
     listing = POD_DIR / str(entry.get("files") or "")
     if not listing.is_file():
         return []
@@ -694,29 +694,45 @@ def model_files(entry: dict[str, Any]) -> list[tuple[str, str]]:
     for line in listing.read_text().splitlines():
         if not line.strip() or line.startswith("#"):
             continue
-        subdir, _, url = line.partition("\t")
-        out.append((subdir.strip(), url.strip().rsplit("/", 1)[-1]))
+        cols = [c.strip() for c in line.split("\t")]
+        if len(cols) < 2:
+            continue
+        size = int(cols[2]) if len(cols) > 2 and cols[2].isdigit() else None
+        out.append((cols[0], cols[1].rsplit("/", 1)[-1], size))
     return out
 
 
 def missing_files(entry: dict[str, Any], base: Path | None = None) -> list[str]:
+    """The model's weights that are not on the pod whole: absent, or not the list's size (a cut-off download)."""
     base = base or models_dir()
     files = model_files(entry)
     if not files:
         return ["(no download list)"]
     missing = []
-    for subdir, name in files:
+    for subdir, name, size in files:
         # unet and diffusion_models are the same folder type to ComfyUI
         dirs = [subdir] + (["unet"] if subdir == "diffusion_models" else ["diffusion_models"] if subdir == "unet" else [])
-        if not any((base / d / name).is_file() and (base / d / name).stat().st_size > 1_000_000 for d in dirs):
+        whole = lambda p: p.is_file() and ((p.stat().st_size == size) if size else p.stat().st_size > 1_000_000)  # noqa: E731
+        if not any(whole(base / d / name) for d in dirs):
             missing.append(f"{subdir}/{name}")
     return missing
 
 
+def pod_downloading() -> bool:
+    """Whether the pod's boot-time download chain still runs (start.sh fetch_models writes its pid)."""
+    pid_file = Path(os.environ.get("DOWNLOAD_STATE_DIR", "/app/downloads")) / "chain.pid"
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (OSError, ValueError):
+        return False
+    return Path(f"/proc/{pid}").exists() if Path("/proc").is_dir() else True
+
+
 def comfy_backends(http: Any = requests) -> list[str]:
-    """The image models this pod can draw now (comfy:<id>): ComfyUI answers and every weight is on disk."""
+    """The image models this pod can draw now (comfy:<id>): ComfyUI answers, every weight is on disk whole,
+    and no download runs — a picture read from the disk the models are being written to crawls and slows both."""
     models = image_models()
-    if not models:
+    if not models or pod_downloading():
         return []
     try:
         if not http.get(f"{COMFY_URL}/system_stats", timeout=5).ok:
