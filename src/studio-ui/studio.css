@@ -1144,11 +1144,13 @@ button.st-pill {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
 }
+/* the whole picture, never cropped: a 9:16 frame in a 16:9 cell keeps its
+   top and bottom and leaves the sides empty */
 .studio .st-thumb img,
 .studio .st-thumb video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 .studio .st-thumb-tag {
@@ -1312,7 +1314,7 @@ button.st-pill {
 .studio .st-shot-media video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 .studio .st-shot-index {
@@ -1563,7 +1565,7 @@ button.st-pill {
 .studio .st-clip-thumb video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 .studio .st-roughcut-video {

@@ -8,8 +8,8 @@ import type { Asset } from "@/studio/types";
 
 import { get, post } from "./api";
 import { Button, Empty, ErrorBanner, Field, Modal, Section, UploadButton, useAction } from "./common";
-import { EditRegion, hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
-import { PictureCaption, pictureTitle, SelectBar, SelectMark, useDeletePictures, usePictureSelection } from "./pictures";
+import { hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
+import { PictureCaption, pictureTitle } from "./pictures";
 import { useProjectContext } from "./shell";
 
 /*
@@ -19,8 +19,8 @@ import { useProjectContext } from "./shell";
  *     mode reads the element sheets (and an optional reference frame).
  *     Keyframe mode is either ONE hero frame (I2VA) or a FIRST and an END
  *     frame (FL2VA): only the slots of the chosen kind are shown. A slot shows
- *     its picture large (click: full size), and choose / upload / edit a
- *     region / take it off the shot / delete the picture.
+ *     its whole picture (click: full size), and choose / upload. Editing a
+ *     region and deleting a picture live on the Pictures page.
  *  2. Generate a frame — a separate card: which frame, then how: from scratch
  *     (the shot's description, staging and the element sheets) or from a
  *     picture you choose (edited into this shot's frame); a crop when that is
@@ -126,11 +126,9 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
 /* ---------- one frame of the shot ---------- */
 
 function FrameSlot({ shot, slot, label, hint, aspect, onView, onSet }: { shot: ShotView; slot: Slot; label: string; hint: string; aspect: string; onView: (a: Asset) => void; onSet: (id: string | null) => Promise<void> }) {
-  const { projectId, reload } = useProjectContext();
+  const { projectId } = useProjectContext();
   const asset = slot === "first" ? shot.hero : shot.end;
   const [picking, setPicking] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const del = useDeletePictures(reload);
   return (
     <div className="st-frame-slot">
       <div className="st-row st-row--between">
@@ -152,15 +150,10 @@ function FrameSlot({ shot, slot, label, hint, aspect, onView, onSet }: { shot: S
         </div>
       )}
       {asset ? <PictureCaption asset={asset} /> : <span className="st-muted">{hint}</span>}
-      <ErrorBanner error={del.error} projectId={projectId} onDismiss={del.dismiss} />
       <div className="st-row" style={{ flexWrap: "wrap", gap: 6 }}>
         <Button size="sm" onClick={() => setPicking(true)}>{asset ? "Replace…" : "Choose…"}</Button>
         <UploadButton accept="image/jpeg,image/png,image/webp" projectId={projectId} label="Upload" onUploaded={({ assetId }) => onSet(assetId)} />
-        {asset && <Button size="sm" kind="quiet" onClick={() => setEditing((e) => !e)}>Edit a region</Button>}
-        {asset && <Button size="sm" kind="quiet" onClick={() => void onSet(null)} title="Take it off this shot; the picture stays in Pictures">Take off this shot</Button>}
-        {asset && <Button size="sm" kind="danger" busy={del.busy} onClick={() => void del.fire([asset.id])} title="Delete the picture itself (from every place it is used)">Delete picture</Button>}
       </div>
-      {editing && asset && <EditRegion asset={asset} attach={slot === "first" ? { heroOf: shot.id } : { endOf: shot.id }} onClose={() => setEditing(false)} />}
       {picking && <PicturePicker title={`Choose the ${label.toLowerCase().replace(" (optional)", "")}`} current={asset?.id} onPick={(id) => { setPicking(false); void onSet(id); }} onClose={() => setPicking(false)} />}
     </div>
   );
@@ -255,7 +248,7 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
           {base ? (
             <span className="st-row" style={{ gap: 8 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={(base.meta.previewUrl as string | undefined) ?? base.url} alt="" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 6 }} />
+              <img src={(base.meta.previewUrl as string | undefined) ?? base.url} alt="" style={{ width: 72, height: 72, objectFit: "contain", background: "#000", borderRadius: 6 }} />
               <span>Starting from <strong>{pictureTitle(base)}</strong></span>
             </span>
           ) : (
@@ -291,23 +284,21 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
 
 /* ---------- popups ---------- */
 
-/** The project's pictures to pick one from (and to clear out drafts: Select → Delete). */
+/** The project's pictures to pick one from (editing and deleting them is on the Pictures page). */
 function PicturePicker({ title, current, onPick, onClose }: { title: string; current?: string; onPick: (id: string) => void; onClose: () => void }) {
-  const { view, reload } = useProjectContext();
-  const sel = usePictureSelection();
+  const { view } = useProjectContext();
   const images = (view?.assets ?? []).filter((a) => a.kind === "image" && a.projectId === view?.project.id).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
   return (
-    <Modal title={title} size="lg" onClose={onClose} head={<SelectBar sel={sel} all={images.map((a) => a.id)} onDeleted={reload} />}>
+    <Modal title={title} size="lg" onClose={onClose}>
       {images.length === 0 ? (
         <Empty title="No pictures yet" hint="Upload one, or generate it." />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {images.map((a) => (
             <div key={a.id} className="st-pic">
-              <button type="button" className="st-thumb" aria-pressed={sel.selecting ? sel.selected.includes(a.id) : current === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : onPick(a.id))} title={pictureTitle(a)}>
+              <button type="button" className="st-thumb" aria-pressed={current === a.id} onClick={() => onPick(a.id)} title={pictureTitle(a)}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
-                {sel.selecting && <SelectMark on={sel.selected.includes(a.id)} />}
                 {a.source === "frame-extract" && <span className="st-thumb-tag">TAKE FRAME</span>}
               </button>
               <PictureCaption asset={a} />
@@ -398,7 +389,7 @@ function PhoneCheck({ url, aspect }: { url: string; aspect: string }) {
     <Section title="Phone size">
       <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="the frame at phone size" style={{ width: aspect.startsWith("9") || aspect.startsWith("3 /") ? 110 : 180, aspectRatio: aspect, objectFit: "cover", borderRadius: 4 }} />
+        <img src={url} alt="the frame at phone size" style={{ width: aspect.startsWith("9") || aspect.startsWith("3 /") ? 110 : 180, aspectRatio: aspect, objectFit: "contain", background: "#000", borderRadius: 4 }} />
         <span className="st-muted">The first frame at the size it plays in a feed. Faces and props that matter should still read here.</span>
       </div>
     </Section>

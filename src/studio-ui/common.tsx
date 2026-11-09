@@ -75,13 +75,17 @@ export function Lamp({ state, label }: { state: string; label: string }) {
   );
 }
 
-export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+/** A labelled control. `group` renders a <div> instead of a <label>, for
+    content with buttons in it (Chips): a click anywhere on a <label> is
+    forwarded to its first button, and would remove the first tag. */
+export function Field({ label, children, hint, group }: { label: string; children: ReactNode; hint?: string; group?: boolean }) {
+  const Tag = group ? "div" : "label";
   return (
-    <label className="st-field">
+    <Tag className="st-field" {...(group ? { role: "group", "aria-label": label } : {})}>
       <span className="st-label">{label}</span>
       {children}
       {hint && <span className="st-muted" style={{ marginTop: 4 }}>{hint}</span>}
-    </label>
+    </Tag>
   );
 }
 
@@ -356,12 +360,19 @@ export function UploadButton({
   onUploaded,
   label = "Upload",
   size = "sm",
+  purpose,
+  disabled,
+  title = "Upload from this device",
 }: {
   accept: string;
   projectId: string;
   onUploaded: (asset: { assetId: string; url: string }) => Promise<void> | void;
   label?: string;
   size?: "sm";
+  /** Recorded on the picture (an uploaded style frame is listed with the generated ones). */
+  purpose?: "style_frame";
+  disabled?: boolean;
+  title?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -380,7 +391,7 @@ export function UploadButton({
           setBusy(true);
           setError(null);
           try {
-            await onUploaded(await uploadMedia(file, projectId));
+            await onUploaded(await uploadMedia(file, projectId, purpose));
           } catch (caught) {
             setError(caught instanceof Error ? caught.message : String(caught));
           } finally {
@@ -388,7 +399,7 @@ export function UploadButton({
           }
         }}
       />
-      <Button size={size} busy={busy} onClick={() => input.current?.click()} title="Upload from this device">
+      <Button size={size} busy={busy} disabled={disabled} onClick={() => input.current?.click()} title={title}>
         <UploadIcon size={12} /> {busy ? "Uploading…" : label}
       </Button>
       {error && <span className="st-muted st-danger">{error}</span>}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TimelineInput } from "@/studio/schemas";
 import type { ExportJob } from "@/studio/types";
@@ -11,6 +11,10 @@ import { RoughCut } from "./rough-cut";
 import { useProjectContext } from "./shell";
 
 const PRESETS = ["master-768p", "master-upscaled", "social-9x16", "preview-480p"] as const;
+
+/* The default timeline (and Reset): the selected take of every shot, in board
+   order, each from 0 s to the end of its take. */
+const DEFAULT_BUILD = { selectedOnly: true, fullLength: true };
 
 export function TimelinePage() {
   const { projectId, view, reload } = useProjectContext();
@@ -50,12 +54,21 @@ export function TimelinePage() {
     setDirty(false);
     await reload();
   });
-  const auto = useAction(async () => {
-    const { timeline: next } = await post<{ timeline: TimelineInput }>(`/api/projects/${projectId}/timeline/auto`);
+  const reset = useAction(async (_c, ask: boolean) => {
+    if (ask && timeline?.clips.length && !window.confirm("Reset the timeline? Every selected take joins in board order, from 0 s at its full length; the current order, trims and transitions are replaced.")) return;
+    const { timeline: next } = await post<{ timeline: TimelineInput }>(`/api/projects/${projectId}/timeline/auto`, DEFAULT_BUILD);
     setTimeline(next);
     setDirty(false);
     await reload();
   });
+  /* an empty saved timeline starts as the default one, once per visit */
+  const built = useRef(false);
+  const hasSelected = (view?.scenes ?? []).some((sc) => sc.shots.some((sh) => sh.selectedTake?.status === "completed"));
+  useEffect(() => {
+    if (built.current || !view || !hasSelected || view.timeline.clips.length > 0) return;
+    built.current = true;
+    void reset.fire(false);
+  }, [view, hasSelected, reset]);
   const exportNow = useAction(async (confirm) => {
     if (dirty && timeline) await put(`/api/projects/${projectId}/timeline`, timeline);
     setDirty(false);
@@ -107,18 +120,18 @@ export function TimelinePage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Timeline</h1>
-          <p className="st-subtitle">Order the picked takes, trim, choose transitions, then export. {timeline.clips.length} clips · {total.toFixed(1)} s.</p>
+          <p className="st-subtitle">Every selected take joined in board order, each from 0 s at its full length. Reorder, trim, choose transitions, then export. {timeline.clips.length} clips · {total.toFixed(1)} s.</p>
         </div>
         <div className="st-actions">
-          <Button kind="quiet" busy={auto.busy} onClick={() => void auto.fire()}>
-            Auto build
+          <Button kind="quiet" busy={reset.busy} onClick={() => void reset.fire(true)} title="Rebuild from the selected take of every shot, from 0 s at full length">
+            Reset
           </Button>
           <Button kind="primary" busy={save.busy} disabled={!dirty} onClick={() => void save.fire()}>
             Save timeline
           </Button>
         </div>
       </div>
-      <ErrorBanner error={save.error ?? auto.error ?? exportNow.error ?? snap.error ?? checkSubs.error} projectId={projectId} onConfirm={exportNow.error ? () => void exportNow.confirm() : undefined} onDismiss={() => { save.dismiss(); auto.dismiss(); exportNow.dismiss(); snap.dismiss(); checkSubs.dismiss(); }} />
+      <ErrorBanner error={save.error ?? reset.error ?? exportNow.error ?? snap.error ?? checkSubs.error} projectId={projectId} onConfirm={exportNow.error ? () => void exportNow.confirm() : undefined} onDismiss={() => { save.dismiss(); reset.dismiss(); exportNow.dismiss(); snap.dismiss(); checkSubs.dismiss(); }} />
       {exportNote && (
         <div className="st-alert st-alert--warn" style={{ marginBottom: 16 }}>
           <span>{exportNote.join(" ")}</span>
@@ -127,9 +140,9 @@ export function TimelinePage() {
       )}
 
       {timeline.clips.length === 0 ? (
-        <Empty title="Empty timeline" hint="Auto build takes the selected take of every shot in board order.">
-          <Button busy={auto.busy} onClick={() => void auto.fire()}>
-            Auto build
+        <Empty title="Empty timeline" hint={hasSelected ? "Reset joins the selected take of every shot in board order." : "No shot has a selected take yet: pick one per shot on the Board (Use this take) and it joins the timeline."}>
+          <Button busy={reset.busy} disabled={!hasSelected} onClick={() => void reset.fire(false)}>
+            Reset
           </Button>
         </Empty>
       ) : (
@@ -221,7 +234,7 @@ export function TimelinePage() {
         </div>
         <div className="st-card st-stack">
           <span className="st-h2">Audio mix</span>
-          <Field label="Music track">
+          <Field label="Music track" group>
             <UploadButton accept="audio/mpeg,audio/wav,audio/x-wav" projectId={projectId} label="Upload music" onUploaded={async ({ assetId }) => { await reload(); set({ ...timeline, music: assetId }); }} />
             <select className="st-select" value={timeline.music ?? ""} onChange={(e) => set({ ...timeline, music: e.target.value || undefined })}>
               <option value="">None</option>

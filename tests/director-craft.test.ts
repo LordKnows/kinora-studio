@@ -227,6 +227,15 @@ describe("reviews, guards, envelope, timeline", () => {
     expect(tl.clips[0]!.inS).toBe(0);
     expect(tl.clips[0]!.muteOwnAudio).toBe(true);
     expect(tl.clips[1]!.inS).toBeCloseTo(2 / 24, 3);
+
+    /* the web Timeline's default: picked takes only, each from 0 s to the end of its take */
+    const picked = await orch.autoTimeline(projectId, { selectedOnly: true, fullLength: true });
+    expect(picked.clips.map((c) => c.takeId)).toEqual([t1.id]);
+    await orch.selectTake(s2, t2.id);
+    const full = await orch.autoTimeline(projectId, { selectedOnly: true, fullLength: true });
+    expect(full.clips.map((c) => c.inS)).toEqual([0, 0]);
+    expect(full.clips[1]!.outS).toBeCloseTo(5.17, 3);
+    await orch.autoTimeline(projectId);
   });
 
   it("flags a seam whose anchor pick changed after the linked shot rendered", async () => {

@@ -570,20 +570,24 @@ export const HEAD_TRIM_FRAMES = 2;
  * Frame-driven takes drop their first frames; a shot with screenS plays that
  * long and keeps the rest as handles; FL2VA takes can lose a tail where the
  * model snaps onto the end frame (tailTrimS, off until measured).
+ *
+ * The web Timeline's default (and its Reset) is plainer: `selectedOnly` joins
+ * only the shots whose take was picked, and `fullLength` plays every clip
+ * from 0 s to the end of its take, with no head, tail or screenS trim.
  */
-export async function autoTimeline(projectId: string, opts?: { tailTrimS?: number; headFrames?: number }): Promise<Timeline> {
+export async function autoTimeline(projectId: string, opts?: { tailTrimS?: number; headFrames?: number; selectedOnly?: boolean; fullLength?: boolean }): Promise<Timeline> {
   const view = await getProjectView(projectId);
   const clips: TimelineInput["clips"] = [];
   const headS = (opts?.headFrames ?? HEAD_TRIM_FRAMES) / 24;
   for (const scene of view.scenes) {
     for (const shot of scene.shots) {
-      const take = shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
-      if (!take) continue;
+      const take = opts?.selectedOnly ? shot.selectedTake : shot.selectedTake ?? shot.takes.find((t) => t.status === "completed");
+      if (!take || take.status !== "completed") continue;
       const fromFrame = take.workflow === "I2VA" || take.workflow === "FL2VA";
       const length = Math.min(15, take.outputSeconds ?? shot.spec.durationS);
-      const inS = fromFrame ? round3(headS) : 0;
-      let outS = length - (take.workflow === "FL2VA" ? (opts?.tailTrimS ?? 0) : 0);
-      if (shot.spec.screenS) outS = Math.min(outS, inS + shot.spec.screenS);
+      const inS = fromFrame && !opts?.fullLength ? round3(headS) : 0;
+      let outS = length - (take.workflow === "FL2VA" && !opts?.fullLength ? (opts?.tailTrimS ?? 0) : 0);
+      if (shot.spec.screenS && !opts?.fullLength) outS = Math.min(outS, inS + shot.spec.screenS);
       clips.push({
         shotId: shot.id, takeId: take.id, inS, outS: round3(Math.max(inS + 0.5, outS)), transition: "cut", repeat: 1, speed: 1,
         muteOwnAudio: take.review?.audioOk === false,

@@ -582,7 +582,7 @@ export function CanvasPage() {
           <Section title="Picture">
             <ModelPicker model={model} status={modelStatus.find((m) => m.id === model.id)} gpu={gpuStatus} resolved={resolved}
               loras={model.runtime === "pod" && library?.some((l) => l.baseModel === model.family) ? (
-                <Field label="LoRAs" hint="Picking one applies its card's settings">
+                <Field label="LoRAs" hint="Picking one applies its card's settings" group>
                   <LoraPicker compact family={model.family} adult={adult} value={(recipe.loras ?? []).filter((r) => library?.find((l) => l.id === r.id)?.baseModel === model.family)} onChange={(next) => setRecipe((r) => ({ ...r, loras: next }))} />
                 </Field>
               ) : null}

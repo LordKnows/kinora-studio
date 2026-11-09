@@ -256,7 +256,7 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
         <Field label="Trigger words" hint="Appended to the LOOK block when this LoRA is active.">
           <input className="st-input" value={draft.triggerWords} onChange={(e) => set("triggerWords", e.target.value)} placeholder="anime style, flat shading" />
         </Field>
-        <Field label="Workflows" hint="None selected = applies to every workflow.">
+        <Field label="Workflows" hint="None selected = applies to every workflow." group>
           <div className="st-chips">
             {WORKFLOWS.map((w) => (
               <button key={w} type="button" className="st-chip st-chip--btn" aria-pressed={draft.workflows.includes(w)} onClick={() => toggleWorkflow(w)}>

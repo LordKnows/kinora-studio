@@ -24,5 +24,5 @@ export const POST = route(["web"], async (req) => {
   if (!(await objectExists(input.key))) throw new StudioError("validation", "object not found in the bucket; upload first");
   if (input.projectId) await repo.getProject(input.projectId);
   const size = input.kind === "image" ? await headerSize(input.key) : {};
-  return { asset: await repo.createAsset({ projectId: input.projectId ?? null, url: publicUrl(input.key), kind: input.kind, source: "upload", ...size, meta: { key: input.key }, name: nameOfUploadKey(input.key) }) };
+  return { asset: await repo.createAsset({ projectId: input.projectId ?? null, url: publicUrl(input.key), kind: input.kind, source: "upload", ...size, meta: { key: input.key, ...(input.kind === "image" && input.purpose ? { purpose: input.purpose } : {}) }, name: nameOfUploadKey(input.key) }) };
 });

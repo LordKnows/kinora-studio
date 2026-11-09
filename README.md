@@ -242,12 +242,16 @@ installs the node packs and downloads the ~21 GB of weights at boot
 
 Top bar on every surface (project crumb, GPU pill, Projects / Canvas / Library /
 Machine / Connect). Inside a project the rail follows the order of work:
-**1 Brief & style** (brief, running time, a style preset compiled into the
-Look), **2 Script** (versions, rendered markdown, approval), **3 Elements**,
-**4 Board** (shot cards with cinematography codes, link and lint badges; Lint,
+**1 Brief & style** (brief and running time; the style, a preset compiled
+into its fields; aspect ratio; LoRAs; up to three style frames, generated or
+uploaded — each card saves on its own), **2 Script** (versions, rendered
+markdown, approval), **3 Elements**, **4 Board** (shot cards with cinematography codes, link and lint badges; Lint,
 Apply style and Render batch in the toolbar; the shot drawer), **5 Finals**
-(the pick per shot, Regenerate 2K, blind A/B), **6 Timeline** (clips, rough
-cut, beat grid, audio mix, subtitles check, export). Global pages: Canvas
+(the pick per shot at the size it was rendered at; all picks regenerated at
+1080p / 2K / 4K in one go), **6 Timeline** (every selected take from 0 s at
+full length by default, Reset to rebuild; rough cut, beat grid, audio mix,
+subtitles check, export). Pictures lists every picture; editing a region of
+one happens there. Global pages: Canvas
 (compose a character from the reference library, below), Library
 (styles + LoRAs), Machine (the pod), Connect (MCP). Geist Sans / Geist Mono,
 one accent reserved for the primary action, the selection and "running".
