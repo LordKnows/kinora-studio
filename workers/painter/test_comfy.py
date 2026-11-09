@@ -185,6 +185,18 @@ def test_a_job_fills_the_graph_in_order_and_drops_unused_slots(tmp_path, weights
     assert g["22"]["inputs"]["noise_seed"] == 7 and g["25"]["inputs"]["cfg"] == 1.0 and g["24"]["inputs"]["sigmas"] == "1, 0.5, 0"
 
 
+def test_text_to_image_drops_every_picture_slot(tmp_path, weights):
+    """Canvas text to image: no picture, every loader and image input goes; the prompt alone steers."""
+    comfy = FakeComfy()
+    img = paint.run_comfy("qwen-image-2.1-turbo", "a rooftop after rain, neon in the puddles", [], 1024, 1536, {}, comfy)
+    assert img.size == (1024, 1536)
+    g = comfy.queued[0]
+    assert not any(n in g for n in ("31", "32", "33", "34", "35", "36", "37", "38", "39", "40"))
+    assert not [k for k in g["20"]["inputs"] if k.startswith("images.")]
+    assert comfy.uploads == []
+    assert g["20"]["inputs"]["prompt"] == "a rooftop after rain, neon in the puddles"
+
+
 def test_the_preflight_names_what_this_comfyui_lacks(tmp_path, weights):
     with pytest.raises(paint.PaintError, match="lacks the nodes TextEncodeQwenImage21"):
         paint.run_comfy("qwen-image-2.1-turbo", "a prompt", pictures(tmp_path, 1), 1024, 1024, {}, FakeComfy(missing_node="TextEncodeQwenImage21"))

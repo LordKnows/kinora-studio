@@ -443,3 +443,33 @@ describe("whose face a picture shows (18+ needs AI-generated faces)", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: done2.assetIds[0]! }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`${face.handle} is an uploaded or imported picture`);
   });
 });
+
+describe("text to image (Canvas)", () => {
+  const writer: Actor = { user: "text@local", via: "web" };
+  let projectId = "";
+
+  it("draws from a description alone, with the style line and no pictures", async () => {
+    const text = buildCanvasPrompt({ text: "雨后的天台，霓虹倒映在积水里", style: "film", note: "半身" });
+    expect(text.split("\n")[0]).toBe("雨后的天台，霓虹倒映在积水里");
+    expect(text).toContain("• 补充要求：半身");
+    expect(text).toContain("35mm 富士胶片摄影质感");
+    expect(text).toContain("画面中如有人物，均为成年人。");
+    expect(text).not.toContain("图1");
+    /* beside references it is the scene */
+    expect(buildCanvasPrompt({ portrait: { upload: { name: "me" } }, text: "海边日落" })).toContain("• 画面内容：海边日落");
+    projectId = (await repo.createProject({ name: "Text" })).id;
+    await imaging.setImaging(projectId, { enabled: true }, writer);
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ text: "雨后的天台，霓虹倒映在积水里", style: "film" }), writer);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.refUrls).toEqual([]);
+    expect(String(job.input.prompt)).toContain("雨后的天台");
+    expect(job.input.label).toBe("canvas · text: 雨后的天台，霓虹倒映在积水里");
+    expect((job.input.canvas as { text?: string }).text).toBe("雨后的天台，霓虹倒映在积水里");
+  });
+
+  it("needs a description, and not with Qwen-Image-Edit 2509", async () => {
+    await expect(composeCharacter(projectId, CanvasCompose.parse({}), writer)).rejects.toThrow(/describe the picture/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a street at night", model: "qwen-image-edit-2509" }), writer)).rejects.toThrow(/not from text alone/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a street at night", model: "qwen-image-2.1-turbo" }), writer)).resolves.toMatchObject({ model: "qwen-image-2.1-turbo" });
+  });
+});

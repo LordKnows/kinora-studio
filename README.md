@@ -299,6 +299,10 @@ The director gets the same library through `list_references`,
   a mannequin or line art, 深度 a depth map). A project character can stand
   in for the portrait (its sheet is the face and, without a costume, the
   outfit).
+- **Text to image (文生图).** Switch the recipe to *文生图 · Text* and
+  describe the picture: no reference is needed, and the style, size, model
+  and LoRAs still apply (GPT Image, Qwen-Image 3.0 Pro, Qwen-Image 2.1 —
+  not Qwen-Image-Edit 2509, which composes a pose from pictures).
 - **Two people (双人).** Person A and person B each get a portrait and a
   costume (or a project character), with one two-person pose — the library's
   双人 poses or an upload — and *Person A in the pose* says which figure is

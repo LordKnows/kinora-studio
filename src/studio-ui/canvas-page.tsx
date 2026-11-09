@@ -32,6 +32,9 @@ type Recipe = {
   mirror?: boolean;
   /** An uploaded pose: a photo of a person, a mannequin (白模) or a depth map. */
   posePicture?: PosePicture;
+  /** Text to image (文生图): no reference picture, the text is the picture. */
+  mode?: "refs" | "text";
+  text?: string;
   /** Two people (双人): person B's face and outfit, and which figure of the pose is person A. */
   two?: boolean;
   partner?: { portrait?: Slot<RefPortrait>; costume?: Slot<RefCostume> & { view?: string } };
@@ -108,6 +111,7 @@ function toPromptRecipe(r: Recipe, refStyle: "zh" | "qwen" | undefined, elements
     ...(r.two ? { partner: person(r.partner?.portrait, r.partner?.costume, r.characterB, r.nameB), aIs: r.aIs ?? "left" } : {}),
     pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror, picture: r.posePicture ?? "photo" }),
     extras: r.extras.map((e) => ({ name: e.name })),
+    ...(r.mode === "text" && r.text?.trim() ? { text: r.text } : {}),
     style: r.style,
     note: r.note,
     refStyle,
@@ -246,7 +250,7 @@ export function CanvasPage() {
   const castA = recipe.characterA && elements.some((e) => e.id === recipe.characterA) ? recipe.characterA : undefined;
   const castB = recipe.two && recipe.characterB && elements.some((e) => e.id === recipe.characterB) ? recipe.characterB : undefined;
   const personB = recipe.two ? [castB ?? recipe.partner?.portrait, recipe.partner?.costume].filter(Boolean).length : 0;
-  const count = [castA ?? recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + personB + recipe.extras.length;
+  const count = recipe.mode === "text" ? 0 : [castA ?? recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + personB + recipe.extras.length;
   const model: ModelEntry = findModel(recipe.model ?? "") ?? projectImageModel(view?.project.imaging);
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   /* GPT Image's quality tiers; Qwen's API has none */
@@ -259,7 +263,10 @@ export function CanvasPage() {
   }) : [];
   const resolved = resolveParams(model, { loras: activeLoras });
   const adultLora = activeLoras.find((l) => l.adult);
-  const effective: Recipe = { ...recipe, characterA: castA, characterB: castB };
+  const textMode = recipe.mode === "text";
+  const effective: Recipe = textMode
+    ? { ...EMPTY, mode: "text", text: recipe.text, style: recipe.style, note: recipe.note, size: recipe.size }
+    : { ...recipe, characterA: castA, characterB: castB };
   const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(effective, model.refStyle, elements)), [effective, model.refStyle, elements]);
   const prompt = recipe.prompt ?? composed;
   const partnerItems = recipe.two ? [recipe.partner?.portrait?.item, recipe.partner?.costume?.item] : [];
@@ -318,7 +325,7 @@ export function CanvasPage() {
     const onPaste = (e: ClipboardEvent) => {
       if ((e.target as HTMLElement | null)?.closest("input, textarea")) return;
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
-      if (!file) return;
+      if (!file || recipe.mode === "text") return;
       e.preventDefault();
       if (count >= maxRefs) return setError(new Error(`${model.label} takes at most ${maxRefs} pictures per call`));
       if (model.poseRecipe) return setError(new Error(`${model.label} takes no extra pictures: drop it on the portrait, costume or pose`));
@@ -341,7 +348,7 @@ export function CanvasPage() {
     setBusy(true);
     setError(null);
     try {
-      const body = {
+      const refs = textMode ? { text: recipe.text?.trim() ?? "" } : {
         ...(castA ? { character: { elementId: castA } } : { portrait: slotBody(recipe.portrait) }),
         costume: recipe.costume && { ...slotBody(recipe.costume), ...(recipe.costume.item ? { view: recipe.costume.view } : {}) },
         ...(recipe.two ? {
@@ -355,6 +362,9 @@ export function CanvasPage() {
         } : {}),
         pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId, picture: recipe.posePicture ?? "photo" }), ...(recipe.mirror ? { mirror: true } : {}) },
         extras: recipe.extras.map((e) => ({ assetId: e.assetId, name: e.name })),
+      };
+      const body = {
+        ...refs,
         style: recipe.style,
         size: recipe.size,
         model: model.id,
@@ -364,7 +374,7 @@ export function CanvasPage() {
         ...(model.options?.includes("negative_prompt") && recipe.negative?.trim() ? { negativePrompt: recipe.negative.trim() } : {}),
         ...(recipe.note.trim() ? { note: recipe.note.trim() } : {}),
         ...(recipe.prompt?.trim() ? { prompt: recipe.prompt.trim() } : {}),
-        ...(prefs.attach && !recipe.two ? { attach: prefs.attach } : {}),
+        ...(prefs.attach && (textMode || !recipe.two) ? { attach: prefs.attach } : {}),
       };
       const r = await post<Started>(`/api/projects/${projectId}/canvas`, body);
       setJobs((m) => ({ ...m, [r.job.id]: { status: r.job.status, runner: r.painters.ready ? undefined : r.runner } }));
@@ -384,8 +394,13 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; text?: string; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
+    if (!c.refs.length && c.text) {
+      setRecipe({ ...EMPTY, mode: "text", text: c.text, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", note: c.note ?? "", ...(c.model ? { model: c.model } : {}) });
+      setResult(null);
+      return;
+    }
     const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, ...(c.posePicture ? { posePicture: c.posePicture } : {}), ...(c.people === 2 ? { two: true, partner: {}, aIs: c.aIs ?? "left", nameA: c.nameA, nameB: c.nameB } : {}), note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
@@ -412,7 +427,8 @@ export function CanvasPage() {
   /* Qwen-Image-Edit 2509: fixed slots, a pose and a portrait and/or a costume */
   const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : recipe.two ? `${model.label} draws one person: pick GPT Image or Qwen-Image 2.1 for two` : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !castA && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
   const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? "Person A: pick a portrait, a costume or a character" : !personB ? "Person B: pick a portrait, a costume or a character" : "";
-  const blocked = imagingWhy || (count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
+  const textWhy = !textMode ? "" : model.poseRecipe ? `${model.label} draws a pose from pictures, not from text: pick another model for text to image` : !recipe.text?.trim() && !recipe.prompt?.trim() ? "Describe the picture" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "";
+  const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -535,7 +551,16 @@ export function CanvasPage() {
             )}
           </Section>
 
-          <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}><span className="st-muted st-num">{count}/{maxRefs} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button><Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
+          <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}>{textMode ? <span className="st-muted">text to image</span> : <><span className="st-muted st-num">{count}/{maxRefs} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button></>}<Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, mode: r.mode, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
+            <div className="st-seg st-seg--sm" role="group" aria-label="How the picture is made">
+              <button type="button" aria-pressed={!textMode} title="Compose from a portrait, a costume, a pose and more pictures" onClick={() => setRecipe((r) => ({ ...r, mode: "refs" }))}>参考图 · References</button>
+              <button type="button" aria-pressed={textMode} title="Draw from a description alone, no picture" onClick={() => setRecipe((r) => ({ ...r, mode: "text" }))}>文生图 · Text</button>
+            </div>
+            {textMode ? (
+              <Field label="Describe the picture" hint="Who or what, where, the light and the framing; the style, size, model and LoRAs below still apply">
+                <textarea className="st-textarea" rows={5} maxLength={2000} placeholder="例：一位二十多岁的女孩坐在雨后的天台，霓虹倒映在积水里，半身，侧逆光" value={recipe.text ?? ""} onChange={(e) => { const v = e.target.value; setRecipe((r) => ({ ...r, text: v })); }} />
+              </Field>
+            ) : (<>
             <div className="st-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <label className="st-row" style={{ gap: 8 }} title="Two people in one picture: a face and an outfit each (or a project character), in a two-person pose">
                 <input type="checkbox" checked={!!recipe.two} onChange={(e) => { const on = e.target.checked; setRecipe((r) => ({ ...r, two: on })); setFillFor("a"); }} />
@@ -577,6 +602,7 @@ export function CanvasPage() {
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
             {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. A face{recipe.extras.length ? " or extra picture" : ""} you uploaded is refused (it may be a real person); a Studio picture is checked when you generate. Uploaded outfits and poses are fine.</p>}
+            </>)}
           </Section>
 
           <Section title="Picture">

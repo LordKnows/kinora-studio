@@ -60,6 +60,7 @@ export const CanvasCompose = z.object({
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
   loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
   style: z.enum(CANVAS_STYLE_IDS).default("realistic"),
+  text: z.string().max(2000).optional().describe("Text to image: what to draw. With no reference picked it is the whole picture (the style, size, model and LoRAs still apply); beside references it is the scene they go into"),
   note: z.string().max(600).optional().describe("Free text added to the composed prompt"),
   prompt: z.string().min(5).max(4000).optional().describe("Replace the composed prompt entirely"),
   size: z.enum(CANVAS_SIZES).default("1024x1536"),
@@ -147,7 +148,8 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
   if (partner && !partner.portrait && !partner.costume && !partner.character) throw new StudioError("validation", "person B needs a portrait, a costume or a character");
   if (partner && !portrait && !costume && !character) throw new StudioError("validation", "person A needs a portrait, a costume or a character");
-  if (!portrait && !costume && !character && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
+  const textOnly = !portrait && !costume && !character && !pose && !extras.length;
+  if (textOnly && !input.text?.trim() && !input.prompt?.trim()) throw new StudioError("validation", "pick at least one reference (a portrait, a costume, a pose or a picture), or describe the picture (text) to draw it from text alone");
   if (partner && input.attach) throw new StudioError("validation", "a picture of two people is not one character's look: it stays in Pictures (leave attach out)");
   const model = canvasModel(input.model, (await repo.getProject(projectId)).imaging);
   const library = input.loras.length ? await repo.getLoras(input.loras.map((r) => r.id)) : new Map();
@@ -182,6 +184,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   /* Qwen-Image-Edit 2509's graph has fixed slots: portrait, costume, pose (or person + pose) */
   if (model.poseRecipe) {
     if (partner) throw new StudioError("validation", `${model.label} draws one person: for two people pick GPT Image or Qwen-Image 2.1`);
+    if (textOnly) throw new StudioError("validation", `${model.label} draws a pose from pictures, not from text alone: pick GPT Image, Qwen-Image 3.0 Pro or Qwen-Image 2.1 for text to image`);
     if (!pose) throw new StudioError("validation", `${model.label} draws a pose: pick a pose, and a portrait and/or a costume`);
     if (!portrait && !character && !costume) throw new StudioError("validation", `${model.label} needs a portrait or a costume next to the pose`);
     if (extras.length) throw new StudioError("validation", `${model.label} takes only a portrait, a costume and a pose; remove the extra pictures`);
@@ -205,6 +208,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...(partner ? { partner: person(partner, partner.name), aIs: input.aIs } : {}),
     pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth, mirror: input.pose?.mirror } : { upload: { name: pose.label }, mirror: input.pose?.mirror, picture: input.pose?.picture }),
     extras: extras.map((e) => ({ name: e.name || e.asset.name || "" })),
+    ...(input.text?.trim() ? { text: input.text.trim() } : {}),
     style: input.style,
     note: input.note,
     refStyle: model.refStyle,
@@ -223,7 +227,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...slotRef("pose", pose),
     ...extras.map((e) => ({ role: "extra" as const, label: e.name || e.asset.name || "picture", url: e.asset.url, thumb: (e.asset.meta.previewUrl as string | undefined) ?? e.asset.url, assetId: e.asset.id })),
   ];
-  const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || "pictures"}`.slice(0, 80);
+  const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || (input.text?.trim() ? `text: ${input.text.trim()}` : "pictures")}`.slice(0, 80);
   const mirror = pose && input.pose?.mirror ? [refs.findIndex((r) => r.role === "pose")] : [];
   const resolved = model.runtime === "pod" ? resolveParams(model, { loras }) : undefined;
   const params = resolved ? {
@@ -241,7 +245,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), refRoles: refs.map((x) => CANVAS_REF_ROLE[x.role]), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, ...(input.text?.trim() ? { text: input.text.trim() } : {}), size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }
