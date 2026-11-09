@@ -65,6 +65,8 @@ export type CanvasPromptRecipe = CanvasPerson & {
   partner?: CanvasPerson;
   aIs?: Place;
   extras?: Array<{ name: string }>;
+  /** Text to image: what to draw. Alone it is the whole picture; beside references, the scene they go into. */
+  text?: string;
   style?: string;
   note?: string;
   /** How the model names the pictures: 图1, 图2 … (GPT Image), or <image1>, <image2> … (Qwen-Image 2.1). */
@@ -148,16 +150,26 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
     clauses.push(`• 附加参考：融合图${idx}（${extra.name || "补充元素"}）中的元素、配饰、背景或光影细节。`);
     idx++;
   }
-  if (!clauses.length) return "";
+  const text = r.text?.trim();
+  /* text to image: no picture, the description is the picture */
+  if (!clauses.length) {
+    if (!text) return "";
+    const plain = [text];
+    if (r.note?.trim()) plain.push(`• 补充要求：${r.note.trim()}`);
+    if (style.prompt) plain.push(`• 风格：${style.prompt} 比例协调，光影统一。`);
+    plain.push("画面中如有人物，均为成年人。画面中没有任何文字、标志或水印。");
+    return plain.join("\n");
+  }
+  if (text) clauses.push(`• 画面内容：${text}`);
 
   const what = faceless ? "人物穿搭展示图" : two ? (isPhoto ? `真实人物照片，画面中是${people[0]!.name}和${people[1]!.name}两个人` : `人物图像，画面中是${people[0]!.name}和${people[1]!.name}两个人`) : isPhoto ? "真实人物照片" : "人物图像";
   const lines = [`请根据提供的 ${idx - 1} 张参考图，生成一张完整的${what}：`, ...clauses];
   if (r.note?.trim()) lines.push(`• 补充要求：${r.note.trim()}`);
   if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
   lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");
-  const text = lines.join("\n");
+  const out = lines.join("\n");
   /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10> */
-  return r.refStyle === "qwen" ? text.replace(/图(\d+)/g, "<image$1>") : text;
+  return r.refStyle === "qwen" ? out.replace(/图(\d+)/g, "<image$1>") : out;
 }
 
 export const CANVAS_SIZES = ["1024x1536", "1008x1344", "1024x1024", "1536x1024", "1344x768"] as const;
