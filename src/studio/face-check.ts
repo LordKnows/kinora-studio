@@ -33,16 +33,21 @@ export function faceCheckAvailable(): boolean {
   return !!route();
 }
 
-const MAX_BYTES = 7 * 1024 * 1024;
+/* larger pictures go by their URL (the vendor fetches it) */
+const MAX_INLINE = 10 * 1024 * 1024;
 
-const ASK = `You check one picture uploaded to an image tool: are the people in it photographed real humans, or rendered or drawn characters, and do they look adult?
+const ASK = `Look at this picture and say who is in it. It is used as a reference picture in an image tool.
 Answer with JSON only: {"kind": ..., "likeness": ..., "age": ..., "confidence": ..., "reason": ...}
-- kind: "real_photo" (a camera photograph of a real human, filters and retouching included), "photoreal" (looks like a photograph of a human but may be generated or rendered; you cannot be sure it is not a real photo), "render_3d" (visibly a 3D / CG character render: game, Blender, Daz, MetaHuman and the like, stylised or realistic but clearly rendered), "illustration" (drawing, painting, anime, comic, cartoon), or "no_face" (no human or humanoid face in the picture).
-- likeness: true when the face is a recognisable real person (a celebrity, a public figure), whether photographed, rendered or drawn; else false.
-- age: "adult" when every person clearly looks 18 or older, "minor" when anyone looks under 18, "unclear" otherwise.
+- kind:
+  "no_face": no human face large and clear enough to copy — a landscape, a room, an object, a creature, or a scene (a game scene included) whose people are small, far away, seen from behind or turned away.
+  "render_3d": a 3D / CG render — a video game screenshot or character, Blender, Daz, MetaHuman, Unreal, a 3D model or figure — however realistic it looks. Game UI, a HUD, typical game lighting or materials mean render_3d.
+  "illustration": drawn or painted — anime, manga, comic, cartoon, concept art, digital painting.
+  "photoreal": a face that looks like a camera photograph, and nothing in the picture shows it is rendered or drawn.
+  "real_photo": a camera photograph of a real human (filters and retouching included).
+- likeness: true only when the face is clearly a specific real person you recognise (a celebrity, a public figure); false otherwise.
+- age: judge every clearly visible person by face, body proportions and context. "adult" when they look 18 or older, "minor" when anyone looks under 18, "unclear" only when you truly cannot tell. Use "adult" for no_face.
 - confidence: 0 to 1, how sure you are of kind.
-- reason: one short sentence.
-When in doubt between real_photo and photoreal, choose real_photo; between photoreal and render_3d, choose photoreal.`;
+- reason: one short sentence on what you see.`;
 
 function base64(bytes: Uint8Array): string {
   let s = "";
@@ -74,30 +79,41 @@ function parse(text: string, model: string): FaceVerdict | undefined {
   }
 }
 
+/** Why a check gave no verdict, kept on the picture (meta.faceCheckError) and shown with its label. */
+async function failed(asset: Asset, why: string): Promise<undefined> {
+  await repo.updateAssetMeta(asset.id, { ...asset.meta, faceCheckError: { why: why.slice(0, 300), at: Date.now() } }).catch(() => undefined);
+  return undefined;
+}
+
 /**
- * The face check of a picture: the one on it, or a new one (kept on the picture). Undefined when it cannot be
- * checked — no key, too large, the model did not answer — and then the picture counts as a real face.
+ * The face check of a picture: the one on it (unless force), or a new one, kept on the picture. Undefined when it
+ * cannot be checked — the reason is kept on the picture — and then the picture counts as 不放行.
  */
-export async function faceVerdict(asset: Asset): Promise<FaceVerdict | undefined> {
+export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}): Promise<FaceVerdict | undefined> {
   const kept = asset.meta.faceCheck as FaceVerdict | undefined;
-  if (kept && FACE_KINDS.includes(kept.kind)) return kept;
+  if (!opts.force && kept && FACE_KINDS.includes(kept.kind)) return kept;
   const r = route();
-  if (!r) return undefined;
+  if (!r) return failed(asset, "no TOKENSAIL_API_KEY or DASHSCOPE_API_KEY on the Worker");
   const pic = await bytesOf(asset).catch(() => undefined);
-  if (!pic || pic.bytes.length > MAX_BYTES) return undefined;
-  const messages = [{ role: "user", content: [{ type: "image_url", image_url: { url: `data:${pic.type};base64,${base64(pic.bytes)}` } }, { type: "text", text: ASK }] }];
+  if (!pic) return failed(asset, "the picture could not be read from storage");
+  const image = pic.bytes.length <= MAX_INLINE ? `data:${pic.type};base64,${base64(pic.bytes)}` : asset.url;
+  const messages = [{ role: "user", content: [{ type: "image_url", image_url: { url: image } }, { type: "text", text: ASK }] }];
   const ask = (json: boolean) => fetch(r.url, {
     method: "POST",
     headers: { authorization: `Bearer ${r.key}`, "content-type": "application/json" },
     body: JSON.stringify({ model: r.model, temperature: 0, ...(json ? { response_format: { type: "json_object" } } : {}), messages }),
-  }).catch(() => undefined);
+  }).catch((e: unknown) => e instanceof Error ? e : new Error(String(e)));
   /* JSON mode where the vendor has it; the prompt asks for JSON either way */
   let res = await ask(true);
-  if (res?.status === 400) res = await ask(false);
-  if (!res?.ok) return undefined;
+  if (!(res instanceof Error) && res.status === 400) res = await ask(false);
+  if (res instanceof Error) return failed(asset, `${r.model} could not be reached: ${res.message}`);
+  if (!res.ok) return failed(asset, `${r.model} answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
   const body = (await res.json().catch(() => undefined)) as { choices?: Array<{ message?: { content?: string } }> } | undefined;
-  const verdict = parse(body?.choices?.[0]?.message?.content ?? "", r.model);
-  if (verdict) await repo.updateAssetMeta(asset.id, { ...asset.meta, faceCheck: verdict }).catch(() => undefined);
+  const text = body?.choices?.[0]?.message?.content ?? "";
+  const verdict = parse(text, r.model);
+  if (!verdict) return failed(asset, `${r.model} gave no verdict: ${text.slice(0, 160) || "an empty answer"}`);
+  const { faceCheckError: _old, ...meta } = asset.meta;
+  await repo.updateAssetMeta(asset.id, { ...meta, faceCheck: verdict }).catch(() => undefined);
   return verdict;
 }
 
@@ -112,5 +128,11 @@ export async function checkOnArrival(asset: Asset): Promise<Asset> {
   if (asset.kind !== "image" || asset.meta.reference || asset.meta.faceCheck || !route()) return asset;
   const timeout = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ARRIVAL_TIMEOUT_MS));
   const verdict = await Promise.race([faceVerdict(asset).catch(() => undefined), timeout]);
-  return verdict ? { ...asset, meta: { ...asset.meta, faceCheck: verdict } } : asset;
+  const fresh = await repo.getAsset(asset.id).catch(() => undefined);
+  if (!fresh) return verdict ? { ...asset, meta: { ...asset.meta, faceCheck: verdict } } : asset;
+  if (!fresh.meta.faceCheck && !fresh.meta.faceCheckError) {
+    await failed(fresh, `took over ${ARRIVAL_TIMEOUT_MS / 1000} s; it is checked again when an R18 picture would use it`);
+    return repo.getAsset(asset.id);
+  }
+  return fresh;
 }

@@ -24,7 +24,7 @@ import { uploadMedia } from "./upload";
    a picture with a handle, ready to go onto an element as its look. */
 
 /** face: its face check (放行 / 不放行 for R18), null when it could not be checked, absent when not known here */
-type Upload = { assetId: string; url: string; name: string; face?: FaceVerdict | null };
+type Upload = { assetId: string; url: string; name: string; face?: FaceVerdict | null; faceError?: string };
 type Slot<T> = { item: T; upload?: undefined } | { item?: undefined; upload: Upload };
 type Recipe = {
   portrait?: Slot<RefPortrait>;
@@ -308,8 +308,8 @@ export function CanvasPage() {
     if (!file.type.startsWith("image/")) throw new Error("Pick an image file (PNG, JPEG or WebP)");
     setUploading(target);
     try {
-      const { assetId, url, faceCheck } = await uploadMedia(file, projectId);
-      const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture", face: faceCheck };
+      const { assetId, url, faceCheck, faceError } = await uploadMedia(file, projectId);
+      const up: Upload = { assetId, url, name: file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "picture", face: faceCheck, ...(faceError ? { faceError } : {}) };
       setRecipe((r) => {
         if (target === "extra") return { ...r, extras: [...r.extras, up].slice(0, CANVAS_MAX_REFS_ANY) };
         if (target === "portrait_b" || target === "costume_b") return { ...r, partner: { ...r.partner, [target === "portrait_b" ? "portrait" : "costume"]: { upload: up } }, ...(target === "portrait_b" ? { characterB: undefined } : {}) };
@@ -765,7 +765,7 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
       </button>
       <div className="st-slot-name" title={slotName(slot)}>{slotName(slot) || "—"}</div>
       {sub && <div className="st-muted st-slot-sub">{sub}</div>}
-      {slot?.upload && slot.upload.face !== undefined && <div><FaceBadge verdict={slot.upload.face} /></div>}
+      {slot?.upload && slot.upload.face !== undefined && <div><FaceBadge verdict={slot.upload.face} error={slot.upload.faceError} /></div>}
       {item?.nsfw && !adult && <div className="st-warn st-slot-sub">hidden now</div>}
       {kind === "pose" && slot && (
         <div className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -825,7 +825,7 @@ function Extras({ recipe, canAdd, uploading, onAdd, onRemove, onRename }: { reci
         {recipe.extras.map((x, i) => (
           <div key={x.assetId} className="st-extra">
             <img src={x.url} alt={x.name} />
-            {x.face !== undefined && <FaceBadge verdict={x.face} />}
+            {x.face !== undefined && <FaceBadge verdict={x.face} error={x.faceError} />}
             <input className="st-input st-input--sm" value={x.name} maxLength={60} aria-label="Name" onChange={(e) => onRename(i, e.target.value)} />
             <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={`Remove ${x.name}`} onClick={() => onRemove(i)}><CloseIcon size={12} /></button>
           </div>
