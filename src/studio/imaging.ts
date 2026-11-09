@@ -229,7 +229,7 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
       /* the faces it keeps: the references that are faces (or unknown) and the picture it edits */
       const upload = await firstUploadedFaceIn(projectId, [...(refUrls ?? []).filter((_, n) => isFaceRole(refRoles?.[n])), req.baseUrl]);
       if (upload) {
-        throw new StudioError("validation", `${adultLora.name} is 18+: every face it draws must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${upload} is an uploaded or imported picture, or keeps a face from one (it may be a real person); uploaded outfits, places and style frames are fine. Leave it out, or take the LoRA out in Settings → Director.`, { upload });
+        throw new StudioError("validation", `${adultLora.name} is 18+: every face it draws must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${upload} is an uploaded or imported picture, or keeps a face from one. An uploaded face goes in when its face check finds a 3D render or an illustration of an adult who is no real person (a photograph or anything photorealistic stays out); uploaded outfits, places and style frames are fine. Leave it out, or take the LoRA out in Settings → Director.`, { upload });
       }
       if (prompt && !/everyone in the picture is an adult/i.test(prompt)) prompt = `${prompt}\n\nEveryone in the picture is an adult.`;
     }

@@ -1,3 +1,4 @@
+import { describeVerdict, faceAllowed, faceVerdict } from "./face-check";
 import * as repo from "./repo";
 import type { Asset } from "./types";
 
@@ -10,9 +11,13 @@ import type { Asset } from "./types";
  *   1. a picture of the reference library (its portraits are AI-generated adults);
  *   2. drawn by the Studio, and every face that went into that drawing is
  *      AI-generated in turn — a picture drawn from text alone qualifies.
- * It is not when it is an upload, a picture imported from a URL or as bytes
- * (the Studio cannot tell where it came from), anything it cannot trace, or
- * a drawing that kept a face from one of those, however many steps back.
+ *   3. an upload, or a picture imported from a URL or as bytes, whose face
+ *      check (face-check.ts: a vision model looks once) finds a 3D render or
+ *      an illustration of an adult who is no real person — or no face at all.
+ * It is not when it is a photograph or photorealistic, a real person's
+ * likeness, a minor, a picture the check could not see, anything it cannot
+ * trace, or a drawing that kept a face from one of those, however many steps
+ * back.
  *
  * What went into a drawing is read from its job: the picture it edited or
  * cropped (it keeps its people), and each reference by its role (refRoles,
@@ -70,6 +75,11 @@ export async function firstUploadedFaceIn(projectId: string, urls: Array<string 
   const takeOfFrame = new Map(takes.flatMap((t) => [t.lastFrameUrl, t.resultUrl].filter((u): u is string => !!u).map((u) => [u, t] as const)));
   const seen = new Set<string>();
   const label = (a: Asset | undefined, url: string) => a?.handle ?? a?.name ?? url;
+  /* an upload or an import: its face check decides */
+  const checked = async (a: Asset, url: string) => {
+    const v = await faceVerdict(a).catch(() => undefined);
+    return faceAllowed(v) ? undefined : `${label(a, url)} (${describeVerdict(v)})`;
+  };
 
   async function realFace(url: string, depth: number): Promise<string | undefined> {
     if (seen.has(url)) return undefined;
@@ -80,7 +90,7 @@ export async function firstUploadedFaceIn(projectId: string, urls: Array<string 
     const take = !asset ? takeOfFrame.get(url) : undefined;
     if (take) return fromTake(take.id, depth);
     if (!asset) return url;
-    if (asset.source === "upload") return label(asset, url);
+    if (asset.source === "upload") return checked(asset, url);
     /* a library picture brought into the project */
     if (asset.meta.reference) return undefined;
     const jobId = typeof asset.meta.jobId === "string" ? asset.meta.jobId : undefined;
@@ -101,7 +111,7 @@ export async function firstUploadedFaceIn(projectId: string, urls: Array<string 
       return undefined;
     }
     /* drawn nowhere here: an image imported from a URL or as bytes */
-    return label(asset, url);
+    return checked(asset, url);
   }
 
   async function fromTake(takeId: string, depth: number): Promise<string | undefined> {

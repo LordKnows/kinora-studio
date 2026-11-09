@@ -414,15 +414,15 @@ describe("whose face a picture shows (18+ needs AI-generated faces)", () => {
     expect(await check(canvasOld)).toBeUndefined();
     /* a kept face is real however far back: drawn from it, an edit of that, a crop of the edit */
     const fromFace = await drawn("from-face", { refUrls: [face.url], refRoles: ["face"] });
-    expect(await check(fromFace)).toBe(face.handle);
+    expect(await check(fromFace)).toContain(face.handle!);
     const edit = await drawn("edit", { baseUrl: fromFace.url });
-    expect(await check(edit)).toBe(face.handle);
+    expect(await check(edit)).toContain(face.handle!);
     const crop = await drawn("crop", { op: "crop", baseUrl: edit.url });
-    expect(await check(crop)).toBe(face.handle);
+    expect(await check(crop)).toContain(face.handle!);
     /* a reference of no known role counts as a face (older jobs); an import is not known to be AI */
-    expect(await check(await drawn("old-job", { refUrls: [coat.url] }))).toBe(coat.handle);
-    expect(await check(imported)).toBe(imported.handle);
-    expect(await check(face)).toBe(face.handle);
+    expect(await check(await drawn("old-job", { refUrls: [coat.url] }))).toContain(coat.handle!);
+    expect(await check(imported)).toContain(imported.handle!);
+    expect(await check(face)).toContain(face.handle!);
   });
 
   it("lets Canvas use a Studio picture whose face is AI-generated, even one made with an uploaded outfit", async () => {
@@ -440,7 +440,7 @@ describe("whose face a picture shows (18+ needs AI-generated faces)", () => {
     const face = await asset("face-2", "upload");
     const second = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id } }), who);
     const done2 = await imaging.applyImageStatus(await repo.getJob(second.job.id), { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${second.job.id}.png`, width: 1024, height: 1536 } });
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: done2.assetIds[0]! }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`${face.handle} is an uploaded or imported picture`);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: done2.assetIds[0]! }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`${face.handle} (face not checked) is an uploaded or imported picture`);
   });
 });
 
