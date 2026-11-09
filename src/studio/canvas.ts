@@ -6,7 +6,7 @@ import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
 import * as painter from "./painter";
 import { findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
-import { firstUploadIn } from "./provenance";
+import { firstUploadedFaceIn } from "./provenance";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
@@ -106,6 +106,9 @@ async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId:
   return { item, url: pic.image, thumb: pic.thumb, label };
 }
 
+/** What a Canvas reference is to the picture (provenance.ts): the faces it keeps, the outfits and the pose it borrows. */
+const CANVAS_REF_ROLE: Record<CanvasRole, imaging.RefRole> = { portrait: "face", character: "face", portrait_b: "face", character_b: "face", extra: "face", costume: "outfit", costume_b: "outfit", pose: "pose" };
+
 type ResolvedCharacter = { element: Element; asset: Asset; url: string; thumb: string; label: string };
 
 /** A project character as a person of the picture: its front reference (else full body, three-quarter, the first). */
@@ -164,15 +167,15 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
      picture the Studio drew from them — never an upload, which may be a real person. Uploaded outfits and poses are fine. */
   const nsfw = [portrait?.item, costume?.item, pose?.item, partner?.portrait?.item, partner?.costume?.item].some((x) => x?.nsfw);
   if (adultLora || nsfw) {
-    const face = await firstUploadIn(projectId, [portrait?.asset?.url, character?.url, partner?.portrait?.asset?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)]);
+    const face = await firstUploadedFaceIn(projectId, [portrait?.asset?.url, character?.url, partner?.portrait?.asset?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)]);
     if (face) {
-      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: the faces come from the library's portraits (AI-generated adults) or pictures the Studio drew from them — ${face} is, or was drawn from, an uploaded or imported picture, and may be a real person. Uploaded outfits and poses are fine.`);
+      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: every face must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${face} is an uploaded or imported picture, or keeps a face from one, and may be a real person. Uploaded outfits, poses and backgrounds are fine.`);
     }
   }
   /* CharaDB's terms: its outfits are never put on a real person — an uploaded face, or a picture drawn from one */
   for (const [who, p] of [["person A", { costume, face: portrait?.asset?.url ?? character?.url }], ["person B", { costume: partner?.costume, face: partner?.portrait?.asset?.url ?? partner?.character?.url }]] as const) {
     if ((p.costume?.item as RefCostume | undefined)?.source !== "charadb" || !p.face) continue;
-    if (await firstUploadIn(projectId, [p.face])) {
+    if (await firstUploadedFaceIn(projectId, [p.face])) {
       throw new StudioError("validation", `CharaDB outfits cannot be put on an uploaded photo (${partner ? who : "the portrait"}): its author forbids depicting real people. Use a library portrait, or another costume source.`);
     }
   }
@@ -235,7 +238,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   /* a model whose canvas follows a picture (2509: the pose) is delivered at that shape, not cropped to the one picked */
   const size = model.canvasSize ?? input.size;
   const r = await imaging.submitImage(projectId, {
-    op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
+    op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), refRoles: refs.map((x) => CANVAS_REF_ROLE[x.role]), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
     label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },

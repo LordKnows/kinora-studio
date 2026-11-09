@@ -312,8 +312,11 @@ The director gets the same library through `list_references`,
   and forbid bulk download and redistribution; CharaDB pictures are never
   used on a real person's photo or for a minor (enforced for uploaded faces);
   portraits never impersonate a real person. With 18+ (a reference or a
-  LoRA) every face comes from the library's portraits or pictures the Studio
-  drew from them; uploaded outfits and poses are fine. The Chinese names and tags are
+  LoRA) every face must be AI-generated: a library portrait, or a picture the
+  Studio drew whose faces are AI-generated in turn (`src/studio/provenance.ts`
+  follows each face back through the jobs; outfits, poses, places and style
+  frames are only borrowed, so uploaded ones are fine). An upload, an
+  imported picture, or a drawing that kept a face from one is refused. The Chinese names and tags are
   anhao's translation, whose data is not under that repository's MIT licence:
   ask its maintainer before publishing them more widely.
 - **18+ is hidden by default.** Two pose systems and the lingerie / sensual

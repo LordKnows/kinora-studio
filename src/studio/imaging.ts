@@ -11,7 +11,7 @@ import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
 import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
-import { firstUploadIn } from "./provenance";
+import { firstUploadedFaceIn, isFaceRole } from "./provenance";
 import { adultAllowed } from "./references";
 import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types";
 
@@ -154,6 +154,7 @@ async function assertCanPaint(project: Project): Promise<number> {
 /* ---------- jobs ---------- */
 
 export type ImageOp = "paint" | "crop" | "extract";
+export type RefRole = "face" | "outfit" | "pose" | "scene" | "style";
 export type ImagePurpose = "element_sheet" | "shot_first" | "shot_last" | "edit" | "remake_key" | "style_frame" | "canvas" | "crop" | "extract";
 export type Attach = { heroOf?: string; endOf?: string; elementRef?: { elementId: string; view?: RefView }; styleFrame?: boolean };
 type Box = { x: number; y: number; w: number; h: number };
@@ -163,6 +164,9 @@ export type ImageRequest = {
   purpose: ImagePurpose;
   prompt?: string;
   refUrls?: string[];
+  /** What each of refUrls is to the picture (provenance.ts): a face it keeps, or an outfit, pose, place or look it
+      only borrows. Unset (older jobs, free references) counts as a face. */
+  refRoles?: RefRole[];
   baseUrl?: string;
   baseAssetId?: string;
   region?: Box;
@@ -209,6 +213,7 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
     const model = projectImageModel(project.imaging);
     const cap = Math.max(0, (model.maxRefs ?? 5) - (req.baseUrl ? 1 : 0));
     const refUrls = req.refUrls && req.refUrls.length > cap ? req.refUrls.slice(0, cap) : req.refUrls;
+    const refRoles = req.refRoles?.slice(0, refUrls?.length ?? 0);
     /* the project's LoRAs: their cards' settings, and the files the pod fetches */
     const loras = await projectLoras(project.imaging, model);
     const params = loras.length
@@ -217,13 +222,14 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
     let prompt = req.prompt ? namePicturesFor(model, req.prompt) : req.prompt;
     const adultLora = loras.find((l) => l.adult);
     if (adultLora) {
-      /* as in Canvas: the user who chose it still has 18+ on, and nothing the picture is drawn from was uploaded or imported (it may be a real person) */
+      /* as in Canvas: the user who chose it still has 18+ on, and every face it keeps is AI-generated (provenance.ts: an upload may be a real person) */
       if (!(await adultAllowed({ user: project.imaging?.grantedBy ?? "anonymous", via: "web" }))) {
         throw new StudioError("forbidden", `${adultLora.name} is 18+ and 18+ is off for ${project.imaging?.grantedBy ?? "the user who chose it"}: show 18+ on the Canvas page, or take the LoRA out in Settings → Director`, { adult: false });
       }
-      const upload = await firstUploadIn(projectId, [...(refUrls ?? []), req.baseUrl]);
+      /* the faces it keeps: the references that are faces (or unknown) and the picture it edits */
+      const upload = await firstUploadedFaceIn(projectId, [...(refUrls ?? []).filter((_, n) => isFaceRole(refRoles?.[n])), req.baseUrl]);
       if (upload) {
-        throw new StudioError("validation", `${adultLora.name} draws only from pictures the Studio drew and the reference library: ${upload} is, or was drawn from, an uploaded or imported picture (it may be a real person). Leave it out, or take the LoRA out in Settings → Director.`, { upload });
+        throw new StudioError("validation", `${adultLora.name} is 18+: every face it draws must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${upload} is an uploaded or imported picture, or keeps a face from one (it may be a real person); uploaded outfits, places and style frames are fine. Leave it out, or take the LoRA out in Settings → Director.`, { upload });
       }
       if (prompt && !/everyone in the picture is an adult/i.test(prompt)) prompt = `${prompt}\n\nEveryone in the picture is an adult.`;
     }
@@ -232,6 +238,7 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
       ...(prompt !== undefined ? { prompt } : {}),
       ...(params ? { params } : {}),
       ...(refUrls ? { refUrls } : {}),
+      ...(refRoles ? { refRoles } : {}),
     };
   }
   /* crop and extract are not drawn by a model: any painter takes them */
@@ -429,6 +436,8 @@ const POS_WORD: Record<string, string> = { off_left: "just outside frame left", 
 const X_WORD = { left: "on the left third (about 38% from the left)", center: "on the centre line", right: "on the right third (about 62% from the left)" } as const;
 
 export type FrameRef = { name: string; role: "character" | "location" | "style" | "other" };
+/** A shot frame's reference as provenance reads it: a character's face, or a place or look it borrows. */
+const frameRefRole = (r: FrameRef["role"]): RefRole => (r === "location" ? "scene" : r === "style" ? "style" : "face");
 
 /** How a reference picture is to be used: copy what it is for, ignore the rest. */
 export function refRole(r: FrameRef, n: number): string {
@@ -579,10 +588,13 @@ export async function generateElementView(elementId: string, view: RefView, acto
   if (!el.projectId) throw new StudioError("validation", "library elements are drawn inside a project (import it first)");
   const pv = await getProjectView(el.projectId);
   const identity = el.refAssetIds.length ? pickRefForViews(el, ["front", "three_quarter", "full_body"]) : undefined;
-  const refs = [assetUrl(pv, identity), assetUrl(pv, pv.project.look.styleFrameAssetId)].filter((u): u is string => !!u);
+  const refs = [
+    { url: assetUrl(pv, identity), role: (el.kind === "character" ? "face" : "scene") as RefRole },
+    { url: assetUrl(pv, pv.project.look.styleFrameAssetId), role: "style" as RefRole },
+  ].filter((r): r is { url: string; role: RefRole } => !!r.url);
   const prompt = elementViewPrompt(el, view, pv.project.look, { hasIdentityRef: !!identity, hasStyleRef: !!pv.project.look.styleFrameAssetId });
   const size = el.kind === "location" ? sizeFor(pv.project.look) : el.kind === "prop" || view === "expression" ? "1024x1024" : "1008x1344";
-  const r = await submitImage(el.projectId, { op: "paint", purpose: "element_sheet", prompt, refUrls: refs, size, quality: opts.quality, targetId: el.id, attach: { elementRef: { elementId: el.id, view } }, label: `${el.name} · ${view}` }, actor, opts);
+  const r = await submitImage(el.projectId, { op: "paint", purpose: "element_sheet", prompt, refUrls: refs.map((r) => r.url), refRoles: refs.map((r) => r.role), size, quality: opts.quality, targetId: el.id, attach: { elementRef: { elementId: el.id, view } }, label: `${el.name} · ${view}` }, actor, opts);
   return { ...r, prompt };
 }
 
@@ -643,7 +655,7 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
     /* at most five pictures, or fewer when the project's model takes fewer: characters first, then the place, the style frame last (dropped first) */
     const use = refs.slice(0, Math.min(5, refCap(pv.project, false)));
     const prompt = shotFramePrompt(sh, which, { elements, palette: scene.palette, look: pv.project.look, refs: use });
-    const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: use.map((x) => x.url), size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
+    const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: use.map((x) => x.url), refRoles: use.map((x) => frameRefRole(x.role)), size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
     return { ...r, method, prompt };
   }
   /* edits of a related frame: the base goes last */
@@ -674,7 +686,7 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   if (!base) throw new StudioError("validation", `${method}: the frame to edit from does not exist yet (${method === "edit_from_last" ? "draw the last frame first" : method === "edit_anchor" ? "the anchor shot needs a finished take" : "the earlier shot has no first frame"})`);
   const extra = refs.filter((r) => r.role !== "style").slice(0, Math.min(4, refCap(pv.project, true)));
   const prompt = editPrompt(instruction, { refsFirst: extra.length });
-  const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: extra.map((x) => x.url), baseUrl: base.url, baseAssetId: base.id || undefined, size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
+  const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: extra.map((x) => x.url), refRoles: extra.map((x) => frameRefRole(x.role)), baseUrl: base.url, baseAssetId: base.id || undefined, size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
   return { ...r, method, prompt };
 }
 
