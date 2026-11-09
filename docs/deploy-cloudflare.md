@@ -445,6 +445,12 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    下一张图会新建一个。参考图由阿里自己按 URL 抓取，所以画图机器先把它们放到 R2
    （`…/<job>.ref0.jpg`，`/media/*` 必须公网可访问），任务结束即删除。按张计费（TokenSail：
    1K ¥0.25、2K ¥0.50，每张参考图另计），阿里云内容审核会拒绝色情内容。
+6b. **上传人脸的检查（18+ 时用）**：同一个 `TOKENSAIL_API_KEY`（或 `DASHSCOPE_API_KEY`）也用于
+   检查上传或导入的人脸：18+ 作品要用到一张上传的脸时，Worker 把图发给视觉模型看一次
+   （TokenSail `qwen3.7-plus`，DashScope `qwen-vl-max-latest`；可用 `FACE_CHECK_MODEL` 改），
+   结论记在图片上（Pictures 页 → Face check）。3D 渲染或插画、成年、不是真实名人 → 可以用；
+   照片、看起来像照片、名人肖像、未成年或看不出年龄、模型没把握 → 不行。没配 key 时上传的脸
+   一律不能用于 18+。每张图只查一次，费用很低。
 7. **Viggle Remake**：仍在 GPU Pod 上渲染。节点包在 Pod 开机时自动装好；模型在 Machine 页
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
 8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。

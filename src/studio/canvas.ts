@@ -171,7 +171,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   if (adultLora || nsfw) {
     const face = await firstUploadedFaceIn(projectId, [portrait?.asset?.url, character?.url, partner?.portrait?.asset?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)]);
     if (face) {
-      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: every face must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${face} is an uploaded or imported picture, or keeps a face from one, and may be a real person. Uploaded outfits, poses and backgrounds are fine.`);
+      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: every face must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${face} is an uploaded or imported picture, or keeps a face from one. An uploaded face goes in when its face check finds a 3D render or an illustration of an adult who is no real person (a photograph or anything photorealistic stays out); uploaded outfits, poses and backgrounds are fine.`);
     }
   }
   /* CharaDB's terms: its outfits are never put on a real person — an uploaded face, or a picture drawn from one */

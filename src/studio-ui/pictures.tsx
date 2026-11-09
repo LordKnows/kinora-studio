@@ -7,6 +7,8 @@ import type { Asset } from "@/studio/types";
 import { ApiError, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
+import { describeVerdict, faceAllowed, type FaceVerdict } from "@/studio/face-verdict";
+
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
 import { useProjectContext } from "./shell";
 
@@ -231,6 +233,7 @@ export function PicturesPage() {
 export function PictureFacts({ asset, uses }: { asset: Asset; uses?: Use[] }) {
   const m = asset.meta;
   const checks = (m.checks as Array<{ id: string; level: string; message: string }> | undefined) ?? [];
+  const face = m.faceCheck as FaceVerdict | undefined;
   const auto = m.autoReview as { verdict?: string; summary?: string; findings?: Array<{ code?: string; severity?: string; where?: string; what?: string; fix?: string }> } | undefined;
   const findings = (m.reviewFindings as Array<{ code?: string; severity?: string; where?: string; problem?: string; fix?: string }> | undefined) ?? [];
   return (
@@ -241,6 +244,12 @@ export function PictureFacts({ asset, uses }: { asset: Asset; uses?: Use[] }) {
         <>
           <dt>Used as</dt>
           <dd>{uses.length ? uses.map((u) => u.label).join("; ") : <span className="st-muted">nothing — safe to delete</span>}</dd>
+        </>
+      )}
+      {face && (
+        <>
+          <dt>Face check</dt>
+          <dd className={faceAllowed(face) ? undefined : "st-muted"}>{describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""} · {faceAllowed(face) ? "can be a face in 18+ work" : "not a face for 18+ work"}</dd>
         </>
       )}
       {checks.length > 0 && (

@@ -323,8 +323,14 @@ The director gets the same library through `list_references`,
   LoRA) every face must be AI-generated: a library portrait, or a picture the
   Studio drew whose faces are AI-generated in turn (`src/studio/provenance.ts`
   follows each face back through the jobs; outfits, poses, places and style
-  frames are only borrowed, so uploaded ones are fine). An upload, an
-  imported picture, or a drawing that kept a face from one is refused. The Chinese names and tags are
+  frames are only borrowed, so uploaded ones are fine). An uploaded or
+  imported face goes in when its face check — a vision model (TokenSail's
+  `qwen3.7-plus`, or DashScope's Qwen-VL, with the Worker's
+  `TOKENSAIL_API_KEY` / `DASHSCOPE_API_KEY`) looking once per picture
+  (`src/studio/face-check.ts`) — finds a 3D render or an illustration of an
+  adult who is no real person, or no face. A photograph, anything
+  photorealistic, a real person's likeness, a minor, an unsure answer or no
+  check at all keeps it out, and so does a drawing that kept such a face. The Chinese names and tags are
   anhao's translation, whose data is not under that repository's MIT licence:
   ask its maintainer before publishing them more widely.
 - **18+ is hidden by default.** Two pose systems and the lingerie / sensual

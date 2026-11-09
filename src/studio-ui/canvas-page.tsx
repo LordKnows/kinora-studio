@@ -601,7 +601,7 @@ export function CanvasPage() {
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
-            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. A face{recipe.extras.length ? " or extra picture" : ""} you uploaded is refused (it may be a real person); a Studio picture is checked when you generate. Uploaded outfits and poses are fine.</p>}
+            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. A face{recipe.extras.length ? " or extra picture" : ""} you uploaded goes in only when its face check (a vision model, once per picture) finds a 3D render or an illustration of an adult who is no real person; a photograph or anything photorealistic is refused. Studio pictures are traced when you generate; uploaded outfits and poses are fine.</p>}
             </>)}
           </Section>
 
