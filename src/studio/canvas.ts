@@ -6,7 +6,7 @@ import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
 import * as painter from "./painter";
 import { findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
-import { firstUploadedFaceIn } from "./provenance";
+import { firstRealIn } from "./provenance";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
@@ -165,19 +165,19 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   /* LoRAs made for adult content: only for a user who unlocked 18+ */
   const adultLora = loras.find((l) => l.adult);
   if (adultLora && !adult) throw new StudioError("forbidden", `${adultLora.name} is 18+: the user shows 18+ references on the Canvas page first (web only)`, { adult: false });
-  /* 18+ (a LoRA, or a library reference): every face comes from the library's portraits (AI-generated adults) or a
-     picture the Studio drew from them — never an upload, which may be a real person. Uploaded outfits and poses are fine. */
+  /* R18 (an 18+ LoRA, or a library reference): every picture it is drawn from is 模拟 (provenance.ts) — the library,
+     an upload or import its face check found 3D, illustrated or faceless, a Studio picture drawn only from those */
   const nsfw = [portrait?.item, costume?.item, pose?.item, partner?.portrait?.item, partner?.costume?.item].some((x) => x?.nsfw);
   if (adultLora || nsfw) {
-    const face = await firstUploadedFaceIn(projectId, [portrait?.asset?.url, character?.url, partner?.portrait?.asset?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)]);
-    if (face) {
-      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: every face must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${face} is an uploaded or imported picture, or keeps a face from one. An uploaded face goes in when its face check finds a 3D render or an illustration of an adult who is no real person (a photograph or anything photorealistic stays out); uploaded outfits, poses and backgrounds are fine.`);
+    const real = await firstRealIn(projectId, [portrait, costume, pose, partner?.portrait, partner?.costume].map((x) => x?.asset?.url).concat(character?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)));
+    if (real) {
+      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: R18 pictures are drawn only from 模拟 pictures, and ${real} — it may show a real person. 模拟 are the library's pictures, uploads whose face check found a 3D render, an illustration or no face, and Studio pictures drawn only from those.`);
     }
   }
   /* CharaDB's terms: its outfits are never put on a real person — an uploaded face, or a picture drawn from one */
   for (const [who, p] of [["person A", { costume, face: portrait?.asset?.url ?? character?.url }], ["person B", { costume: partner?.costume, face: partner?.portrait?.asset?.url ?? partner?.character?.url }]] as const) {
     if ((p.costume?.item as RefCostume | undefined)?.source !== "charadb" || !p.face) continue;
-    if (await firstUploadedFaceIn(projectId, [p.face])) {
+    if (await firstRealIn(projectId, [p.face])) {
       throw new StudioError("validation", `CharaDB outfits cannot be put on an uploaded photo (${partner ? who : "the portrait"}): its author forbids depicting real people. Use a library portrait, or another costume source.`);
     }
   }

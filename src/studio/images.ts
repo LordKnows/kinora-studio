@@ -55,8 +55,9 @@ export async function storeImage(projectId: string, bytes: Uint8Array, filename:
   const key = uploadKey(actor.user, filename.includes(".") ? filename : `${filename}.${ext}`);
   await putObject(key, bytes, TYPES[info.type]!);
   const name = typeof meta.label === "string" ? meta.label : nameOfUploadKey(key);
-  const asset = await repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta }, name });
-  /* an imported picture is labelled as it arrives (放行 / 不放行 for R18), like an upload; library pictures need none */
+  /* a library picture is 模拟 as it is; anything else gets its face check below */
+  const asset = await repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta, ...(meta.reference ? { realness: "sim" } : {}) }, name });
+  /* an imported picture is labelled as it arrives (模拟 / 真实), like an upload; library pictures need none */
   return checkOnArrival(asset);
 }
 

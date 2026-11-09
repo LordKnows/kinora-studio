@@ -23,7 +23,7 @@ import { uploadMedia } from "./upload";
    (or upload your own), and an image model draws the character into a project —
    a picture with a handle, ready to go onto an element as its look. */
 
-/** face: its face check (放行 / 不放行 for R18), null when it could not be checked, absent when not known here */
+/** face: its face check (模拟 / 真实), null when it could not be checked, absent when not known here */
 type Upload = { assetId: string; url: string; name: string; face?: FaceVerdict | null; faceError?: string };
 type Slot<T> = { item: T; upload?: undefined } | { item?: undefined; upload: Upload };
 type Recipe = {
@@ -277,9 +277,11 @@ export function CanvasPage() {
   const hiddenInRecipe = !adult && nsfwInRecipe;
   const charadbOnUpload = (recipe.costume?.item?.source === "charadb" && !castA && !!recipe.portrait?.upload) || (recipe.two && recipe.partner?.costume?.item?.source === "charadb" && !castB && !!recipe.partner?.portrait?.upload);
   /* 18+: the faces come from the library (uploaded outfits and poses are fine) */
-  /* a face known to be 放行 is fine; one 不放行, or not known here, may be refused */
+  /* an upload known to be 模拟 is fine; one 真实, or not known here, may be refused */
   const notCleared = (u?: Upload) => !!u && !faceAllowed(u.face ?? undefined);
-  const uploadedFace = (!castA && notCleared(recipe.portrait?.upload)) || (!!recipe.two && !castB && notCleared(recipe.partner?.portrait?.upload)) || recipe.extras.some((e) => notCleared(e));
+  /* R18 takes only 模拟 pictures: any upload of the recipe that is not, a face, an outfit or a pose alike */
+  const uploadedFace = (!castA && notCleared(recipe.portrait?.upload)) || notCleared(recipe.costume?.upload) || notCleared(recipe.pose?.upload)
+    || (!!recipe.two && ((!castB && notCleared(recipe.partner?.portrait?.upload)) || notCleared(recipe.partner?.costume?.upload))) || recipe.extras.some((e) => notCleared(e));
 
   const randomize = async (slot: SlotKind, scope: "similar" | "any", who: Who = "a") => {
     const pool = (await loadReferences(slot, adultVersion)).items;
@@ -606,7 +608,7 @@ export function CanvasPage() {
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
             {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
             {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
-            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, every face must be AI-generated: the library&apos;s portraits, or a picture the Studio drew whose faces are AI-generated too. An uploaded face{recipe.extras.length ? " or extra picture" : ""} goes in only when its face check labels it 放行 (a 3D render or an illustration of an adult who is no real person); 不放行 — a photograph or anything photorealistic — is refused for R18 and fine for everything else. Studio pictures are traced when you generate; uploaded outfits and poses are fine.</p>}
+            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, R18 pictures are drawn only from pictures tagged 模拟 (the library, uploads whose face check found a 3D render, an illustration or no face, Studio pictures drawn only from those). An upload tagged 真实 — a photograph or anything photorealistic — is refused for R18 and fine for everything else.</p>}
             </>)}
           </Section>
 

@@ -499,7 +499,7 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
     expect(input.prompt.trim().endsWith("Everyone in the picture is an adult.")).toBe(true);
   });
 
-  it("refuses a picture that is, or was drawn from, an upload — and when the chooser has 18+ off", async () => {
+  it("refuses a 真实 picture or one drawn from it — and when the chooser has 18+ off", async () => {
     const upload = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/face.png", kind: "image", source: "upload", name: "face" });
     /* two steps away: a picture drawn from a picture drawn from the upload */
     const j1 = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [upload.url] } });
@@ -509,11 +509,11 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
     /* an image the director imported by URL is not traceable either */
     const imported = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/d/web.png", kind: "image", source: "generated", name: "from the web" });
     for (const bad of [upload, a2, imported]) {
-      await expect(imaging.editFrame(bad.id, { instruction: "make the light warmer" }, mcp)).rejects.toThrow(/every face it draws must be AI-generated/);
+      await expect(imaging.editFrame(bad.id, { instruction: "make the light warmer" }, mcp)).rejects.toThrow(/R18 pictures are drawn only from 模拟 pictures/);
     }
     await expect(imaging.editFrame(clean, { instruction: "make the light warmer" }, mcp)).resolves.toBeTruthy();
-    /* a frame drawn from an AI sheet in an uploaded place keeps an AI face: borrowed places are fine */
-    const place = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/street.png", kind: "image", source: "upload", name: "street" });
+    /* a frame drawn from an AI sheet in an uploaded place its face check found faceless (模拟) is 模拟 too */
+    const place = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/street.png", kind: "image", source: "upload", name: "street", meta: { faceCheck: { kind: "no_face", likeness: false, age: "adult", confidence: 0.9, reason: "an empty street", model: "m", at: 0 } } });
     const j3 = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [(await repo.getAsset(clean)).url, place.url], refRoles: ["face", "scene"] } });
     const inPlace = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/in-place.png", kind: "image", source: "generated", meta: { jobId: j3.id } });
     await expect(imaging.editFrame(inPlace.id, { instruction: "make the light warmer" }, mcp)).resolves.toBeTruthy();

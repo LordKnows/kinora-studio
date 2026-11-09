@@ -319,21 +319,20 @@ The director gets the same library through `list_references`,
   one picture at a time as a generation reference (commercial work included)
   and forbid bulk download and redistribution; CharaDB pictures are never
   used on a real person's photo or for a minor (enforced for uploaded faces);
-  portraits never impersonate a real person. With 18+ (a reference or a
-  LoRA) every face must be AI-generated: a library portrait, or a picture the
-  Studio drew whose faces are AI-generated in turn (`src/studio/provenance.ts`
-  follows each face back through the jobs; outfits, poses, places and style
-  frames are only borrowed, so uploaded ones are fine). An uploaded or
-  imported face goes in when its face check — a vision model (TokenSail's
-  `qwen3.8-max-0902`, or DashScope's Qwen-VL, with the Worker's
-  `TOKENSAIL_API_KEY` / `DASHSCOPE_API_KEY`) looking once per picture
-  (`src/studio/face-check.ts`) — finds a 3D render or an illustration of an
-  adult who is no real person, or no face. A photograph, anything
-  photorealistic, a real person's likeness, a minor, an unsure answer or no
-  check at all keeps it out, and so does a drawing that kept such a face.
-  Every upload and import is checked as it arrives and labelled **放行**
-  (any reference, R18 included) or **不放行** (not for R18; every other
-  picture as before) — on the Pictures page and on Canvas's upload slots. The Chinese names and tags are
+  portraits never impersonate a real person.
+- **模拟 / 真实.** Every picture is tagged **模拟** (green: AI-generated, a
+  3D render, an illustration or no face — the reference of any picture, R18
+  included) or **真实** (grey: it may show a real person — not for R18;
+  every other picture as before). An upload or import gets its tag from a
+  face check made once as it arrives — the only time a model looks: a
+  vision model (TokenSail's `qwen3.8-max-0902`, or DashScope's Qwen-VL, with
+  the Worker's `TOKENSAIL_API_KEY` / `DASHSCOPE_API_KEY`;
+  `src/studio/face-check.ts`). A photograph, anything photorealistic, a real
+  person's likeness, a minor, an unsure answer or no check is 真实 (Check
+  again on the Pictures page). Library pictures are 模拟. A drawing is
+  stamped as it is kept (`src/studio/provenance.ts`): text to image is
+  模拟; from references, 真实 as soon as any picture it came from — a
+  reference, the picture it edited, a take's pictures — is 真实. The Chinese names and tags are
   anhao's translation, whose data is not under that repository's MIT licence:
   ask its maintainer before publishing them more widely.
 - **18+ is hidden by default.** Two pose systems and the lingerie / sensual

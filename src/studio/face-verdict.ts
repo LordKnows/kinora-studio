@@ -25,20 +25,30 @@ export function faceAllowed(v: FaceVerdict | undefined): boolean {
   return (v.kind === "render_3d" || v.kind === "illustration") && v.age === "adult";
 }
 
-/**
- * The picture's label: 放行 (its faces may be the reference of any picture, R18 included) or 不放行 (not for
- * R18; every other picture as before). A picture with no check yet is 不放行 until it is checked.
- */
-export function faceLabel(v: FaceVerdict | undefined, error?: { why?: string }): { allowed: boolean; label: "放行" | "不放行"; title: string } {
+const SIM = "模拟: AI-generated, a 3D render, an illustration or no face — the reference of any picture, R18 included";
+const REAL = "真实: it may show a real person — not for R18 pictures; every other picture is fine";
+
+/** An upload's or an import's tag, from its face check: 模拟 or 真实 (also when it has none). */
+export function faceLabel(v: FaceVerdict | undefined, error?: { why?: string }): { allowed: boolean; label: "模拟" | "真实"; title: string } {
   const allowed = faceAllowed(v);
-  if (!v && error?.why) return { allowed: false, label: "不放行", title: `不放行: the face check did not run (${error.why}); check again on the Pictures page` };
-  return {
-    allowed,
-    label: allowed ? "放行" : "不放行",
-    title: allowed
-      ? `放行: can be the reference of any picture, R18 included (${describeVerdict(v)})`
-      : `不放行: not for R18 pictures; every other picture is fine (${v ? describeVerdict(v) : "not checked yet: it is checked when an R18 picture would use it"})`,
-  };
+  if (!v) return { allowed: false, label: "真实", title: `${REAL} (${error?.why ? `the face check did not run: ${error.why}` : "not checked"}; Check again on the Pictures page)` };
+  return { allowed, label: allowed ? "模拟" : "真实", title: `${allowed ? SIM : REAL} (${describeVerdict(v)})` };
+}
+
+/**
+ * Any picture's tag. An upload or an import: its face check. A library picture: 模拟. A drawing or a take's
+ * frame: the tag stamped when it was made, from the pictures it came from. Undefined for an older drawing
+ * made before tags.
+ */
+export function pictureTag(meta: Record<string, unknown>, outside: boolean): { sim: boolean; label: "模拟" | "真实"; title: string } | undefined {
+  if (meta.reference) return { sim: true, label: "模拟", title: `${SIM} (the reference library)` };
+  if (outside) {
+    const l = faceLabel(meta.faceCheck as FaceVerdict | undefined, meta.faceCheckError as { why?: string } | undefined);
+    return { sim: l.allowed, label: l.label, title: l.title };
+  }
+  if (meta.realness === "sim") return { sim: true, label: "模拟", title: `${SIM} (drawn from 模拟 pictures only, or from text)` };
+  if (meta.realness === "real") return { sim: false, label: "真实", title: `${REAL} (drawn from a 真实 picture)` };
+  return undefined;
 }
 
 /** The verdict in a few words, for a refusal or the picture's facts. */

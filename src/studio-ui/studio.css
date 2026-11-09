@@ -2520,7 +2520,7 @@ button.st-pill {
   margin-left: 4px;
 }
 
-/* the face check's label on an uploaded or imported picture: 放行 (any reference, R18 included) / 不放行 (not for R18) */
+/* the face check's label on an uploaded or imported picture: 模拟 (green: any reference, R18 included) / 真实 (grey: not for R18) */
 .studio .st-face {
   display: inline-flex;
   align-items: center;

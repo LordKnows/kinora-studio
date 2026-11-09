@@ -1,4 +1,4 @@
-import { FACE_KINDS, type FaceKind, type FaceVerdict } from "./face-verdict";
+import { FACE_KINDS, faceAllowed, type FaceKind, type FaceVerdict } from "./face-verdict";
 import * as repo from "./repo";
 import { getObject, keyOfPublicUrl } from "./storage/r2";
 import type { Asset } from "./types";
@@ -6,18 +6,20 @@ import type { Asset } from "./types";
 export { describeVerdict, faceAllowed, FACE_KINDS, type FaceKind, type FaceVerdict } from "./face-verdict";
 
 /*
- * The face check of an uploaded (or imported) picture, for 18+ work: is the
- * face in it a photograph of a real person, or a 3D render / an illustration?
- * A vision model looks at the picture once (TokenSail's Qwen, or DashScope's
- * Qwen-VL, with the Worker's TOKENSAIL_API_KEY / DASHSCOPE_API_KEY) and the
- * verdict stays on the picture (meta.faceCheck).
+ * The face check of an uploaded (or imported) picture, as it arrives — the
+ * only time a model looks at a picture (drawings get their tag from what
+ * they were drawn from, provenance.ts). A vision model (TokenSail's
+ * qwen3.8-max-0902, or DashScope's Qwen-VL, with the Worker's
+ * TOKENSAIL_API_KEY / DASHSCOPE_API_KEY) looks once; the verdict and its
+ * tag stay on the picture (meta.faceCheck, meta.realness).
  *
- * Let through with 18+: a 3D render or an illustration of an adult who is no
- * real, recognisable person, or a picture with no human face. Kept out: a
- * photograph, anything photorealistic (an AI photo cannot be told from a
- * real one), a real person's likeness (a celebrity in 3D is still them), a
- * minor or an age the model cannot tell, a low-confidence answer, and any
- * picture the check could not see (no key, too large, an error).
+ * 模拟: a 3D render or an illustration of an adult who is no real,
+ * recognisable person, or a picture with no human face — the reference of
+ * any picture, R18 included. 真实: a photograph, anything photorealistic (an
+ * AI photo cannot be told from a real one), a real person's likeness (a
+ * celebrity in 3D is still them), a minor or an age the model cannot tell, a
+ * low-confidence answer, and any picture the check could not see (no key,
+ * an error, a timeout) — not for R18; every other picture as before.
  */
 
 /** Where the check runs: TokenSail first, then DashScope; undefined without a key. */
@@ -81,13 +83,13 @@ function parse(text: string, model: string): FaceVerdict | undefined {
 
 /** Why a check gave no verdict, kept on the picture (meta.faceCheckError) and shown with its label. */
 async function failed(asset: Asset, why: string): Promise<undefined> {
-  await repo.updateAssetMeta(asset.id, { ...asset.meta, faceCheckError: { why: why.slice(0, 300), at: Date.now() } }).catch(() => undefined);
+  await repo.updateAssetMeta(asset.id, { ...asset.meta, realness: "real", faceCheckError: { why: why.slice(0, 300), at: Date.now() } }).catch(() => undefined);
   return undefined;
 }
 
 /**
  * The face check of a picture: the one on it (unless force), or a new one, kept on the picture. Undefined when it
- * cannot be checked — the reason is kept on the picture — and then the picture counts as 不放行.
+ * cannot be checked — the reason is kept on the picture — and then the picture is 真实.
  */
 export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}): Promise<FaceVerdict | undefined> {
   const kept = asset.meta.faceCheck as FaceVerdict | undefined;
@@ -113,7 +115,7 @@ export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}):
   const verdict = parse(text, r.model);
   if (!verdict) return failed(asset, `${r.model} gave no verdict: ${text.slice(0, 160) || "an empty answer"}`);
   const { faceCheckError: _old, ...meta } = asset.meta;
-  await repo.updateAssetMeta(asset.id, { ...meta, faceCheck: verdict }).catch(() => undefined);
+  await repo.updateAssetMeta(asset.id, { ...meta, faceCheck: verdict, realness: faceAllowed(verdict) ? "sim" : "real" }).catch(() => undefined);
   return verdict;
 }
 
@@ -121,8 +123,8 @@ const ARRIVAL_TIMEOUT_MS = 25_000;
 
 /**
  * The face check of a picture as it arrives (an upload, an import): run now so the picture carries its label
- * (放行 / 不放行) from the start. A check that takes too long or fails leaves the picture unchecked; it is then
- * checked again when an R18 picture would use it. Library pictures (meta.reference) need none.
+ * (模拟 / 真实) from the start — the only time a model looks at a picture. A check that takes too long or fails
+ * leaves it 真实 until Check again on the Pictures page. Library pictures (meta.reference) need none.
  */
 export async function checkOnArrival(asset: Asset): Promise<Asset> {
   if (asset.kind !== "image" || asset.meta.reference || asset.meta.faceCheck || !route()) return asset;
@@ -131,7 +133,7 @@ export async function checkOnArrival(asset: Asset): Promise<Asset> {
   const fresh = await repo.getAsset(asset.id).catch(() => undefined);
   if (!fresh) return verdict ? { ...asset, meta: { ...asset.meta, faceCheck: verdict } } : asset;
   if (!fresh.meta.faceCheck && !fresh.meta.faceCheckError) {
-    await failed(fresh, `took over ${ARRIVAL_TIMEOUT_MS / 1000} s; it is checked again when an R18 picture would use it`);
+    await failed(fresh, `took over ${ARRIVAL_TIMEOUT_MS / 1000} s`);
     return repo.getAsset(asset.id);
   }
   return fresh;
