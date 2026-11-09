@@ -1,5 +1,6 @@
 import { config } from "./config";
 import { StudioError } from "./errors";
+import { checkOnArrival } from "./face-check";
 import * as repo from "./repo";
 import { nameOfUploadKey, publicUrl, putObject, uploadKey } from "./storage/r2";
 import type { Actor, Asset } from "./types";
@@ -54,7 +55,9 @@ export async function storeImage(projectId: string, bytes: Uint8Array, filename:
   const key = uploadKey(actor.user, filename.includes(".") ? filename : `${filename}.${ext}`);
   await putObject(key, bytes, TYPES[info.type]!);
   const name = typeof meta.label === "string" ? meta.label : nameOfUploadKey(key);
-  return repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta }, name });
+  const asset = await repo.createAsset({ projectId, url: publicUrl(key), kind: "image", source: "generated", width: info.width, height: info.height, meta: { key, ...meta }, name });
+  /* an imported picture is labelled as it arrives (放行 / 不放行 for R18), like an upload; library pictures need none */
+  return checkOnArrival(asset);
 }
 
 /** Fetch an image the director's own tool produced and keep it. */

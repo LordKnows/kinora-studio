@@ -7,7 +7,7 @@ import type { Asset } from "@/studio/types";
 import { ApiError, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
-import { describeVerdict, faceAllowed, type FaceVerdict } from "@/studio/face-verdict";
+import { describeVerdict, faceAllowed, faceLabel, type FaceVerdict } from "@/studio/face-verdict";
 
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
 import { useProjectContext } from "./shell";
@@ -24,6 +24,17 @@ export function pictureTitle(a: Asset): string {
   return [a.handle, a.name].filter(Boolean).join(" · ") || a.id;
 }
 
+/** The face check's label: 放行 (any reference, R18 included) or 不放行 (not for R18). */
+export function FaceBadge({ verdict }: { verdict: FaceVerdict | null | undefined }) {
+  const l = faceLabel(verdict ?? undefined);
+  return <span className="st-face" data-allowed={l.allowed ? "true" : undefined} title={l.title}>{l.label}</span>;
+}
+
+/** A picture that came from outside the Studio (an upload, an import) and so carries a face check. */
+export function fromOutside(a: Asset): boolean {
+  return a.kind === "image" && !a.meta.reference && (a.source === "upload" || (a.source === "generated" && !a.meta.jobId));
+}
+
 /** The handle and name under a thumbnail. */
 export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNode }) {
   return (
@@ -31,6 +42,7 @@ export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNo
       <span className="st-pic-line">
         {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
         <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
+        {fromOutside(asset) && <FaceBadge verdict={asset.meta.faceCheck as FaceVerdict | undefined} />}
       </span>
       {extra && <span className="st-pic-extra">{extra}</span>}
     </span>
@@ -249,7 +261,7 @@ export function PictureFacts({ asset, uses }: { asset: Asset; uses?: Use[] }) {
       {face && (
         <>
           <dt>Face check</dt>
-          <dd className={faceAllowed(face) ? undefined : "st-muted"}>{describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""} · {faceAllowed(face) ? "can be a face in 18+ work" : "not a face for 18+ work"}</dd>
+          <dd className={faceAllowed(face) ? undefined : "st-muted"}><FaceBadge verdict={face} /> {faceAllowed(face) ? "any reference, R18 included" : "not for R18; every other picture is fine"} · {describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</dd>
         </>
       )}
       {checks.length > 0 && (

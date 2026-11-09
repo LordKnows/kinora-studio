@@ -12,6 +12,7 @@ import { imageBlock } from "@/studio/image-content";
 import { ImageAction, runImageAction } from "@/studio/image-actions";
 import * as imaging from "@/studio/imaging";
 import * as canvas from "@/studio/canvas";
+import { checkOnArrival } from "@/studio/face-check";
 import * as models from "@/studio/models";
 import * as references from "@/studio/references";
 import { remakeTake } from "@/studio/remake";
@@ -339,7 +340,7 @@ export function createStudioServer(actor: Actor): McpServer {
     if (!key.startsWith("uploads/")) throw new StudioError("validation", "key must be under uploads/");
     if (!(await objectExists(key))) throw new StudioError("validation", "object not found; PUT the file first");
     await repo.getProject(projectId);
-    return { asset: await repo.createAsset({ projectId, url: publicUrl(key), kind, source: "upload", meta: { key }, name: nameOfUploadKey(key) }) };
+    return { asset: await checkOnArrival(await repo.createAsset({ projectId, url: publicUrl(key), kind, source: "upload", meta: { key }, name: nameOfUploadKey(key) })) };
   });
   tool("derive_end_frame", "The end frame of a push-in from its hero frame: a crop toward the subject's composition point (zoom 1.05–1.6) scaled back to the render size, so FL2VA has to push. Drawn by a painter (not image generation: no image quota; no GPU needed) and attaches it as the shot's end frame. pull_out works the other way: generate_shot_frame which 'first' method 'crop_from_last'.", z.object({ shotId: id, zoom: z.number().min(1.05).max(1.6).default(1.2), startPod: z.boolean().default(false) }), async ({ shotId, zoom, startPod }) =>
     imaging.generateShotFrame(shotId, "last", actor, { method: "crop_from_first", zoom, startPod }));

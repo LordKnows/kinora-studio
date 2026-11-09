@@ -1,7 +1,10 @@
-/* Browser → R2 direct upload (presign → PUT → commit): ask the studio for a presigned PUT, send the
-   bytes straight to the bucket, then commit so an Asset row exists. */
+import type { FaceVerdict } from "@/studio/face-verdict";
 
-export async function uploadMedia(file: File, projectId?: string, purpose?: "style_frame"): Promise<{ url: string; assetId: string }> {
+/* Browser → R2 direct upload (presign → PUT → commit): ask the studio for a presigned PUT, send the
+   bytes straight to the bucket, then commit so an Asset row exists. An image comes back with its face
+   check (放行 / 不放行 for R18), or null when it could not be checked. */
+
+export async function uploadMedia(file: File, projectId?: string, purpose?: "style_frame"): Promise<{ url: string; assetId: string; faceCheck: FaceVerdict | null }> {
   const presign = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -17,8 +20,8 @@ export async function uploadMedia(file: File, projectId?: string, purpose?: "sty
     body: JSON.stringify({ key, kind: file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image", projectId, ...(purpose ? { purpose } : {}) }),
   });
   if (!commit.ok) throw new Error(await errorText(commit, "Failed to record the upload"));
-  const { asset } = (await commit.json()) as { asset: { id: string; url: string } };
-  return { url: asset.url, assetId: asset.id };
+  const { asset } = (await commit.json()) as { asset: { id: string; url: string; meta?: { faceCheck?: FaceVerdict } } };
+  return { url: asset.url, assetId: asset.id, faceCheck: asset.meta?.faceCheck ?? null };
 }
 
 async function errorText(res: Response, fallback: string): Promise<string> {

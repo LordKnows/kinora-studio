@@ -3,7 +3,9 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { CanvasCompose, composeCharacter } from "@/studio/canvas";
-import { describeVerdict, faceAllowed, faceVerdict, type FaceVerdict } from "@/studio/face-check";
+import { checkOnArrival, describeVerdict, faceAllowed, faceVerdict, type FaceVerdict } from "@/studio/face-check";
+import { faceLabel } from "@/studio/face-verdict";
+import { importImageFromBase64 } from "@/studio/images";
 import * as imaging from "@/studio/imaging";
 import { firstUploadedFaceIn } from "@/studio/provenance";
 import { listReferences, setAdultContent } from "@/studio/references";
@@ -44,7 +46,11 @@ beforeAll(async () => {
   setDb(await memoryDb());
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = input instanceof Request ? input.url : String(input);
-    if (url.includes("cloudflarestorage.com")) return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
+    if (url.includes("cloudflarestorage.com")) {
+      /* HEAD (an upload's commit) and PUT (an import) answer empty; GET answers the picture */
+      if (init?.method === "HEAD" || init?.method === "PUT") return new Response(null, { status: 200 });
+      return new Response(PNG, { status: 200, headers: { "content-type": "image/png" } });
+    }
     if (url.endsWith("/chat/completions")) {
       asked.push({ url, auth: new Headers(init?.headers).get("authorization"), body: JSON.parse(String(init?.body)) });
       const content = typeof answer === "string" ? answer : JSON.stringify(answer);
@@ -129,5 +135,47 @@ describe("checking an uploaded face", () => {
     answer = { kind: "real_photo", likeness: false, age: "adult", confidence: 0.97, reason: "a selfie" };
     const selfie = await upload("selfie");
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: selfie.id }, pose: { id: couple.id } }), user)).rejects.toThrow(/face check: a photograph/);
+  });
+});
+
+describe("every upload and import gets its label as it arrives", () => {
+  let projectId = "";
+  const B64 = Buffer.from(PNG).toString("base64");
+
+  it("labels 放行 or 不放行", () => {
+    expect(faceLabel(v({}))).toMatchObject({ allowed: true, label: "放行" });
+    expect(faceLabel(v({ kind: "real_photo" }))).toMatchObject({ allowed: false, label: "不放行" });
+    expect(faceLabel(undefined)).toMatchObject({ allowed: false, label: "不放行" });
+    expect(faceLabel(undefined).title).toContain("not checked yet");
+  });
+
+  it("checks a web upload when it is committed, and the answer carries the label", async () => {
+    process.env.AUTH_MODE = "dev";
+    process.env.DEV_USER = "faces3d@local";
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    projectId = (await repo.createProject({ name: "Arrivals" })).id;
+    answer = { kind: "render_3d", likeness: false, age: "adult", confidence: 0.92, reason: "a 3D head" };
+    const { POST } = await import("@/app/api/uploads/commit/route");
+    const res = await POST(new Request("https://studio.example/api/uploads/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: "uploads/u/head.png", kind: "image", projectId }) }), { params: Promise.resolve({}) });
+    const { asset } = (await res.json()) as { asset: { id: string; meta: { faceCheck?: FaceVerdict } } };
+    expect(asset.meta.faceCheck?.kind).toBe("render_3d");
+    expect(faceAllowed((await repo.getAsset(asset.id)).meta.faceCheck as FaceVerdict)).toBe(true);
+  });
+
+  it("checks an imported picture, not a library one, and leaves one it cannot check unlabelled for later", async () => {
+    process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
+    answer = { kind: "real_photo", likeness: false, age: "adult", confidence: 0.96, reason: "a photo" };
+    const imported = await importImageFromBase64(projectId, B64, "photo.png", user);
+    expect(faceLabel(imported.meta.faceCheck as FaceVerdict).label).toBe("不放行");
+    const before = asked.length;
+    const library = await importImageFromBase64(projectId, B64, "pose.png", user, { reference: { id: "pose-1", kind: "pose" } });
+    expect(library.meta.faceCheck).toBeUndefined();
+    expect(asked.length).toBe(before);
+    /* the model gives no answer: unlabelled now, checked again when an R18 picture would use it */
+    answer = "no";
+    const later = await checkOnArrival(await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/later.png", kind: "image", source: "upload", meta: { key: "uploads/u/later.png" }, name: "later" }));
+    expect(later.meta.faceCheck).toBeUndefined();
+    answer = { kind: "illustration", likeness: false, age: "adult", confidence: 0.9, reason: "anime" };
+    expect(await firstUploadedFaceIn(projectId, [later.url])).toBeUndefined();
   });
 });

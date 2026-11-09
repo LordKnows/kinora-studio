@@ -330,7 +330,10 @@ The director gets the same library through `list_references`,
   (`src/studio/face-check.ts`) — finds a 3D render or an illustration of an
   adult who is no real person, or no face. A photograph, anything
   photorealistic, a real person's likeness, a minor, an unsure answer or no
-  check at all keeps it out, and so does a drawing that kept such a face. The Chinese names and tags are
+  check at all keeps it out, and so does a drawing that kept such a face.
+  Every upload and import is checked as it arrives and labelled **放行**
+  (any reference, R18 included) or **不放行** (not for R18; every other
+  picture as before) — on the Pictures page and on Canvas's upload slots. The Chinese names and tags are
   anhao's translation, whose data is not under that repository's MIT licence:
   ask its maintainer before publishing them more widely.
 - **18+ is hidden by default.** Two pose systems and the lingerie / sensual
