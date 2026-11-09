@@ -11,7 +11,8 @@ import type { Asset } from "./types";
  *    only time a model looks (face-check.ts). 模拟 when it found a 3D
  *    render, an illustration or no face; 真实 otherwise, and when it has no
  *    check.
- *  - The reference library: 模拟.
+ *  - The reference library: 模拟. The user's own pictures (我的): a portrait by its
+ *    face check, a costume or a pose 模拟.
  *  - A picture the Studio drew: 真实 as soon as any picture it was drawn
  *    from is 真实 — a reference, the picture it edited or cropped, the take
  *    a frame was grabbed from (through the take's own pictures) — however
@@ -64,12 +65,23 @@ export async function firstRealIn(projectId: string, urls: Array<string | undefi
     if (isLibraryUrl(url)) return undefined;
     if (depth > MAX_DEPTH) return url;
     const asset = byUrl.get(url);
-    /* a library picture brought into the project */
-    if (asset?.meta.reference) return undefined;
+    /* a library picture brought into the project, or one of the user's own costumes or poses (我的); one of
+       their own portraits brought in carries its face check, read below */
+    const ref = asset?.meta.reference as { kind?: string; mine?: boolean } | undefined;
+    if (ref && !(ref.mine && ref.kind === "portrait")) return undefined;
     /* a take's frame shows the take's people */
     const frameTake = asset?.source === "frame-extract" ? (typeof asset.meta.takeId === "string" ? asset.meta.takeId : takeOfFrame.get(url)?.id) : !asset ? takeOfFrame.get(url)?.id : undefined;
     if (frameTake && !asset?.meta.jobId) return fromTake(frameTake, depth);
-    if (!asset) return `${url} (真实: not a picture of this project)`;
+    if (!asset) {
+      /* one of the user's own pictures (我的), used straight from their library */
+      const mine = await repo.findUserReferenceByUrl(url).catch(() => undefined);
+      if (mine) {
+        if (mine.kind !== "portrait") return undefined;
+        const v = mine.meta.faceCheck as FaceVerdict | undefined;
+        return faceAllowed(v) ? undefined : `${mine.name} (我的 · 真实: ${describeVerdict(v).replace(/^face check: /, "")})`;
+      }
+      return `${url} (真实: not a picture of this project)`;
+    }
     const jobId = typeof asset.meta.jobId === "string" ? asset.meta.jobId : undefined;
     if (asset.source === "upload" || !jobId) {
       /* an upload or an import: its face check, made as it arrived */

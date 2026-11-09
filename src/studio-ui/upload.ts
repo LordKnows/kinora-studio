@@ -1,4 +1,6 @@
+import type { PosePicture } from "@/studio/canvas-prompt";
 import type { FaceVerdict } from "@/studio/face-verdict";
+import type { RefItem, RefKind } from "@/studio/references-model";
 
 /* Browser → R2 direct upload (presign → PUT → commit): ask the studio for a presigned PUT, send the
    bytes straight to the bucket, then commit so an Asset row exists. An image comes back with its face
@@ -31,4 +33,24 @@ async function errorText(res: Response, fallback: string): Promise<string> {
   } catch {
     return fallback;
   }
+}
+
+/** Put a picture into the user's own library (我的): presign → PUT → add. A portrait comes back with its face check. */
+export async function uploadToMine(file: File, input: { kind: RefKind; name: string; tags: string[]; picture?: PosePicture }): Promise<RefItem> {
+  const presign = await fetch("/api/uploads/presign", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ filename: file.name, contentType: file.type, size: file.size }),
+  });
+  if (!presign.ok) throw new Error(await errorText(presign, "Failed to get an upload URL"));
+  const { url, key } = (await presign.json()) as { url: string; key: string };
+  const put = await fetch(url, { method: "PUT", headers: { "content-type": file.type }, body: file });
+  if (!put.ok) throw new Error(`Upload to storage failed (${put.status})`);
+  const add = await fetch("/api/references/mine", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ key, ...input }),
+  });
+  if (!add.ok) throw new Error(await errorText(add, "Failed to add the picture to 我的"));
+  return ((await add.json()) as { item: RefItem }).item;
 }

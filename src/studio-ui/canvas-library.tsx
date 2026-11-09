@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { POSE_PICTURES, type PosePicture } from "@/studio/canvas-prompt";
 
 import {
   COSTUME_SOURCES,
@@ -17,11 +19,14 @@ import {
   type RefKind,
   type RefPortrait,
   type RefPose,
+  MINE_LABEL,
 } from "@/studio/references-model";
 
-import { get } from "./api";
+import { del, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Modal, Skeleton } from "./common";
-import { CheckIcon, OpenOutIcon, PlusIcon } from "./icons";
+import { CheckIcon, OpenOutIcon, PlusIcon, UploadIcon } from "./icons";
+import { FaceBadge } from "./pictures";
+import { uploadToMine } from "./upload";
 
 /* The Canvas library: portraits, costumes and poses, filtered in the
    browser. Thumbnails load from the galleries themselves (no referrer is
@@ -51,6 +56,11 @@ export function useReferences(kind: RefKind, adultVersion: number): { data: List
   return state.key === key ? { data: state.data, error: state.error } : { data: null, error: null };
 }
 
+/** Forget the loaded lists (after 我的 changed): the tabs load again when they show. */
+export function invalidateReferences(): void {
+  cache.clear();
+}
+
 /** Load a kind's list outside a component (random picks). */
 export function loadReferences(kind: RefKind, adultVersion: number): Promise<ListAnswer> {
   const key = `${kind}:${adultVersion}`;
@@ -60,9 +70,11 @@ export function loadReferences(kind: RefKind, adultVersion: number): Promise<Lis
 
 export type UseOptions = { depth?: boolean; view?: string };
 
+export type LibraryTab = RefKind | "mine";
+
 type Props = {
-  kind: RefKind;
-  onKind: (k: RefKind) => void;
+  kind: LibraryTab;
+  onKind: (k: LibraryTab) => void;
   adultVersion: number;
   adult: boolean;
   depth: boolean;
@@ -84,10 +96,14 @@ export function CanvasLibrary(props: Props) {
             {REF_KIND_LABEL[k].en} <span className="st-muted">{REF_KIND_LABEL[k].zh}</span>
           </button>
         ))}
+        <button type="button" role="tab" className="st-tab" aria-selected={kind === "mine"} onClick={() => onKind("mine")}>
+          Mine <span className="st-muted">{MINE_LABEL}</span>
+        </button>
       </div>
       {kind === "portrait" && <PortraitBrowser {...props} />}
       {kind === "costume" && <CostumeBrowser {...props} />}
       {kind === "pose" && <PoseBrowser {...props} />}
+      {kind === "mine" && <MineBrowser {...props} />}
     </div>
   );
 }
@@ -150,6 +166,7 @@ function Card({ item, thumb, caption, sub, selected, onOpen, onUse, useLabel, ex
       <div className="st-ref-cap">
         <span className="st-ref-name" title={caption}>{caption}</span>
         {sub && <span className="st-muted st-ref-sub">{sub}</span>}
+        {item.kind === "portrait" && item.mine && <FaceBadge verdict={item.mine.faceCheck ?? null} error={item.mine.faceCheckError} />}
         {extra}
       </div>
     </div>
@@ -180,6 +197,14 @@ function Loading({ error }: { error: unknown }) {
 
 const USE_LABEL: Record<RefKind, string> = { portrait: "Use as portrait", costume: "Use as costume", pose: "Use as pose" };
 
+const PICTURE_LABEL: Record<PosePicture, string> = { photo: "照片", mannequin: "白模", depth: "深度" };
+
+/** A 我的 item's line under its name: what it is, and its tags. */
+function mineSub(x: RefItem): string {
+  const what = x.kind === "pose" && x.mine?.picture ? `${MINE_LABEL} · ${PICTURE_LABEL[x.mine.picture]}` : MINE_LABEL;
+  return [what, ...(x.mine?.tags ?? [])].join(" · ");
+}
+
 /* ---------- portraits ---------- */
 
 function PortraitBrowser({ adultVersion, adult, selected, onUse, onImport }: Props) {
@@ -203,7 +228,7 @@ function PortraitBrowser({ adultVersion, adult, selected, onUse, onImport }: Pro
   return (
     <div className="st-stack" style={{ gap: 12 }}>
       <div className="st-ref-filters">
-        <Pills label="Section" value={section} onChange={setSection} options={[{ id: "", label: "All", count: items.length }, ...["正脸参考", "造型氛围"].map((s) => ({ id: s, label: s === "正脸参考" ? "正脸参考 · face" : "造型氛围 · styling", count: sections.get(s) ?? 0 }))]} />
+        <Pills label="Section" value={section} onChange={setSection} options={[{ id: "", label: "All", count: items.length }, ...(sections.get(MINE_LABEL) ? [MINE_LABEL] : []).concat(["正脸参考", "造型氛围"]).map((s) => ({ id: s, label: s === "正脸参考" ? "正脸参考 · face" : s === MINE_LABEL ? `${MINE_LABEL} · mine` : "造型氛围 · styling", count: sections.get(s) ?? 0 }))]} />
         <Pills label="Hair length" value={hair} onChange={(v) => { setHair(v); setStyle(""); }} options={[{ id: "", label: "Any length" }, ...["短发", "中发", "中长发", "长发"].map((h) => ({ id: h, label: h, count: hairs.get(h) ?? 0 }))]} />
         <div className="st-row">
           <select className="st-select st-input--sm" style={{ width: "auto", maxWidth: 320 }} value={style} onChange={(e) => setStyle(e.target.value)} aria-label="Hairstyle">
@@ -218,7 +243,7 @@ function PortraitBrowser({ adultVersion, adult, selected, onUse, onImport }: Pro
       {list.length === 0 ? <Empty title="No portrait matches" hint="Clear a filter or the search." /> : (
         <Grid total={list.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
           {list.slice(0, shown).map((x, i) => (
-            <Card key={x.id} item={x} thumb={x.thumb} caption={x.title} sub={`${x.section} · ${x.hairLength}`} selected={selected.portrait === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.portrait} extra={x.hot ? <span className="st-ref-hot">Top 10</span> : undefined} />
+            <Card key={x.id} item={x} thumb={x.thumb} caption={x.title} sub={x.mine ? mineSub(x) : `${x.section} · ${x.hairLength}`} selected={selected.portrait === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.portrait} extra={x.hot ? <span className="st-ref-hot">Top 10</span> : undefined} />
           ))}
         </Grid>
       )}
@@ -274,7 +299,7 @@ function CostumeBrowser({ adultVersion, adult, selected, onUse, onImport }: Prop
       {list.length === 0 ? <Empty title="No costume matches" hint="Clear a filter or the search." /> : (
         <Grid total={list.length} shown={shown} onMore={() => setShown((n) => n + PAGE)}>
           {list.slice(0, shown).map((x, i) => (
-            <Card key={x.id} item={x} thumb={x.thumb} caption={x.name} sub={`${x.category} · ${COSTUME_SOURCES.find((s) => s.id === x.source)?.label ?? x.source}`} selected={selected.costume === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.costume} />
+            <Card key={x.id} item={x} thumb={x.thumb} caption={x.name} sub={x.mine ? mineSub(x) : `${x.category} · ${COSTUME_SOURCES.find((s) => s.id === x.source)?.label ?? x.source}`} selected={selected.costume === x.id} onOpen={() => setOpen(i)} onUse={() => onUse(x, {})} useLabel={USE_LABEL.costume} />
           ))}
         </Grid>
       )}
@@ -355,7 +380,7 @@ function PoseBrowser({ adultVersion, adult, selected, onUse, onImport, depth, on
           {groupList.slice(0, shown).map((g, i) => {
             const p = shownOf(g);
             return (
-              <Card key={g.key} item={p} thumb={pic(p)} caption={p.name} sub={`${p.category} · ${POSE_ANGLES.find((a) => a.id === p.angle)?.zh}`} selected={selected.pose === p.id} onOpen={() => setOpen(i)} onUse={() => onUse(p, { depth })} useLabel={USE_LABEL.pose}
+              <Card key={g.key} item={p} thumb={pic(p)} caption={p.name} sub={p.mine ? mineSub(p) : `${p.category} · ${POSE_ANGLES.find((a) => a.id === p.angle)?.zh}`} selected={selected.pose === p.id} onOpen={() => setOpen(i)} onUse={() => onUse(p, { depth })} useLabel={USE_LABEL.pose}
                 extra={
                   <span className="st-ref-angles" role="group" aria-label="Angle">
                     {POSE_ANGLES.filter((a) => g.angles[a.id]).map((a) => (
@@ -465,5 +490,145 @@ function Lightbox({ list, index, onIndex, onClose, selected, onUse, onImport, de
         </div>
       </div>
     </Modal>
+  );
+}
+
+/* ---------- 我的: the user's own pictures ---------- */
+
+const MINE_KIND_LABEL: Record<RefKind, string> = { portrait: "人像 · Portrait", costume: "服装 · Costume", pose: "姿势 · Pose" };
+
+/** Upload into 我的: what the picture is, a name and tags. A portrait gets its face check (模拟 / 真实); a costume or a pose none. */
+function MineUpload({ onAdded }: { onAdded: (item: RefItem) => Promise<void> }) {
+  const [kind, setKind] = useState<RefKind>("portrait");
+  const [picture, setPicture] = useState<PosePicture>("mannequin");
+  const [name, setName] = useState("");
+  const [tags, setTags] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const [drag, setDrag] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const send = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return setError(new Error("Pick an image file (PNG, JPEG or WebP)"));
+    setBusy(true);
+    setError(null);
+    try {
+      const item = await uploadToMine(file, {
+        kind, name: name.trim() || file.name.replace(/\.[a-z0-9]+$/i, "").slice(0, 60), tags: tags.split(/[,，、\s]+/).filter(Boolean),
+        ...(kind === "pose" ? { picture } : {}),
+      });
+      setName("");
+      await onAdded(item);
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="st-card st-stack st-mine-upload" data-drag={drag ? "true" : undefined}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); void send(e.dataTransfer.files?.[0]); }}>
+      <div className="st-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <strong>Add to {MINE_LABEL}</strong>
+        <div className="st-seg st-seg--sm" role="group" aria-label="What the picture is">
+          {(["portrait", "costume", "pose"] as const).map((k) => <button key={k} type="button" aria-pressed={kind === k} onClick={() => setKind(k)}>{MINE_KIND_LABEL[k]}</button>)}
+        </div>
+        {kind === "pose" && (
+          <div className="st-seg st-seg--sm" role="group" aria-label="What the pose picture is">
+            {POSE_PICTURES.map((pp) => <button key={pp} type="button" aria-pressed={picture === pp} onClick={() => setPicture(pp)}>{PICTURE_LABEL[pp]}</button>)}
+          </div>
+        )}
+      </div>
+      <div className="st-row" style={{ gap: 8, flexWrap: "wrap" }}>
+        <input className="st-input st-input--sm" style={{ width: 180 }} maxLength={60} placeholder="Name (the file name)" value={name} onChange={(e) => setName(e.target.value)} aria-label="Name" />
+        <input className="st-input st-input--sm" style={{ width: 220 }} placeholder="Tags: 短发, 3D, 赛博…" value={tags} onChange={(e) => setTags(e.target.value)} aria-label="Tags" />
+        <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { void send(e.target.files?.[0]); e.target.value = ""; }} />
+        <Button size="sm" kind="primary" busy={busy} onClick={() => input.current?.click()}><UploadIcon size={12} /> {busy ? (kind === "portrait" ? "Uploading and checking…" : "Uploading…") : "Upload a picture"}</Button>
+      </div>
+      <span className="st-muted">
+        {kind === "portrait" ? "A portrait gets its face check: 模拟 (3D, illustrated or AI) can go into any picture, R18 included; 真实 into everything but R18." : "A costume or a pose gets no face check."} Drop a picture here too. Your pictures show in every project, and in the Portraits, Costumes and Poses tabs under {MINE_LABEL}.
+      </span>
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+    </div>
+  );
+}
+
+function MineBrowser({ selected, onUse }: Props) {
+  const [items, setItems] = useState<RefItem[] | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [kind, setKind] = useState<"" | RefKind>("");
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState("");
+  const load = useCallback(async () => {
+    try {
+      setItems((await get<{ items: RefItem[] }>("/api/references/mine")).items);
+    } catch (e) {
+      setError(e);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const changed = async () => {
+    invalidateReferences();
+    await load();
+  };
+  const act = async (id: string, run: () => Promise<unknown>) => {
+    setBusy(id);
+    setError(null);
+    try {
+      await run();
+      await changed();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy("");
+    }
+  };
+  const all = items ?? [];
+  const list = all.filter((x) => (!kind || x.kind === kind) && matchesQuery(searchText(x), q));
+  const counts = countBy(all, (x) => x.kind);
+  return (
+    <div className="st-stack" style={{ gap: 12 }}>
+      <MineUpload onAdded={async () => changed()} />
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <div className="st-ref-filters">
+        <div className="st-row">
+          <Pills label="Kind" value={kind} onChange={setKind} options={[{ id: "", label: "All", count: all.length }, ...(["portrait", "costume", "pose"] as const).map((k) => ({ id: k, label: MINE_KIND_LABEL[k], count: counts.get(k) ?? 0 }))]} />
+          <Search value={q} onChange={setQ} placeholder="Search 搜索 (name, tags)" />
+          <span className="st-muted st-num">{list.length}</span>
+        </div>
+      </div>
+      {!items ? <Loading error={error} /> : list.length === 0 ? <Empty title={all.length ? "No picture matches" : "Nothing of yours yet"} hint={all.length ? "Clear a filter or the search." : "Upload a portrait, a costume or a pose above."} /> : (
+        <div className="st-ref-grid">
+          {list.map((x) => (
+            <Card key={x.id} item={x} thumb={x.thumb} caption={referenceName(x)} sub={`${MINE_KIND_LABEL[x.kind].split(" · ")[0]} · ${mineSub(x)}`} selected={selected[x.kind] === x.id}
+              onOpen={() => window.open(x.image, "_blank", "noopener")} onUse={() => onUse(x, {})} useLabel={USE_LABEL[x.kind]}
+              extra={
+                <span className="st-row st-mine-actions" style={{ gap: 4, flexWrap: "wrap" }}>
+                  <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!!busy} onClick={() => {
+                    const name = window.prompt("Name", referenceName(x));
+                    if (name !== null && name.trim()) void act(x.id, () => patch(`/api/references/mine/${encodeURIComponent(x.id)}`, { name }));
+                  }}>Rename</button>
+                  <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!!busy} onClick={() => {
+                    const tags = window.prompt("Tags, separated by commas", (x.mine?.tags ?? []).join(", "));
+                    if (tags !== null) void act(x.id, () => patch(`/api/references/mine/${encodeURIComponent(x.id)}`, { tags: tags.split(/[,，、\s]+/).filter(Boolean) }));
+                  }}>Tags</button>
+                  {x.kind === "pose" && (
+                    <select className="st-select st-input--sm" style={{ width: "auto" }} value={x.mine?.picture ?? "photo"} disabled={!!busy} aria-label="What the pose picture is"
+                      onChange={(e) => void act(x.id, () => patch(`/api/references/mine/${encodeURIComponent(x.id)}`, { picture: e.target.value }))}>
+                      {POSE_PICTURES.map((pp) => <option key={pp} value={pp}>{PICTURE_LABEL[pp]}</option>)}
+                    </select>
+                  )}
+                  {x.kind === "portrait" && <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!!busy} onClick={() => void act(x.id, () => post(`/api/references/mine/${encodeURIComponent(x.id)}/face-check`, {}))}>{busy === x.id ? "Checking…" : "Check again"}</button>}
+                  <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!!busy} onClick={() => {
+                    if (window.confirm(`Take ${referenceName(x)} out of ${MINE_LABEL}? Pictures already drawn from it stay.`)) void act(x.id, () => del(`/api/references/mine/${encodeURIComponent(x.id)}`));
+                  }}>Delete</button>
+                </span>
+              } />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

@@ -41,8 +41,9 @@ export function faceLabel(v: FaceVerdict | undefined, error?: { why?: string }):
  * made before tags.
  */
 export function pictureTag(meta: Record<string, unknown>, outside: boolean): { sim: boolean; label: "模拟" | "真实"; title: string } | undefined {
-  if (meta.reference) return { sim: true, label: "模拟", title: `${SIM} (the reference library)` };
-  if (outside) {
+  const ref = meta.reference as { kind?: string; mine?: boolean } | undefined;
+  if (ref && !(ref.mine && ref.kind === "portrait")) return { sim: true, label: "模拟", title: `${SIM} (${ref.mine ? "one of your own costumes or poses" : "the reference library"})` };
+  if (outside || ref) {
     const l = faceLabel(meta.faceCheck as FaceVerdict | undefined, meta.faceCheckError as { why?: string } | undefined);
     return { sim: l.allowed, label: l.label, title: l.title };
   }

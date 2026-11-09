@@ -6,14 +6,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, PLACE_ZH, PLACES, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
 import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
-import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
+import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
 import { faceAllowed, type FaceVerdict } from "@/studio/face-verdict";
 import type { Asset, Element, Job, Project } from "@/studio/types";
 
 import { get, post, put } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./common";
-import { CanvasLibrary, loadReferences, type UseOptions } from "./canvas-library";
+import { CanvasLibrary, loadReferences, type LibraryTab, type UseOptions } from "./canvas-library";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { CloseIcon, UploadIcon } from "./icons";
 import { FaceBadge } from "./pictures";
@@ -66,7 +66,7 @@ type Recipe = {
 type SlotKind = "portrait" | "costume" | "pose";
 type Who = "a" | "b";
 type UploadTarget = SlotKind | "extra" | "portrait_b" | "costume_b";
-type Prefs = { projectId?: string; kind: RefKind; attach?: { elementId: string; view: RefView } };
+type Prefs = { projectId?: string; kind: LibraryTab; attach?: { elementId: string; view: RefView } };
 
 const SLOT_LABEL: Record<SlotKind, string> = { portrait: "Portrait · 人像", costume: "Costume · 服装", pose: "Pose · 姿势" };
 const RECIPE_KEY = "canvas.recipe.v1";
@@ -279,8 +279,11 @@ export function CanvasPage() {
   /* 18+: the faces come from the library (uploaded outfits and poses are fine) */
   /* an upload known to be 模拟 is fine; one 真实, or not known here, may be refused */
   const notCleared = (u?: Upload) => !!u && !faceAllowed(u.face ?? undefined);
+  /* one of the user's own portraits (我的) carries its face check; their costumes and poses carry none */
+  const myReal = (it?: RefItem) => it?.kind === "portrait" && !!it.mine && !faceAllowed(it.mine.faceCheck);
   /* R18 takes only 模拟 pictures: any upload of the recipe that is not, a face, an outfit or a pose alike */
-  const uploadedFace = (!castA && notCleared(recipe.portrait?.upload)) || notCleared(recipe.costume?.upload) || notCleared(recipe.pose?.upload)
+  const uploadedFace = (!castA && (notCleared(recipe.portrait?.upload) || myReal(recipe.portrait?.item))) || notCleared(recipe.costume?.upload) || notCleared(recipe.pose?.upload)
+    || (!!recipe.two && !castB && myReal(recipe.partner?.portrait?.item))
     || (!!recipe.two && ((!castB && notCleared(recipe.partner?.portrait?.upload)) || notCleared(recipe.partner?.costume?.upload))) || recipe.extras.some((e) => notCleared(e));
 
   const randomize = async (slot: SlotKind, scope: "similar" | "any", who: Who = "a") => {
@@ -752,7 +755,7 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
   const [drag, setDrag] = useState(false);
   const thumb = slot?.item ? referenceImage(slot.item, { depth: recipe.depth, view: kind === "costume" ? recipe.costume?.view : undefined }).thumb : slot?.upload?.url;
   const item = slot?.item;
-  const sub = item?.kind === "portrait" ? `${item.section} · ${item.hairLength}` : item?.kind === "costume" ? `${item.category} · ${COSTUME_SOURCES.find((s) => s.id === item.source)?.label}` : item?.kind === "pose" ? `${item.category} · ${POSE_ANGLES.find((a) => a.id === item.angle)?.zh}` : slot?.upload ? "your picture" : "";
+  const sub = item?.mine ? ["我的", ...(item.kind === "pose" && item.mine.picture ? [{ photo: "照片", mannequin: "白模", depth: "深度" }[item.mine.picture]] : []), ...item.mine.tags].join(" · ") : item?.kind === "portrait" ? `${item.section} · ${item.hairLength}` : item?.kind === "costume" ? `${item.category} · ${COSTUME_SOURCES.find((s) => s.id === item.source)?.label}` : item?.kind === "pose" ? `${item.category} · ${POSE_ANGLES.find((a) => a.id === item.angle)?.zh}` : slot?.upload ? "your picture" : "";
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDrag(false);
@@ -768,10 +771,11 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
       <div className="st-slot-name" title={slotName(slot)}>{slotName(slot) || "—"}</div>
       {sub && <div className="st-muted st-slot-sub">{sub}</div>}
       {slot?.upload && slot.upload.face !== undefined && <div><FaceBadge verdict={slot.upload.face} error={slot.upload.faceError} /></div>}
+      {item?.kind === "portrait" && item.mine && <div><FaceBadge verdict={item.mine.faceCheck ?? null} error={item.mine.faceCheckError} /></div>}
       {item?.nsfw && !adult && <div className="st-warn st-slot-sub">hidden now</div>}
       {kind === "pose" && slot && (
         <div className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
-          {item && (
+          {item && !item.mine && (
             <div className="st-seg st-seg--sm" role="group" aria-label="Pose picture">
               <button type="button" aria-pressed={!recipe.depth} title="Line art" onClick={() => onDepth(false)}>白模</button>
               <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>

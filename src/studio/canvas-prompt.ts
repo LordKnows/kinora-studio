@@ -95,7 +95,8 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
       clauses.push(`• ${who}：图${idx}是${p.character.name}的角色参考（同一个人），保持其脸型、五官、发型、发色、肤色${outfit}一致。`);
       idx++;
     } else if (p.portrait) {
-      const it = p.portrait.item;
+      /* one of the user's own pictures (我的) is described as their own, not by library metadata */
+      const it = p.portrait.item?.mine ? undefined : p.portrait.item;
       const hair = it ? (it.hairstyle && it.hairstyle !== "标准基础款" ? it.title : it.hairLength) : "";
       const outfit = p.costume ? "" : `保留图${idx}人物原有可见服装与配饰，不复制姿势参考图的服装或白模外观。`;
       clauses.push(`• ${who}：图${idx}中的人物，保持其脸型、五官、${hair ? `发型（${hair}）` : "发型"}和发色一致。${who === "人物" ? "人物的" : `${who}的`}${SKIN(idx)}${outfit}`);
@@ -105,7 +106,7 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
     }
     if (p.costume) {
       wearAt[n] = idx;
-      const c = p.costume.item;
+      const c = p.costume.item?.mine ? undefined : p.costume.item;
       const dress = two ? `让${who}穿上` : "让人物穿上";
       clauses.push(c
         ? `• ${two ? `${who}的服装` : "服装"}：${dress}图${idx}中展示的整套服装和配饰（参考名称：${c.name}），每件单品的颜色、款式、面料与配饰都以图${idx}为准，名称仅作辅助说明。`
@@ -121,14 +122,14 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
       : wearAt[0] ? `穿着图${wearAt[0]}的服装` : "";
     const real = two ? "最终画面中的两个人是真人，皮肤真实自然" : "最终画面中的人物是真人，皮肤真实自然";
     const body = (isPhoto ? real : two ? "两个人的肤色与质感按风格要求呈现" : "人物的肤色与质感按风格要求呈现") + (wear ? `，${wear}` : "");
-    const p = r.pose.item;
+    const p = r.pose.item?.mine ? undefined : r.pose.item;
     /* a flipped pose: its name's left and right are the other way round now */
     const flipped = r.pose.mirror ? "已左右镜像，以图中方向为准" : "";
     const figures = two ? "两个人体模型" : "人体模型";
     const people2 = two ? "两个人的" : "人物";
     /* two people: which figure is who, read on the picture as given (after the flip) */
     const cast = two ? `图${idx}中${PLACE_ZH[r.aIs ?? "left"]}的人是${people[0]!.name}，另一个人是${people[1]!.name}；` : "";
-    const picture = r.pose.picture ?? "photo";
+    const picture = r.pose.item?.mine?.picture ?? r.pose.picture ?? "photo";
     clauses.push(p
       ? `• 姿势：按照图${idx}中${figures}的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}${flipped ? `，${flipped}` : ""}）；${cast}图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
       : picture === "mannequin"

@@ -299,6 +299,13 @@ The director gets the same library through `list_references`,
   a mannequin or line art, 深度 a depth map). A project character can stand
   in for the portrait (its sheet is the face and, without a costume, the
   outfit).
+- **我的 (your own pictures).** The library's **Mine** tab uploads a
+  portrait, a costume or a pose (照片 / 白模 / 深度) with a name and tags into
+  the signed-in user's own library (`user_references`, R2): it shows in every
+  project, first in the Portraits / Costumes / Poses tabs under 我的, with
+  search, filters and random, and can be renamed, retagged or deleted. A
+  portrait gets the face check (模拟 / 真实); a costume or a pose gets none
+  and counts as 模拟. The agent sees them through `list_references`.
 - **Text to image (文生图).** Switch the recipe to *文生图 · Text* and
   describe the picture: no reference is needed, and the style, size, model
   and LoRAs still apply (GPT Image, Qwen-Image 3.0 Pro, Qwen-Image 2.1 —

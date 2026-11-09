@@ -57,9 +57,9 @@ function base64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
-async function bytesOf(asset: Asset): Promise<{ bytes: Uint8Array; type: string } | undefined> {
-  const key = keyOfPublicUrl(asset.url) ?? (typeof asset.meta.key === "string" ? asset.meta.key : undefined);
-  const res = key ? await getObject(key) : await fetch(asset.url);
+async function bytesOf(pic: { url: string; key?: string }): Promise<{ bytes: Uint8Array; type: string } | undefined> {
+  const key = keyOfPublicUrl(pic.url) ?? pic.key;
+  const res = key ? await getObject(key) : await fetch(pic.url);
   if (!res.ok) return undefined;
   const bytes = new Uint8Array(await res.arrayBuffer());
   const type = (res.headers.get("content-type") ?? "").split(";")[0]!.trim();
@@ -91,14 +91,13 @@ async function failed(asset: Asset, why: string): Promise<undefined> {
  * The face check of a picture: the one on it (unless force), or a new one, kept on the picture. Undefined when it
  * cannot be checked — the reason is kept on the picture — and then the picture is 真实.
  */
-export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}): Promise<FaceVerdict | undefined> {
-  const kept = asset.meta.faceCheck as FaceVerdict | undefined;
-  if (!opts.force && kept && FACE_KINDS.includes(kept.kind)) return kept;
+/** Ask the model about one stored picture: its verdict, or why there is none. */
+export async function checkPicture(pic: { url: string; key?: string }): Promise<{ verdict?: FaceVerdict; why?: string }> {
   const r = route();
-  if (!r) return failed(asset, "no TOKENSAIL_API_KEY or DASHSCOPE_API_KEY on the Worker");
-  const pic = await bytesOf(asset).catch(() => undefined);
-  if (!pic) return failed(asset, "the picture could not be read from storage");
-  const image = pic.bytes.length <= MAX_INLINE ? `data:${pic.type};base64,${base64(pic.bytes)}` : asset.url;
+  if (!r) return { why: "no TOKENSAIL_API_KEY or DASHSCOPE_API_KEY on the Worker" };
+  const data = await bytesOf(pic).catch(() => undefined);
+  if (!data) return { why: "the picture could not be read from storage" };
+  const image = data.bytes.length <= MAX_INLINE ? `data:${data.type};base64,${base64(data.bytes)}` : pic.url;
   const messages = [{ role: "user", content: [{ type: "image_url", image_url: { url: image } }, { type: "text", text: ASK }] }];
   const ask = (json: boolean) => fetch(r.url, {
     method: "POST",
@@ -108,12 +107,23 @@ export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}):
   /* JSON mode where the vendor has it; the prompt asks for JSON either way */
   let res = await ask(true);
   if (!(res instanceof Error) && res.status === 400) res = await ask(false);
-  if (res instanceof Error) return failed(asset, `${r.model} could not be reached: ${res.message}`);
-  if (!res.ok) return failed(asset, `${r.model} answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+  if (res instanceof Error) return { why: `${r.model} could not be reached: ${res.message}` };
+  if (!res.ok) return { why: `${r.model} answered ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}` };
   const body = (await res.json().catch(() => undefined)) as { choices?: Array<{ message?: { content?: string } }> } | undefined;
   const text = body?.choices?.[0]?.message?.content ?? "";
   const verdict = parse(text, r.model);
-  if (!verdict) return failed(asset, `${r.model} gave no verdict: ${text.slice(0, 160) || "an empty answer"}`);
+  return verdict ? { verdict } : { why: `${r.model} gave no verdict: ${text.slice(0, 160) || "an empty answer"}` };
+}
+
+/**
+ * The face check of a project picture: the one on it (unless force), or a new one, kept on the picture with its
+ * tag. Undefined when it cannot be checked — the reason is kept on the picture — and then the picture is 真实.
+ */
+export async function faceVerdict(asset: Asset, opts: { force?: boolean } = {}): Promise<FaceVerdict | undefined> {
+  const kept = asset.meta.faceCheck as FaceVerdict | undefined;
+  if (!opts.force && kept && FACE_KINDS.includes(kept.kind)) return kept;
+  const { verdict, why } = await checkPicture({ url: asset.url, key: typeof asset.meta.key === "string" ? asset.meta.key : undefined });
+  if (!verdict) return failed(asset, why ?? "no verdict");
   const { faceCheckError: _old, ...meta } = asset.meta;
   await repo.updateAssetMeta(asset.id, { ...meta, faceCheck: verdict, realness: faceAllowed(verdict) ? "sim" : "real" }).catch(() => undefined);
   return verdict;
