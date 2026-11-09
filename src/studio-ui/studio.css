@@ -2461,6 +2461,14 @@ button.st-pill {
   align-self: flex-start;
   max-width: 100%;
 }
+/* two people: A's and B's portrait and costume in two rows, the shared pose beside them */
+.studio .st-slots--duo .st-slot[data-kind="pose"] {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+}
+.studio .st-slot[data-active="true"] {
+  border-color: var(--accent-32);
+}
 .studio .st-slot .st-seg--sm button {
   white-space: nowrap;
   padding: 4px 6px;

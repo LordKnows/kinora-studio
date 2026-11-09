@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, POSE_PICTURES, type CanvasPromptRecipe } from "./canvas-prompt";
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, PLACES, POSE_PICTURES, type CanvasPerson, type CanvasPromptRecipe } from "./canvas-prompt";
 import { StudioError } from "./errors";
 import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
@@ -11,7 +11,7 @@ import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
 import { LoraRef, REF_VIEWS } from "./schemas";
-import type { Actor, Asset, Job } from "./types";
+import type { Actor, Asset, Element, Job } from "./types";
 
 /*
  * Canvas: compose one character picture from the reference library —
@@ -33,9 +33,21 @@ import type { Actor, Asset, Job } from "./types";
 const Slot = z.object({ id: z.string().max(80).optional(), assetId: z.string().max(80).optional() });
 const Quality = z.enum(["low", "medium", "high"]);
 
+const CostumeSlot = Slot.extend({ view: z.string().max(20).optional() });
+const Character = z.object({ elementId: z.string().max(80) }).describe("A project character instead of a portrait: its front (or full-body) reference is the face, the hair and, without a costume, the outfit");
+
 export const CanvasCompose = z.object({
   portrait: Slot.optional(),
-  costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
+  costume: CostumeSlot.optional(),
+  character: Character.optional(),
+  name: z.string().max(40).optional().describe("Two people: what the prompt calls person A (else the character's name, or 人物A)"),
+  partner: z.object({
+    portrait: Slot.optional(),
+    costume: CostumeSlot.optional(),
+    character: Character.optional(),
+    name: z.string().max(40).optional().describe("What the prompt calls person B (else the character's name, or 人物B)"),
+  }).optional().describe("Two people: person B — a portrait and/or a costume, or a project character — drawn with person A (portrait / costume / character above) in one two-person pose (list_references system couple, or an uploaded two-person pose)"),
+  aIs: z.enum(PLACES).default("left").describe("Two people: which figure of the pose is person A — left, right, front (nearer the camera), back, top or bottom — on the pose picture as drawn (after mirror); the other is person B"),
   pose: Slot.extend({
     depth: z.boolean().default(false).describe("A library pose: its depth map instead of the line art"),
     picture: z.enum(POSE_PICTURES).default("photo").describe("An uploaded pose (assetId): what the picture is — photo (a person: only the pose and framing are taken), mannequin (白模 / line art), depth (a grey depth map)"),
@@ -66,7 +78,8 @@ export const CanvasImport = z.object({
 export type CanvasImport = z.infer<typeof CanvasImport>;
 
 type ResolvedSlot<T extends RefItem> = { item?: T; asset?: Asset; url: string; thumb: string; label: string };
-export type CanvasRef = { role: "portrait" | "costume" | "pose" | "extra"; label: string; url: string; thumb: string; refId?: string; assetId?: string };
+export type CanvasRole = "portrait" | "costume" | "character" | "portrait_b" | "costume_b" | "character_b" | "pose" | "extra";
+export type CanvasRef = { role: CanvasRole; label: string; url: string; thumb: string; refId?: string; assetId?: string; elementId?: string };
 
 async function referenceOf<K extends RefKind>(id: string, kind: K, adult: boolean): Promise<Extract<RefItem, { kind: K }>> {
   const item = await getReference(id, adult);
@@ -93,6 +106,19 @@ async function resolveSlot<K extends "portrait" | "costume" | "pose">(projectId:
   return { item, url: pic.image, thumb: pic.thumb, label };
 }
 
+type ResolvedCharacter = { element: Element; asset: Asset; url: string; thumb: string; label: string };
+
+/** A project character as a person of the picture: its front reference (else full body, three-quarter, the first). */
+async function characterOf(projectId: string, elementId: string): Promise<ResolvedCharacter> {
+  const element = await repo.getElement(elementId);
+  if (element.projectId !== projectId) throw new StudioError("validation", "pick a character of this project");
+  const views = element.refViews ?? {};
+  const pick = (["front", "full_body", "three_quarter"] as const).map((v) => element.refAssetIds.find((id) => views[id] === v)).find(Boolean) ?? element.refAssetIds[0];
+  if (!pick) throw new StudioError("validation", `${element.name} has no reference picture yet: draw its sheet, or pick a portrait`);
+  const asset = await repo.getAsset(pick);
+  return { element, asset, url: asset.url, thumb: (asset.meta.previewUrl as string | undefined) ?? asset.url, label: element.name };
+}
+
 /** The image model a Canvas picture is drawn with: the one asked for, else the project's (Settings → Director). */
 export function canvasModel(id: string | undefined, imaging?: { model?: string; backend?: string } | null): ModelEntry {
   const model = id ? findModel(id) : projectImageModel(imaging);
@@ -103,11 +129,23 @@ export function canvasModel(id: string | undefined, imaging?: { model?: string; 
 export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; warnings: string[] }> {
   await repo.getProject(projectId);
   const adult = await adultAllowed(actor);
+  if (input.character && input.portrait) throw new StudioError("validation", "person A: a character or a portrait, not both");
+  if (input.partner?.character && input.partner.portrait) throw new StudioError("validation", "person B: a character or a portrait, not both");
   const portrait = await resolveSlot(projectId, "portrait", input.portrait, adult);
   const costume = await resolveSlot(projectId, "costume", input.costume, adult);
+  const character = input.character ? await characterOf(projectId, input.character.elementId) : undefined;
+  const partner = input.partner ? {
+    portrait: await resolveSlot(projectId, "portrait", input.partner.portrait, adult),
+    costume: await resolveSlot(projectId, "costume", input.partner.costume, adult),
+    character: input.partner.character ? await characterOf(projectId, input.partner.character.elementId) : undefined,
+    name: input.partner.name,
+  } : undefined;
   const pose = await resolveSlot(projectId, "pose", input.pose, adult);
   const extras = await Promise.all(input.extras.map(async (e) => ({ asset: await projectPicture(projectId, e.assetId), name: e.name })));
-  if (!portrait && !costume && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
+  if (partner && !partner.portrait && !partner.costume && !partner.character) throw new StudioError("validation", "person B needs a portrait, a costume or a character");
+  if (partner && !portrait && !costume && !character) throw new StudioError("validation", "person A needs a portrait, a costume or a character");
+  if (!portrait && !costume && !character && !pose && !extras.length) throw new StudioError("validation", "pick at least one reference: a portrait, a costume, a pose or a picture");
+  if (partner && input.attach) throw new StudioError("validation", "a picture of two people is not one character's look: it stays in Pictures (leave attach out)");
   const model = canvasModel(input.model, (await repo.getProject(projectId)).imaging);
   const library = input.loras.length ? await repo.getLoras(input.loras.map((r) => r.id)) : new Map();
   const loras = input.loras.map((r) => {
@@ -119,39 +157,49 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   for (const l of loras) {
     if (l.baseModel !== model.family) throw new StudioError("validation", `${l.name} is trained for ${l.baseModel}, not ${model.label} (${model.family})`);
   }
-  /* LoRAs made for adult content: only for a user who unlocked 18+, and only on library pictures (an upload may be a real person) */
+  /* LoRAs made for adult content: only for a user who unlocked 18+ */
   const adultLora = loras.find((l) => l.adult);
   if (adultLora && !adult) throw new StudioError("forbidden", `${adultLora.name} is 18+: the user shows 18+ references on the Canvas page first (web only)`, { adult: false });
-  if (adultLora) {
-    /* a project picture only when the Studio drew it from library or Studio pictures, traced back to the first one */
-    const upload = await firstUploadIn(projectId, [portrait?.asset?.url, costume?.asset?.url, pose?.asset?.url, ...extras.map((e) => e.asset.url)]);
-    if (upload) throw new StudioError("validation", `${adultLora.name} draws only from the library's pictures (AI-generated adults) and pictures the Studio drew from them: ${upload} is, or was drawn from, an uploaded or imported picture — it may be a real person; remove it`);
+  /* 18+ (a LoRA, or a library reference): every face comes from the library's portraits (AI-generated adults) or a
+     picture the Studio drew from them — never an upload, which may be a real person. Uploaded outfits and poses are fine. */
+  const nsfw = [portrait?.item, costume?.item, pose?.item, partner?.portrait?.item, partner?.costume?.item].some((x) => x?.nsfw);
+  if (adultLora || nsfw) {
+    const face = await firstUploadIn(projectId, [portrait?.asset?.url, character?.url, partner?.portrait?.asset?.url, partner?.character?.url, ...extras.map((e) => e.asset.url)]);
+    if (face) {
+      throw new StudioError("validation", `${adultLora ? `${adultLora.name} is 18+` : "The recipe holds 18+ references"}: the faces come from the library's portraits (AI-generated adults) or pictures the Studio drew from them — ${face} is, or was drawn from, an uploaded or imported picture, and may be a real person. Uploaded outfits and poses are fine.`);
+    }
+  }
+  /* CharaDB's terms: its outfits are never put on a real person — an uploaded face, or a picture drawn from one */
+  for (const [who, p] of [["person A", { costume, face: portrait?.asset?.url ?? character?.url }], ["person B", { costume: partner?.costume, face: partner?.portrait?.asset?.url ?? partner?.character?.url }]] as const) {
+    if ((p.costume?.item as RefCostume | undefined)?.source !== "charadb" || !p.face) continue;
+    if (await firstUploadIn(projectId, [p.face])) {
+      throw new StudioError("validation", `CharaDB outfits cannot be put on an uploaded photo (${partner ? who : "the portrait"}): its author forbids depicting real people. Use a library portrait, or another costume source.`);
+    }
   }
   /* Qwen-Image-Edit 2509's graph has fixed slots: portrait, costume, pose (or person + pose) */
   if (model.poseRecipe) {
+    if (partner) throw new StudioError("validation", `${model.label} draws one person: for two people pick GPT Image or Qwen-Image 2.1`);
     if (!pose) throw new StudioError("validation", `${model.label} draws a pose: pick a pose, and a portrait and/or a costume`);
-    if (!portrait && !costume) throw new StudioError("validation", `${model.label} needs a portrait or a costume next to the pose`);
+    if (!portrait && !character && !costume) throw new StudioError("validation", `${model.label} needs a portrait or a costume next to the pose`);
     if (extras.length) throw new StudioError("validation", `${model.label} takes only a portrait, a costume and a pose; remove the extra pictures`);
   }
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
-  const count = [portrait, costume, pose].filter(Boolean).length + extras.length;
-  if (count > maxRefs) throw new StudioError("validation", `${model.label} takes at most ${maxRefs} pictures per call; this recipe has ${count}`);
-  /* An uploaded face may be a real person: never with 18+ references (the galleries forbid sexual or impersonating use of real people). */
-  if (portrait?.asset && [costume?.item, pose?.item].some((x) => x?.nsfw)) {
-    throw new StudioError("validation", "18+ references cannot be combined with an uploaded face: it may be a real person. Use a library portrait (AI-generated adults) or another reference.");
-  }
-  /* CharaDB's terms: its outfits are never put on a real person. An uploaded face may be one. */
-  if ((costume?.item as RefCostume | undefined)?.source === "charadb" && portrait?.asset) {
-    throw new StudioError("validation", "CharaDB outfits cannot be put on an uploaded photo: its author forbids depicting real people. Use a library portrait, or another costume source.");
-  }
+  const count = [portrait ?? character, costume, partner?.portrait ?? partner?.character, partner?.costume, pose].filter(Boolean).length + extras.length;
+  if (count > maxRefs) throw new StudioError("validation", `${model.label} takes at most ${maxRefs} pictures per call; this recipe has ${count}${partner ? " (a project character's sheet stands for its face and outfit in one picture)" : ""}`);
   if (input.attach) {
     const el = await repo.getElement(input.attach.elementId);
     if (el.projectId !== projectId) throw new StudioError("validation", "attach to an element of this project");
   }
 
+  const person = (p: { portrait?: ResolvedSlot<RefItem>; costume?: ResolvedSlot<RefItem>; character?: ResolvedCharacter }, name?: string): CanvasPerson => ({
+    ...(p.portrait ? { portrait: p.portrait.item ? { item: p.portrait.item as RefPortrait } : { upload: { name: p.portrait.label } } } : {}),
+    ...(p.costume ? { costume: p.costume.item ? { item: p.costume.item as RefCostume } : { upload: { name: p.costume.label } } } : {}),
+    ...(p.character ? { character: { name: p.character.label } } : {}),
+    ...(name?.trim() ? { name: name.trim() } : {}),
+  });
   const recipe: CanvasPromptRecipe = {
-    portrait: portrait && (portrait.item ? { item: portrait.item as RefPortrait } : { upload: { name: portrait.label } }),
-    costume: costume && (costume.item ? { item: costume.item as RefCostume } : { upload: { name: costume.label } }),
+    ...person({ portrait, costume, character }, partner ? input.name : undefined),
+    ...(partner ? { partner: person(partner, partner.name), aIs: input.aIs } : {}),
     pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth, mirror: input.pose?.mirror } : { upload: { name: pose.label }, mirror: input.pose?.mirror, picture: input.pose?.picture }),
     extras: extras.map((e) => ({ name: e.name || e.asset.name || "" })),
     style: input.style,
@@ -162,10 +210,14 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const typed = input.prompt?.trim();
   /* the adult line stays even in a prompt the user wrote themselves, whenever an adult LoRA is on */
   const prompt = typed ? (adultLora && !typed.includes(ADULTS) ? `${typed}\n${ADULTS}` : typed) : buildCanvasPrompt(recipe);
+  const slotRef = (role: CanvasRole, r: ResolvedSlot<RefItem> | undefined): CanvasRef[] => (r ? [{ role, label: r.label, url: r.url, thumb: r.thumb, ...(r.item ? { refId: r.item.id } : { assetId: r.asset!.id }) }] : []);
+  const charRef = (role: CanvasRole, c: ResolvedCharacter | undefined): CanvasRef[] => (c ? [{ role, label: c.label, url: c.url, thumb: c.thumb, assetId: c.asset.id, elementId: c.element.id }] : []);
+  /* the order the prompt names them: person A's face, outfit; person B's; the pose; the extras */
   const refs: CanvasRef[] = [
-    ...(portrait ? [{ role: "portrait" as const, label: portrait.label, url: portrait.url, thumb: portrait.thumb, ...(portrait.item ? { refId: portrait.item.id } : { assetId: portrait.asset!.id }) }] : []),
-    ...(costume ? [{ role: "costume" as const, label: costume.label, url: costume.url, thumb: costume.thumb, ...(costume.item ? { refId: costume.item.id } : { assetId: costume.asset!.id }) }] : []),
-    ...(pose ? [{ role: "pose" as const, label: pose.label, url: pose.url, thumb: pose.thumb, ...(pose.item ? { refId: pose.item.id } : { assetId: pose.asset!.id }) }] : []),
+    ...(character ? charRef("character", character) : slotRef("portrait", portrait)),
+    ...slotRef("costume", costume),
+    ...(partner ? [...(partner.character ? charRef("character_b", partner.character) : slotRef("portrait_b", partner.portrait)), ...slotRef("costume_b", partner.costume)] : []),
+    ...slotRef("pose", pose),
     ...extras.map((e) => ({ role: "extra" as const, label: e.name || e.asset.name || "picture", url: e.asset.url, thumb: (e.asset.meta.previewUrl as string | undefined) ?? e.asset.url, assetId: e.asset.id })),
   ];
   const label = `canvas · ${refs.filter((r) => r.role !== "extra").map((r) => r.label).join(" + ") || "pictures"}`.slice(0, 80);
@@ -186,7 +238,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }
