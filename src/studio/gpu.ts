@@ -108,7 +108,10 @@ export function bootstrapCommand(): string[] {
     "mkdir -p /app",
     "cd /app",
     "command -v curl >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq curl >/dev/null 2>&1) || true",
-    "for i in 1 2 3 4 5 6; do echo [studio] fetching job server, attempt $i; if curl -fsSL -A Mozilla/5.0 -o /app/bundle.tgz $STUDIO_BUNDLE_URL; then break; fi; sleep 10; done",
+    /* Every attempt is bounded (a stalled connection used to hang the boot at attempt 1 for good), every
+       second one forces IPv4 (a host whose IPv6 route stalls), and after the first failure one probe per
+       IP family says where it stops: connect, TLS or the answer. */
+    "for i in 1 2 3 4 5 6; do fam=; if [ $((i % 2)) = 0 ]; then fam=-4; fi; echo [studio] fetching job server, attempt $i $fam; curl -fsSL $fam --connect-timeout 20 --max-time 120 -A Mozilla/5.0 -o /app/bundle.tgz $STUDIO_BUNDLE_URL; rc=$?; if [ $rc = 0 ]; then break; fi; echo [studio] attempt $i failed, curl exit $rc; if [ $i = 1 ]; then for v in -4 -6; do curl -sS -o /dev/null $v --connect-timeout 10 --max-time 30 -A Mozilla/5.0 -w [studio]probe$v:connect=%{time_connect}s/tls=%{time_appconnect}s/http=%{http_code} $STUDIO_BUNDLE_URL; echo; done; fi; sleep 10; done",
     "if ! test -s /app/bundle.tgz; then echo [studio] cannot fetch the job server from $STUDIO_BUNDLE_URL - is /api/pod/ in the Access bypass list and STUDIO_WORKER_TOKEN the same as in the Studio; sleep 600; exit 1; fi",
     "tar xzf /app/bundle.tgz || (echo [studio] bundle is not a tarball; head -c 300 /app/bundle.tgz; sleep 600; exit 1)",
     "python3 -m pip install -q requests boto3 websocket-client >/dev/null 2>&1 || true",
