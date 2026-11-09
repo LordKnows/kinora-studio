@@ -76,7 +76,10 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   drawn by a **painter** — `workers/painter`, a small always-on machine (a
   RunPod CPU pod, a VPS) that claims image jobs from the Studio — so those
   pictures are ready before the GPU pod starts; Qwen-Image 2.1 draws on the
-  GPU pod while it runs. A picture takes the model's settings, at most its
+  GPU pod while it runs, with the LoRAs the user picks for it there (each
+  card's settings applied; an 18+ LoRA needs 18+ on and draws only from
+  pictures the Studio drew or the reference library, never from an upload or
+  an imported picture). A picture takes the model's settings, at most its
   number of reference pictures (the prompt names only those), and its way of
   naming them (`<imageN>` for Qwen-Image 2.1). Buttons on every page and
   the director (following a picture plan: reuse, crop, edit, then draw) queue

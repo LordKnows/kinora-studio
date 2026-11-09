@@ -10,8 +10,10 @@ import { getProjectView, type ProjectView, type ShotView } from "./orchestrator"
 import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
-import { AGENT_IMAGE_MODELS, defaultImageParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, type InferenceParams, type ModelEntry } from "./models";
-import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
+import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
+import { firstUploadIn } from "./provenance";
+import { adultAllowed } from "./references";
+import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types";
 
 /*
  * Pictures in the Studio: character sheets, first and last frames, region
@@ -33,17 +35,37 @@ import type { Actor, Asset, Element, Imaging, Job, Project } from "./types";
 
 export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, model: "gpt-image-codex", backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
 
-export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
+export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; loras?: Array<{ id: string; strength?: number }>; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
   if (actor.via !== "web") throw new StudioError("forbidden", "image generation is switched on in Settings, on the web only");
   const project = await repo.getProject(projectId);
   const cur = project.imaging ?? { ...DEFAULT_IMAGING, grantedBy: actor.user, grantedAt: Date.now() };
   /* the model: the one asked for, else the GPT Image backend asked for (older clients), else the current one */
   const model = input.model ? AGENT_IMAGE_MODELS.find((m) => m.id === input.model) : input.backend ? imageModelOfBackend(input.backend) : projectImageModel(cur);
   if (!model) throw new StudioError("validation", `${input.model} is not an image model the director can draw with (${AGENT_IMAGE_MODELS.map((m) => m.id).join(", ")})`);
+  /* LoRAs: the ones asked for, else the current ones that still fit the model (a new model drops the others) */
+  const wanted = input.loras ?? cur.loras ?? [];
+  const library = wanted.length ? await repo.getLoras(wanted.map((l) => l.id)) : new Map<string, Lora>();
+  const loras: Array<{ id: string; strength?: number }> = [];
+  for (const ref of wanted) {
+    const l = library.get(ref.id);
+    const fits = !!l && model.runtime === "pod" && l.baseModel === model.family;
+    if (!input.loras) {
+      if (fits) loras.push(ref);
+      continue;
+    }
+    if (!l) throw new StudioError("not_found", `no LoRA ${ref.id} in the library`);
+    if (model.runtime !== "pod") throw new StudioError("validation", `${model.label} takes no LoRAs; pick a model on the GPU pod`);
+    if (!fits) throw new StudioError("validation", `${l.name} is trained for ${l.baseModel}, not ${model.label} (${model.family})`);
+    /* an 18+ LoRA: only for a user who unlocked 18+ (Canvas → 18+, web only) */
+    if (l.adult && !(await adultAllowed(actor))) throw new StudioError("forbidden", `${l.name} is 18+: show 18+ on the Canvas page first (web only)`, { adult: false });
+    loras.push({ id: ref.id, ...(ref.strength !== undefined ? { strength: ref.strength } : {}) });
+  }
+  if (loras.length > 4) throw new StudioError("validation", "at most four LoRAs");
   const next: Imaging = {
     ...cur,
     enabled: input.enabled,
     model: model.id,
+    loras,
     backend: model.backend!,
     maxImages: input.maxImages ?? cur.maxImages,
     quality: input.quality ?? cur.quality,
@@ -82,6 +104,30 @@ export function imagingSummary(project: Project) {
     selfCheck: i?.selfCheck ?? true, autoRedraws: i?.autoRedraws ?? 1,
     stoppedReason: i?.stoppedReason, backendReady,
     note: modelNote(model),
+  };
+}
+
+/** The project's LoRAs that load with its model (trained for its family, on the GPU pod), at their strength. */
+async function projectLoras(imaging: Imaging | undefined, model: ModelEntry): Promise<Array<Lora & { strength: number }>> {
+  const refs = model.runtime === "pod" ? imaging?.loras ?? [] : [];
+  if (!refs.length) return [];
+  const library = await repo.getLoras(refs.map((r) => r.id));
+  return refs.flatMap((r) => {
+    const l = library.get(r.id);
+    return l && l.baseModel === model.family ? [{ ...l, strength: r.strength ?? l.recommended.strength ?? l.defaultStrength }] : [];
+  });
+}
+
+/** imagingSummary with the LoRAs named and the settings the pictures are drawn at (and where they come from). */
+export async function imagingStatus(project: Project) {
+  const summary = imagingSummary(project);
+  const model = projectImageModel(project.imaging);
+  const loras = await projectLoras(project.imaging, model);
+  const resolved = model.runtime === "pod" ? resolveParams(model, { loras }) : undefined;
+  return {
+    ...summary,
+    loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength, adult: l.adult })),
+    ...(resolved ? { settings: describeParams(resolved.params), settingsFrom: resolved.sources.slice(1), warnings: resolved.warnings } : {}),
   };
 }
 
@@ -157,12 +203,30 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
   if (req.op === "paint" && !req.model) {
     const model = projectImageModel(project.imaging);
     const cap = Math.max(0, (model.maxRefs ?? 5) - (req.baseUrl ? 1 : 0));
+    const refUrls = req.refUrls && req.refUrls.length > cap ? req.refUrls.slice(0, cap) : req.refUrls;
+    /* the project's LoRAs: their cards' settings, and the files the pod fetches */
+    const loras = await projectLoras(project.imaging, model);
+    const params = loras.length
+      ? { ...resolveParams(model, { loras }).params, loras: loras.map((l) => ({ file: l.filename, strength: l.strength, name: l.name, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}) })) }
+      : req.params ?? defaultImageParams(model);
+    let prompt = req.prompt ? namePicturesFor(model, req.prompt) : req.prompt;
+    const adultLora = loras.find((l) => l.adult);
+    if (adultLora) {
+      /* as in Canvas: the user who chose it still has 18+ on, and nothing the picture is drawn from was uploaded or imported (it may be a real person) */
+      if (!(await adultAllowed({ user: project.imaging?.grantedBy ?? "anonymous", via: "web" }))) {
+        throw new StudioError("forbidden", `${adultLora.name} is 18+ and 18+ is off for ${project.imaging?.grantedBy ?? "the user who chose it"}: show 18+ on the Canvas page, or take the LoRA out in Settings → Director`, { adult: false });
+      }
+      const upload = await firstUploadIn(projectId, [...(refUrls ?? []), req.baseUrl]);
+      if (upload) {
+        throw new StudioError("validation", `${adultLora.name} draws only from pictures the Studio drew and the reference library: ${upload} is, or was drawn from, an uploaded or imported picture (it may be a real person). Leave it out, or take the LoRA out in Settings → Director.`, { upload });
+      }
+      if (prompt && !/everyone in the picture is an adult/i.test(prompt)) prompt = `${prompt}\n\nEveryone in the picture is an adult.`;
+    }
     req = {
       ...req, model: model.id, backend: model.backend,
-      ...(req.prompt ? { prompt: namePicturesFor(model, req.prompt) } : {}),
-      ...(!req.params && defaultImageParams(model) ? { params: defaultImageParams(model) } : {}),
-      /* the callers keep within the model's pictures; this only guards the painter's own limit */
-      ...(req.refUrls && req.refUrls.length > cap ? { refUrls: req.refUrls.slice(0, cap) } : {}),
+      ...(prompt !== undefined ? { prompt } : {}),
+      ...(params ? { params } : {}),
+      ...(refUrls ? { refUrls } : {}),
     };
   }
   /* crop and extract are not drawn by a model: any painter takes them */

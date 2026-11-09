@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { canvasModel } from "@/studio/canvas";
+import { setAdultContent } from "@/studio/references";
 import * as craft from "@/studio/craft";
 import * as imaging from "@/studio/imaging";
 import * as orch from "@/studio/orchestrator";
@@ -447,5 +448,69 @@ describe("the agent draws with the project's image model", () => {
     } finally {
       delete process.env.TOKENSAIL_API_KEY;
     }
+  });
+});
+
+describe("the director's pictures with the LoRAs chosen for the model", () => {
+  const omni = { id: "lora_chatr_omni_v01", strength: 1 };
+  const owner: Actor = { user: "lora-owner@local", via: "web" };
+  let projectId = "";
+  let shotId = "";
+  let clean = "";
+
+  it("only for a model on the GPU pod and its family; an 18+ LoRA needs 18+ unlocked; a new model drops what no longer fits", async () => {
+    const p = await repo.createProject({ name: "LoRAs" });
+    projectId = p.id;
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "gpt-image-codex", loras: [omni] }, owner)).rejects.toMatchObject({ code: "validation" });
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo", loras: [omni] }, owner)).rejects.toMatchObject({ code: "validation" });
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner)).rejects.toMatchObject({ code: "forbidden" });
+    await setAdultContent(owner, { enabled: true, confirmAdult: true });
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner);
+    const status = await imaging.imagingStatus(await repo.getProject(projectId));
+    expect(status.loras).toEqual([{ id: "lora_chatr_omni_v01", name: "ChatR Omni v0.1 (uncensored)", strength: 1, adult: true }]);
+    expect(status.settings).toBe("35 steps · euler/simple · CFG 5");
+    expect(status.settingsFrom).toEqual(["ChatR Omni v0.1 (uncensored)"]);
+    /* Turbo is another family: switching drops the LoRA, switching back does not bring it back */
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, owner);
+    expect((await repo.getProject(projectId)).imaging!.loras).toEqual([]);
+    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner);
+  });
+
+  it("draws with the LoRA's settings and file and the adult line, from the Studio's and the library's pictures", async () => {
+    const sc = await repo.createScript(projectId, "INT. STUDIO - DAY");
+    await repo.approveScript(sc.id);
+    /* a picture from the reference library (imported) and one the Studio drew from it */
+    const lib = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/lib.png", kind: "image", source: "generated", meta: { reference: { id: "p1", kind: "portrait" } } });
+    const job = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [lib.url, "https://ai-costume-gallery.pages.dev/img/SWM-0031.webp"] } });
+    const drawn = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/drawn.png", kind: "image", source: "generated", meta: { jobId: job.id } });
+    clean = drawn.id;
+    const el = await repo.createElement(projectId, { kind: "character", name: "Lin", description: "a dancer" });
+    await repo.updateElement(el.id, { refAssetIds: [drawn.id], refViews: { [drawn.id]: "front" } });
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "studio", shots: [shot({ characters: [el.id], intent: "Lin stretches" })] }] }));
+    shotId = (await repo.listShots(projectId))[0]!.id;
+    const r = await imaging.generateShotFrame(shotId, "first", mcp, { method: "new" });
+    const input = r.job!.input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string; strength: number; hf_url?: string }> }; prompt: string };
+    expect(input.backend).toBe("comfy:qwen-image-2.1");
+    expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors", strength: 1 }] });
+    expect(input.params.loras[0]!.hf_url).toMatch(/^https:\/\/huggingface\.co\/chatrlabs\//);
+    expect(input.prompt).toMatch(/<image1> is Lin/);
+    expect(input.prompt.trim().endsWith("Everyone in the picture is an adult.")).toBe(true);
+  });
+
+  it("refuses a picture that is, or was drawn from, an upload — and when the chooser has 18+ off", async () => {
+    const upload = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/face.png", kind: "image", source: "upload", name: "face" });
+    /* two steps away: a picture drawn from a picture drawn from the upload */
+    const j1 = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [upload.url] } });
+    const a1 = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/a1.png", kind: "image", source: "generated", meta: { jobId: j1.id } });
+    const j2 = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [], baseUrl: a1.url } });
+    const a2 = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/l/a2.png", kind: "image", source: "generated", meta: { jobId: j2.id } });
+    /* an image the director imported by URL is not traceable either */
+    const imported = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/d/web.png", kind: "image", source: "generated", name: "from the web" });
+    for (const bad of [upload, a2, imported]) {
+      await expect(imaging.editFrame(bad.id, { instruction: "make the light warmer" }, mcp)).rejects.toThrow(/draws only from pictures the Studio drew and the reference library/);
+    }
+    await expect(imaging.editFrame(clean, { instruction: "make the light warmer" }, mcp)).resolves.toBeTruthy();
+    await setAdultContent(owner, { enabled: false });
+    await expect(imaging.editFrame(clean, { instruction: "make the light warmer" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
   });
 });
