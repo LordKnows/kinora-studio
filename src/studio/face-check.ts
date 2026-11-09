@@ -24,7 +24,7 @@ export { describeVerdict, faceAllowed, FACE_KINDS, type FaceKind, type FaceVerdi
 function route(): { url: string; key: string; model: string } | undefined {
   const base = (process.env.QWEN_API_BASE ?? "").replace(/\/+$/, "");
   const model = process.env.FACE_CHECK_MODEL;
-  if (process.env.TOKENSAIL_API_KEY) return { url: `${base || "https://api.tokensail.ai/v1"}/chat/completions`, key: process.env.TOKENSAIL_API_KEY, model: model || "qwen3.7-plus" };
+  if (process.env.TOKENSAIL_API_KEY) return { url: `${base || "https://api.tokensail.ai/v1"}/chat/completions`, key: process.env.TOKENSAIL_API_KEY, model: model || "qwen3.8-max" };
   if (process.env.DASHSCOPE_API_KEY) return { url: `${base || "https://dashscope.aliyuncs.com"}/compatible-mode/v1/chat/completions`, key: process.env.DASHSCOPE_API_KEY, model: model || "qwen-vl-max-latest" };
   return undefined;
 }

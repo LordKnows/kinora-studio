@@ -103,7 +103,7 @@ describe("checking an uploaded face", () => {
     expect(asked).toHaveLength(1);
     expect(asked[0]!.url).toBe("https://api.tokensail.ai/v1/chat/completions");
     expect(asked[0]!.auth).toBe("Bearer sk-tokensail-test");
-    expect(asked[0]!.body.model).toBe("qwen3.7-plus");
+    expect(asked[0]!.body.model).toBe("qwen3.8-max");
     expect(asked[0]!.body.messages[0]!.content[0]!.image_url!.url).toMatch(/^data:image\/png;base64,/);
     expect(((await repo.getAsset(a.id)).meta.faceCheck as FaceVerdict).kind).toBe("render_3d");
     /* asked once: the kept verdict answers next time */
@@ -192,7 +192,7 @@ describe("when a check fails, the picture says why, and can be checked again", (
     const shot = await checkOnArrival(await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/game.png", kind: "image", source: "upload", meta: { key: "uploads/u/game.png" }, name: "game scene" }));
     failWith = "";
     const why = (shot.meta.faceCheckError as { why: string }).why;
-    expect(why).toContain("qwen3.7-plus answered 500: upstream overloaded");
+    expect(why).toContain("qwen3.8-max answered 500: upstream overloaded");
     expect(faceLabel(undefined, { why })).toMatchObject({ label: "不放行" });
     expect(faceLabel(undefined, { why }).title).toContain("the face check did not run");
     answer = { kind: "no_face", likeness: false, age: "adult", confidence: 0.9, reason: "a game scene, figures far away" };
