@@ -38,6 +38,8 @@ export type Imaging = {
   /** The image model the director and the buttons draw with (models.ts AGENT_IMAGE_MODELS); unset on
       older projects, which drew with GPT Image through `backend`. */
   model?: string;
+  /** LoRAs the director's pictures load with that model (models on the GPU pod; trained for its family). */
+  loras?: Array<{ id: string; strength?: number }>;
   /** The painter backend of that model: codex = the user's ChatGPT plan through the Codex CLI on a
       painter; api = OPENAI_API_KEY, paid per call; qwen = Qwen-Image 3.0 Pro's API; comfy:<model> = the GPU pod. */
   backend: string;

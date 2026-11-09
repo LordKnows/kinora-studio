@@ -1,16 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AGENT_IMAGE_MODELS, findModel } from "@/studio/models";
+import type { LoraRef } from "@/studio/schemas";
 import type { DirectorNote, StageReview } from "@/studio/types";
 
 import { del, get, patch, post, put, when } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
+import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { useProjectContext } from "./shell";
 
 type Autopilot = { active: boolean; envelopeUsd?: number; usedUsd?: number; leftUsd?: number; expiresAt?: number; rule?: string };
-type ImagingSummary = { enabled: boolean; model: string; modelLabel: string; runtime: "api" | "pod"; backend: string; license?: string; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
+type ImagingSummary = {
+  enabled: boolean; model: string; modelLabel: string; runtime: "api" | "pod"; backend: string; license?: string;
+  loras?: Array<{ id: string; name: string; strength: number; adult?: boolean }>; settings?: string; settingsFrom?: string[]; warnings?: string[]; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
 type ModelReadiness = { id: string; painters?: { ready: boolean; note?: string } };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
@@ -24,6 +28,11 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
   const [deleg, setDeleg] = useState<Delegation | null>(null);
   const [img, setImg] = useState<ImagingSummary | null>(null);
   const [ready, setReady] = useState<ModelReadiness[]>([]);
+  const [adult, setAdult] = useState(false);
+  /* the LoRAs as picked, shown at once; a strength typed in is saved when the typing pauses */
+  const [loraDraft, setLoraDraft] = useState<LoraRef[] | null>(null);
+  const loraSave = useRef<{ timer?: ReturnType<typeof setTimeout>; seq: number }>({ seq: 0 });
+  const { loras: library } = useLoraLibrary();
   const [imgMax, setImgMax] = useState("40");
   const [envelope, setEnvelope] = useState("5");
   const [hours, setHours] = useState("12");
@@ -37,6 +46,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     const im = await get<ImagingSummary>(`/api/projects/${projectId}/imaging`);
     setImg(im);
     void get<{ models: ModelReadiness[] }>("/api/models?kind=image").then((r) => setReady(r.models)).catch(() => undefined);
+    void get<{ adultContent?: boolean }>("/api/me/settings").then((s) => setAdult(!!s.adultContent)).catch(() => undefined);
     setImgMax(String(im.maxImages));
     await reload();
   }, [projectId, reload]);
@@ -60,13 +70,26 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await put(`/api/projects/${projectId}/delegation`, next);
     await refresh();
   });
-  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
+  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; loras: LoraRef[]; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
     if (next.enabled && !img?.enabled && !window.confirm(`Allow image generation on this project? The director (Claude, Grok…) and the buttons may then draw pictures with ${img?.modelLabel ?? "the model below"}, up to the image limit below.`)) return;
     const pick = next.model ? findModel(next.model) : undefined;
     if (pick?.runtime === "pod" && img?.enabled && !window.confirm(`${pick.label} draws on the GPU pod, only while it runs (it bills per hour); its pictures get no Codex self-check. Use it for this project's pictures?`)) return;
     await put(`/api/projects/${projectId}/imaging`, { enabled: next.enabled ?? img?.enabled ?? false, ...next });
     await refresh();
   });
+  const pickLoras = (next: LoraRef[]) => {
+    const prev = loraDraft ?? img?.loras ?? [];
+    const sameSet = next.length === prev.length && next.every((r) => prev.some((p) => p.id === r.id));
+    setLoraDraft(next);
+    const save = loraSave.current;
+    clearTimeout(save.timer);
+    const seq = ++save.seq;
+    save.timer = setTimeout(() => {
+      void setImaging.fire({ loras: next }).finally(() => {
+        if (save.seq === seq) setLoraDraft(null);
+      });
+    }, sameSet ? 700 : 0);
+  };
   const setReq = useAction(async (_c, id: string, status: "open" | "met" | "dropped") => {
     await patch(`/api/notes/${id}`, { status });
     await refresh();
@@ -117,6 +140,29 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
             <span className="st-muted st-num">{img.usedImages} used · {img.leftImages} left</span>
           </div>
         )}
+        {img?.enabled && img.runtime === "pod" && (() => {
+          const family = findModel(img.model)?.family;
+          const has = library?.some((l) => l.baseModel === family);
+          const adultLora = img.loras?.find((l) => l.adult);
+          return (
+            <div className="st-stack st-stack--tight">
+              {has && family ? (
+                <Field label="LoRAs" hint="Trained for this model; picking one applies its card's settings to every picture the director draws">
+                  <LoraPicker compact family={family} adult={adult} value={loraDraft ?? (img.loras ?? []).map((l) => ({ id: l.id, strength: l.strength }))} onChange={pickLoras} />
+                </Field>
+              ) : (
+                <span className="st-muted">No LoRA in the library is trained for {img.modelLabel} (Library → LoRAs).</span>
+              )}
+              {img.settings && <span className="st-muted st-num">Settings: {img.settings}{img.settingsFrom?.length ? ` (from ${img.settingsFrom.join(", ")})` : ""}</span>}
+              {(img.warnings ?? []).map((w) => <span key={w} className="st-warn">{w}</span>)}
+              {adultLora && (
+                <span className="st-warn">
+                  {adultLora.name} is 18+: the director&apos;s pictures with it are drawn only from pictures the Studio drew and the reference library — a picture that is, or was drawn from, an upload or an imported image is refused (it may be a real person){adult ? "" : ". 18+ is off for you now: show 18+ on the Canvas page, or the pictures are refused"}.
+                </span>
+              )}
+            </div>
+          );
+        })()}
         {img?.enabled && img.runtime !== "pod" && (
           <div className="st-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <label className="st-row" style={{ gap: 8 }} title="A fresh Codex session looks at every drawn picture beside its references and brief (anatomy, extra people, identity, mirrored features, text, framing) before it reaches you. Uses Codex usage, not image quota.">
