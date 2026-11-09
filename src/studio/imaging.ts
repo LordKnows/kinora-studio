@@ -11,7 +11,7 @@ import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
 import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
-import { firstUploadedFaceIn, isFaceRole } from "./provenance";
+import { firstRealIn, inputsOf, realnessOfDrawing } from "./provenance";
 import { adultAllowed } from "./references";
 import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types";
 
@@ -222,14 +222,13 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
     let prompt = req.prompt ? namePicturesFor(model, req.prompt) : req.prompt;
     const adultLora = loras.find((l) => l.adult);
     if (adultLora) {
-      /* as in Canvas: the user who chose it still has 18+ on, and every face it keeps is AI-generated (provenance.ts: an upload may be a real person) */
+      /* as in Canvas: the user who chose it still has 18+ on, and every picture it is drawn from is 模拟 (provenance.ts) */
       if (!(await adultAllowed({ user: project.imaging?.grantedBy ?? "anonymous", via: "web" }))) {
         throw new StudioError("forbidden", `${adultLora.name} is 18+ and 18+ is off for ${project.imaging?.grantedBy ?? "the user who chose it"}: show 18+ on the Canvas page, or take the LoRA out in Settings → Director`, { adult: false });
       }
-      /* the faces it keeps: the references that are faces (or unknown) and the picture it edits */
-      const upload = await firstUploadedFaceIn(projectId, [...(refUrls ?? []).filter((_, n) => isFaceRole(refRoles?.[n])), req.baseUrl]);
+      const upload = await firstRealIn(projectId, inputsOf({ refUrls, baseUrl: req.baseUrl }), { takeId: req.takeId });
       if (upload) {
-        throw new StudioError("validation", `${adultLora.name} is 18+: every face it draws must be AI-generated — the library's portraits, or a picture the Studio drew whose faces are AI-generated too. ${upload} is an uploaded or imported picture, or keeps a face from one. An uploaded face goes in when its face check finds a 3D render or an illustration of an adult who is no real person (a photograph or anything photorealistic stays out); uploaded outfits, places and style frames are fine. Leave it out, or take the LoRA out in Settings → Director.`, { upload });
+        throw new StudioError("validation", `${adultLora.name} is 18+: R18 pictures are drawn only from 模拟 pictures, and ${upload} — it may show a real person. 模拟 are the library's pictures, uploads whose face check found a 3D render, an illustration or no face, and Studio pictures drawn only from those. Leave it out, or take the LoRA out in Settings → Director.`, { upload });
       }
       if (prompt && !/everyone in the picture is an adult/i.test(prompt)) prompt = `${prompt}\n\nEveryone in the picture is an adult.`;
     }
@@ -311,6 +310,8 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
   const out = status.output;
   const url = typeof out.url === "string" ? out.url : undefined;
   if (!url) return repo.updateJob(job.id, { status: "failed", error: "the painter answered without a picture", finishedAt: Date.now() });
+  /* 模拟 or 真实, from the pictures it was drawn from (provenance.ts) — no model looks at a drawing */
+  const realness = await realnessOfDrawing(job.projectId, { refUrls: i.refUrls, baseUrl: i.baseUrl, videoUrl: i.videoUrl, takeId: i.takeId });
   const asset = await repo.createAsset({
     projectId: job.projectId, url, kind: "image", source: i.op === "extract" ? "frame-extract" : "generated",
     width: typeof out.width === "number" ? out.width : undefined, height: typeof out.height === "number" ? out.height : undefined,
@@ -321,6 +322,7 @@ export async function applyImageStatus(job: Job, status: BackendStatus): Promise
       checks: out.checks, autoReview: out.review, painter: painter.painterOfJob(job), drawn: out.drawn,
       ...(i.canvas ? { canvas: i.canvas } : {}),
       ...(i.model ? { model: i.model, params: i.params } : {}),
+      realness,
     },
     name: i.label,
   });

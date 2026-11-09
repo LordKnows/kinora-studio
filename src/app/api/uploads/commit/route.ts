@@ -7,7 +7,7 @@ import { CommitUploadRequest } from "@/studio/schemas";
 import { getObject, nameOfUploadKey, objectExists, publicUrl } from "@/studio/storage/r2";
 
 /* Images get their size from the header, so the frame checks (aspect ratio,
-   first and last frame alike) can run, and their face check (放行 / 不放行 for R18). */
+   first and last frame alike) can run, and their face check (模拟 / 真实). */
 async function headerSize(key: string): Promise<{ width?: number; height?: number }> {
   try {
     const res = await getObject(key, "bytes=0-131071");

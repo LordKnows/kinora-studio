@@ -4,7 +4,7 @@ import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { buildCanvasPrompt } from "@/studio/canvas-prompt";
 import { agentComposeCharacter, CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
-import { firstUploadedFaceIn } from "@/studio/provenance";
+import { firstRealIn } from "@/studio/provenance";
 import * as imaging from "@/studio/imaging";
 import { adultAllowed, getReference, listReferences as loadList, queryReferences, setAdultContent } from "@/studio/references";
 import type { RefCostume, RefPortrait, RefPose } from "@/studio/references-model";
@@ -364,83 +364,85 @@ describe("two people (Canvas)", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ character: { elementId: mia }, portrait: { id: portrait().id } }), duo)).rejects.toMatchObject({ code: "validation" });
   });
 
-  it("takes uploads freely; with 18+ the faces come from the library, outfits and poses may be uploads; CharaDB never on a real face", async () => {
+  it("takes any upload without 18+; with 18+ only 模拟 uploads; CharaDB never on a real face", async () => {
+    const SIM = { faceCheck: { kind: "render_3d", likeness: false, age: "adult", confidence: 0.9, reason: "a mannequin", model: "m", at: 0 } };
     const face = await upload("face");
     const coat = await upload("coat");
-    const duoPose = await upload("duo-pose");
+    const simCoat = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/sim-coat.png", kind: "image", source: "upload", meta: { ...SIM }, name: "sim coat" });
+    const duoPose = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/duo-pose.png", kind: "image", source: "upload", meta: { ...SIM }, name: "duo pose" });
     /* no 18+: any upload, for both people */
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, costume: { assetId: coat.id }, partner: { portrait: { id: portrait(5).id } }, pose: { assetId: duoPose.id, picture: "mannequin" } }), duo)).resolves.toMatchObject({ model: "gpt-image-codex" });
-    /* an 18+ pose: library faces, uploaded outfit and pose are fine; an uploaded face is not, for either person */
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, partner: { portrait: { id: portrait(5).id } }, pose: { id: couple().id } }), duo)).resolves.toBeTruthy();
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id } }, pose: { id: couple().id } }), duo)).rejects.toThrow(/every face must be AI-generated/);
-    /* an 18+ LoRA: an uploaded outfit and pose go in, a face does not */
+    /* an 18+ pose: library faces with 模拟 uploads are fine; a 真实 upload is not — a face, an outfit alike */
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: simCoat.id }, partner: { portrait: { id: portrait(5).id } }, pose: { id: couple().id } }), duo)).resolves.toBeTruthy();
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id } }, pose: { id: couple().id } }), duo)).rejects.toThrow(/only from 模拟 pictures/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, pose: { id: couple().id } }), duo)).rejects.toThrow(/only from 模拟 pictures/);
+    /* an 18+ LoRA: the same */
     await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1" }, duo);
     const omni = [{ id: "lora_chatr_omni_v01" }];
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, pose: { assetId: duoPose.id, picture: "depth" }, model: "qwen-image-2.1", loras: omni }), duo)).resolves.toMatchObject({ model: "qwen-image-2.1" });
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, pose: { assetId: duoPose.id }, model: "qwen-image-2.1", loras: omni }), duo)).rejects.toThrow(/every face must be AI-generated/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: simCoat.id }, pose: { assetId: duoPose.id, picture: "depth" }, model: "qwen-image-2.1", loras: omni }), duo)).resolves.toMatchObject({ model: "qwen-image-2.1" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, pose: { assetId: duoPose.id }, model: "qwen-image-2.1", loras: omni }), duo)).rejects.toThrow(/only from 模拟 pictures/);
     /* CharaDB: on a library face yes, on an uploaded one (person B's too) no */
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { id: charadb().id } }), duo)).resolves.toBeTruthy();
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id }, costume: { id: charadb().id } }, pose: { assetId: duoPose.id } }), duo)).rejects.toThrow(/CharaDB/);
   });
 });
 
-describe("whose face a picture shows (18+ needs AI-generated faces)", () => {
+describe("模拟 or 真实 (R18 takes only 模拟)", () => {
   const who: Actor = { user: "faces@local", via: "web" };
   let projectId = "";
   const portrait = () => listReferences("portrait", false).items[3]! as RefPortrait;
   const couple = () => listReferences("pose", true).items.find((x) => (x as RefPose).system === "couple")! as RefPose;
+  /* an upload's face check as it would have been made on arrival */
+  const SIM = { faceCheck: { kind: "no_face", likeness: false, age: "adult", confidence: 0.9, reason: "a coat on a hanger", model: "m", at: 0 } };
   const asset = (name: string, source: "upload" | "generated", meta: Record<string, unknown> = {}) => repo.createAsset({ projectId, url: `https://studio.example/media/p/${name}.png`, kind: "image", source, meta, name });
   const drawn = async (name: string, input: Record<string, unknown>) => {
     const job = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", ...input } });
     return asset(name, "generated", { jobId: job.id });
   };
 
-  it("follows faces back, not outfits, poses, places or style frames", async () => {
+  it("a drawing is 真实 as soon as any picture it came from is: references, edits, crops, however far back", async () => {
     projectId = (await repo.createProject({ name: "Faces" })).id;
     const face = await asset("real-face", "upload");
     const coat = await asset("coat", "upload");
-    const street = await asset("street", "upload");
+    const simCoat = await asset("sim-coat", "upload", SIM);
     const imported = await asset("from-the-web", "generated");
-    const check = async (a: { url: string }) => firstUploadedFaceIn(projectId, [a.url]);
-    /* drawn from text alone, from a library face with an uploaded outfit, from an AI sheet in an uploaded street */
+    const check = async (a: { url: string }) => firstRealIn(projectId, [a.url]);
+    /* text to image, the library, 模拟 uploads: 模拟 */
     const fromText = await drawn("from-text", {});
     expect(await check(fromText)).toBeUndefined();
+    expect(await check(await drawn("library", { refUrls: [portrait().image] }))).toBeUndefined();
+    expect(await check(await drawn("sim-dressed", { refUrls: [portrait().image, simCoat.url] }))).toBeUndefined();
+    /* any 真实 reference makes it 真实, whatever it was used for */
     const dressed = await drawn("dressed", { refUrls: [portrait().image, coat.url], refRoles: ["face", "outfit"] });
-    expect(await check(dressed)).toBeUndefined();
-    const inStreet = await drawn("in-street", { refUrls: [fromText.url, street.url], refRoles: ["face", "scene"] });
-    expect(await check(inStreet)).toBeUndefined();
-    /* a Canvas job read by its recipe's roles (no refRoles): an uploaded costume and pose are borrowed */
-    const canvasOld = await drawn("canvas-old", { refUrls: [portrait().image, coat.url], canvas: { refs: [{ role: "portrait", url: portrait().image }, { role: "costume", url: coat.url }] } });
-    expect(await check(canvasOld)).toBeUndefined();
-    /* a kept face is real however far back: drawn from it, an edit of that, a crop of the edit */
-    const fromFace = await drawn("from-face", { refUrls: [face.url], refRoles: ["face"] });
+    expect(await check(dressed)).toContain(coat.handle!);
+    const fromFace = await drawn("from-face", { refUrls: [face.url] });
     expect(await check(fromFace)).toContain(face.handle!);
     const edit = await drawn("edit", { baseUrl: fromFace.url });
     expect(await check(edit)).toContain(face.handle!);
     const crop = await drawn("crop", { op: "crop", baseUrl: edit.url });
     expect(await check(crop)).toContain(face.handle!);
-    /* a reference of no known role counts as a face (older jobs); an import is not known to be AI */
-    expect(await check(await drawn("old-job", { refUrls: [coat.url] }))).toContain(coat.handle!);
-    expect(await check(imported)).toContain(imported.handle!);
+    /* an upload or an import with no check is 真实 */
+    expect(await check(imported)).toContain(`${imported.handle} (真实: face not checked)`);
     expect(await check(face)).toContain(face.handle!);
   });
 
-  it("lets Canvas use a Studio picture whose face is AI-generated, even one made with an uploaded outfit", async () => {
+  it("stamps 模拟 or 真实 on a drawing as it is kept, and R18 takes only 模拟 ones", async () => {
     await setAdultContent(who, { enabled: true, confirmAdult: true });
     await imaging.setImaging(projectId, { enabled: true }, who);
-    const coat = await asset("coat-2", "upload");
-    /* a Canvas picture of a library face in an uploaded coat, then used as the face of an 18+ picture */
-    const first = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id } }), who);
-    const job = await repo.getJob(first.job.id);
-    expect(job.input.refRoles).toEqual(["face", "outfit"]);
-    const done = await imaging.applyImageStatus(job, { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${job.id}.png`, width: 1024, height: 1536 } });
-    const look = done.assetIds[0]!;
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: look }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).resolves.toBeTruthy();
-    /* the same with an uploaded face underneath is refused */
+    const finish = async (jobId: string) => repo.getAsset((await imaging.applyImageStatus(await repo.getJob(jobId), { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${jobId}.png`, width: 1024, height: 1536 } })).assetIds[0]!);
+    /* text to image: 模拟 */
+    const t2i = await finish((await composeCharacter(projectId, CanvasCompose.parse({ text: "a rooftop after rain" }), who)).job.id);
+    expect(t2i.meta.realness).toBe("sim");
+    /* a library face in a 模拟 uploaded coat: 模拟, and it can be the face of an R18 picture */
+    const coat = await asset("coat-2", "upload", SIM);
+    const look = await finish((await composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id } }), who)).job.id);
+    expect(look.meta.realness).toBe("sim");
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: look.id }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).resolves.toBeTruthy();
+    /* from a 真实 upload: 真实, and refused for R18 */
     const face = await asset("face-2", "upload");
-    const second = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id } }), who);
-    const done2 = await imaging.applyImageStatus(await repo.getJob(second.job.id), { state: "completed", output: { url: `https://studio.example/media/projects/${projectId}/images/${second.job.id}.png`, width: 1024, height: 1536 } });
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: done2.assetIds[0]! }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`${face.handle} (face not checked) is an uploaded or imported picture`);
+    const fromFace = await finish((await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id } }), who)).job.id);
+    expect(fromFace.meta.realness).toBe("real");
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: fromFace.id }, partner: { portrait: { id: portrait().id } }, pose: { id: couple().id } }), who)).rejects.toThrow(`R18 pictures are drawn only from 模拟 pictures, and ${face.handle} (真实: face not checked)`);
   });
 });
 

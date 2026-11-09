@@ -1,32 +1,26 @@
-import { describeVerdict, faceAllowed, faceVerdict } from "./face-check";
+import { describeVerdict, faceAllowed, type FaceVerdict } from "./face-verdict";
 import * as repo from "./repo";
 import type { Asset } from "./types";
 
 /*
- * Whose face a picture shows, for 18+ work (an 18+ LoRA or reference, in
- * Canvas and in the director's pictures): every face must be AI-generated —
- * never one uploaded or imported, which may be a real person.
+ * 模拟 or 真实: whether a picture may show a real person. Only 模拟 pictures go
+ * into R18 work (an 18+ LoRA or reference, in Canvas and the director's
+ * pictures).
  *
- * A face is AI-generated when it is
- *   1. a picture of the reference library (its portraits are AI-generated adults);
- *   2. drawn by the Studio, and every face that went into that drawing is
- *      AI-generated in turn — a picture drawn from text alone qualifies.
- *   3. an upload, or a picture imported from a URL or as bytes, whose face
- *      check (face-check.ts: a vision model looks once) finds a 3D render or
- *      an illustration of an adult who is no real person — or no face at all.
- * It is not when it is a photograph or photorealistic, a real person's
- * likeness, a minor, a picture the check could not see, anything it cannot
- * trace, or a drawing that kept a face from one of those, however many steps
- * back.
+ *  - An upload or an import: its face check, made once as it arrived — the
+ *    only time a model looks (face-check.ts). 模拟 when it found a 3D
+ *    render, an illustration or no face; 真实 otherwise, and when it has no
+ *    check.
+ *  - The reference library: 模拟.
+ *  - A picture the Studio drew: 真实 as soon as any picture it was drawn
+ *    from is 真实 — a reference, the picture it edited or cropped, the take
+ *    a frame was grabbed from (through the take's own pictures) — however
+ *    far back; 模拟 otherwise, text to image included. No model is asked.
  *
- * What went into a drawing is read from its job: the picture it edited or
- * cropped (it keeps its people), and each reference by its role (refRoles,
- * or a Canvas recipe's roles). A face — a portrait, a character's sheet, an
- * extra or unnamed reference — is followed back; an outfit, a pose, a place
- * or a style frame is only borrowed, so an uploaded one does not make the
- * drawing's faces real. A take's frame is followed through the pictures the
- * take was rendered from.
+ * A picture it cannot trace counts as 真实.
  */
+
+export type Realness = "sim" | "real";
 
 /* the reference library's galleries (references.ts): AI-generated pictures */
 const LIBRARY = [
@@ -38,98 +32,89 @@ export function isLibraryUrl(url: string): boolean {
   return LIBRARY.some((re) => re.test(url));
 }
 
-/* the roles a drawing only borrows from: an uploaded one leaves its faces AI-generated */
-const BORROWED = new Set(["outfit", "pose", "scene", "style", "costume", "costume_b"]);
-
-/** Whether a reference of this role puts its face into the drawing (an unknown role does). */
-export function isFaceRole(role: string | undefined): boolean {
-  return !role || !BORROWED.has(role);
-}
-
 const MAX_DEPTH = 8;
 
-type JobInput = {
-  refUrls?: string[];
-  refRoles?: string[];
-  baseUrl?: string;
-  videoUrl?: string;
-  takeId?: string;
-  canvas?: { refs?: Array<{ role?: string; url?: string }> };
-};
+type JobInput = { refUrls?: string[]; baseUrl?: string; videoUrl?: string; takeId?: string };
 
-/** The face-carrying pictures a drawing was made from: its base, and its references but the borrowed ones. */
-function facesOf(i: JobInput): string[] {
-  const canvasRole = new Map((i.canvas?.refs ?? []).filter((r) => r.url).map((r) => [r.url!, r.role]));
-  const refs = (i.refUrls ?? []).filter((u, n) => isFaceRole(i.refRoles?.[n] ?? canvasRole.get(u)));
-  return [...refs, i.baseUrl].filter((u): u is string => !!u);
+/** The pictures a drawing was made from: every reference and the picture it edits or crops. */
+export function inputsOf(i: JobInput): string[] {
+  return [...(i.refUrls ?? []), i.baseUrl].filter((u): u is string => !!u && u !== i.videoUrl);
+}
+
+/** An upload or an import is 模拟 when its face check says so. */
+export function outsideRealness(a: Asset): Realness {
+  return faceAllowed(a.meta.faceCheck as FaceVerdict | undefined) ? "sim" : "real";
 }
 
 /**
- * The first of `urls` (each meant as a face) whose face is not AI-generated, by its name or URL; undefined when
- * every one is. A picture it cannot trace counts as not AI-generated.
+ * The first of `urls` that is 真实, by its name or URL (with why); undefined when every one is 模拟. A drawing is
+ * named by the 真实 picture it came from.
  */
-export async function firstUploadedFaceIn(projectId: string, urls: Array<string | undefined>): Promise<string | undefined> {
+export async function firstRealIn(projectId: string, urls: Array<string | undefined>, opts: { takeId?: string } = {}): Promise<string | undefined> {
   const assets = await repo.listAssets(projectId);
   const byUrl = new Map(assets.map((a) => [a.url, a]));
   const takes = await repo.listProjectTakes(projectId).catch(() => []);
   const takeOfFrame = new Map(takes.flatMap((t) => [t.lastFrameUrl, t.resultUrl].filter((u): u is string => !!u).map((u) => [u, t] as const)));
   const seen = new Set<string>();
   const label = (a: Asset | undefined, url: string) => a?.handle ?? a?.name ?? url;
-  /* an upload or an import: its face check decides */
-  const checked = async (a: Asset, url: string) => {
-    const v = await faceVerdict(a).catch(() => undefined);
-    return faceAllowed(v) ? undefined : `${label(a, url)} (${describeVerdict(v)})`;
-  };
 
-  async function realFace(url: string, depth: number): Promise<string | undefined> {
+  async function real(url: string, depth: number): Promise<string | undefined> {
     if (seen.has(url)) return undefined;
     seen.add(url);
     if (isLibraryUrl(url)) return undefined;
     if (depth > MAX_DEPTH) return url;
     const asset = byUrl.get(url);
-    const take = !asset ? takeOfFrame.get(url) : undefined;
-    if (take) return fromTake(take.id, depth);
-    if (!asset) return url;
-    if (asset.source === "upload") return checked(asset, url);
     /* a library picture brought into the project */
-    if (asset.meta.reference) return undefined;
+    if (asset?.meta.reference) return undefined;
+    /* a take's frame shows the take's people */
+    const frameTake = asset?.source === "frame-extract" ? (typeof asset.meta.takeId === "string" ? asset.meta.takeId : takeOfFrame.get(url)?.id) : !asset ? takeOfFrame.get(url)?.id : undefined;
+    if (frameTake && !asset?.meta.jobId) return fromTake(frameTake, depth);
+    if (!asset) return `${url} (真实: not a picture of this project)`;
     const jobId = typeof asset.meta.jobId === "string" ? asset.meta.jobId : undefined;
-    if (jobId) {
-      const job = await repo.getJob(jobId).catch(() => undefined);
-      if (!job) return label(asset, url);
-      const i = job.input as JobInput;
-      /* a frame grabbed from a take shows the take's people */
-      if (i.takeId) {
-        const bad = await fromTake(i.takeId, depth);
-        if (bad) return bad;
-      }
-      for (const u of facesOf(i)) {
-        if (u === i.videoUrl && i.takeId) continue;
-        const bad = await realFace(u, depth + 1);
-        if (bad) return bad;
-      }
-      return undefined;
+    if (asset.source === "upload" || !jobId) {
+      /* an upload or an import: its face check, made as it arrived */
+      const v = asset.meta.faceCheck as FaceVerdict | undefined;
+      return faceAllowed(v) ? undefined : `${label(asset, url)} (真实: ${describeVerdict(v).replace(/^face check: /, "")})`;
     }
-    /* drawn nowhere here: an image imported from a URL or as bytes */
-    return checked(asset, url);
-  }
-
-  async function fromTake(takeId: string, depth: number): Promise<string | undefined> {
-    const take = await repo.getTake(takeId).catch(() => undefined);
-    if (!take) return `take ${takeId}`;
-    const images = (take.input as { images?: Array<{ url?: string }> }).images ?? [];
-    for (const img of images) {
-      if (!img.url) continue;
-      const bad = await realFace(img.url, depth + 1);
+    const job = await repo.getJob(jobId).catch(() => undefined);
+    if (!job) return `${label(asset, url)} (真实: its drawing cannot be traced)`;
+    const i = job.input as JobInput;
+    if (i.takeId) {
+      const bad = await fromTake(i.takeId, depth);
+      if (bad) return bad;
+    }
+    for (const u of inputsOf(i)) {
+      const bad = await real(u, depth + 1);
       if (bad) return bad;
     }
     return undefined;
   }
 
+  async function fromTake(takeId: string, depth: number): Promise<string | undefined> {
+    const take = await repo.getTake(takeId).catch(() => undefined);
+    if (!take) return `take ${takeId} (真实: cannot be traced)`;
+    const images = (take.input as { images?: Array<{ url?: string }> }).images ?? [];
+    for (const img of images) {
+      if (!img.url) continue;
+      const bad = await real(img.url, depth + 1);
+      if (bad) return bad;
+    }
+    return undefined;
+  }
+
+  if (opts.takeId) {
+    const bad = await fromTake(opts.takeId, 0);
+    if (bad) return bad;
+  }
   for (const url of urls) {
     if (!url) continue;
-    const bad = await realFace(url, 0);
+    const bad = await real(url, 0);
     if (bad) return bad;
   }
   return undefined;
+}
+
+/** 模拟 or 真实 for a drawing about to be kept: from the pictures it was made from (none: text to image, 模拟). */
+export async function realnessOfDrawing(projectId: string, input: JobInput): Promise<Realness> {
+  return (await firstRealIn(projectId, inputsOf(input), { takeId: input.takeId }).catch(() => "unknown")) ? "real" : "sim";
 }

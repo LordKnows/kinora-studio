@@ -7,7 +7,7 @@ import type { Asset } from "@/studio/types";
 import { ApiError, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
-import { describeVerdict, faceAllowed, faceLabel, type FaceVerdict } from "@/studio/face-verdict";
+import { describeVerdict, faceLabel, pictureTag, type FaceVerdict } from "@/studio/face-verdict";
 
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
 import { useProjectContext } from "./shell";
@@ -24,7 +24,12 @@ export function pictureTitle(a: Asset): string {
   return [a.handle, a.name].filter(Boolean).join(" · ") || a.id;
 }
 
-/** The face check's label: 放行 (any reference, R18 included) or 不放行 (not for R18). */
+/** A picture's tag: 模拟 (any reference, R18 included) or 真实 (not for R18). */
+export function TagBadge({ sim, title }: { sim: boolean; title: string }) {
+  return <span className="st-face" data-allowed={sim ? "true" : undefined} title={title}>{sim ? "模拟" : "真实"}</span>;
+}
+
+/** An upload's tag from its face check (模拟 / 真实). */
 export function FaceBadge({ verdict, error }: { verdict: FaceVerdict | null | undefined; error?: { why?: string } | string }) {
   const l = faceLabel(verdict ?? undefined, typeof error === "string" ? { why: error } : error);
   return <span className="st-face" data-allowed={l.allowed ? "true" : undefined} title={l.title}>{l.label}</span>;
@@ -37,12 +42,13 @@ export function fromOutside(a: Asset): boolean {
 
 /** The handle and name under a thumbnail. */
 export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNode }) {
+  const tag = asset.kind === "image" ? pictureTag(asset.meta, fromOutside(asset)) : undefined;
   return (
     <span className="st-pic-caption" title={pictureTitle(asset)}>
       <span className="st-pic-line">
         {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
         <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
-        {fromOutside(asset) && <FaceBadge verdict={asset.meta.faceCheck as FaceVerdict | undefined} error={asset.meta.faceCheckError as { why?: string } | undefined} />}
+        {tag && <TagBadge sim={tag.sim} title={tag.title} />}
       </span>
       {extra && <span className="st-pic-extra">{extra}</span>}
     </span>
@@ -251,6 +257,8 @@ export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Ass
   const checks = (m.checks as Array<{ id: string; level: string; message: string }> | undefined) ?? [];
   const face = m.faceCheck as FaceVerdict | undefined;
   const faceError = m.faceCheckError as { why?: string } | undefined;
+  const outside = fromOutside(asset);
+  const tag = asset.kind === "image" ? pictureTag(m, outside) : undefined;
   const auto = m.autoReview as { verdict?: string; summary?: string; findings?: Array<{ code?: string; severity?: string; where?: string; what?: string; fix?: string }> } | undefined;
   const findings = (m.reviewFindings as Array<{ code?: string; severity?: string; where?: string; problem?: string; fix?: string }> | undefined) ?? [];
   return (
@@ -263,16 +271,18 @@ export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Ass
           <dd>{uses.length ? uses.map((u) => u.label).join("; ") : <span className="st-muted">nothing — safe to delete</span>}</dd>
         </>
       )}
-      {(face || faceError || fromOutside(asset)) && (
+      {tag && (
         <>
-          <dt>Face check</dt>
-          <dd className={faceAllowed(face) ? undefined : "st-muted"}>
-            <FaceBadge verdict={face} error={faceError} />{" "}
-            {face
-              ? <>{faceAllowed(face) ? "any reference, R18 included" : "not for R18; every other picture is fine"} · {describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</>
-              : faceError?.why ? <>the check did not run: {faceError.why}</> : <>not checked yet</>}
-            {projectId && <>{" "}<Button size="sm" kind="quiet" busy={recheck.busy} onClick={() => void recheck.fire()}>Check again</Button></>}
-            <ErrorBanner error={recheck.error} projectId={projectId} onDismiss={recheck.dismiss} />
+          <dt>模拟 / 真实</dt>
+          <dd className={tag.sim ? undefined : "st-muted"}>
+            <TagBadge sim={tag.sim} title={tag.title} />{" "}
+            {tag.sim ? "any reference, R18 included" : "not for R18; every other picture is fine"}
+            {outside
+              ? <> · {face ? <>{describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</> : faceError?.why ? <>the check did not run: {faceError.why}</> : <>not checked</>}
+                  {projectId && <>{" "}<Button size="sm" kind="quiet" busy={recheck.busy} onClick={() => void recheck.fire()}>Check again</Button></>}
+                  <ErrorBanner error={recheck.error} projectId={projectId} onDismiss={recheck.dismiss} />
+                </>
+              : m.reference ? <> · the reference library</> : <> · {tag.sim ? "drawn from 模拟 pictures only, or from text" : "drawn from a 真实 picture"}</>}
           </dd>
         </>
       )}

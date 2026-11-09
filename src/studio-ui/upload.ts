@@ -2,7 +2,7 @@ import type { FaceVerdict } from "@/studio/face-verdict";
 
 /* Browser → R2 direct upload (presign → PUT → commit): ask the studio for a presigned PUT, send the
    bytes straight to the bucket, then commit so an Asset row exists. An image comes back with its face
-   check (放行 / 不放行 for R18), or null when it could not be checked. */
+   check (模拟 / 真实), or null when it could not be checked. */
 
 export async function uploadMedia(file: File, projectId?: string, purpose?: "style_frame"): Promise<{ url: string; assetId: string; faceCheck: FaceVerdict | null; faceError?: string }> {
   const presign = await fetch("/api/uploads/presign", {

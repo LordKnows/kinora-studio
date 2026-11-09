@@ -7,7 +7,7 @@ import { checkOnArrival, describeVerdict, faceAllowed, faceVerdict, type FaceVer
 import { faceLabel } from "@/studio/face-verdict";
 import { importImageFromBase64 } from "@/studio/images";
 import * as imaging from "@/studio/imaging";
-import { firstUploadedFaceIn } from "@/studio/provenance";
+import { firstRealIn } from "@/studio/provenance";
 import { listReferences, setAdultContent } from "@/studio/references";
 import type { RefPose } from "@/studio/references-model";
 import * as repo from "@/studio/repo";
@@ -87,42 +87,45 @@ describe("checking an uploaded face", () => {
   let projectId = "";
   const upload = (name: string) => repo.createAsset({ projectId, url: `https://studio.example/media/uploads/u/${name}.png`, kind: "image", source: "upload", meta: { key: `uploads/u/${name}.png` }, name });
 
-  it("is not checked without a key: the upload stays out", async () => {
+  it("is not checked without a key: the upload is 真实", async () => {
     projectId = (await repo.createProject({ name: "Faces 3D" })).id;
     const a = await upload("no-key");
     expect(await faceVerdict(a)).toBeUndefined();
-    expect(await firstUploadedFaceIn(projectId, [a.url])).toBe(`${a.handle} (face not checked)`);
+    expect(await firstRealIn(projectId, [a.url])).toBe(`${a.handle} (真实: face not checked)`);
     expect(asked).toEqual([]);
   });
 
   it("asks TokenSail's Qwen once with the picture inline, and keeps the verdict on the picture", async () => {
     process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
     answer = { kind: "render_3d", likeness: false, age: "adult", confidence: 0.93, reason: "a Blender character render" };
-    const a = await upload("blender");
-    expect(await firstUploadedFaceIn(projectId, [a.url])).toBeUndefined();
+    const a = await checkOnArrival(await upload("blender"));
+    expect(a.meta.realness).toBe("sim");
+    expect(await firstRealIn(projectId, [a.url])).toBeUndefined();
     expect(asked).toHaveLength(1);
     expect(asked[0]!.url).toBe("https://api.tokensail.ai/v1/chat/completions");
     expect(asked[0]!.auth).toBe("Bearer sk-tokensail-test");
     expect(asked[0]!.body.model).toBe("qwen3.8-max-0902");
     expect(asked[0]!.body.messages[0]!.content[0]!.image_url!.url).toMatch(/^data:image\/png;base64,/);
     expect(((await repo.getAsset(a.id)).meta.faceCheck as FaceVerdict).kind).toBe("render_3d");
-    /* asked once: the kept verdict answers next time */
-    expect(await firstUploadedFaceIn(projectId, [a.url])).toBeUndefined();
+    /* asked once: the kept verdict answers next time, and tracing a picture never asks */
+    expect(await faceVerdict(await repo.getAsset(a.id))).toMatchObject({ kind: "render_3d" });
+    expect(await firstRealIn(projectId, [(await upload("never-checked")).url])).toMatch(/真实/);
     expect(asked).toHaveLength(1);
   });
 
   it("keeps out a photograph, a likeness, a minor and an answer it cannot read", async () => {
     process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
     const cases: Array<[Record<string, unknown> | string, RegExp]> = [
-      [{ kind: "real_photo", likeness: false, age: "adult", confidence: 0.95, reason: "a phone photo" }, /face check: a photograph, an adult/],
+      [{ kind: "real_photo", likeness: false, age: "adult", confidence: 0.95, reason: "a phone photo" }, /真实: a photograph, an adult/],
       [{ kind: "render_3d", likeness: true, age: "adult", confidence: 0.9, reason: "a famous actor in 3D" }, /a real person's likeness/],
       [{ kind: "illustration", likeness: false, age: "minor", confidence: 0.9, reason: "a child" }, /a minor/],
-      ["I cannot help with that.", /face not checked/],
+      ["I cannot help with that.", /真实: face not checked/],
     ];
     for (const [i, [a, why]] of cases.entries()) {
       answer = a;
-      const pic = await upload(`bad-${i}`);
-      expect(await firstUploadedFaceIn(projectId, [pic.url])).toMatch(why);
+      const pic = await checkOnArrival(await upload(`bad-${i}`));
+      expect(pic.meta.realness).toBe("real");
+      expect(await firstRealIn(projectId, [pic.url])).toMatch(why);
     }
   });
 
@@ -132,11 +135,11 @@ describe("checking an uploaded face", () => {
     await imaging.setImaging(projectId, { enabled: true }, user);
     const couple = (await listReferences("pose", true)).items.find((x) => (x as RefPose).system === "couple")!;
     answer = { kind: "render_3d", likeness: false, age: "adult", confidence: 0.9, reason: "a stylised 3D head" };
-    const head = await upload("my-3d-head");
+    const head = await checkOnArrival(await upload("my-3d-head"));
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: head.id }, pose: { id: couple.id } }), user)).resolves.toBeTruthy();
     answer = { kind: "real_photo", likeness: false, age: "adult", confidence: 0.97, reason: "a selfie" };
-    const selfie = await upload("selfie");
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: selfie.id }, pose: { id: couple.id } }), user)).rejects.toThrow(/face check: a photograph/);
+    const selfie = await checkOnArrival(await upload("selfie"));
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: selfie.id }, pose: { id: couple.id } }), user)).rejects.toThrow(/真实: a photograph/);
   });
 });
 
@@ -144,11 +147,11 @@ describe("every upload and import gets its label as it arrives", () => {
   let projectId = "";
   const B64 = Buffer.from(PNG).toString("base64");
 
-  it("labels 放行 or 不放行", () => {
-    expect(faceLabel(v({}))).toMatchObject({ allowed: true, label: "放行" });
-    expect(faceLabel(v({ kind: "real_photo" }))).toMatchObject({ allowed: false, label: "不放行" });
-    expect(faceLabel(undefined)).toMatchObject({ allowed: false, label: "不放行" });
-    expect(faceLabel(undefined).title).toContain("not checked yet");
+  it("tags 模拟 or 真实", () => {
+    expect(faceLabel(v({}))).toMatchObject({ allowed: true, label: "模拟" });
+    expect(faceLabel(v({ kind: "real_photo" }))).toMatchObject({ allowed: false, label: "真实" });
+    expect(faceLabel(undefined)).toMatchObject({ allowed: false, label: "真实" });
+    expect(faceLabel(undefined).title).toContain("not checked");
   });
 
   it("checks a web upload when it is committed, and the answer carries the label", async () => {
@@ -168,22 +171,29 @@ describe("every upload and import gets its label as it arrives", () => {
     process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
     answer = { kind: "real_photo", likeness: false, age: "adult", confidence: 0.96, reason: "a photo" };
     const imported = await importImageFromBase64(projectId, B64, "photo.png", user);
-    expect(faceLabel(imported.meta.faceCheck as FaceVerdict).label).toBe("不放行");
+    expect(faceLabel(imported.meta.faceCheck as FaceVerdict).label).toBe("真实");
+    expect(imported.meta.realness).toBe("real");
     const before = asked.length;
     const library = await importImageFromBase64(projectId, B64, "pose.png", user, { reference: { id: "pose-1", kind: "pose" } });
     expect(library.meta.faceCheck).toBeUndefined();
+    expect(library.meta.realness).toBe("sim");
     expect(asked.length).toBe(before);
-    /* the model gives no answer: unlabelled now, checked again when an R18 picture would use it */
+    /* the model gives no answer: 真实, and it stays so — tracing never asks the model; Check again does */
     answer = "no";
     const later = await checkOnArrival(await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/later.png", kind: "image", source: "upload", meta: { key: "uploads/u/later.png" }, name: "later" }));
     expect(later.meta.faceCheck).toBeUndefined();
+    expect(later.meta.realness).toBe("real");
     answer = { kind: "illustration", likeness: false, age: "adult", confidence: 0.9, reason: "anime" };
-    expect(await firstUploadedFaceIn(projectId, [later.url])).toBeUndefined();
+    const n = asked.length;
+    expect(await firstRealIn(projectId, [later.url])).toMatch(/真实: face not checked/);
+    expect(asked.length).toBe(n);
+    expect(await faceVerdict(later, { force: true })).toMatchObject({ kind: "illustration" });
+    expect(await firstRealIn(projectId, [later.url])).toBeUndefined();
   });
 });
 
 describe("when a check fails, the picture says why, and can be checked again", () => {
-  it("keeps the reason, labels the picture 不放行 with it, and a recheck replaces it with a verdict", async () => {
+  it("keeps the reason, tags the picture 真实 with it, and a recheck replaces it with a verdict", async () => {
     process.env.AUTH_MODE = "dev";
     process.env.DEV_USER = "faces3d@local";
     process.env.TOKENSAIL_API_KEY = "sk-tokensail-test";
@@ -193,7 +203,7 @@ describe("when a check fails, the picture says why, and can be checked again", (
     failWith = "";
     const why = (shot.meta.faceCheckError as { why: string }).why;
     expect(why).toContain("qwen3.8-max-0902 answered 500: upstream overloaded");
-    expect(faceLabel(undefined, { why })).toMatchObject({ label: "不放行" });
+    expect(faceLabel(undefined, { why })).toMatchObject({ label: "真实" });
     expect(faceLabel(undefined, { why }).title).toContain("the face check did not run");
     answer = { kind: "no_face", likeness: false, age: "adult", confidence: 0.9, reason: "a game scene, figures far away" };
     const { POST } = await import("@/app/api/projects/[id]/pictures/[ref]/face-check/route");
@@ -201,6 +211,6 @@ describe("when a check fails, the picture says why, and can be checked again", (
     const { picture } = (await res.json()) as { picture: { meta: { faceCheck?: FaceVerdict; faceCheckError?: unknown } } };
     expect(picture.meta.faceCheck?.kind).toBe("no_face");
     expect(picture.meta.faceCheckError).toBeUndefined();
-    expect(faceLabel(picture.meta.faceCheck)).toMatchObject({ allowed: true, label: "放行" });
+    expect(faceLabel(picture.meta.faceCheck)).toMatchObject({ allowed: true, label: "模拟" });
   });
 });

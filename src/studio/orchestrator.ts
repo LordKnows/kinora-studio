@@ -8,6 +8,7 @@ import { autopilotCovers, consumeAutopilot, identicalTakes, renderHash, reviewSt
 import { paletteContrastWarnings } from "./sketch";
 
 import { StudioError } from "./errors";
+import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
 import { buildAssemblerInput } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
@@ -360,7 +361,9 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
         const shot = await repo.getShot(take.shotId).catch(() => undefined);
         const scene = shot ? await repo.getScene(shot.sceneId).catch(() => undefined) : undefined;
         const where = scene && shot ? `${scene.slug} #${shot.index + 1} · ` : "";
-        await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame" }, name: `${where}take #${take.n} last frame` });
+        /* 模拟 or 真实, from the pictures the take was rendered from */
+        const realness = await realnessOfDrawing(take.projectId, { takeId: take.id });
+        await repo.createAsset({ projectId: take.projectId, url: lastFrameUrl, kind: "image", source: "frame-extract", meta: { takeId: take.id, shotId: take.shotId, role: "last-frame", realness }, name: `${where}take #${take.n} last frame` });
       }
       return updated;
     }
