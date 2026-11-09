@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe, type PosePicture } from "@/studio/canvas-prompt";
 import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
@@ -30,6 +30,8 @@ type Recipe = {
   depth: boolean;
   /** The pose flipped left to right (the painter mirrors the picture). */
   mirror?: boolean;
+  /** An uploaded pose: a photo of a person, a mannequin (白模) or a depth map. */
+  posePicture?: PosePicture;
   extras: Upload[];
   style: string;
   size: (typeof CANVAS_SIZES)[number];
@@ -51,6 +53,7 @@ type Prefs = { projectId?: string; kind: RefKind; attach?: { elementId: string; 
 const SLOT_LABEL: Record<SlotKind, string> = { portrait: "Portrait · 人像", costume: "Costume · 服装", pose: "Pose · 姿势" };
 const RECIPE_KEY = "canvas.recipe.v1";
 const PREFS_KEY = "canvas.prefs.v1";
+const FACE_CONSENT_KEY = "canvas.faceConsent.v1";
 const EMPTY: Recipe = { depth: false, extras: [], style: "realistic", size: "1024x1536", note: "" };
 
 function readStore<T>(key: string, fallback: T): T {
@@ -75,7 +78,7 @@ function toPromptRecipe(r: Recipe, refStyle?: "zh" | "qwen"): CanvasPromptRecipe
   return {
     portrait: r.portrait && (r.portrait.item ? { item: r.portrait.item } : { upload: { name: r.portrait.upload.name } }),
     costume: r.costume && (r.costume.item ? { item: r.costume.item } : { upload: { name: r.costume.upload.name } }),
-    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror }),
+    pose: r.pose && (r.pose.item ? { item: r.pose.item, depth: r.depth, mirror: !!r.mirror } : { upload: { name: r.pose.upload.name }, mirror: !!r.mirror, picture: r.posePicture ?? "photo" }),
     extras: r.extras.map((e) => ({ name: e.name })),
     style: r.style,
     note: r.note,
@@ -235,6 +238,15 @@ export function CanvasPage() {
   const uploadTo = async (file: File, target: SlotKind | "extra") => {
     if (!projectId) throw new Error("Pick a project first: uploads belong to a project");
     if (!file.type.startsWith("image/")) throw new Error("Pick an image file (PNG, JPEG or WebP)");
+    /* a real face: the user's own, or someone who agreed — asked once per browser */
+    if (target === "portrait" && !readStore(FACE_CONSENT_KEY, false)) {
+      if (!window.confirm("Upload a real person's face only if it is you, or you have their permission to use their likeness. An uploaded face is never combined with 18+ references or 18+ LoRAs. Continue?")) return;
+      try {
+        localStorage.setItem(FACE_CONSENT_KEY, "true");
+      } catch {
+        /* storage off: ask again next time */
+      }
+    }
     setUploading(target);
     try {
       const { assetId, url } = await uploadMedia(file, projectId);
@@ -281,7 +293,7 @@ export function CanvasPage() {
       const body = {
         portrait: recipe.portrait && (recipe.portrait.item ? { id: recipe.portrait.item.id } : { assetId: recipe.portrait.upload.assetId }),
         costume: recipe.costume && (recipe.costume.item ? { id: recipe.costume.item.id, view: recipe.costume.view } : { assetId: recipe.costume.upload.assetId }),
-        pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId }), ...(recipe.mirror ? { mirror: true } : {}) },
+        pose: recipe.pose && { ...(recipe.pose.item ? { id: recipe.pose.item.id, depth: recipe.depth } : { assetId: recipe.pose.upload.assetId, picture: recipe.posePicture ?? "photo" }), ...(recipe.mirror ? { mirror: true } : {}) },
         extras: recipe.extras.map((e) => ({ assetId: e.assetId, name: e.name })),
         style: recipe.style,
         size: recipe.size,
@@ -312,9 +324,9 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, ...(c.posePicture ? { posePicture: c.posePicture } : {}), note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -421,6 +433,7 @@ export function CanvasPage() {
                   onUpload={(f) => tryUpload(f, k)}
                   onDepth={(d) => setRecipe((r) => ({ ...r, depth: d }))}
                   onMirror={(m) => setRecipe((r) => ({ ...r, mirror: m }))}
+                  onPosePicture={(pp) => setRecipe((r) => ({ ...r, posePicture: pp }))}
                   onView={(v) => setRecipe((r) => (r.costume?.item ? { ...r, costume: { ...r.costume, view: v } } : r))} />
               ))}
             </div>
@@ -566,9 +579,9 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
 
 /* ---------- slots ---------- */
 
-function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onMirror, onView }: {
+function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear, onRandom, onUpload, onDepth, onMirror, onPosePicture, onView }: {
   kind: SlotKind; recipe: Recipe; adult: boolean; uploading: boolean; canUpload: boolean;
-  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onView: (v: string) => void;
+  onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onPosePicture: (p: PosePicture) => void; onView: (v: string) => void;
 }) {
   const slot = recipe[kind] as Slot<RefItem> | undefined;
   const input = useRef<HTMLInputElement>(null);
@@ -597,6 +610,13 @@ function SlotCard({ kind, recipe, adult, uploading, canUpload, onBrowse, onClear
             <div className="st-seg st-seg--sm" role="group" aria-label="Pose picture">
               <button type="button" aria-pressed={!recipe.depth} title="Line art" onClick={() => onDepth(false)}>白模</button>
               <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>
+            </div>
+          )}
+          {slot.upload && (
+            <div className="st-seg st-seg--sm" role="group" aria-label="What the uploaded pose picture is">
+              <button type="button" aria-pressed={(recipe.posePicture ?? "photo") === "photo"} title="A photo of a person: only the pose and framing are taken, not their looks or clothes" onClick={() => onPosePicture("photo")}>照片</button>
+              <button type="button" aria-pressed={recipe.posePicture === "mannequin"} title="A mannequin (白模) or line art" onClick={() => onPosePicture("mannequin")}>白模</button>
+              <button type="button" aria-pressed={recipe.posePicture === "depth"} title="A grey depth map" onClick={() => onPosePicture("depth")}>深度</button>
             </div>
           )}
           <button type="button" className="st-chip st-chip--btn" aria-pressed={!!recipe.mirror} title="Flip the pose left to right" onClick={() => onMirror(!recipe.mirror)}>⇋ 镜像</button>

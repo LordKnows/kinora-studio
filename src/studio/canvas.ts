@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, type CanvasPromptRecipe } from "./canvas-prompt";
+import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, POSE_PICTURES, type CanvasPromptRecipe } from "./canvas-prompt";
 import { StudioError } from "./errors";
 import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
@@ -36,7 +36,11 @@ const Quality = z.enum(["low", "medium", "high"]);
 export const CanvasCompose = z.object({
   portrait: Slot.optional(),
   costume: Slot.extend({ view: z.string().max(20).optional() }).optional(),
-  pose: Slot.extend({ depth: z.boolean().default(false), mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)") }).optional(),
+  pose: Slot.extend({
+    depth: z.boolean().default(false).describe("A library pose: its depth map instead of the line art"),
+    picture: z.enum(POSE_PICTURES).default("photo").describe("An uploaded pose (assetId): what the picture is — photo (a person: only the pose and framing are taken), mannequin (白模 / line art), depth (a grey depth map)"),
+    mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)"),
+  }).optional(),
   model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's model (Settings → Director)."),
   promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
   negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
@@ -148,7 +152,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
   const recipe: CanvasPromptRecipe = {
     portrait: portrait && (portrait.item ? { item: portrait.item as RefPortrait } : { upload: { name: portrait.label } }),
     costume: costume && (costume.item ? { item: costume.item as RefCostume } : { upload: { name: costume.label } }),
-    pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth, mirror: input.pose?.mirror } : { upload: { name: pose.label }, mirror: input.pose?.mirror }),
+    pose: pose && (pose.item ? { item: pose.item as RefPose, depth: input.pose?.depth, mirror: input.pose?.mirror } : { upload: { name: pose.label }, mirror: input.pose?.mirror, picture: input.pose?.picture }),
     extras: extras.map((e) => ({ name: e.name || e.asset.name || "" })),
     style: input.style,
     note: input.note,
@@ -182,7 +186,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, size, depth: input.pose?.depth ?? false, ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
   return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
 }

@@ -37,11 +37,16 @@ export const CANVAS_STYLES: Array<{ id: string; label: string; zh: string; promp
 
 export const CANVAS_STYLE_IDS = CANVAS_STYLES.map((s) => s.id) as [string, ...string[]];
 
+/** What an uploaded pose picture is: a photo of a person, a mannequin (白模 / line art), a depth map. */
+export const POSE_PICTURES = ["photo", "mannequin", "depth"] as const;
+export type PosePicture = (typeof POSE_PICTURES)[number];
+
 /** A slot holds a catalog item or an uploaded picture (named by the user). */
 export type CanvasPromptRecipe = {
   portrait?: { item?: RefPortrait; upload?: { name: string } };
   costume?: { item?: RefCostume; upload?: { name: string } };
-  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean; mirror?: boolean };
+  /** picture: what an uploaded pose picture is — a photo of a person (default), a mannequin (白模 / line art) or a depth map */
+  pose?: { item?: RefPose; upload?: { name: string }; depth?: boolean; mirror?: boolean; picture?: PosePicture };
   extras?: Array<{ name: string }>;
   style?: string;
   note?: string;
@@ -79,9 +84,14 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
     const p = r.pose.item;
     /* a flipped pose: its name's left and right are the other way round now */
     const flipped = r.pose.mirror ? "，已左右镜像，以图中方向为准" : "";
+    const picture = r.pose.picture ?? "photo";
     clauses.push(p
       ? `• 姿势：按照图${idx}中人体模型的动作和镜头角度摆姿势（${p.name}，${angleZh(p.angle)}${flipped}）；图${idx}只是动作示意${r.pose.depth ? "（灰度深度图，只表示动作与远近）" : ""}，${body}。`
-      : `• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`);
+      : picture === "mannequin"
+        ? `• 姿势：按照图${idx}中人体模型（白模）的动作和镜头角度摆姿势${flipped ? `（${flipped.slice(1)}）` : ""}；图${idx}只是动作示意，不照搬白模的灰白材质，${body}。`
+        : picture === "depth"
+          ? `• 姿势：按照图${idx}的人物动作和镜头角度摆姿势${flipped ? `（${flipped.slice(1)}）` : ""}；图${idx}是灰度深度图，只表示动作与远近，${body}。`
+          : `• 姿势：按照图${idx}中的人物动作和镜头角度摆姿势${flipped ? `（${flipped.slice(1)}）` : ""}；仅参考姿势与构图，不复制图${idx}人物的外观与服装，${body}。`);
     idx++;
   }
   if (faceless) {

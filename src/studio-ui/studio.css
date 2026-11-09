@@ -2459,6 +2459,11 @@ button.st-pill {
 }
 .studio .st-slot .st-seg {
   align-self: flex-start;
+  max-width: 100%;
+}
+.studio .st-slot .st-seg--sm button {
+  white-space: nowrap;
+  padding: 4px 6px;
 }
 
 /* ---------- Library → Models ---------- */

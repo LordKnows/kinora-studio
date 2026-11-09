@@ -144,6 +144,15 @@ describe("the composed prompt", () => {
     expect(text).toContain("人物穿搭展示图");
     expect(buildCanvasPrompt({})).toBe("");
   });
+
+  it("says what an uploaded pose is: a photo (pose only), a mannequin, or a depth map", () => {
+    const photo = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" } } });
+    expect(photo).toContain("图2中的人物动作和镜头角度摆姿势；仅参考姿势与构图，不复制图2人物的外观与服装");
+    const mannequin = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" }, picture: "mannequin", mirror: true } });
+    expect(mannequin).toContain("图2中人体模型（白模）的动作和镜头角度摆姿势（已左右镜像，以图中方向为准）；图2只是动作示意，不照搬白模的灰白材质");
+    const depth = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" }, picture: "depth" } });
+    expect(depth).toContain("图2是灰度深度图，只表示动作与远近");
+  });
 });
 
 describe("compose and import", () => {
@@ -193,6 +202,17 @@ describe("compose and import", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: costume().id } }), web)).rejects.toMatchObject({ code: "validation" });
     const elsewhere = await repo.createAsset({ projectId: (await repo.createProject({ name: "Other" })).id, url: "https://studio.example/media/uploads/u/x.png", kind: "image", source: "upload", meta: {} });
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: elsewhere.id } }), web)).rejects.toMatchObject({ code: "validation" });
+  });
+
+  it("takes the user's own face, outfit and pose (a mannequin or a depth map) and records what the pose picture is", async () => {
+    const face = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/my-face.png", kind: "image", source: "upload", meta: {}, name: "my face" });
+    const outfit = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/coat.png", kind: "image", source: "upload", meta: {}, name: "coat" });
+    const mannequin = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/pose.png", kind: "image", source: "upload", meta: {}, name: "pose" });
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, costume: { assetId: outfit.id }, pose: { assetId: mannequin.id, picture: "depth" } }), web);
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.refUrls).toEqual([face.url, outfit.url, mannequin.url]);
+    expect(String(job.input.prompt)).toContain("图3是灰度深度图");
+    expect((job.input.canvas as { posePicture?: string }).posePicture).toBe("depth");
   });
 
   it("imports one reference picture into the project, fetched once from its gallery", async () => {
