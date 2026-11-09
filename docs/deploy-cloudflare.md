@@ -234,8 +234,21 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
      不想自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。每次开机镜像重装 ComfyUI
      约一分钟，模型零下载。若跨区读取慢，Pod 环境变量里设 `MODELS_LINK_FROM=<卷上的模型目录>`、
      `MODELS_LINK_TO=/opt/models`、`MODELS_COPY=1`，启动时拷到本地盘（容器盘要 ≥100 GB）。
-   - **每个数据中心一个卷（退路）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx,US-TX-3:vol_yyy"`
-     （密钥），起 Pod 时按顺序遍历数据中心（上次成功的优先），全部失败才显示"暂时没资源"。
+   - **每个数据中心一个卷（推荐：EU-RO-1）**：填 `RUNPOD_NETWORK_VOLUMES="EU-RO-1:vol_xxx"`
+     （**密钥**，部署不会覆盖；多个卷用逗号分隔），起 Pod 时按顺序遍历数据中心（上次成功的优先）。
+     EU-RO-1 有 RTX 5090、RTX PRO 6000（含 WK 版）、A100 SXM / PCIe 80 GB，正好是 `RUNPOD_GPU_TYPES`
+     里能跑 H3 视频的几种；H100 / H200 只在退路上用得到。
+     - **建卷**：RunPod → Storage → New Network Volume，数据中心 EU-RO-1，250 GB（模型约 145 GB，
+       Viggle Remake 两个模型按需再下约 42 GB，LoRA 和 Codex 登录也在卷上；以后可以扩容）。
+       第一次开机时 Pod 自动把 `models.txt`、2K 重生成、Qwen-Image 2.1 和 2509 全部下到卷上
+       （H3 那部分下完才显示 running，其余在后台继续），以后开机零下载。
+     - **容器盘**：挂卷的 Pod 只在容器盘上放 ComfyUI、venv 和输出，按 `RUNPOD_VOLUME_CONTAINER_DISK_GB`
+       （默认 80）建；没挂卷的 Pod 仍按 `RUNPOD_CONTAINER_DISK_GB`（200）。
+     - **退路**：卷所在的数据中心里列表上的 GPU 都没货时，Studio 在任意数据中心起一个不挂卷的 Pod
+       （名字带 `-local`，本地盘模式，先下载模型，启动慢），Pod 卡片会说明原因。这种 Pod 停下后
+       不会被恢复，下次启动先删掉它、重新试卷所在的数据中心。不想要退路就设
+       `RUNPOD_VOLUME_FALLBACK=none`（同样用密钥），没货时显示"暂时没资源"。
+     - 卷是全局盘（只填 `RUNPOD_NETWORK_VOLUME_ID`、不限数据中心）时没有退路，也不需要。
 6. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
 

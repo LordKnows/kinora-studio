@@ -70,8 +70,9 @@ function podEnv(): Record<string, string> {
 function imagesApiEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   /* QWEN_IMAGE / QWEN_IMAGE_BASE / QWEN_EDIT_2509 = 0: skip that Canvas model's download on the GPU pod; COMFY_PAINT_TIMEOUT_S: how long a picture may wait in the pod's ComfyUI queue;
-     COMFYUI_VERSION: the ComfyUI release the pod runs in place of the image's (start.sh; "image" = the image's own) */
-  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "QWEN_EDIT_2509", "COMFY_PAINT_TIMEOUT_S", "COMFYUI_VERSION"]) {
+     COMFYUI_VERSION: the ComfyUI release the pod runs in place of the image's (start.sh; "image" = the image's own);
+     REGEN_2K=0: no Open-H3-Regenerate-2K (21 GB, node packs) on the pod */
+  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "QWEN_EDIT_2509", "COMFY_PAINT_TIMEOUT_S", "COMFYUI_VERSION", "REGEN_2K"]) {
     const v = process.env[name];
     if (v) out[name] = v;
   }
@@ -196,6 +197,17 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
   if (actor.via === "mcp") assertConfirmed(confirm, estimatedPodUsdPerHour(pod), "starting the GPU pod (billed per hour while it runs)");
 
   const client = pods();
+  /* A stopped pod the fallback started (no model volume) is let go: resuming it would download the models
+     again in its data center; a fresh start tries the volume first. */
+  if (pod && pod.status === "stopped" && !pod.adopted && isFallbackPod(pod)) {
+    try {
+      await client.terminatePod(pod.id);
+    } catch {
+      /* already gone */
+    }
+    await repo.updateGpuPod(pod.id, { status: "terminated", message: "a fallback pod without the model volume; replaced, the volume first", stoppedAt: Date.now() });
+    pod = undefined;
+  }
   /* A stopped pod is resumed; an adopted pod that could not get its GPU
      last time is retried the same way, never replaced by a new one. */
   if (pod && (pod.status === "stopped" || (pod.adopted && pod.status === "unavailable"))) {
@@ -236,12 +248,14 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
   for (const placement of await podPlacements()) {
     for (const batch of gpuBatches) {
       try {
+        const podName = placement.fallback ? `${pc.podName}${FALLBACK_SUFFIX}` : pc.podName;
         const record = await client.createPod({
-          name: pc.podName,
+          name: podName,
           imageName: pc.image,
           gpuTypeIds: batch,
           cloudType: pc.cloudType,
-          containerDiskInGb: pc.containerDiskGb,
+          /* on a volume the models live there: the container disk holds ComfyUI, its venv and outputs */
+          containerDiskInGb: placement.networkVolumeId ? pc.volumeContainerDiskGb : pc.containerDiskGb,
           volumeMountPath: pc.volumeMountPath,
           networkVolumeId: placement.networkVolumeId,
           dataCenterIds: placement.dataCenterIds,
@@ -252,9 +266,13 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
           ...(pc.bootstrap ? { dockerEntrypoint: bootstrapCommand(), dockerStartCmd: bootstrapCommand(), dockerStartLine: bootstrapCommandLine() } : {}),
         }, pc.bodyOverrides);
         await repo.insertGpuPod({
-          id: record.id, name: record.name || pc.podName, image: pc.image, gpuTypeId: record.gpuTypeId ?? batch[0], gpuName: record.gpuDisplayName,
+          id: record.id, name: record.name || podName, image: pc.image, gpuTypeId: record.gpuTypeId ?? batch[0], gpuName: record.gpuDisplayName,
           dataCenter: record.dataCenterId ?? placement.dataCenterIds[0],
-          status: "starting", message: "created; pulling the image and loading models", costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
+          status: "starting",
+          message: placement.fallback
+            ? `${FALLBACK_NOTE}: no listed GPU in ${podVolumeDcs().join(", ")}, so this pod downloads the models first (~145 GB, a slower start); the next start tries the volume again`
+            : "created; pulling the image and loading models",
+          costPerHr: record.costPerHr, hostUrl: podProxyUrl(record.id, pc.podPort),
         });
         await repo.updateGpuPod(record.id, { startedAt: Date.now() });
         return getGpuState();
@@ -373,17 +391,44 @@ export async function prioritizedGpuTypes(known?: Array<{ id: string }>): Promis
   return [...ids].sort((a, b) => (stats.get(a) ?? Infinity) - (stats.get(b) ?? Infinity));
 }
 
-/** Where a pod may live: one entry per model volume (each volume pins its
-    data center). The data center of the last pod goes first. */
-export async function podPlacements(): Promise<Array<{ dataCenterIds: string[]; networkVolumeId?: string }>> {
+export type PodPlacement = { dataCenterIds: string[]; networkVolumeId?: string; fallback?: boolean };
+
+function podVolumeDcs(): string[] {
   const pc = config.runpodPod();
-  const list = pc.volumes.length
+  return pc.volumes.length ? pc.volumes.map((v) => v.dataCenterId).filter(Boolean) : pc.dataCenterIds;
+}
+
+/** Model volumes that pin their pod to a data center (a regular network volume; a global one goes anywhere). */
+function pinnedVolumes(): boolean {
+  const pc = config.runpodPod();
+  return pc.volumes.length ? pc.volumes.every((v) => !!v.dataCenterId) : !!pc.networkVolumeId && pc.dataCenterIds.length > 0;
+}
+
+/** Where a pod may live: one entry per model volume (each volume pins its
+    data center), the data center of the last pod first. When the volumes pin
+    their data centers, a last resort follows: no volume, any data center — a
+    local-disk pod that downloads the models (RUNPOD_VOLUME_FALLBACK=none
+    turns it off). It always stays last, whatever ran before. */
+export async function podPlacements(): Promise<PodPlacement[]> {
+  const pc = config.runpodPod();
+  const list: PodPlacement[] = pc.volumes.length
     ? pc.volumes.map((v) => ({ dataCenterIds: v.dataCenterId ? [v.dataCenterId] : [], networkVolumeId: v.volumeId }))
     : [{ dataCenterIds: pc.dataCenterIds, networkVolumeId: pc.networkVolumeId }];
   const last = (await repo.listGpuPods(5)).find((p) => p.dataCenter)?.dataCenter;
   if (last) list.sort((a, b) => Number(b.dataCenterIds.includes(last)) - Number(a.dataCenterIds.includes(last)));
+  if (pinnedVolumes() && pc.volumeFallback === "local") list.push({ dataCenterIds: [], fallback: true });
   return list;
 }
+
+/** A pod started by the fallback (no model volume while volumes are configured): not worth resuming. Its
+    name says so; a pod in a data center none of the volumes is in is one too. */
+export function isFallbackPod(pod: { name?: string | null; dataCenter?: string | null }): boolean {
+  if (!pinnedVolumes()) return false;
+  return !!pod.name?.endsWith(FALLBACK_SUFFIX) || (!!pod.dataCenter && !podVolumeDcs().includes(pod.dataCenter));
+}
+
+const FALLBACK_NOTE = "without the model volume";
+const FALLBACK_SUFFIX = "-local";
 
 /** Take over a pod created in the RunPod console (the way around volume
     types the API cannot attach yet). The studio then starts, stops and uses
@@ -466,7 +511,7 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
   return {
     image: pc.image,
     ports: [`${pc.podPort}/http`, `${pc.comfyPort}/http`],
-    containerDiskGb: pc.containerDiskGb,
+    containerDiskGb: pc.volumes.length || pc.networkVolumeId ? pc.volumeContainerDiskGb : pc.containerDiskGb,
     volumeMountPath: pc.volumeMountPath,
     env: podEnv(),
     dockerStartCmd: pc.bootstrap ? bootstrapCommandLine() : "(image default)",

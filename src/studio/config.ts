@@ -66,6 +66,11 @@ export const config = {
     }),
     cloudType: (env("RUNPOD_CLOUD_TYPE") ?? "SECURE").toUpperCase(),
     containerDiskGb: Number(env("RUNPOD_CONTAINER_DISK_GB") ?? "200"),
+    /** A pod on a model volume keeps only ComfyUI, its venv and outputs on the container disk. */
+    volumeContainerDiskGb: Number(env("RUNPOD_VOLUME_CONTAINER_DISK_GB") ?? "80"),
+    /** When every model volume's data center has no listed GPU: "local" starts a pod without the
+        volume in any data center (it downloads the models, a slower start); "none" reports 暂时没资源. */
+    volumeFallback: (env("RUNPOD_VOLUME_FALLBACK") === "none" ? "none" : "local") as "local" | "none",
     /* Away from /workspace by default: a global volume only lends models (see workers/h3-runpod/start.sh). */
     volumeMountPath: env("RUNPOD_VOLUME_MOUNT_PATH") ?? "/runpod-volume",
     /** Host CUDA versions to allow (RunPod enum, e.g. "13.0"). Empty = no
