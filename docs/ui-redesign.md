@@ -99,8 +99,8 @@ Playground 整个目录删除（`src/app/playground`、`src/openhiggsfield/` 里
 | **Script** | 左：treatment 结构化字段（logline、弧线、三种候选结构 + 选定、hook ≤ 3 s、结尾回响、签名镜头、原生运镜、段落节奏、声音设计表、静默）；右：剧本正文 + 版本 + 批准。顶部一条 `validate_treatment` 的警告列表 | `validate_treatment` `save_script` |
 | **Elements** | 不变，卡片改 16:9 或 1:1，无图时显示大写首字母而不是灰块 | `create_element` `select_element_refs` |
 | **Board** | 镜头卡片增加：link 图标、摄影参数缩写（ELS · HIGH · WIDE · NEON）、lint 徽章（黄点 + 数量）、锚点状态、take 数和最佳 take 缩略图。顶部工具条："Apply style"、"Lint"（右侧抽屉列出每条意见并可跳到镜头）、"Render batch"（`plan_batch` 的顺序和总预估，一次确认） | `apply_style` `lint_shotlist` `plan_batch` `save_shotlist` `generate_take` |
-| **Finals**（新） | 每个镜头一行：已选 take、2K 状态、评分；批量"Regenerate 2K"（可选 GPU）；盲评 A/B 搬到这里 | `select_take` `regenerate_take` `review` |
-| **Timeline** | 左：节拍网格（tempo 段、hit 点、静默）+ "Cut on beats"；中：片段条（可拖长度，显示 repeat）；右：字幕检查（阅读时长）、音乐轨、导出预设 + 缺 2K 片段的提示 | `check_cue_map` `cut_on_beats` `check_subtitles` `check_timeline` `save_timeline` `export_project` |
+| **Finals**（新） | 每个镜头一行：已选 take、原始分辨率、全分辨率状态、评分；只做全部升级（"Final quality" 1080p / 2K / 4K，默认 close to the draft），不做单条升级；不设盲评 A/B | `select_take` `regenerate_take` `review` |
+| **Timeline** | 默认把所有已选 take 按 Board 顺序拼接，每条 0 秒入场、全长；"Reset" 重建。左：节拍网格（tempo 段、hit 点、静默）+ "Cut on beats"；中：片段条（可拖长度，显示 repeat）；右：字幕检查（阅读时长）、音乐轨、导出预设 + 缺 2K 片段的提示 | `check_cue_map` `cut_on_beats` `check_subtitles` `check_timeline` `save_timeline` `export_project` |
 
 全局页（顶栏菜单）：**Library**（LoRA 库 + 风格库，风格可新增用户自定义）、**Machine**（GPU 面板、接管、统计、下次启动用哪张卡）、**Connect**（MCP 端点、OAuth、导演指南）。项目里的 Settings 只剩预算上限和删除项目。
 

@@ -1,7 +1,7 @@
 /* Browser → R2 direct upload (presign → PUT → commit): ask the studio for a presigned PUT, send the
    bytes straight to the bucket, then commit so an Asset row exists. */
 
-export async function uploadMedia(file: File, projectId?: string): Promise<{ url: string; assetId: string }> {
+export async function uploadMedia(file: File, projectId?: string, purpose?: "style_frame"): Promise<{ url: string; assetId: string }> {
   const presign = await fetch("/api/uploads/presign", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -14,7 +14,7 @@ export async function uploadMedia(file: File, projectId?: string): Promise<{ url
   const commit = await fetch("/api/uploads/commit", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ key, kind: file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image", projectId }),
+    body: JSON.stringify({ key, kind: file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image", projectId, ...(purpose ? { purpose } : {}) }),
   });
   if (!commit.ok) throw new Error(await errorText(commit, "Failed to record the upload"));
   const { asset } = (await commit.json()) as { asset: { id: string; url: string } };

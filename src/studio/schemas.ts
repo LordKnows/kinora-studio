@@ -344,6 +344,7 @@ export const CommitUploadRequest = z.object({
   key: z.string().min(1),
   kind: z.enum(["image", "video", "audio"]),
   projectId: z.string().optional(),
+  purpose: z.enum(["style_frame"]).optional().describe("What the picture is for: an uploaded style frame is listed with the generated ones"),
 });
 
 export const EvalVote = z.object({

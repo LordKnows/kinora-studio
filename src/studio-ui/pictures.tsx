@@ -7,13 +7,13 @@ import type { Asset } from "@/studio/types";
 import { ApiError, get, patch, post } from "./api";
 import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
-import { reviewChip } from "./image-tools";
+import { EditRegion, reviewChip } from "./image-tools";
 import { useProjectContext } from "./shell";
 
 /* Pictures as things to talk about and tidy up: every picture shows its
    handle (IMG-12) and name, can be renamed, and any grid can switch to
    "select" to delete a batch. The Pictures page lists them all with where
-   each is used. */
+   each is used, and is where a region of a picture is edited. */
 
 type Use = { kind: string; id: string; label: string };
 type Listed = Asset & { uses: Use[] };
@@ -128,10 +128,11 @@ function checkChip(a: Asset): string | undefined {
 
 /** The project's pictures, all in one place. */
 export function PicturesPage() {
-  const { projectId, reload: reloadProject } = useProjectContext();
+  const { projectId, view, reload: reloadProject } = useProjectContext();
   const [pictures, setPictures] = useState<Listed[] | null>(null);
   const [filter, setFilter] = useState("all");
   const [open, setOpen] = useState<string | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   const sel = usePictureSelection();
   const load = useCallback(async () => {
@@ -141,9 +142,11 @@ export function PicturesPage() {
       setError(caught);
     }
   }, [projectId]);
+  /* reload when the project gains or loses a picture (an edit finishing, a frame generated elsewhere) */
+  const assetCount = view?.assets.length;
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, assetCount]);
   const after = useCallback(async () => {
     await load();
     await reloadProject();
@@ -200,12 +203,22 @@ export function PicturesPage() {
             <strong>{pictureTitle(current)}</strong>
             <span className="st-row" style={{ gap: 6 }}>
               <Button size="sm" busy={rename.busy} onClick={() => void rename.fire(current)}>Rename</Button>
+              <Button size="sm" kind={editing === current.id ? "primary" : "default"} onClick={() => setEditing(editing === current.id ? null : current.id)} title="Box the part to change and say what it should become; GPT Image draws a new picture">
+                Edit a region
+              </Button>
               <a className="st-btn st-btn--sm st-btn--quiet" href={current.url} target="_blank" rel="noreferrer">Open full size</a>
-              <Button size="sm" kind="quiet" onClick={() => setOpen(null)}>Close</Button>
+              <Button size="sm" kind="quiet" onClick={() => { setOpen(null); setEditing(null); }}>Close</Button>
             </span>
           </div>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 8 }} />
+          {editing === current.id ? (
+            <>
+              <EditRegion key={current.id} asset={current} onClose={() => setEditing(null)} />
+              <span className="st-muted">The edit is a new picture next to this one; choose it where you need it (a shot's frame, an element sheet).</span>
+            </>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 8 }} />
+          )}
           <PictureFacts asset={current} uses={current.uses} />
         </div>
       )}
