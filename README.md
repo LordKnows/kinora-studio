@@ -66,13 +66,19 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   rejected input inside the spend envelope the user grants on the web. The
   lint flags the pictures AI video gets wrong; the batch renders the most
   fragile shots first; a retro counts what went wrong for the next film.
-- **Pictures before takes (GPT Image), off the GPU.** With the per-project
-  switch on, character sheets, first and last frames, region edits and style
-  frames are drawn by a **painter** — `workers/painter`, a small always-on
-  machine (a RunPod CPU pod, a VPS) that claims image jobs from the Studio —
-  with Codex on the user's ChatGPT plan (device-code login from the Machine
-  page) or the images API. Every picture is ready before the GPU pod starts;
-  the pod only draws as a fallback while it runs. Buttons on every page and
+- **Pictures before takes, with the model the user picks.** With the
+  per-project switch on (Settings → Director → *Allow image generation by
+  agent*), character sheets, first and last frames, region edits and style
+  frames are drawn with the project's image model — the same models as
+  Canvas, but Qwen-Image-Edit 2509, which only composes a portrait or costume
+  with a pose. GPT Image (Codex on the user's ChatGPT plan, device-code login
+  from the Machine page, or the images API) and Qwen-Image 3.0 Pro (API) are
+  drawn by a **painter** — `workers/painter`, a small always-on machine (a
+  RunPod CPU pod, a VPS) that claims image jobs from the Studio — so those
+  pictures are ready before the GPU pod starts; Qwen-Image 2.1 draws on the
+  GPU pod while it runs. A picture takes the model's settings, at most its
+  number of reference pictures (the prompt names only those), and its way of
+  naming them (`<imageN>` for Qwen-Image 2.1). Buttons on every page and
   the director (following a picture plan: reuse, crop, edit, then draw) queue
   them. Each picture comes back with pixel checks and a Codex self-check
   (a blocker is redrawn once with the findings), then a fresh reviewer's

@@ -177,6 +177,31 @@ export function imageModelOfBackend(backend: string): ModelEntry | undefined {
   return IMAGE_MODELS.find((m) => m.backend === backend);
 }
 
+/** Image models the director may draw with (Settings → Director): all of them but a fixed-slot pose
+    recipe (Qwen-Image-Edit 2509 only composes portrait / costume + pose: Canvas). */
+export const AGENT_IMAGE_MODELS = IMAGE_MODELS.filter((m) => !m.poseRecipe);
+
+/** The model a project's pictures are drawn with: the one chosen in Settings, else the GPT Image
+    backend the project had before models could be chosen (codex / api). */
+export function projectImageModel(imaging?: { model?: string; backend?: string } | null): ModelEntry {
+  const chosen = imaging?.model ? AGENT_IMAGE_MODELS.find((m) => m.id === imaging.model) : undefined;
+  return chosen ?? AGENT_IMAGE_MODELS.find((m) => m.backend === (imaging?.backend ?? "codex")) ?? AGENT_IMAGE_MODELS[0]!;
+}
+
+/** The Studio's prompts name their pictures "Picture 1", "Picture 2" …; a model that reads them as
+    tokens (Qwen-Image 2.1: <image1> …) gets those instead. */
+export function namePicturesFor(model: ModelEntry, prompt: string): string {
+  return model.refStyle === "qwen" ? prompt.replace(/\b[Pp]icture (\d+)\b/g, "<image$1>") : prompt;
+}
+
+/** What an agent picture sends with the job: the model's recommended settings (pod models), or the
+    vendor's model name (API models). GPT Image takes none. */
+export function defaultImageParams(model: ModelEntry): (InferenceParams & { api_model?: string; prompt_extend?: boolean }) | undefined {
+  if (model.runtime === "pod") return resolveParams(model).params;
+  if (model.apiModel) return { api_model: model.apiModel, prompt_extend: false };
+  return undefined;
+}
+
 /* ---------- LoRAs ---------- */
 
 /** What the Studio knows about the LoRAs it seeds (migrations 0005, 0007), from their model cards; a user's own values win. */

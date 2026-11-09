@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
 import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, type CanvasPromptRecipe } from "@/studio/canvas-prompt";
-import { describeParams, findModel, IMAGE_MODELS, imageModelOfBackend, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
+import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
@@ -195,7 +195,7 @@ export function CanvasPage() {
   }, []);
   const selected = { portrait: recipe.portrait?.item?.id, costume: recipe.costume?.item?.id, pose: recipe.pose?.item?.id };
   const count = [recipe.portrait, recipe.costume, recipe.pose].filter(Boolean).length + recipe.extras.length;
-  const model: ModelEntry = findModel(recipe.model ?? "") ?? imageModelOfBackend(view?.project.imaging?.backend ?? "codex") ?? IMAGE_MODELS[0]!;
+  const model: ModelEntry = findModel(recipe.model ?? "") ?? projectImageModel(view?.project.imaging);
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   /* GPT Image's quality tiers; Qwen's API has none */
   const takesQuality = model.backend === "codex" || model.backend === "api";
@@ -378,7 +378,7 @@ export function CanvasPage() {
                 </select>
                 {project && (
                   imaging?.enabled ? (
-                    <span className="st-muted st-num">GPT Image · {imaging.backend} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>
+                    <span className="st-muted st-num">{projectImageModel(imaging).label} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
                       <span>GPT Image is off for this project. Pictures are drawn by a painter with Codex on your ChatGPT plan (up to 100, change it in Project settings).</span>

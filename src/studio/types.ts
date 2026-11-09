@@ -35,8 +35,12 @@ export type Autopilot = {
 
 export type Imaging = {
   enabled: boolean;
-  /** codex = the user's ChatGPT plan through the Codex CLI on a painter; api = OPENAI_API_KEY, paid per call. */
-  backend: "codex" | "api";
+  /** The image model the director and the buttons draw with (models.ts AGENT_IMAGE_MODELS); unset on
+      older projects, which drew with GPT Image through `backend`. */
+  model?: string;
+  /** The painter backend of that model: codex = the user's ChatGPT plan through the Codex CLI on a
+      painter; api = OPENAI_API_KEY, paid per call; qwen = Qwen-Image 3.0 Pro's API; comfy:<model> = the GPU pod. */
+  backend: string;
   maxImages: number;
   usedImages: number;
   quality: "low" | "medium" | "high";
