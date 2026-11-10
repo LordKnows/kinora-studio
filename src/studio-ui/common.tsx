@@ -164,6 +164,27 @@ export function ErrorBanner({
   );
 }
 
+/** A menu that drops from a button: the box (button + menu) takes `ref`; a
+    press outside it or Escape closes it. pointerdown, not mousedown, so a tap
+    on a phone closes it too. */
+export function usePopover() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [open]);
+  return { open, setOpen, ref };
+}
+
 /** Runs an action; on needs_confirm the banner offers a retry with confirm. */
 export function useAction<Args extends unknown[]>(run: (confirm: boolean, ...args: Args) => Promise<void>) {
   const [busy, setBusy] = useState(false);

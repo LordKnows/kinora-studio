@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
 
 import type { GpuState } from "@/studio/gpu";
 import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
-import { Button, CopyRow, ErrorBanner, Lamp, useAction } from "./common";
+import { Button, CopyRow, ErrorBanner, Lamp, useAction, usePopover } from "./common";
 
 /* The GPU pod — one for the whole Studio, shared by every project. Its state
    lives in ONE store for the page (the top-bar menu, the Machine page and any
@@ -79,20 +79,7 @@ const SHORT: Record<string, string> = { none: "GPU off", off: "GPU off", startin
 /** The GPU in the top bar of every page: always shown, opens a menu with its state and Start / Stop. */
 export function GpuMenu() {
   const { state, error, reload } = useGpu();
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent | KeyboardEvent) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", close);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", close);
-    };
-  }, [open]);
+  const { open, setOpen, ref: box } = usePopover();
   const start = useAction(async (confirm) => {
     await post("/api/gpu/start", { confirm });
     await reload();
@@ -108,25 +95,33 @@ export function GpuMenu() {
     <div className="st-gpu-menu-anchor" ref={box}>
       <button type="button" className="st-pill" data-live={live ? "true" : undefined} aria-expanded={open} aria-haspopup="dialog" onClick={() => { setOpen((o) => !o); void refreshGpuStore(); }} title={error ?? state?.message ?? state?.pod?.gpuName ?? "GPU pod"}>
         <Lamp state={lamp} label={label} />
-        {state?.pod?.gpuName && live && <span className="st-num">{state.pod.gpuName.replace(/^NVIDIA (GeForce )?/, "")}</span>}
+        {state?.pod?.gpuName && live && <span className="st-num st-gpu-pill-name">{state.pod.gpuName.replace(/^NVIDIA (GeForce )?/, "")}</span>}
         {live && state && <span className="st-num">{usd(state.sessionUsd)}</span>}
       </button>
+      {/* The menu never runs past the screen: the state scrolls, the actions
+          (and a spend confirmation) stay pinned at the bottom. */}
       {open && (
         <div className="st-gpu-menu" role="dialog" aria-label="GPU pod">
-          <div className="st-row st-row--between">
-            <strong>GPU pod</strong>
-            <span className="st-muted">one for all projects</span>
+          <div className="st-gpu-menu-body">
+            <div className="st-row st-row--between">
+              <strong>GPU pod</strong>
+              <span className="st-muted">one for all projects</span>
+            </div>
+            {!state ? (
+              <span className={error ? "st-warn" : "st-muted"}>{error ? `Could not read the GPU state: ${error}` : "Loading…"}</span>
+            ) : (
+              <>
+                <Lamp state={lampState(state.status)} label={GPU_LABEL[state.status] ?? state.status} />
+                {state.pod?.gpuName && <span className="st-muted">{state.pod.gpuName}{state.pod.dataCenter ? ` · ${state.pod.dataCenter}` : ""}</span>}
+                {live && <span className="st-num">{clock(state.uptimeSeconds)} · {usd(state.sessionUsd)}{state.pod?.costPerHr ? ` · ${usd(state.pod.costPerHr)}/h` : ""}</span>}
+                {state.pendingTakes > 0 && <span className="st-muted">{state.pendingTakes} take(s) waiting for the GPU</span>}
+                {state.message && <span className="st-muted">{state.message}</span>}
+                {error && <span className="st-warn">Last refresh failed: {error}</span>}
+              </>
+            )}
           </div>
-          {!state ? (
-            <span className={error ? "st-warn" : "st-muted"}>{error ? `Could not read the GPU state: ${error}` : "Loading…"}</span>
-          ) : (
-            <>
-              <Lamp state={lampState(state.status)} label={GPU_LABEL[state.status] ?? state.status} />
-              {state.pod?.gpuName && <span className="st-muted">{state.pod.gpuName}{state.pod.dataCenter ? ` · ${state.pod.dataCenter}` : ""}</span>}
-              {live && <span className="st-num">{clock(state.uptimeSeconds)} · {usd(state.sessionUsd)}{state.pod?.costPerHr ? ` · ${usd(state.pod.costPerHr)}/h` : ""}</span>}
-              {state.pendingTakes > 0 && <span className="st-muted">{state.pendingTakes} take(s) waiting for the GPU</span>}
-              {state.message && <span className="st-muted">{state.message}</span>}
-              {error && <span className="st-warn">Last refresh failed: {error}</span>}
+          {state && (
+            <div className="st-gpu-menu-foot">
               <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
               <div className="st-row">
                 {!state.configured ? (
@@ -138,7 +133,7 @@ export function GpuMenu() {
                 )}
                 <Link className="st-btn st-btn--sm st-btn--quiet" href="/machine" onClick={() => setOpen(false)}>Machine page</Link>
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
