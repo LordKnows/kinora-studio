@@ -122,6 +122,17 @@ export type Element = {
   updatedAt: number;
 };
 
+/* A project's voice generation through the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY):
+   on or off, the TTS model, and a character budget (TTS is billed per character). Web only to change. */
+export type Voicing = {
+  enabled: boolean;
+  model: string;
+  maxChars: number;
+  usedChars: number;
+  grantedBy: string;
+  grantedAt: number;
+};
+
 export type VoiceCard = {
   id: string;
   /** null = global library */

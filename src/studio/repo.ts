@@ -1,12 +1,13 @@
+import type { z } from "zod";
 import { getDb, type Db, type SqlValue } from "@/db";
 
 import { newId } from "./ids";
 import { notFound } from "./errors";
-import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput, type VoiceCardInput } from "./schemas";
+import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput, VoiceCardInput, VoiceState } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
-  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard,
+  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, Voicing,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
 import { isAdultLora, loraParams, type InferenceParams } from "./models";
@@ -402,6 +403,7 @@ export async function copyElement(id: string, targetProjectId: string | null): P
 const VOICE_CARDS_SQL = [
   "CREATE TABLE IF NOT EXISTS voice_cards (id TEXT PRIMARY KEY, project_id TEXT, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', data_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS voice_cards_project ON voice_cards (project_id)",
+  "CREATE TABLE IF NOT EXISTS voice_settings (project_id TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
 ];
 let voiceCardsReady = false;
 
@@ -435,7 +437,8 @@ function checkStates(c: { defaultState?: string; states: VoiceCard["states"] }):
   if (c.defaultState && !ids.includes(c.defaultState)) throw new Error(`defaultState "${c.defaultState}" is not one of the card's states (${ids.join(", ")})`);
 }
 
-export async function createVoiceCard(projectId: string | null, input: VoiceCardInput): Promise<VoiceCard> {
+export async function createVoiceCard(projectId: string | null, raw: z.input<typeof VoiceCardInput>): Promise<VoiceCard> {
+  const input = VoiceCardInput.parse(raw);
   checkStates(input);
   const id = newId("vc");
   const now = Date.now();
@@ -472,10 +475,10 @@ export async function listVoiceCards(projectId: string | null, includeLibrary = 
   return rows.map(mapVoiceCard);
 }
 
-export async function updateVoiceCard(id: string, patch: Partial<VoiceCardInput> & { projectId?: string | null }): Promise<VoiceCard> {
+export async function updateVoiceCard(id: string, patch: Partial<z.input<typeof VoiceCardInput>> & { projectId?: string | null }): Promise<VoiceCard> {
   const current = await getVoiceCard(id);
   const next = {
-    defaultState: patch.defaultState ?? current.defaultState, states: patch.states ?? current.states,
+    defaultState: patch.defaultState ?? current.defaultState, states: patch.states ? patch.states.map((st) => VoiceState.parse(st)) : current.states,
     source: patch.source ?? current.source, notes: patch.notes ?? current.notes,
   };
   checkStates(next);
@@ -484,6 +487,26 @@ export async function updateVoiceCard(id: string, patch: Partial<VoiceCardInput>
     [patch.projectId === undefined ? current.projectId : patch.projectId, patch.name ?? current.name, patch.status ?? current.status, voiceCardData(next), Date.now(), id],
   );
   return getVoiceCard(id);
+}
+
+/** A project's voice-API settings (Settings → Director); undefined until the user sets them. */
+export async function getVoicing(projectId: string): Promise<Voicing | undefined> {
+  const row = await (await voiceCardsDb()).get("SELECT data_json FROM voice_settings WHERE project_id = ?", [projectId]);
+  return row ? json<Voicing | undefined>(row.data_json, undefined) : undefined;
+}
+
+export async function setVoicingRow(projectId: string, v: Voicing): Promise<Voicing> {
+  await (await voiceCardsDb()).run(
+    "INSERT INTO voice_settings (project_id, data_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(project_id) DO UPDATE SET data_json = excluded.data_json, updated_at = excluded.updated_at",
+    [projectId, JSON.stringify(v), Date.now()],
+  );
+  return v;
+}
+
+/** Every card that uses a voice-API voice id (to forget it once deleted). */
+export async function voiceCardsWithApiVoice(voiceId: string): Promise<VoiceCard[]> {
+  const rows = await (await voiceCardsDb()).all("SELECT * FROM voice_cards WHERE data_json LIKE ?", [`%"voiceId":"${voiceId}"%`]);
+  return rows.map(mapVoiceCard);
 }
 
 /** Elements (in any project) that speak with this card. */

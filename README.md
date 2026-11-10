@@ -315,8 +315,25 @@ Two prompt experiments, off by default and recorded on the take:
   its start frame with `MiniMaxH3AddGuide` (`workflows/I2VA_GUIDE.json`), so
   the picture follows a given voice.
 
-Not in the Studio yet: separating and re-voicing finished takes, voice-over
-synthesis from a card, and the consistency check before export.
+**The voice API.** With *Allow voice API use by agent* on (Settings →
+Director, per project, web only) the director makes and uses voices through
+TokenSail's audio endpoints, with the Worker's `TOKENSAIL_API_KEY` (the key the
+face check and Qwen-Image already use). The user picks the TTS model there
+(Qwen Audio 3.0 TTS Plus by default; Flash; CosyVoice 3.5 Plus / Flash) and a
+character budget, since speech is billed per character.
+
+- `create_api_voice` makes a voice from a card state, bound to one model:
+  `clone` uploads the state's reference audio (every model); `design` sends
+  its description (CosyVoice 3.5 only). The `tv_` id is kept on the state. An
+  account holds 10 such voices by default; `delete_api_voice` frees one.
+- `speak` says text with a state's voice and keeps the audio as an asset:
+  off-screen lines, inner monologue, a line prepared for `audioFirst`, audition
+  samples. `voice_status` shows the switch, the model and the budget left.
+- `transcribe_audio` (qwen-audio-3.0-asr-flash) turns audio back into text and,
+  given the intended line, the character error rate: the pronunciation check.
+
+Not in the Studio yet: separating and re-voicing finished takes (TokenSail has
+no voice-conversion endpoint), and the consistency check before export.
 
 ## Canvas: the reference library
 

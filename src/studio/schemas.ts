@@ -114,11 +114,24 @@ export type Line = z.infer<typeof Line>;
    disguised register). Each state's description goes verbatim into every
    prompt that voices the character; its reference audio feeds R2VA and the
    post-production voice conversion. */
+/* A voice made on the voice API (TokenSail /v1/audio/voices) from a card state: cloned from the
+   state's reference audio, or designed from its description. It is bound to one TTS model. */
+export const ApiVoice = z.object({
+  provider: z.literal("tokensail").default("tokensail"),
+  model: z.string().max(80).describe("The TTS model the voice is bound to"),
+  voiceId: z.string().max(80).describe("The provider's voice id (tv_…)"),
+  mode: z.enum(["clone", "design"]),
+  fromAssetId: z.string().optional().describe("clone: the audio it was cloned from"),
+  createdAt: z.number(),
+});
+export type ApiVoice = z.infer<typeof ApiVoice>;
+
 export const VoiceState = z.object({
-  id: z.string().min(1).max(40).regex(/^[a-z0-9_-]+$/).describe("Stable id, e.g. base18, hoarse, low_male, base28"),
-  name: z.string().max(40).describe("Human name, e.g. 本声·18"),
+  id: z.string().min(1).max(40).regex(/^[a-z0-9_-]+$/).describe("Stable id, e.g. young, hoarse, low, older"),
+  name: z.string().max(40).describe("Human name, e.g. Young, Hoarse, Older"),
   description: z.string().max(400).describe("One English sentence for the prompt: gender, age, pitch, timbre, pace, accent, usual emotion"),
   refAssetIds: z.array(z.string()).max(8).default([]).describe("Audio assets: the primary 10–15 s dry reference first, then emotion samples"),
+  apiVoices: z.array(ApiVoice).max(6).default([]).describe("Voices made from this state on the voice API, one per model (create_api_voice); speak uses them"),
 });
 export type VoiceState = z.infer<typeof VoiceState>;
 
@@ -140,7 +153,7 @@ export type ElementVoice = z.infer<typeof ElementVoice>;
    appears in, so a change to it reaches all of them. */
 export const VOICE_CARD_STATUS = ["draft", "auditioning", "locked"] as const;
 export const VoiceCardInput = ElementVoice.extend({
-  name: z.string().min(1).max(80).describe("Who the voice belongs to, e.g. 沈知微"),
+  name: z.string().min(1).max(80).describe("Who the voice belongs to: usually the character's name"),
   status: z.enum(VOICE_CARD_STATUS).default("draft").describe("draft → auditioning → locked; a locked card's changes mean every line voiced with it is checked again"),
   notes: z.string().max(1000).optional().describe("Free notes: what the voice must sound like, who approved it"),
 });
@@ -305,7 +318,7 @@ export const ElementInput = z.object({
   description: z.string().max(1200).default("").describe("Visual description the compiler and image model use"),
   fixedFeatures: z.array(FixedFeature).max(8).optional().describe("Details that must never move or vanish (a tattoo on the LEFT forearm, a hat, a scar). Restated in every shot the element appears in."),
   voiceCardId: z.string().optional().describe("Characters: the voice card they speak with (create_voice_card; library cards serve every project). Each state's description is written verbatim where the character speaks; its reference audio feeds R2VA (experiments.voiceRefs) and the voice conversion"),
-  voiceState: z.string().max(40).optional().describe("The card state this element speaks in by default (e.g. base28 for the older self); lines can still name another"),
+  voiceState: z.string().max(40).optional().describe("The card state this element speaks in by default (e.g. older for the older self); lines can still name another"),
 });
 
 export type ElementInput = z.infer<typeof ElementInput>;
