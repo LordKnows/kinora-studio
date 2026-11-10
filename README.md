@@ -346,7 +346,16 @@ costumes (ギア photo-real and anime, CharaDB, Shisei Chinese historical) and
 to what the model takes. The pose can be flipped left to right (*⇋ 镜像*;
 the painter mirrors the picture before drawing, and the prompt says so). The
 prompt is composed for you (each picture named by its place and
-given one job, ported from anhao/ai-pose-gallery-zh) and can be edited; GPT
+given one job, ported from anhao/ai-pose-gallery-zh) and can be edited. It
+comes in two languages (*Prompt language*): the Chinese original, and an
+English template that says the same recipe clause for clause
+(`src/studio/canvas-prompt.ts`, every style line included) — the default
+follows the model (`promptLang` in `models.ts`: English for MiniMax H3
+Image, Chinese for the others) and either can be picked for any model. The
+pictures are named as the model reads them in both (图1 / `Picture 1`,
+`<image1>`, `<Picture 1>`); an English prompt leaves the library's Chinese
+names (poses, outfits, hairstyles) to the pictures, and what you type — the
+description, the note, the people's names — goes in as typed. GPT
 Image draws it on a painter into a project (`IMG-n`, recipe in
 `meta.canvas`), optionally straight onto an element as a reference view.
 The director gets the same library through `list_references`,
@@ -445,8 +454,9 @@ recommends, several times slower. Choose it per project in Settings →
 Director (the director's sheets, frames and edits) or per picture in Canvas.
 The model expects a detailed English description of the whole picture: the
 director's sectioned prompts fit; MiniMax's API expands short prompts first
-(H3-Image-Context-IR / MiniMax-H3-Image-PE), a step not run here, so a short
-or Chinese Canvas recipe is followed less closely. No content filter, no
+(H3-Image-Context-IR / MiniMax-H3-Image-PE), a step not run here, so
+Canvas composes its recipe in English for this model unless Chinese is
+picked. No content filter, no
 Codex self-review. Licence: the MiniMax-H3-Image Community License Agreement
 — **not** an open-source licence: it does not cover use in the EU, the UK,
 South Korea or the US (put the pod and its users elsewhere, or ask MiniMax),

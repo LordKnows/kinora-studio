@@ -8,7 +8,7 @@ import { migrate } from "@/db/migrate";
 import { CanvasCompose, composeCharacter } from "@/studio/canvas";
 import { buildCanvasPrompt } from "@/studio/canvas-prompt";
 import * as imaging from "@/studio/imaging";
-import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
+import { AGENT_IMAGE_MODELS, canvasLangFor, defaultImageParams, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
 import * as painter from "@/studio/painter";
 import { listReferences, setAdultContent } from "@/studio/references";
 import * as repo from "@/studio/repo";
@@ -300,6 +300,13 @@ describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
     expect(text).not.toMatch(/图\d/);
   });
 
+  it("gets its Canvas recipe in English unless the user picks Chinese; the other models stay Chinese", () => {
+    expect(canvasLangFor(H3I)).toBe("en");
+    expect(canvasLangFor(H3I, "zh")).toBe("zh");
+    for (const m of IMAGE_MODELS.filter((x) => x.id !== "minimax-h3-image")) expect(canvasLangFor(m)).toBe("zh");
+    expect(canvasLangFor(QWEN, "en")).toBe("en");
+  });
+
   it("is chosen for a project on the web and queues for the GPU pod with its settings", async () => {
     projectId = (await repo.createProject({ name: "H3 Image" })).id;
     await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, web);
@@ -311,10 +318,41 @@ describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
     expect(r.model).toBe("minimax-h3-image");
     const job = await repo.getJob(r.job.id);
     expect(job.input).toMatchObject({ backend: "comfy:minimax-h3-image", size: "1344x768" });
+    /* composed in English, the model's own language, and the recipe remembers it */
+    expect(r.lang).toBe("en");
+    expect(String(job.input.prompt)).toBe("a rooftop after rain, neon in the puddles\n- Style: Photorealistic commercial photography, an 85mm portrait lens, soft natural light, real skin texture and fabric detail, 8K clarity. Balanced proportions, consistent lighting.\nAnyone in the picture is an adult. There is no text, logo or watermark anywhere in the picture.");
+    expect((job.input.canvas as { lang: string }).lang).toBe("en");
     expect(job.input.params).toMatchObject({ steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048, seed: 5 });
     expect((job.input.check as { review: boolean }).review).toBe(false);
     expect(painter.isPodBackend(job)).toBe(true);
     expect(r.runner).toContain("GPU pod");
+  });
+
+  it("composes the references in English with <Picture N>, or in Chinese when asked", async () => {
+    const portrait = (await listReferences("portrait", false)).items[0]!;
+    const costume = (await listReferences("costume", false)).items.find((x) => x.kind === "costume" && x.source === "gia")!;
+    const recipe = { model: "minimax-h3-image", portrait: { id: portrait.id }, costume: { id: costume.id } };
+    const en = await composeCharacter(projectId, CanvasCompose.parse(recipe), web);
+    expect(en.lang).toBe("en");
+    expect(en.prompt).toContain("From the 2 reference pictures provided, create one complete photograph of one real person:");
+    expect(en.prompt).toContain("- Person: the person in <Picture 1>.");
+    expect(en.prompt).toContain("dress the person in the complete outfit and accessories shown in <Picture 2>");
+    expect(en.prompt).toContain("Everyone in the picture is an adult.");
+    /* an English prompt carries no Chinese: the library's names are left to the pictures */
+    expect(en.prompt).not.toMatch(/[\u3400-\u9fff]/);
+    const zh = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, lang: "zh" }), web);
+    expect(zh.lang).toBe("zh");
+    expect(zh.prompt).toContain("<Picture 1>中的人物");
+    expect(((await repo.getJob(zh.job.id)).input.canvas as { lang: string }).lang).toBe("zh");
+    /* any model can be asked for English: GPT Image reads "Picture N", Qwen-Image 2.1 <imageN> */
+    const gpt = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "gpt-image-codex", lang: "en" }), web);
+    expect(gpt.prompt).toContain("- Person: the person in Picture 1.");
+    const qwen = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "qwen-image-2.1-turbo", lang: "en" }), web);
+    expect(qwen.prompt).toContain("shown in <image2>");
+    /* left out, the others are composed in Chinese as before */
+    const before = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "qwen-image-2.1-turbo" }), web);
+    expect(before.lang).toBe("zh");
+    expect(before.prompt).toContain("<image1>中的人物");
   });
 
   it("only the pod's painter that has the model claims it", async () => {

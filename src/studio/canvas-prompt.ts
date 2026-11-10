@@ -1,4 +1,4 @@
-import { angleZh, type RefCostume, type RefPortrait, type RefPose } from "./references-model";
+import { angleZh, POSE_ANGLES, type RefCostume, type RefPortrait, type RefPose } from "./references-model";
 
 /*
  * The Canvas prompt: portrait + costume + pose (+ extra pictures) → one
@@ -19,21 +19,27 @@ import { angleZh, type RefCostume, type RefPortrait, type RefPose } from "./refe
  *  - with no portrait, a faceless display figure, not an invented person.
  * Added here: the people are adults (CharaDB forbids minors; it holds for
  * every source), and an optional free-text note.
+ *
+ * Two languages (lang): the Chinese original, and an English template that
+ * says the same thing clause for clause — for models that follow English
+ * best (MiniMax-H3-Image expects an English description; models.ts
+ * promptLang is each model's default, Canvas lets the user choose).
  */
 
-export const CANVAS_STYLES: Array<{ id: string; label: string; zh: string; prompt: string; photo?: boolean }> = [
-  { id: "none", label: "Follow the references", zh: "无预设（跟随参考图）", prompt: "" },
-  { id: "realistic", label: "Photo portrait", zh: "写实人像写真", prompt: "写实商业摄影级质感，85mm 人像镜头，自然柔和光影，真实肌肤纹理与织物细节，8k 高清画质。", photo: true },
-  { id: "fashion", label: "Magazine editorial", zh: "日韩杂志画报", prompt: "日韩时尚穿搭杂志画报风格，干净极简摄影棚背景，高级色调，突出人物颜值与服装剪裁。", photo: true },
-  { id: "film", label: "Film photo", zh: "复古胶片写真", prompt: "35mm 富士胶片摄影质感，轻微胶片颗粒，柔和复古暖调，自然街拍光影与电影呼吸感。", photo: true },
-  { id: "semi_real", label: "2.5D game art", zh: "2.5D 游戏原画立绘", prompt: "2.5D 半写实高精度游戏角色原画，唯美厚涂光影，精致五官与华丽布料金属质感。" },
-  { id: "anime", label: "Anime illustration", zh: "日系二次元插画", prompt: "日系精致二次元插画风格，细腻赛璐璐与厚涂光影过渡，动漫角色立绘质感，色彩通透干净。" },
-  { id: "cel_anime", label: "Anime film", zh: "新海诚感动画电影", prompt: "动画电影级画面质感，清澈高饱和光影，细腻体积光与发丝高光，干净唯美的动漫色彩。" },
-  { id: "manga", label: "Black-and-white manga", zh: "日式黑白漫画网点", prompt: "日本黑白漫画原稿风格，利落精准的G笔线稿，细腻漫画网点纸阴影与层次对比。" },
-  { id: "render3d", label: "3D character render", zh: "3D 次世代角色渲染", prompt: "Unreal Engine 5 / Octane Render 次世代 3D 角色渲染，细腻次表面散射肌肤材质，电影级布光。" },
-  { id: "chibi_box", label: "Figure / toy", zh: "3D 潮玩手办质感", prompt: "高品质 PVC 涂装完成品手办质感，柔和摄影棚柔光箱布光，精致材质高光与微距景深。" },
-  { id: "cyberpunk", label: "Cyberpunk neon", zh: "赛博朋克霓虹", prompt: "赛博朋克科幻视觉风格，雨夜霓虹冷暖双色轮廓光，未来感材质反光与电影级氛围。" },
-  { id: "concept_sheet", label: "Character sheet (white)", zh: "角色设定集立绘（纯白底）", prompt: "标准角色设定集全身立绘，纯白干净无杂物背景，均匀漫反射布光，清晰展示全身服装结构与配饰细节。" },
+/** prompt: the style line of the Chinese template; promptEn: the same line in the English one. */
+export const CANVAS_STYLES: Array<{ id: string; label: string; zh: string; prompt: string; promptEn: string; photo?: boolean }> = [
+  { id: "none", label: "Follow the references", zh: "无预设（跟随参考图）", prompt: "", promptEn: "" },
+  { id: "realistic", label: "Photo portrait", zh: "写实人像写真", prompt: "写实商业摄影级质感，85mm 人像镜头，自然柔和光影，真实肌肤纹理与织物细节，8k 高清画质。", promptEn: "Photorealistic commercial photography, an 85mm portrait lens, soft natural light, real skin texture and fabric detail, 8K clarity.", photo: true },
+  { id: "fashion", label: "Magazine editorial", zh: "日韩杂志画报", prompt: "日韩时尚穿搭杂志画报风格，干净极简摄影棚背景，高级色调，突出人物颜值与服装剪裁。", promptEn: "Japanese and Korean fashion-magazine editorial style, a clean minimal studio backdrop, refined colour grading, the person's looks and the cut of the clothes brought out.", photo: true },
+  { id: "film", label: "Film photo", zh: "复古胶片写真", prompt: "35mm 富士胶片摄影质感，轻微胶片颗粒，柔和复古暖调，自然街拍光影与电影呼吸感。", promptEn: "A 35mm Fujifilm photograph, light film grain, soft vintage warm tones, natural street light and a cinematic, breathing feel.", photo: true },
+  { id: "semi_real", label: "2.5D game art", zh: "2.5D 游戏原画立绘", prompt: "2.5D 半写实高精度游戏角色原画，唯美厚涂光影，精致五官与华丽布料金属质感。", promptEn: "High-detail 2.5D semi-realistic game character art, painterly lighting, fine facial features and rich fabric and metal textures." },
+  { id: "anime", label: "Anime illustration", zh: "日系二次元插画", prompt: "日系精致二次元插画风格，细腻赛璐璐与厚涂光影过渡，动漫角色立绘质感，色彩通透干净。", promptEn: "Refined Japanese anime illustration, delicate cel shading blended with painterly light, the finish of an anime character illustration, clean translucent colours." },
+  { id: "cel_anime", label: "Anime film", zh: "新海诚感动画电影", prompt: "动画电影级画面质感，清澈高饱和光影，细腻体积光与发丝高光，干净唯美的动漫色彩。", promptEn: "Animated feature-film quality, clear high-saturation light, fine volumetric light and hair highlights, clean and beautiful anime colours." },
+  { id: "manga", label: "Black-and-white manga", zh: "日式黑白漫画网点", prompt: "日本黑白漫画原稿风格，利落精准的G笔线稿，细腻漫画网点纸阴影与层次对比。", promptEn: "A Japanese black-and-white manga page, crisp and precise G-pen line art, fine screentone shading with layered contrast." },
+  { id: "render3d", label: "3D character render", zh: "3D 次世代角色渲染", prompt: "Unreal Engine 5 / Octane Render 次世代 3D 角色渲染，细腻次表面散射肌肤材质，电影级布光。", promptEn: "A next-generation 3D character render in the manner of Unreal Engine 5 / Octane Render, fine subsurface-scattering skin, cinematic lighting." },
+  { id: "chibi_box", label: "Figure / toy", zh: "3D 潮玩手办质感", prompt: "高品质 PVC 涂装完成品手办质感，柔和摄影棚柔光箱布光，精致材质高光与微距景深。", promptEn: "A high-quality painted PVC figure, soft studio softbox lighting, fine material highlights and macro depth of field." },
+  { id: "cyberpunk", label: "Cyberpunk neon", zh: "赛博朋克霓虹", prompt: "赛博朋克科幻视觉风格，雨夜霓虹冷暖双色轮廓光，未来感材质反光与电影级氛围。", promptEn: "A cyberpunk science-fiction look, a rainy night with neon rim light in warm and cold colours, reflections on futuristic materials, a cinematic mood." },
+  { id: "concept_sheet", label: "Character sheet (white)", zh: "角色设定集立绘（纯白底）", prompt: "标准角色设定集全身立绘，纯白干净无杂物背景，均匀漫反射布光，清晰展示全身服装结构与配饰细节。", promptEn: "A standard character-sheet full-body illustration on a clean, pure white background with nothing else in it, even diffuse lighting, the structure of the whole outfit and its accessories shown clearly." },
 ];
 
 export const CANVAS_STYLE_IDS = CANVAS_STYLES.map((s) => s.id) as [string, ...string[]];
@@ -45,6 +51,15 @@ export type PosePicture = (typeof POSE_PICTURES)[number];
 /** Which figure of a two-person pose is person A (the other one is B). */
 export const PLACES = ["left", "right", "front", "back", "top", "bottom"] as const;
 export type Place = (typeof PLACES)[number];
+/** The language the composed prompt is written in. */
+export const CANVAS_LANGS = ["zh", "en"] as const;
+export type CanvasLang = (typeof CANVAS_LANGS)[number];
+export const CANVAS_LANG_LABEL: Record<CanvasLang, string> = { zh: "中文", en: "English" };
+
+/** The line that says everyone drawn is an adult, as each template ends. */
+export const ADULTS_LINE: Record<CanvasLang, string> = { zh: "画面中的人物均为成年人。", en: "Everyone in the picture is an adult." };
+
+export const PLACE_EN: Record<Place, string> = { left: "on the left", right: "on the right", front: "in front (nearer the camera)", back: "behind (farther from the camera)", top: "above", bottom: "below" };
 export const PLACE_ZH: Record<Place, string> = { left: "左边", right: "右边", front: "前面（离镜头近）", back: "后面（离镜头远）", top: "上方", bottom: "下方" };
 
 /** One person of the picture: a face (portrait) or a project character's reference, and an outfit. */
@@ -69,13 +84,19 @@ export type CanvasPromptRecipe = CanvasPerson & {
   text?: string;
   style?: string;
   note?: string;
-  /** How the model names the pictures: 图1, 图2 … (GPT Image), <image1>, <image2> … (Qwen-Image 2.1), or <Picture 1>, <Picture 2> … (MiniMax-H3-Image). */
+  /** How the model names the pictures: 图1, 图2 … (GPT Image; "Picture 1" in English), <image1>, <image2> … (Qwen-Image 2.1), or <Picture 1>, <Picture 2> … (MiniMax-H3-Image). */
   refStyle?: "zh" | "qwen" | "h3";
+  /** The language of the composed prompt: the Chinese original (default) or the English template. */
+  lang?: CanvasLang;
 };
 
 const SKIN = (i: number) => `肤色必须与图${i}人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。`;
 
 export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
+  return r.lang === "en" ? buildEnglish(r) : buildChinese(r);
+}
+
+function buildChinese(r: CanvasPromptRecipe): string {
   const style = CANVAS_STYLES.find((s) => s.id === (r.style ?? "realistic")) ?? CANVAS_STYLES[1]!;
   const isPhoto = !!style.photo;
   const two = !!r.partner;
@@ -171,6 +192,112 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
   const out = lines.join("\n");
   /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10>, MiniMax-H3-Image as <Picture 1> … */
   return r.refStyle === "qwen" ? out.replace(/图(\d+)/g, "<image$1>") : r.refStyle === "h3" ? out.replace(/图(\d+)/g, "<Picture $1>") : out;
+}
+
+/* ---------- the English template ---------- */
+
+/** The library's names are Chinese (pose and costume names, hairstyles): an English prompt carries a name only when it is not. */
+const latin = (text: string | undefined): string => (text && !/[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/.test(text) ? text.trim() : "");
+const angleEn = (a: RefPose["angle"]) => (POSE_ANGLES.find((x) => x.id === a)?.en ?? a).toLowerCase();
+
+/** The Chinese template, clause for clause, in English; the pictures are named as the model reads them. */
+function buildEnglish(r: CanvasPromptRecipe): string {
+  const style = CANVAS_STYLES.find((s) => s.id === (r.style ?? "realistic")) ?? CANVAS_STYLES[1]!;
+  const isPhoto = !!style.photo;
+  const two = !!r.partner;
+  const P = (i: number) => (r.refStyle === "qwen" ? `<image${i}>` : r.refStyle === "h3" ? `<Picture ${i}>` : `Picture ${i}`);
+  const clauses: string[] = [];
+  let idx = 1;
+
+  /* ---- the people: each face, then each outfit ---- */
+  const nameOf = (p: CanvasPerson, fallback: string) => p.name?.trim() || p.character?.name || fallback;
+  const people = two ? [{ p: r as CanvasPerson, name: nameOf(r, "Person A") }, { p: r.partner!, name: nameOf(r.partner!, "Person B") }] : [{ p: r as CanvasPerson, name: "the person" }];
+  const faceless = !two && !r.portrait && !r.character && !!r.costume && !!r.pose;
+  const wearAt: number[] = [];
+  for (const [n, { p, name }] of people.entries()) {
+    const head = two ? name : "Person";
+    const whose = two ? `${name}'s` : "The person's";
+    const other = two ? people[1 - n]!.name : "";
+    if (p.character) {
+      const kept = p.costume ? "hair colour and skin tone" : "hair colour, skin tone, clothing and accessories";
+      clauses.push(`- ${head}: ${P(idx)} is the character reference for ${p.character.name} (the same person). Keep their face shape, facial features, hairstyle, ${kept} the same.`);
+      idx++;
+    } else if (p.portrait) {
+      const it = p.portrait.item?.mine ? undefined : p.portrait.item;
+      const hair = latin(it ? (it.hairstyle && it.hairstyle !== "标准基础款" ? it.title : it.hairLength) : "");
+      const skin = `${whose} skin tone must match the person in ${P(idx)}: all bare skin (including skin showing through cut-outs in the clothing) is one tone with the face, rendered in the tone and texture the style asks for.`;
+      const outfit = p.costume ? "" : ` Keep the clothing and accessories visible on the person in ${P(idx)}; do not copy the clothing or the mannequin look of the pose reference.`;
+      clauses.push(`- ${head}: the person in ${P(idx)}. Keep their face shape, facial features, ${hair ? `hairstyle (${hair})` : "hairstyle"} and hair colour the same. ${skin}${outfit}`);
+      idx++;
+    } else if (two) {
+      clauses.push(`- ${head}: an adult with a natural face, clearly different from ${other}.`);
+    }
+    if (p.costume) {
+      wearAt[n] = idx;
+      const cname = latin(p.costume.item?.mine ? undefined : p.costume.item?.name);
+      clauses.push(`- ${two ? `${name}'s outfit` : "Outfit"}: dress ${two ? name : "the person"} in the complete outfit and accessories shown in ${P(idx)}${cname ? ` (reference name: ${cname})` : ""}. The colour, cut, fabric and accessories of every piece follow ${P(idx)}${cname ? "; the name is only a hint" : ""}.`);
+      idx++;
+    }
+  }
+
+  /* ---- the pose ---- */
+  if (r.pose) {
+    const wear = two
+      ? people.map(({ name }, n) => (wearAt[n] ? `${name} wearing the outfit of ${P(wearAt[n]!)}` : "")).filter(Boolean).join(", ")
+      : wearAt[0] ? `wearing the outfit of ${P(wearAt[0])}` : "";
+    const real = two ? "the two people in the final picture are real people with real, natural skin" : "the person in the final picture is a real person with real, natural skin";
+    const body = (isPhoto ? real : two ? "the two people's skin tone and texture follow the style" : "the person's skin tone and texture follow the style") + (wear ? `, ${wear}` : "");
+    const p = r.pose.item?.mine ? undefined : r.pose.item;
+    /* a flipped pose: its name's left and right are the other way round now */
+    const flipped = r.pose.mirror ? "mirrored left to right: go by the directions as the picture shows them" : "";
+    const figures = two ? "the two mannequins" : "the mannequin";
+    const whose = two ? "the two people's" : "the person's";
+    /* two people: which figure is who, read on the picture as given (after the flip) */
+    const cast = two ? `in ${P(idx)} the one ${PLACE_EN[r.aIs ?? "left"]} is ${people[0]!.name} and the other is ${people[1]!.name}; ` : "";
+    const picture = r.pose.item?.mine?.picture ?? r.pose.picture ?? "photo";
+    const aside = (parts: string[]) => (parts.filter(Boolean).length ? ` (${parts.filter(Boolean).join(", ")})` : "");
+    clauses.push(p
+      ? `- Pose: take the action and the camera angle of ${figures} in ${P(idx)}${aside([latin(p.name), `${angleEn(p.angle)} view`, flipped])}; ${cast}${P(idx)} only shows the action${r.pose.depth ? " (a greyscale depth map: only the action and the distances)" : ""}; ${body}.`
+      : picture === "mannequin"
+        ? `- Pose: take the action and the camera angle of ${two ? "the two plain mannequins" : "the plain mannequin"} in ${P(idx)}${aside([flipped])}; ${cast}${P(idx)} only shows the action, do not copy the mannequin's grey-white material; ${body}.`
+        : picture === "depth"
+          ? `- Pose: take ${whose} action and the camera angle from ${P(idx)}${aside([flipped])}; ${cast}${P(idx)} is a greyscale depth map that only shows the action and the distances; ${body}.`
+          : `- Pose: take ${whose} action and the camera angle from ${P(idx)}${aside([flipped])}; ${cast}use only the pose and the composition, do not copy the look or the clothing of the ${two ? "people" : "person"} in ${P(idx)}; ${body}.`);
+    idx++;
+  } else if (two) {
+    clauses.push(`- Composition: ${people[0]!.name} and ${people[1]!.name} share the frame, interacting naturally.`);
+  }
+  if (two) {
+    clauses.push("- Each person's face, hairstyle, skin tone and outfit follow their own reference pictures: do not mix them, and do not draw the same person twice. Exactly these two people are in the picture.");
+  }
+  if (faceless) {
+    clauses.push("- Faceless display: an adult display figure wearing the reference outfit. The face stays a smooth surface of natural skin colour with no eyes, nose or mouth and no particular identity; all bare skin is one colour; do not copy the grey-white mannequin material of the outfit picture or the pose picture.");
+  }
+  for (const extra of r.extras ?? []) {
+    clauses.push(`- Extra reference: work in the elements, accessories, background or lighting details of ${P(idx)} (${extra.name || "an extra element"}).`);
+    idx++;
+  }
+  const text = r.text?.trim();
+  const noText = "There is no text, logo or watermark anywhere in the picture.";
+  /* text to image: no picture, the description is the picture */
+  if (!clauses.length) {
+    if (!text) return "";
+    const plain = [text];
+    if (r.note?.trim()) plain.push(`- Also: ${r.note.trim()}`);
+    if (style.promptEn) plain.push(`- Style: ${style.promptEn} Balanced proportions, consistent lighting.`);
+    plain.push(`Anyone in the picture is an adult. ${noText}`);
+    return plain.join("\n");
+  }
+  if (text) clauses.push(`- Scene: ${text}`);
+
+  const pair = two ? `${people[0]!.name} and ${people[1]!.name}` : "";
+  const what = faceless ? "outfit display picture of one figure" : two ? (isPhoto ? `photograph of two real people, ${pair}` : `picture of two people, ${pair}`) : isPhoto ? "photograph of one real person" : "picture of one person";
+  const n = idx - 1;
+  const lines = [`From the ${n === 1 ? "reference picture" : `${n} reference pictures`} provided, create one complete ${what}:`, ...clauses];
+  if (r.note?.trim()) lines.push(`- Also: ${r.note.trim()}`);
+  if (style.promptEn) lines.push(`- Style: ${style.promptEn} ${faceless ? "Natural proportions and hands, a face without features, consistent lighting." : "Natural proportions, hands and facial features, consistent lighting."}`);
+  lines.push(`${ADULTS_LINE.en} ${noText}`);
+  return lines.join("\n");
 }
 
 export const CANVAS_SIZES = ["1024x1536", "1008x1344", "1024x1024", "1536x1024", "1344x768"] as const;

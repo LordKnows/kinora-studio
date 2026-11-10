@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, PLACES, POSE_PICTURES, type CanvasPerson, type CanvasPromptRecipe } from "./canvas-prompt";
+import { ADULTS_LINE, buildCanvasPrompt, CANVAS_LANGS, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, PLACES, POSE_PICTURES, type CanvasLang, type CanvasPerson, type CanvasPromptRecipe } from "./canvas-prompt";
 import { StudioError } from "./errors";
 import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
 import * as painter from "./painter";
-import { findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
+import { canvasLangFor, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry } from "./models";
 import { firstRealIn } from "./provenance";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
@@ -60,6 +60,7 @@ export const CanvasCompose = z.object({
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
   loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
   style: z.enum(CANVAS_STYLE_IDS).default("realistic"),
+  lang: z.enum(CANVAS_LANGS).optional().describe("The language the prompt is composed in: zh (the Chinese template) or en (the same recipe in English). Omit for the model's own: en for minimax-h3-image, zh for the others"),
   text: z.string().max(2000).optional().describe("Text to image: what to draw. With no reference picked it is the whole picture (the style, size, model and LoRAs still apply); beside references it is the scene they go into"),
   note: z.string().max(600).optional().describe("Free text added to the composed prompt"),
   prompt: z.string().min(5).max(4000).optional().describe("Replace the composed prompt entirely"),
@@ -130,7 +131,7 @@ export function canvasModel(id: string | undefined, imaging?: { model?: string; 
   return model;
 }
 
-export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; warnings: string[] }> {
+export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; lang: CanvasLang; warnings: string[] }> {
   await repo.getProject(projectId);
   const adult = await adultAllowed(actor);
   if (input.character && input.portrait) throw new StudioError("validation", "person A: a character or a portrait, not both");
@@ -205,6 +206,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...(p.character ? { character: { name: p.character.label } } : {}),
     ...(name?.trim() ? { name: name.trim() } : {}),
   });
+  const lang = canvasLangFor(model, input.lang);
   const recipe: CanvasPromptRecipe = {
     ...person({ portrait, costume, character }, partner ? input.name : undefined),
     ...(partner ? { partner: person(partner, partner.name), aIs: input.aIs } : {}),
@@ -214,11 +216,12 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     style: input.style,
     note: input.note,
     refStyle: model.refStyle,
+    lang,
   };
-  const ADULTS = "画面中的人物均为成年人。";
   const typed = input.prompt?.trim();
-  /* the adult line stays even in a prompt the user wrote themselves, whenever an adult LoRA is on */
-  const prompt = typed ? (adultLora && !typed.includes(ADULTS) ? `${typed}\n${ADULTS}` : typed) : buildCanvasPrompt(recipe);
+  /* the adult line stays even in a prompt the user wrote themselves, whenever an adult LoRA is on (in either language) */
+  const saysAdults = !!typed && (typed.includes(ADULTS_LINE.zh) || typed.toLowerCase().includes(ADULTS_LINE.en.toLowerCase()));
+  const prompt = typed ? (adultLora && !saysAdults ? `${typed}\n${ADULTS_LINE[lang]}` : typed) : buildCanvasPrompt(recipe);
   const slotRef = (role: CanvasRole, r: ResolvedSlot<RefItem> | undefined): CanvasRef[] => (r ? [{ role, label: r.label, url: r.url, thumb: r.thumb, ...(r.item ? { refId: r.item.id } : { assetId: r.asset!.id }) }] : []);
   const charRef = (role: CanvasRole, c: ResolvedCharacter | undefined): CanvasRef[] => (c ? [{ role, label: c.label, url: c.url, thumb: c.thumb, assetId: c.asset.id, elementId: c.element.id }] : []);
   /* the order the prompt names them: person A's face, outfit; person B's; the pose; the extras */
@@ -247,9 +250,9 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), refRoles: refs.map((x) => CANVAS_REF_ROLE[x.role]), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, ...(input.text?.trim() ? { text: input.text.trim() } : {}), size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, ...(input.text?.trim() ? { text: input.text.trim() } : {}), size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), lang, model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
-  return { ...r, prompt, refs, model: model.id, warnings: resolved?.warnings ?? [] };
+  return { ...r, prompt, refs, model: model.id, lang, warnings: resolved?.warnings ?? [] };
 }
 
 /**

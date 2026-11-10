@@ -61,6 +61,9 @@ export type ModelEntry = {
   /** Image models: reference pictures per call, and how the prompt names them. */
   maxRefs?: number;
   refStyle?: RefStyle;
+  /** The language Canvas composes its prompt in when the user has not chosen one: the Chinese template
+      unless the model follows English best (MiniMax-H3-Image). */
+  promptLang?: "zh" | "en";
   /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
   poseRecipe?: boolean;
   /** The size its pictures come at whatever was picked (2509: the canvas follows the pose picture, 3:4 like every library pose). */
@@ -106,7 +109,7 @@ export const MODELS: ModelEntry[] = [
     /* the checkpoint is distilled to 6 steps without guidance (the model card: other values are refused by MiniMax's own server);
        resolution 2048 = drawn at 4 MP, the card's min_generation_area default, then resized to the asked size */
     params: { steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048 },
-    maxRefs: 10, refStyle: "h3",
+    maxRefs: 10, refStyle: "h3", promptLang: "en",
     files: [
       { dir: "diffusion_models", file: "minimax_h3_image_pruned_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors", gb: 21 },
       { dir: "text_encoders", file: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", url: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", gb: 15.7 },
@@ -114,7 +117,7 @@ export const MODELS: ModelEntry[] = [
     ],
     license: "MiniMax-H3-Image Community License Agreement: not for use in the EU, the UK, South Korea or the US; a written authorization from MiniMax is needed above 1M USD of annual revenue or to host it for third parties, and a commercial product names MiniMax-H3-Image in its interface", commercial: "ask", moderation: "none",
     source: "https://huggingface.co/MiniMaxAI/MiniMax-H3-Image",
-    notes: "MiniMax's open-weight image model of the H3 family (released 2026-11-10): text to image and multi-reference editing in one checkpoint, a 33B single-stream DiT (H3 without the audio layers) distilled to 6 steps without guidance. Self-hosted on the GPU pod in ComfyUI (v0.45.0 or later: MiniMaxH3ImageConditioning, KSampler 6 steps / CFG 1 / euler / simple; Comfy-Org's templates without their prompt-enhancer branch), not through MiniMax's API. It uses the MiniMax-H3 text encoder unchanged, the file the video graphs already load, so it adds 22 GB on the pod (int8 DiT + image VAE). Pictures are <Picture 1>…<Picture 10> in the prompt (the model takes 16; the Studio sends up to ten). Its working range is about 4–20 MP and it is weak below: a smaller request (a 1344×768 frame) is drawn on a canvas of the same shape at 4 MP and resized to the asked size, as MiniMax's server does; 16 MP is its best quality and several times slower. It expects a detailed English description of the whole picture: the director's sectioned prompts fit, a short or Chinese Canvas recipe is followed less closely (MiniMax's API expands prompts first; that step is not run here). No negative prompt, no content filter of its own.",
+    notes: "MiniMax's open-weight image model of the H3 family (released 2026-11-10): text to image and multi-reference editing in one checkpoint, a 33B single-stream DiT (H3 without the audio layers) distilled to 6 steps without guidance. Self-hosted on the GPU pod in ComfyUI (v0.45.0 or later: MiniMaxH3ImageConditioning, KSampler 6 steps / CFG 1 / euler / simple; Comfy-Org's templates without their prompt-enhancer branch), not through MiniMax's API. It uses the MiniMax-H3 text encoder unchanged, the file the video graphs already load, so it adds 22 GB on the pod (int8 DiT + image VAE). Pictures are <Picture 1>…<Picture 10> in the prompt (the model takes 16; the Studio sends up to ten). Its working range is about 4–20 MP and it is weak below: a smaller request (a 1344×768 frame) is drawn on a canvas of the same shape at 4 MP and resized to the asked size, as MiniMax's server does; 16 MP is its best quality and several times slower. It expects a detailed English description of the whole picture: the director's sectioned prompts fit, so Canvas composes its recipe in English for it by default (the language can be chosen there); MiniMax's API expands short prompts first, a step not run here. No negative prompt, no content filter of its own.",
   },
   {
     id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",
@@ -218,6 +221,11 @@ export function namePicturesFor(model: ModelEntry, prompt: string): string {
   /* a prompt that already carries the token (<Picture 1>) is left as it is */
   if (model.refStyle === "h3") return prompt.replace(/(?<!<)\b[Pp]icture (\d+)\b(?!>)/g, "<Picture $1>");
   return prompt;
+}
+
+/** The language a Canvas prompt is composed in: the one chosen, else the model's. */
+export function canvasLangFor(model: ModelEntry, chosen?: "zh" | "en"): "zh" | "en" {
+  return chosen ?? model.promptLang ?? "zh";
 }
 
 /** What an agent picture sends with the job: the model's recommended settings (pod models), or the
