@@ -11,6 +11,8 @@ import { buildCommand } from "../timeline/assemble.js";
 import { readingTimeS, checkLines, placeLines, toSrt, spellNumbersForSpeech } from "../narration/srt.js";
 import { planBatch, fallbackEstimateUsd } from "../batch.js";
 import { effectiveSeconds, h3Frames } from "../catalog.js";
+import { forkGuide, forkStyle, diffStyle, checkFork, changesToMarkdown } from "../styles/fork.js";
+import { StyleSchema } from "../styles/schema.js";
 import type { Shotlist } from "../types.js";
 
 test("every library style parses and renders markdown with 11 sections", () => {
@@ -298,4 +300,45 @@ test("frame grid: 17k+5 frames at 24 fps, nearest, clamped to 124–362", () => 
     const [cut] = cutOnBeats(map, [{ durationS: d }], { subdivision: 4 });
     assert.ok(cut.outS <= effectiveSeconds(d) + 1e-9, `${d} s cut at ${cut.outS}`);
   }
+});
+
+test("a style of your own: three groups, a fork, what changed and what it costs", () => {
+  const base = findStyle("ink-wash")!.style;
+  const guide = forkGuide(base);
+  assert.deepEqual(guide.map((g) => g.group), ["safe", "character", "essence"]);
+  assert.ok(guide[0].sections.some((x) => x.section === "§7 sound palette"));
+  assert.ok(guide[1].sections.some((x) => x.section === "§6 camera grammar"));
+  assert.deepEqual(guide[2].sections.map((x) => x.section), ["§1 essence"]);
+
+  const mine = forkStyle(base, { slug: "night-ink", en: "Night Ink", cn: "夜墨" });
+  assert.equal(mine.lineage, "Based on Chinese Ink Wash (ink-wash).");
+  assert.equal(base.slug, "ink-wash"); // the base is not touched
+  const taken = { library: ["ink-wash", "watercolor"], others: ["their-style"] };
+  assert.ok(checkFork(base, mine, taken).warnings.some((w) => w.code === "style.same"));
+
+  // a safe change: the palette, and the Look that carries it to the model
+  mine.colour.examplePalette = "paper #101418, ink #e8e2d2, vermilion #d8402c";
+  mine.engine.look.palette = "pale ink on blue-black paper, one vermilion seal red, no other colour";
+  mine.sound.instruments = ["guqin", "a low synth drone"];
+  let r = checkFork(base, StyleSchema.parse(mine), taken);
+  assert.deepEqual(r.changes.map((c) => [c.section, c.group]), [["§3 palette", "safe"], ["§7 sound palette", "safe"]]);
+  assert.ok(!r.warnings.some((w) => w.severity !== "info"), JSON.stringify(r.warnings));
+  assert.match(changesToMarkdown(base, mine, r.changes), /\| §3 palette \| safe \|/);
+
+  // a palette that never reaches the Look is caught
+  const lost = structuredClone(mine); lost.engine.look.palette = base.engine.look.palette;
+  assert.ok(checkFork(base, lost, taken).warnings.some((w) => w.code === "style.travel.look"));
+
+  // character and essence are named for what they are
+  mine.materials = ["Black lacquer board, gold-leaf strokes", "Raking light on raised lines"];
+  mine.essence = ["Gold line on black lacquer", "Light rakes across raised strokes", "No paper anywhere"];
+  mine.nativeMoves = mine.nativeMoves.slice(2);
+  r = checkFork(base, mine, taken);
+  for (const code of ["style.essence", "style.character", "style.signature", "style.travel.pitfalls"]) assert.ok(r.warnings.some((w) => w.code === code), code);
+  assert.ok(diffStyle(base, mine, { "§2 materials": "the brand is lacquerware" }).find((c) => c.section === "§2 materials")!.why);
+
+  // slugs
+  assert.ok(checkFork(base, { ...mine, slug: "ink-wash" }, taken).warnings.some((w) => w.code === "style.slug.library"));
+  assert.ok(checkFork(base, { ...mine, slug: "their-style" }, taken).warnings.some((w) => w.code === "style.slug.taken"));
+  assert.ok(checkFork(undefined, { ...mine, slug: "Bad Slug" }, taken).warnings.some((w) => w.code === "style.slug"));
 });

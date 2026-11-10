@@ -71,6 +71,17 @@ With a reference film, study it frame by frame for camera positions and how much
 
 Then the frames: write what the first and last frame show (`frames`), get it reviewed, and only then draw — with GPT Image when the user has switched it on (`plan_frames` picks the cheapest source for each frame: reuse the anchor's last frame, crop, edit a related frame, or draw new), otherwise by upload or import. Every generated picture gets a cold-reader review (stage frame) before a take is built on it. Everything the action uses is already in the first frame; whoever reacts is already there, facing the camera; people never share one pose; leave room where things land and above heads; wind blows one way. Draw the richer frame first and derive the other from it; a push-in's end frame is a crop of the first.
 
+### A style of the user's own
+
+Everyone wants something different: brand colours, a character, the tone of a channel. A library style can be changed and kept, or a new one written on the closest style's technique.
+
+- `fork_style(base, slug, en, cn)` copies the base and sorts its sections into three groups. **Safe to change**: the palette inside the colour logic, type, motion and shot lengths, the sound palette, native moves (swap at most one: they are the signature), pitfalls, the variation space. **Changes its character**: materials, the colour logic itself, the camera grammar, the engine fields that reach the model on every shot; say what the style loses with each. **Cannot change**: the essence and what the style is not. With another essence it is a different style: say so, and keep the base only as the technique.
+- Plan it with the user one question at a time, your recommendation first with the reason: what the films are for and where they play, then what to change, then section by section. Do not ask what the base style or their files already answer. When they say "you decide", take your recommendations and list them.
+- Turn vague wishes into options, never silent edits: "more premium" is fewer colours, stronger contrast, slower motion, more empty space; "livelier" is a brighter accent, cuts on the beat, more percussion; "like our brand" is the brand colour as the accent, not the ground.
+- Changes travel together: faster motion wants denser sound; a new material brings its own pitfalls; a new palette must reach `engine.look`, because the model reads the Look and not the notes.
+- At most five changes a round. `save_style(style, basedOn, why)` keeps it and answers with the changed sections, their groups and the warnings. Show the user that summary, then prove the look with a style frame before a film depends on it.
+- Story, structure, cast, pacing and voice are free in every film. If that is all they want changed, they do not need a style of their own.
+
 ## 6. Sound is half the film
 
 - **Every visible action has a sound, and no sound without a visible cause**: fill `sfx` per shot from the style's foley list; match the material.

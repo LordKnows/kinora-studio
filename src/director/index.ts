@@ -22,9 +22,15 @@ export { styleToMarkdown } from "@director/styles/markdown";
 export { DIRECTOR_DOC, TECHNIQUE_DOC, STYLES_INDEX_DOC } from "./generated";
 export type { Style };
 
+export { forkGuide, forkStyle, diffStyle, checkFork, changesToMarkdown, GROUP_ADVICE, type ChangeGroup, type StyleChange } from "@director/styles/fork";
+export { StyleSchema };
+
 export interface LoadedStyle {
   style: Style;
-  origin: "library";
+  /** "mine": a style a user made (src/studio/styles.ts); it carries who and from what. */
+  origin: "library" | "mine";
+  by?: string;
+  basedOn?: string;
 }
 
 let cache: LoadedStyle[] | undefined;
@@ -42,9 +48,11 @@ export function loadStyles(): LoadedStyle[] {
   return cache;
 }
 
-export function findStyle(query: string): LoadedStyle | undefined {
+/** Find by slug, English or Chinese name. `pool` defaults to the library; pass
+    the pool with the users' own styles (styles.allStyles) to find those too. */
+export function findStyle(query: string, pool: LoadedStyle[] = loadStyles()): LoadedStyle | undefined {
   const q = query.trim().toLowerCase();
-  const all = loadStyles();
+  const all = pool;
   return (
     all.find((s) => s.style.slug === q) ??
     all.find((s) => s.style.en.toLowerCase() === q || s.style.cn === query.trim()) ??
@@ -53,9 +61,9 @@ export function findStyle(query: string): LoadedStyle | undefined {
 }
 
 /** Rank styles for a topic by matching uses, line and native-move fits. */
-export function suggestStyles(topic: string, n = 3): { style: Style; score: number; why: string }[] {
+export function suggestStyles(topic: string, n = 3, pool: LoadedStyle[] = loadStyles()): { style: Style; score: number; why: string }[] {
   const words = topic.toLowerCase().split(/[^a-z0-9一-鿿]+/).filter((w) => w.length > 2);
-  const scored = loadStyles().map(({ style }) => {
+  const scored = pool.map(({ style }) => {
     const hay = [...style.uses, style.line, style.line_cn, ...style.nativeMoves.flatMap((m) => m.fits), ...style.variation.structures].join(" ").toLowerCase();
     let score = 0;
     const hits: string[] = [];

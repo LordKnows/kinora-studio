@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { assertVisible } from "@/auth/scope";
 import * as director from "@/director";
+import * as styles from "@/studio/styles";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
 import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
@@ -119,15 +120,27 @@ export function createStudioServer(actor: Actor): McpServer {
     hits: z.array(z.object({ id: z.string(), section: z.string(), bar: z.number(), beat: z.number(), what: z.string() })).default([]),
     silences: z.array(z.object({ t: z.number(), durationS: z.number(), why: z.string() })).optional(),
   });
-  tool("list_styles", "Every style preset: slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
-    director.loadStyles().map(({ style: s, origin }) => ({ slug: s.slug, en: s.en, cn: s.cn, category: s.category, uses: s.uses, line: s.line, line_cn: s.line_cn, origin })));
-  tool("suggest_styles", "Two or three styles that fit a topic, with why. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
-    director.suggestStyles(topic, n).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
-  tool("get_style", "One style preset in full: JSON (engine fields, camera grammar, native moves, pitfalls, variation space) or STYLE.md.", z.object({ style: z.string().min(1).describe("slug, English or Chinese name"), format: z.enum(["json", "markdown"]).default("markdown") }), async ({ style, format }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`, { available: director.loadStyles().map((x) => x.style.slug) });
+  tool("list_styles", "Every style: the users' own first (origin mine, with who made it and its base), then the library. Slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
+    (await styles.allStyles()).map(styles.summary));
+  tool("suggest_styles", "Two or three styles that fit a topic, with why; the users' own styles are in the pool. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
+    director.suggestStyles(topic, n, await styles.allStyles()).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
+  tool("get_style", "One style in full: JSON (engine fields, camera grammar, native moves, pitfalls, variation space) or STYLE.md. For a style of the user's own, format changes gives what differs from its base.", z.object({ style: z.string().min(1).describe("slug, English or Chinese name"), format: z.enum(["json", "markdown", "changes"]).default("markdown") }), async ({ style, format }) => {
+    const s = await styles.mustResolveStyle(style);
+    if (format === "changes") return (await styles.styleChanges(s.style.slug)) ?? { changes: [], note: `${s.style.slug} is a library style` };
     return format === "json" ? s.style : director.styleToMarkdown(s.style);
   });
+  tool("fork_style", "Start a style of the user's own from an existing one: a copy under a new slug and name, with the base's sections sorted into three groups — safe to change (palette, type, motion, sound, native moves), changes its character (materials, colour logic, camera grammar, the engine fields), cannot change (the essence: that is a different style). Nothing is stored. Use it when the user wants a style changed and kept (brand colours, a slower pace, their own sound), or a style from a blank page on the closest style's technique. Plan the changes with them, edit the returned style, then save_style.", z.object({
+    base: z.string().min(1).describe("slug, English or Chinese name of the style to start from"),
+    slug: z.string().min(2).max(49).describe("lowercase letters, digits and hyphens; not a library slug"),
+    en: z.string().min(1).max(80), cn: z.string().min(1).max(80),
+    line: z.string().max(300).optional(), line_cn: z.string().max(300).optional(),
+  }), async (input) => styles.forkDraft(input));
+  tool("save_style", "Keep a style of the user's own (the whole style object, as get_style format json gives it and fork_style returns it). With basedOn, the answer lists the sections that differ from the base, each with its group, and warns when the essence changed (a different style), when more than five sections changed in one round, when more than one native move went, or when a new palette never reached engine.look (the model reads the Look). Show the user the changes and warnings. Overwrites the user's own style of the same slug; never a library style or someone else's.", z.object({
+    style: z.any().describe("The full style object"),
+    basedOn: z.string().optional().describe("The style it was changed from; leave out for a style written from a blank page"),
+    why: z.record(z.string(), z.string()).optional().describe("The user's reason per changed section, keyed by section name (\"§3 palette\": \"the brand's green\")"),
+  }), async (input) => styles.saveStyle(actor, input));
+  tool("delete_style", "Delete a style of the user's own (only whoever made it can). Projects whose Look names it keep their Look fields, but lose its defaults for new shots.", z.object({ slug: z.string().min(1) }), async ({ slug }) => styles.deleteStyle(actor, slug));
   tool("compile_look", "Style → the look object for start_film / update_look (genre, palette, camera, lens, lighting, constraints, LoRAs), plus the style's beat suffix, cinematography defaults, allowed camera moves, transitions and duration guide.", z.object({
     style: z.string().min(1),
     aspectRatio: z.enum(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
@@ -136,13 +149,11 @@ export function createStudioServer(actor: Actor): McpServer {
     genreSuffix: z.string().max(80).optional(),
     paletteSuffix: z.string().max(80).optional(),
   }), async ({ style, ...o }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`);
+    const s = await styles.mustResolveStyle(style);
     return { look: director.compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations };
   });
   tool("apply_style", "Fill every shot's cinematography with the style defaults (explicit values win), append the beat suffix, default ambience/music, and warn about camera moves and links outside the style's grammar. Returns the shotlist to pass to save_shotlist.", z.object({ style: z.string().min(1), shotlist: ShotlistShape, beatSuffix: z.boolean().default(true), musicForShotsWithScore: z.boolean().default(true) }), async ({ style, shotlist, beatSuffix, musicForShotsWithScore }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`);
+    const s = await styles.mustResolveStyle(style);
     return director.applyStyle(s.style, shotlist as never, { beatSuffix, musicForShotsWithScore });
   });
   tool("lint_project", "Lint the project's saved shotlist (rhythm, variety, breath, link/mode sanity, render-order switches) plus Tier 2 / Tier 3 completeness per shot. Fix the errors and warnings with revise_shot before asking for approval.", z.object({ projectId: id }), async ({ projectId }) => orch.lintProject(projectId));
@@ -156,7 +167,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly, elements });
   });
   tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {
-    const s = style ? director.findStyle(style) : undefined;
+    const s = style ? await styles.resolveStyle(style) : undefined;
     const r = director.validateTreatment(treatment, s?.style.nativeMoves.map((m) => m.name));
     return { ...r, markdown: r.ok ? director.treatmentToMarkdown(treatment) : undefined };
   });

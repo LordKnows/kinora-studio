@@ -1702,3 +1702,57 @@ export async function updateUserReference(id: string, patch: Partial<Pick<UserRe
 export async function deleteUserReference(id: string): Promise<void> {
   await (await userReferencesDb()).run("DELETE FROM user_references WHERE id = ?", [id]);
 }
+
+/* ---------- styles of the users' own ---------- */
+
+export type UserStyleRow = { slug: string; user: string; basedOn?: string; style: unknown; changes: unknown[]; createdAt: number; updatedAt: number };
+
+/* Created on first use as well as by migration 0021 (one statement each: D1's exec splits on newlines). */
+const USER_STYLES_SQL = [
+  "CREATE TABLE IF NOT EXISTS user_styles (slug TEXT PRIMARY KEY, user TEXT NOT NULL, based_on TEXT, style_json TEXT NOT NULL, changes_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS user_styles_user ON user_styles (user, updated_at)",
+];
+/* Per database, not per isolate: tests swap the database under one module. */
+const userStylesReady = new WeakSet<object>();
+
+async function userStylesDb(): Promise<Db> {
+  const d = await db();
+  if (!userStylesReady.has(d)) {
+    for (const sql of USER_STYLES_SQL) await d.run(sql);
+    userStylesReady.add(d);
+  }
+  return d;
+}
+
+function mapUserStyle(r: Record<string, unknown>): UserStyleRow {
+  return {
+    slug: String(r.slug), user: String(r.user), ...(r.based_on ? { basedOn: String(r.based_on) } : {}),
+    style: json<unknown>(r.style_json, {}), changes: json<unknown[]>(r.changes_json, []), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+  };
+}
+
+export async function listUserStyles(): Promise<UserStyleRow[]> {
+  const rows = await (await userStylesDb()).all<Record<string, unknown>>("SELECT * FROM user_styles ORDER BY updated_at DESC");
+  return rows.map(mapUserStyle);
+}
+
+export async function getUserStyle(slug: string): Promise<UserStyleRow | undefined> {
+  const row = await (await userStylesDb()).get<Record<string, unknown>>("SELECT * FROM user_styles WHERE slug = ?", [slug]);
+  return row ? mapUserStyle(row) : undefined;
+}
+
+export async function putUserStyle(input: { slug: string; user: string; basedOn?: string; style: unknown; changes: unknown[] }): Promise<UserStyleRow> {
+  const d = await userStylesDb();
+  const now = Date.now();
+  const cur = await getUserStyle(input.slug);
+  if (cur) {
+    await d.run("UPDATE user_styles SET based_on = ?, style_json = ?, changes_json = ?, updated_at = ? WHERE slug = ?", [input.basedOn ?? null, JSON.stringify(input.style), JSON.stringify(input.changes), now, input.slug]);
+  } else {
+    await d.run("INSERT INTO user_styles (slug, user, based_on, style_json, changes_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [input.slug, input.user, input.basedOn ?? null, JSON.stringify(input.style), JSON.stringify(input.changes), now, now]);
+  }
+  return (await getUserStyle(input.slug))!;
+}
+
+export async function deleteUserStyle(slug: string): Promise<void> {
+  await (await userStylesDb()).run("DELETE FROM user_styles WHERE slug = ?", [slug]);
+}

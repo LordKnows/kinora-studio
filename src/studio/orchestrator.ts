@@ -10,6 +10,7 @@ import { paletteContrastWarnings } from "./sketch";
 import { StudioError } from "./errors";
 import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
+import * as styles from "./styles";
 import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
@@ -979,8 +980,7 @@ export function frameWarnings(sh: ShotView, videoW: number, videoH: number): Arr
 /** Fill every shot's cinematography with a style's defaults and save the
     merged shotlist (takes are kept). */
 export async function applyStyleToProject(projectId: string, style: string, opts?: { beatSuffix?: boolean; musicForShotsWithScore?: boolean }): Promise<{ warnings: LintWarning[]; view: ProjectView }> {
-  const found = director.findStyle(style);
-  if (!found) throw new StudioError("not_found", `no style matches "${style}"`);
+  const found = await styles.mustResolveStyle(style);
   const { shotlist } = await shotlistOf(projectId);
   if (shotlist.scenes.length === 0) throw new StudioError("validation", "the project has no shotlist yet");
   const result = director.applyStyle(found.style, shotlist as never, { beatSuffix: opts?.beatSuffix ?? true, musicForShotsWithScore: opts?.musicForShotsWithScore ?? true });

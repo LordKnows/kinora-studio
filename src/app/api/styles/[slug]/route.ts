@@ -1,10 +1,11 @@
 import { route } from "@/api/http";
 import * as director from "@/director";
 import { StudioError } from "@/studio/errors";
+import * as styles from "@/studio/styles";
 
 /* One preset in full: the JSON, its STYLE.md, and the Look it compiles to. */
 export const GET = route(["web", "mcp"], async (req, { params }) => {
-  const found = director.findStyle(params.slug!);
+  const found = await styles.resolveStyle(params.slug!);
   if (!found) throw new StudioError("not_found", `no style ${params.slug}`);
   const url = new URL(req.url);
   const aspect = url.searchParams.get("aspectRatio") ?? undefined;
