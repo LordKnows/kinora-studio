@@ -278,6 +278,46 @@ pnpm --filter @openhiggsfield/director build
 pnpm --filter @openhiggsfield/director test
 ```
 
+## Voices: voice cards and dialogue
+
+A character's voice is a **voice card**, a pre-production asset like the
+character sheet. A card is one identity with states (an age, a hoarse or
+disguised register), each with an English description that goes verbatim into
+the prompt and dry reference audio (10–15 s). Cards live in a **global
+library** shared by every project, like the LoRA library, or in one project.
+A character points at a card (`voiceCardId`) and picks its default state
+(`voiceState`), so an edit to the card reaches every project that uses it.
+MCP: `list_voice_cards`, `get_voice_card`, `create_voice_card`,
+`update_voice_card`; `create_element` / `update_element` take `voiceCardId`
+and `voiceState`. Reference audio must be synthetic, licensed or from a
+consenting performer, and the card's `source` records which. There is no web
+panel for cards yet.
+
+**Dialogue** compiles to the format of MiniMax's H3 prompting guide:
+`<speaker> (S1), <voice description>, says (<delivery>): <d>[Chinese] <the
+line verbatim></d>`, with the description where a speaker first speaks and a
+timed line (`startS` / `endS`) placed in its beat's `[Shot k]`. Lines without
+a language use the project's `look.dialogueLanguage` (default `zh`; set `en`
+on an English project). A line's `kind` is `onscreen` (default), `offscreen`
+or `inner`: only on-screen lines go into the prompt, since the model makes
+whoever is in frame mouth any line it hears about; with only off-screen or
+inner lines the prompt says every mouth stays closed. The compiler warns about
+a line across a hard cut, past the end of the shot, or more lines than the
+shot holds (about 4 Chinese characters a second, 3 when weak or hoarse).
+
+Two prompt experiments, off by default and recorded on the take:
+
+- `voiceRefs` (R2VA): each on-screen speaker's reference audio becomes
+  `<Audio j> is the voice-timbre reference for <Subject k> (S1).`; the worker
+  cuts it to about the line's length as 48 kHz stereo, within the model card's
+  limits (3 clips, 2–15 s each, 15 s in all).
+- `audioFirst` (I2VA): a line's prepared audio (`audioAssetId`) is anchored at
+  its start frame with `MiniMaxH3AddGuide` (`workflows/I2VA_GUIDE.json`), so
+  the picture follows a given voice.
+
+Not in the Studio yet: separating and re-voicing finished takes, voice-over
+synthesis from a card, and the consistency check before export.
+
 ## Canvas: the reference library
 
 `/canvas` composes one character picture from a **portrait** (face, hair), a
