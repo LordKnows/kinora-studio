@@ -9,7 +9,7 @@ The director layer beside the Cinema Studio MCP: judgement, not formatting. The 
 | Rhythm | deterministic lint on a shotlist: pace / size / move variety, a breath, static use, beat tiling, link and mode sanity, dialogue density, render-order switches | `lint_shotlist` |
 | Craft | staging in screen terms (blocking, the 180° line, exits), what moves (dead frames), eye level at most twice, no run of one size, frame plans, handles; wording the model misreads (loose directions, negations, unison reactions, "cartoon"); the pictures AI video gets wrong (`fragile.*`, and a fragility score for the batch probe); treatment turns as problem → solution → reaction | `lint_shotlist`, `validate_treatment` |
 | Music grid | cue map (tempo sections, hits as bar/beat, silences), snap cuts to the grid | `check_cue_map`, `cut_on_beats` |
-| Sound | extended timeline with per-clip speed, BT.709 colour, J-cut / L-cut, fades, iris / wipe / flash, freezes, title cards and captions, narration track, music with ducking, silences, burned subtitles, loudnorm −14 LUFS; Studio-shaped projection for `save_timeline` | `check_timeline`, `assemble_local` |
+| Sound | a timeline in the director's shape (transitions, J-cut / L-cut, freezes, title cards and captions, narration, music with ducking, silences, fades, a loudness target), checked and translated to what the Studio's `save_timeline` takes; the Studio's assembler renders it. The same timeline renders locally with ffmpeg from take files | `check_timeline`, `assemble_local` |
 | Narration | reading-time rule, SRT, digits-on-screen / words-in-speech, edge-tts adapter | `check_subtitles`, `synthesize_narration` |
 | Cost | one batch plan: R2VA first, linked shots after their anchors, one estimate against the cap | `plan_batch` |
 | Docs | the director guide (judgement) and the H3 technique guide (constraints), split | `get_guide` |
@@ -29,7 +29,7 @@ The repo's `.mcp.json` registers the server as `director` (stdio). With the Stud
 3. Write the treatment; `validate_treatment` → `save_script(markdown + dialogue)`.
 4. Write sequences and shots; `apply_style(style, shotlist)` → `lint_shotlist` → `save_shotlist`. Fix errors and warnings before asking for approval.
 5. `check_cue_map` / `cut_on_beats` for the music grid; `plan_batch` → one confirmation → `generate_take` in that order.
-6. `auto_timeline` → extend it (J/L cuts, titles, narration, music) → `check_timeline` → `save_timeline(timeline)` for the Studio and `assemble_local` for the full version.
+6. `auto_timeline` → finish it (transitions, J/L cuts, titles, narration, music, silences) → `check_timeline` → `save_timeline(timeline)` → `export_project` → `get_export` for what was measured on the file. `assemble_local` renders the same timeline from take files on disk.
 
 ## Styles
 

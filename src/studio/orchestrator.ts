@@ -10,7 +10,7 @@ import { paletteContrastWarnings } from "./sketch";
 import { StudioError } from "./errors";
 import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
-import { buildAssemblerInput } from "./backends/assembler";
+import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
@@ -701,15 +701,21 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
       throw new StudioError("not_approved", `clip for shot ${clip.shotId} points at a take that is not completed`, { checkpoint: "timeline", takeId: clip.takeId });
     }
   }
-  const total = view.timeline.clips.reduce((n, c) => n + (Math.max(0, c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1), 0);
+  const total = view.timeline.clips.reduce((n, c) => n + clipSeconds(c), 0);
   const estimateUsd = estimateExport(total, req.preset === "master-upscaled");
   assertBudget(view.project, estimateUsd);
   if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `exporting ${req.preset}`);
   const music = view.timeline.music ? view.assets.find((a) => a.id === view.timeline.music) : undefined;
+  const audioUrls = new Map<string, string>();
+  for (const line of view.timeline.narration ?? []) {
+    const asset = view.assets.find((a) => a.id === line.assetId);
+    if (!asset || asset.kind !== "audio") throw new StudioError("validation", `narration at ${line.atS} s points at ${line.assetId}, which is not an audio asset of this project`, { assetId: line.assetId });
+    audioUrls.set(asset.id, asset.url);
+  }
   const exportRow = await repo.createExport(projectId, req.preset, {});
   const input = buildAssemblerInput({
     exportId: exportRow.id, projectId, preset: req.preset, look: view.project.look, timeline: view.timeline, shots, takes,
-    elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, burnIn: req.burnInSubtitles,
+    elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, audioUrls, burnIn: req.burnInSubtitles,
     videoSize: view.project.look.aspectRatio === "9:16" ? "768x1344" : "1344x768",
   });
   await repo.setExportInput(exportRow.id, input as unknown as Record<string, unknown>);
@@ -763,7 +769,12 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
       const url = str(status.output.url);
       if (!url) return repo.updateExport(job.id, { status: "failed", error: "assembler completed without a url", finishedAt: Date.now() });
       const updated = await repo.updateExport(job.id, { status: "completed", resultUrl: url, srtUrl: str(status.output.srt_url), finishedAt: Date.now() });
-      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS: Array.isArray(status.output.cuts_s) ? status.output.cuts_s : undefined } });
+      /* What the assembler measured on the file, read against what the timeline asked for. */
+      const cutsS = Array.isArray(status.output.cuts_s) ? (status.output.cuts_s as number[]) : undefined;
+      const checks = status.output.checks && typeof status.output.checks === "object" ? (status.output.checks as ExportChecks) : undefined;
+      const workerWarnings = Array.isArray(status.output.warnings) ? (status.output.warnings as unknown[]).map(String) : [];
+      const findings = exportFindings(job.input as unknown as AssemblerInput, { duration_s: num(status.output.duration_s), cuts_s: cutsS, checks, warnings: workerWarnings });
+      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS, ...(checks ? { checks } : {}), findings } });
       /* 3 frames each side of every cut, for the film review. */
       const sheet = str(status.output.cut_sheet_url);
       if (sheet) await repo.createAsset({ projectId: job.projectId, url: sheet, kind: "image", source: "export", meta: { exportId: job.id, role: "cut-sheet" }, name: `cut sheet · ${job.preset}` });
@@ -775,6 +786,16 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
     case "timeout":
       return repo.updateExport(job.id, { status: "failed", error: status.state, finishedAt: Date.now() });
   }
+}
+
+/** An export with what was measured on its file: loudness, and the black
+    picture and missing sound that nothing on the timeline explains. */
+export async function exportReport(exportId: string): Promise<{ export: ExportJob; checks?: ExportChecks; findings?: string[] }> {
+  const job = await refreshExport(exportId);
+  if (job.status !== "completed") return { export: job };
+  const asset = (await repo.listAssets(job.projectId)).find((a) => a.source === "export" && a.kind === "video" && a.meta.exportId === job.id);
+  if (!asset) return { export: job };
+  return { export: job, ...(asset.meta.checks ? { checks: asset.meta.checks as ExportChecks } : {}), findings: Array.isArray(asset.meta.findings) ? (asset.meta.findings as string[]) : [] };
 }
 
 export async function refreshExport(exportId: string): Promise<ExportJob> {

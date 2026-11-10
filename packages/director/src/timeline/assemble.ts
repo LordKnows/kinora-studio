@@ -43,11 +43,12 @@ export function buildCommand(t: ExtTimeline, o: AssembleOptions): BuiltCommand {
   const clips = t.clips;
   if (!clips.length) throw new Error("no clips");
   for (const c of clips) if (!c.file) throw new Error(`clip ${c.shotId} has no local file; download the take first`);
+  for (const n of t.narration ?? []) if (!n.file) throw new Error(`narration at ${n.t} s has no local file; download the asset first`);
 
   // Inputs: clips, narration files, music.
   const idx = (f: string) => { inputs.push(f); return inputs.length - 1; };
   const clipIn = clips.map((c) => idx(c.file!));
-  const narrIn = (t.narration ?? []).map((n) => idx(n.file));
+  const narrIn = (t.narration ?? []).map((n) => idx(n.file!));
   const musicIn = t.music?.file ? idx(t.music.file) : -1;
 
   // Picture per clip
@@ -120,14 +121,19 @@ export function buildCommand(t: ExtTimeline, o: AssembleOptions): BuiltCommand {
   const alabels: string[] = [];
   clips.forEach((c, i) => {
     if (c.muteOwnAudio) return;
-    const lead = i === 0 ? 0 : (c.audioLeadS ?? 0);
+    /* The lead and the trail are the take's own sound outside the in and out
+       points, in timeline seconds. A clip that starts at its take's first frame
+       has nothing to lead with: the lead shrinks to what is there, so the sound
+       never slides against its picture. */
+    const speed = c.speed ?? 1;
+    const lead = i === 0 ? 0 : Math.min(c.audioLeadS ?? 0, (c.inS ?? 0) / speed);
     const trail = c.audioTrailS ?? 0;
-    const inS = Math.max(0, (c.inS ?? 0) - lead);
-    const outS = c.outS + trail;
+    const inS = (c.inS ?? 0) - lead * speed;
+    const outS = c.outS + trail * speed;
     const at = Math.max(0, starts[i].start - lead);
     const vol = c.gainDb ? `,volume=${db(c.gainDb)}` : "";
     const tempo = c.speed && c.speed !== 1 ? `,atempo=${c.speed}` : "";
-    F.push(`[${clipIn[i]}:a]atrim=start=${inS}:end=${outS},asetpts=PTS-STARTPTS,aresample=48000${tempo}${vol},adelay=${Math.round(at * 1000)}|${Math.round(at * 1000)}[a${i}]`);
+    F.push(`[${clipIn[i]}:a]atrim=start=${+inS.toFixed(3)}:end=${+outS.toFixed(3)},asetpts=PTS-STARTPTS,aresample=48000${tempo}${vol},adelay=${Math.round(at * 1000)}|${Math.round(at * 1000)}[a${i}]`);
     alabels.push(`a${i}`);
   });
   // Narration

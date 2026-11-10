@@ -140,7 +140,7 @@ server.registerTool("plan_batch", {
 const ExtTimelineSchema = z.any();
 
 server.registerTool("check_timeline", {
-  description: "Validate an extended timeline (clips with J/L cuts, transitions, freezes; titles; narration; music; silences) and return the Studio-shaped timeline for save_timeline plus what only the local assembler will render.",
+  description: "Validate a timeline in the director's own shape (clips with J/L cuts, transitions, freezes; titles; narration; music; silences): too-short cards, a J-cut the take has no footage for, too few sound bridges or silences. Returns the timeline as the Studio's save_timeline takes it (it draws and mixes nearly all of this now) and what could not go along.",
   inputSchema: { timeline: ExtTimelineSchema },
 }, async ({ timeline }) => text({ warnings: checkTimeline(timeline as ExtTimeline), ...toStudioTimeline(timeline as ExtTimeline) }));
 

@@ -308,9 +308,9 @@ also runs as a local stdio MCP for the two tools that need a machine
 (`assemble_local` with ffmpeg, `synthesize_narration` with edge-tts). What it
 adds: 16 style presets (eleven-section
 `STYLE.md` convention) compiled into Studio fields, a treatment validator, a
-rhythm lint for shotlists, a cue map that snaps cuts to the beat, an extended
-timeline (J/L cuts, fades, titles, narration, ducking) assembled locally with
-ffmpeg, subtitle reading-time rules and a batch planner. Registered in
+rhythm lint for shotlists, a cue map that snaps cuts to the beat, a timeline
+check (J/L cuts, fades, titles, narration, silences) whose output the Studio's
+assembler renders, subtitle reading-time rules and a batch planner. Registered in
 `.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
 
 ```bash

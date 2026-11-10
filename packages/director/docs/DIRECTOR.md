@@ -74,9 +74,9 @@ Then the frames: write what the first and last frame show (`frames`), get it rev
 ## 6. Sound is half the film
 
 - **Every visible action has a sound, and no sound without a visible cause**: fill `sfx` per shot from the style's foley list; match the material.
-- **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The Studio mixes the model's own audio; narration and score are added by the local assembler (`assemble_local`) with ducking.
+- **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The model renders the first two with the picture; the Studio's assembler adds the music (ducked under the clips and the narration), the narration lines and the silences, and lands the mix on −14 LUFS.
 - **At least two real silences** before the turn or the peak; the first sound after a silence is one of the most important in the film.
-- **Use sound as a transition** at least twice: a J-cut (next clip's audio leads) or an L-cut (this clip's audio trails) on the extended timeline.
+- **Use sound as a transition** at least twice: a J-cut (`audioLeadS`: the next clip's sound leads its picture) or an L-cut (`audioTrailS`: this clip's sound runs on) on the timeline. The sound is the take's own outside the clip's in and out points, so trim the picture to leave it there.
 - **Score in the style's instruments**; "piano and strings" is a warning.
 
 ## 7. Rhythm: the music grid comes first
@@ -116,6 +116,6 @@ Then the frames: write what the first and last frame show (`frames`), get it rev
 
 ## 11. Assemble and deliver
 
-- `auto_timeline`, then the extended timeline (`check_timeline`): J/L cuts, fades, title cards, narration, music with ducking, silences, subtitles. `to_studio_timeline` keeps the Studio project valid; `assemble_local` renders the full version from the exported takes.
+- `auto_timeline`, then finish the timeline: transitions, J/L cuts, freezes, title cards and captions (the only text in the film), narration, music, silences, fades. `check_timeline` checks it in the director's shape and hands back what `save_timeline` takes; the Studio's assembler renders all of it. After `export_project`, `get_export` lists what was measured on the file and the findings nothing on the timeline explains; fix them before the film review. `assemble_local` renders the same timeline from take files on disk, for work away from the Studio.
 - Before delivery a stranger watches it (`review_packet` stage film): the story it understood, what it did not, then shot by shot — repeated actions, prop counts, continuity, jumps and colour breaks at cuts (the export's cut sheet shows 3 frames each side), faces and hands — and what it could not check.
 - Deliver: the film, the `.srt` when there is narration, `TREATMENT.md` in the script, `get_retro` (what went wrong, which wording fixed it, which fragile pictures to avoid next time), and one line to the user on what was left for a second round.

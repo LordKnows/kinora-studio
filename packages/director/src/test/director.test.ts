@@ -152,28 +152,47 @@ test("extended timeline: studio projection, totals, checks and ffmpeg graph", ()
   const t: ExtTimeline = {
     clips: [
       { shotId: "s1", takeId: "t1", outS: 10, file: "a.mp4" },
-      { shotId: "s2", takeId: "t2", outS: 5, file: "b.mp4", transition: "iris", transitionS: 0.5, audioLeadS: 1 },
+      { shotId: "s2", takeId: "t2", inS: 1.2, outS: 5, file: "b.mp4", transition: "iris", transitionS: 0.5, audioLeadS: 1, freezeS: 0 },
       { shotId: "s3", takeId: "t3", outS: 15, file: "c.mp4", transition: "dissolve", transitionS: 0.4, audioTrailS: 0.8, repeat: 1 },
     ],
     titles: [{ text: "Meanwhile", t: 10, durationS: 3, kind: "card" }, { text: "1927", t: 2, durationS: 2, kind: "caption" }],
     music: { file: "m.mp3", gainDb: -12, fadeOutS: 2 },
-    narration: [{ file: "n1.mp3", t: 1 }],
+    narration: [{ file: "n1.mp3", t: 1 }, { file: "n2.mp3", assetId: "ast_voice", t: 12, gainDb: -2 }],
     silences: [{ t: 9, durationS: 1 }, { t: 20, durationS: 1 }],
     fadeOutS: 1,
+    lufs: -16,
   };
+  // the Studio's assembler draws and mixes nearly all of it now
   const { timeline, dropped } = toStudioTimeline(t);
-  assert.equal(timeline.clips[1].transition, "cut");
+  assert.equal(timeline.clips[1].transition, "iris");
+  assert.equal(timeline.clips[1].audioLeadS, 1);
   assert.equal(timeline.clips[2].transition, "dissolve");
   assert.equal(timeline.clips[2].transitionS, 0.4);
-  assert.ok(dropped.some((d) => d.code === "studio.transition"));
-  assert.ok(Math.abs(totalSeconds(t) - (10 + 5 + 15 - 0.5 - 0.4)) < 1e-9);
-  assert.ok(!checkTimeline(t).some((w) => w.severity === "error"));
+  assert.equal(timeline.clips[2].audioTrailS, 0.8);
+  assert.deepEqual(timeline.titles, [{ text: "Meanwhile", atS: 10, durationS: 3, kind: "card" }, { text: "1927", atS: 2, durationS: 2, kind: "caption" }]);
+  assert.deepEqual(timeline.narration, [{ assetId: "ast_voice", atS: 12, gainDb: -2 }]);
+  assert.deepEqual(timeline.silences, [{ atS: 9, durationS: 1 }, { atS: 20, durationS: 1 }]);
+  assert.equal(timeline.fadeOutS, 1);
+  assert.equal(timeline.loudnessLufs, -16);
+  // what cannot go along is said: the narration line that is only a file
+  assert.deepEqual(dropped.map((d) => d.code), ["studio.narration"]);
+  const flash = toStudioTimeline({ clips: [{ shotId: "a", takeId: "a", outS: 5 }, { shotId: "b", takeId: "b", outS: 5, transition: "flash_white", transitionS: 0.8 }] });
+  assert.equal(flash.timeline.clips[1].transition, "fade_white");
+  assert.equal(flash.timeline.clips[1].transitionS, 0.3);
+  assert.ok(Math.abs(totalSeconds(t) - (10 + 3.8 + 15 - 0.5 - 0.4)) < 1e-9);
+  assert.ok(!checkTimeline(t).some((w) => w.severity === "error" || w.code === "clip.jl.lead"));
   const cmd = buildCommand(t, { out: "/tmp/x.mp4", dryRun: true });
   assert.match(cmd.filterGraph, /xfade=transition=circleopen/);
   assert.match(cmd.filterGraph, /xfade=transition=fade:duration=0.4/);
   assert.match(cmd.filterGraph, /adelay=8500\|8500/); // s2 starts at 9.5 (iris overlap), audio leads by 1 s
+  assert.match(cmd.filterGraph, /\[1:a\]atrim=start=0\.2:end=5,/); // and that second is the take's own sound before inS
+  // a clip that starts on its take's first frame has nothing to lead with: said, and the sound stays put
+  const none: ExtTimeline = { clips: [{ shotId: "s1", takeId: "t1", outS: 10, file: "a.mp4" }, { shotId: "s2", takeId: "t2", outS: 5, file: "b.mp4", audioLeadS: 1 }] };
+  assert.ok(checkTimeline(none).some((w) => w.code === "clip.jl.lead"));
+  const flat = buildCommand(none, { out: "/tmp/y.mp4", dryRun: true });
+  assert.match(flat.filterGraph, /\[1:a\]atrim=start=0:end=5,.*adelay=10000\|10000/);
   assert.match(cmd.filterGraph, /drawbox=.*Meanwhile|Meanwhile/);
-  assert.match(cmd.filterGraph, /loudnorm=I=-14/);
+  assert.match(cmd.filterGraph, /loudnorm=I=-16/);
   assert.ok(cmd.args.includes("-filter_complex"));
 });
 

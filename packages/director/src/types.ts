@@ -119,16 +119,36 @@ export interface StudioClip {
   inS?: number;
   outS: number;
   repeat?: number;
-  transition?: "cut" | "dissolve";
+  transition?: "cut" | "dissolve" | "fade_black" | "fade_white" | "iris" | "wipe";
   transitionS?: number;
   speed?: number;
   muteOwnAudio?: boolean;
+  audioLeadS?: number;
+  audioTrailS?: number;
+  freezeS?: number;
+}
+
+export interface StudioTitle {
+  text: string;
+  atS: number;
+  durationS: number;
+  kind: "card" | "overlay" | "caption";
+  position?: "center" | "top" | "bottom" | "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  color?: string;
+  background?: string;
+  size?: number;
 }
 
 export interface StudioTimeline {
   clips: StudioClip[];
   music?: string;
   mix?: { dialogueDb?: number; musicDb?: number; sfxDb?: number };
+  fadeInS?: number;
+  fadeOutS?: number;
+  titles?: StudioTitle[];
+  narration?: { assetId: string; atS: number; gainDb?: number }[];
+  silences?: { atS: number; durationS: number }[];
+  loudnessLufs?: number | null;
 }
 
 export interface Warning {

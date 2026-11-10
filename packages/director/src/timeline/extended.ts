@@ -2,11 +2,12 @@ import type { StudioTimeline, StudioClip, Warning } from "../types.js";
 import type { LocalTransition } from "../catalog.js";
 
 /**
- * The extended timeline: everything the Studio's `save_timeline` takes, plus
- * what its assembler cannot do yet (J/L cuts, fades, titles, a narration track,
- * ducking). `toStudioTimeline` strips it to the Studio shape so the project
- * stays valid; `assemble()` renders the full thing locally with ffmpeg from the
- * exported take files.
+ * The extended timeline, in the director's own words. The Studio's
+ * `save_timeline` now takes nearly all of it (transitions, J/L cuts, freezes,
+ * titles, narration by asset, silences, fades, a loudness target), and
+ * `toStudioTimeline` translates. What stays local: a clip's own gain, a title's
+ * free x/y and font, narration from a file that is not a Studio asset.
+ * `assemble()` renders the same timeline with ffmpeg from take files on disk.
  */
 export interface ExtClip extends Omit<StudioClip, "transition"> {
   /** Local file of the take (downloaded from the asset URL) for local assembly. */
@@ -45,7 +46,10 @@ export interface TitleCard {
 }
 
 export interface NarrationLine {
-  file: string;
+  /** A file on disk, for the local assembly. */
+  file?: string;
+  /** A Studio audio asset, for `save_timeline`. */
+  assetId?: string;
   t: number;
   gainDb?: number;
 }
@@ -71,21 +75,41 @@ export interface ExtTimeline {
   lufs?: number;
 }
 
-/** Strip to what `save_timeline` accepts. */
+const STUDIO_COLOR = /^[A-Za-z0-9#@.]{1,32}$/;
+
+/** Translate to what `save_timeline` accepts, and say what could not go along. */
 export function toStudioTimeline(t: ExtTimeline): { timeline: StudioTimeline; dropped: Warning[] } {
   const dropped: Warning[] = [];
   const clips: StudioClip[] = t.clips.map((c, i) => {
-    const tr: "cut" | "dissolve" = c.transition === "dissolve" ? "dissolve" : "cut";
-    if (c.transition && c.transition !== "cut" && c.transition !== "dissolve") dropped.push({ code: "studio.transition", severity: "info", shot: i, message: `transition ${c.transition} kept for the local assembler; the Studio gets a cut` });
-    if (c.audioLeadS || c.audioTrailS) dropped.push({ code: "studio.jl", severity: "info", shot: i, message: "J/L cut only in the local assembler" });
+    /* The Studio has no flash of its own: a flash is a short fade through white. */
+    const flash = c.transition === "flash_white";
+    const tr: NonNullable<StudioClip["transition"]> = !c.transition ? "cut" : c.transition === "flash_white" ? "fade_white" : c.transition;
     const clip: StudioClip = { shotId: c.shotId, takeId: c.takeId, inS: c.inS ?? 0, outS: c.outS, repeat: c.repeat ?? 1, transition: tr, ...(c.speed && c.speed !== 1 ? { speed: c.speed } : {}), ...(c.muteOwnAudio ? { muteOwnAudio: true } : {}) };
-    if (tr === "dissolve") clip.transitionS = Math.min(1, Math.max(0.2, c.transitionS ?? 0.5));
+    if (tr !== "cut") clip.transitionS = Math.min(1, Math.max(0.2, flash ? Math.min(c.transitionS ?? 0.2, 0.3) : c.transitionS ?? 0.5));
+    if (c.audioLeadS && i > 0) clip.audioLeadS = Math.min(2, c.audioLeadS);
+    if (c.audioTrailS) clip.audioTrailS = Math.min(2, c.audioTrailS);
+    if (c.freezeS) clip.freezeS = Math.min(10, c.freezeS);
+    if (c.gainDb) dropped.push({ code: "studio.gain", severity: "info", shot: i, message: "a clip's own gain is not on the Studio timeline; use the mix or muteOwnAudio" });
     return clip;
   });
-  if (t.titles?.length) dropped.push({ code: "studio.titles", severity: "info", message: `${t.titles.length} title(s) only in the local assembler` });
-  if (t.narration?.length) dropped.push({ code: "studio.narration", severity: "info", message: "narration track only in the local assembler" });
   const timeline: StudioTimeline = { clips, mix: t.mix ?? { dialogueDb: 0, musicDb: -12, sfxDb: -3 } };
   if (t.music?.assetId) timeline.music = t.music.assetId;
+  if (t.fadeInS) timeline.fadeInS = Math.min(5, t.fadeInS);
+  if (t.fadeOutS) timeline.fadeOutS = Math.min(5, t.fadeOutS);
+  if (t.titles?.length) {
+    timeline.titles = t.titles.map((x) => {
+      if (x.x || x.y || x.font) dropped.push({ code: "studio.title.place", severity: "info", message: `title "${x.text.slice(0, 30)}": free x/y and font stay local; the Studio places it by kind` });
+      const ok = (c?: string) => (c && STUDIO_COLOR.test(c) ? c : undefined);
+      return { text: x.text, atS: x.t, durationS: x.durationS, kind: x.kind, ...(ok(x.color) ? { color: x.color } : {}), ...(ok(x.background) ? { background: x.background } : {}), ...(x.fontSize ? { size: Math.round(x.fontSize) } : {}) };
+    });
+  }
+  const spoken = (t.narration ?? []).filter((n) => n.assetId);
+  if (spoken.length) timeline.narration = spoken.map((n) => ({ assetId: n.assetId!, atS: n.t, ...(n.gainDb !== undefined ? { gainDb: n.gainDb } : {}) }));
+  const local = (t.narration ?? []).length - spoken.length;
+  if (local) dropped.push({ code: "studio.narration", severity: "warn", message: `${local} narration line(s) are files, not Studio assets: upload them (or make them with speak) and give their assetId` });
+  if (t.silences?.length) timeline.silences = t.silences.map((x) => ({ atS: x.t, durationS: x.durationS }));
+  if (t.lufs !== undefined) timeline.loudnessLufs = t.lufs;
+  if (t.subtitles) dropped.push({ code: "studio.subtitles", severity: "info", message: "the Studio writes its own SRT from the dialogue; burn it in with export_project burnInSubtitles" });
   return { timeline, dropped };
 }
 
@@ -119,6 +143,10 @@ export function checkTimeline(t: ExtTimeline): Warning[] {
     else if (c.speed !== undefined && (c.speed < 0.8 || c.speed > 1.25)) W.push({ code: "clip.speed.visible", severity: "info", shot: i, message: `speed ${c.speed}: beyond 0.8–1.25 the retime shows` });
     if ((c.audioLeadS ?? 0) > 2 || (c.audioTrailS ?? 0) > 2) W.push({ code: "clip.jl", severity: "warn", shot: i, message: "J/L cuts over 2 s read as a mistake" });
     if (i === 0 && c.audioLeadS) W.push({ code: "clip.jl.first", severity: "warn", shot: 0, message: "the first clip cannot lead its audio" });
+    /* The lead is the take's own sound before inS: a clip that starts at its take's first frame has none. */
+    if (i > 0 && c.audioLeadS && c.audioLeadS * (c.speed ?? 1) > (c.inS ?? 0) + 1e-6) W.push({ code: "clip.jl.lead", severity: "warn", shot: i, message: `audioLeadS ${c.audioLeadS} needs ${+(c.audioLeadS * (c.speed ?? 1)).toFixed(2)} s of take before inS, and inS is ${c.inS ?? 0}: trim the head of the picture (raise inS) or shorten the lead` });
+    if (c.audioTrailS && c.outS + c.audioTrailS * (c.speed ?? 1) > 15.2) W.push({ code: "clip.jl.trail", severity: "warn", shot: i, message: `audioTrailS ${c.audioTrailS} runs past the longest take; the trail is the take's own sound after outS` });
+    if (c.freezeS && (c.repeat ?? 1) > 1) W.push({ code: "clip.freeze.loop", severity: "info", shot: i, message: "a looped clip freezes once, after its last repeat" });
     if (c.transition === "dissolve" && i === 0) W.push({ code: "clip.dissolve.first", severity: "warn", shot: 0, message: "a dissolve on the first clip is a fade; use fadeInS" });
   });
   const total = totalSeconds(t);

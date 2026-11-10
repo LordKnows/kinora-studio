@@ -283,6 +283,14 @@ fi
 # is started; PAINTER_ON_POD=0 turns this off. paint.py needs Pillow.
 python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; the pod cannot draw pictures"
 
+# Titles and burned subtitles are mostly Chinese; without a CJK font the
+# assembler draws boxes (and says so in the export's warnings). Fetched in the
+# background so the pod is not kept waiting. FONTS_INSTALL=0 skips.
+if [ "${FONTS_INSTALL:-1}" != "0" ] && ! fc-list 2>/dev/null | grep -qiE "cjk|wqy"; then
+  (apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends fonts-noto-cjk fontconfig) > /app/fonts_install.log 2>&1 \
+    || echo "[start] CJK font install failed; Chinese titles and burned subtitles may show as boxes (see /app/fonts_install.log)" &
+fi
+
 # The Codex CLI draws with the user's ChatGPT plan (image_gen). The binaries
 # and the login live on the network volume ($VOLUME_PATH, the same place the
 # models come from), so the device-code login is done once and a refreshed

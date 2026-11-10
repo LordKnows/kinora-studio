@@ -29,9 +29,14 @@ export const EDIT_GRAMMAR: Array<{
 ];
 
 export const TIMELINE_ONLY = [
-  "Dissolve / cross-fade: set `transition: dissolve` on the clip in the timeline; do not ask the model for it.",
-  "J-cut / L-cut (audio leads or trails the picture): not available yet — the assembler keeps each clip's own audio. TODO.",
-  "Fade to black, titles: TODO in the assembler.",
+  "Transitions are drawn by the assembler, never asked of the model: set `transition` on the clip that comes in — `dissolve`, `fade_black` (through black), `fade_white` (through white; a flash at 0.2 s), `iris`, `wipe` — with `transitionS` 0.2–1.",
+  "J-cut / L-cut: `audioLeadS` lets a clip's sound start before its picture, `audioTrailS` lets it run on after. The sound comes from the take outside the clip's in and out points, so leave that much there (a J-cut of 0.5 s needs `inS` ≥ 0.5); the export says when the take had less. Use sound as a transition at least twice in a film.",
+  "Fades: `fadeInS` / `fadeOutS` on the timeline fade the whole film, picture and sound, from and to black.",
+  "Titles: the model draws no text. `titles` on the timeline puts it there — `card` covers the picture (an intertitle, a main title; give it room with `freezeS` on the clip before), `overlay` sits on the picture, `caption` is small at the bottom. A card holds 3 s or more.",
+  "Freeze: `freezeS` on a clip holds its last frame, in silence.",
+  "Narration: `narration` lays audio assets (off-screen and inner lines from `speak`, a recording) at their times; the music ducks under them.",
+  "Silence: `silences` takes the whole mix out for a stretch. Put one before the turn and one before the peak.",
+  "Loudness: the export lands on -14 LUFS unless `loudnessLufs` says otherwise (`null` leaves the mix alone). After an export, `get_export` lists what the assembler measured on the file: loudness, black picture and missing sound the timeline does not explain.",
 ];
 
 export function grammarFor(type: LinkType) {
