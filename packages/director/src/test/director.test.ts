@@ -10,6 +10,7 @@ import { checkTimeline, toStudioTimeline, totalSeconds, type ExtTimeline } from 
 import { buildCommand } from "../timeline/assemble.js";
 import { readingTimeS, checkLines, placeLines, toSrt, spellNumbersForSpeech } from "../narration/srt.js";
 import { planBatch, fallbackEstimateUsd } from "../batch.js";
+import { effectiveSeconds, h3Frames } from "../catalog.js";
 import type { Shotlist } from "../types.js";
 
 test("every library style parses and renders markdown with 11 sections", () => {
@@ -221,8 +222,10 @@ test("length rules: long action shots warn, holds and continuous chains count as
 });
 
 test("batch estimates: compile_prompt values win, fallback curve otherwise", () => {
-  assert.equal(fallbackEstimateUsd(10, 0.01), 0.1);
-  assert.equal(fallbackEstimateUsd(12, 0.01), 0.48);
+  // linear in the rendered length: 243 frames for 10 s, 294 for 12 s
+  assert.ok(Math.abs(fallbackEstimateUsd(10, 0.01) - (243 / 24) * 0.01) < 1e-12);
+  assert.ok(Math.abs(fallbackEstimateUsd(12, 0.01) - (294 / 24) * 0.01) < 1e-12);
+  assert.ok(fallbackEstimateUsd(12, 0.01) / fallbackEstimateUsd(10, 0.01) < 1.25);
   const plan = planBatch([
     { shotId: "a", index: 0, durationS: 10, mode: "text", link: { type: "cut" }, estimateUsd: 0.105 },
     { shotId: "b", index: 1, durationS: 12, mode: "text", link: { type: "cut" } },
@@ -230,7 +233,8 @@ test("batch estimates: compile_prompt values win, fallback curve otherwise", () 
   assert.equal(plan.estimates[0].source, "compile_prompt");
   assert.equal(plan.estimates[1].source, "fallback");
   assert.equal(plan.warnings.length, 1);
-  assert.ok(Math.abs(plan.totalEstimateUsd - 0.585) < 1e-9);
+  assert.ok(Math.abs(plan.estimates[1].usd - 0.1225) <= 0.0006);
+  assert.ok(Math.abs(plan.totalEstimateUsd - (0.105 + plan.estimates[1].usd)) < 1e-9);
 });
 
 test("craft lint: dead frame, axis across the cut, unison reactions", () => {
@@ -257,4 +261,22 @@ test("local assembly: speed shortens the clip, BT.601 sources convert to tagged 
 test("treatment markdown fills schema defaults for a minimal valid treatment", () => {
   const md = treatmentToMarkdown({ title: "T", style: "s", totalSeconds: 10, logline: "a logline long enough", arc: { setup: "setup", turn: "turnn", ending: "endin" }, candidates: [], chosen: "", whyChosen: "", benchmark: [], hook: { description: "hook!", atSecond: 1 }, endingEcho: "", signatureShot: "", nativeMove: "", sequences: [], soundDesign: [] } as never);
   assert.match(md, /# T/);
+});
+
+test("frame grid: 17k+5 frames at 24 fps, nearest, clamped to 124–362", () => {
+  const frames: Record<number, number> = { 5: 124, 6: 141, 7: 175, 8: 192, 9: 209, 10: 243, 11: 260, 12: 294, 13: 311, 14: 328, 15: 362 };
+  for (const [s, f] of Object.entries(frames)) {
+    assert.equal(h3Frames(Number(s)), f, `${s} s`);
+    assert.equal((h3Frames(Number(s)) - 5) % 17, 0);
+    assert.equal(effectiveSeconds(Number(s)), f / 24);
+  }
+  assert.equal(h3Frames(1), 124);
+  assert.equal(h3Frames(60), 362);
+  // a take can be shorter than the shot asks: the cue map must not cut past it
+  assert.ok(effectiveSeconds(6) < 6 && effectiveSeconds(9) < 9 && effectiveSeconds(14) < 14);
+  const map: CueMap = { sections: [{ id: "a", t: 0, bpm: 60 }], hits: [] };
+  for (const d of [6, 9, 11, 13, 14]) {
+    const [cut] = cutOnBeats(map, [{ durationS: d }], { subdivision: 4 });
+    assert.ok(cut.outS <= effectiveSeconds(d) + 1e-9, `${d} s cut at ${cut.outS}`);
+  }
 });

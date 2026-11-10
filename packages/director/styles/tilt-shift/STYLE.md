@@ -48,7 +48,7 @@
 - Cloud shadows sweep the model.
 - Stepping: on twos (ask for stepped motion in the beats; the camera stays smooth).
 - Never moves: the blur band's softness.
-- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period. A default from cost, not a measured limit.
 
 ## 6. Camera grammar
 

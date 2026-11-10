@@ -1,3 +1,4 @@
+import { h3Frames } from "@director/catalog";
 import { promptConstraints } from "@director/lint/constraints";
 
 import { renderCinematography } from "./cinematography";
@@ -52,11 +53,10 @@ const H3_MODEL = findModel("minimax-h3") as ModelEntry;
 export type CompiledJob = { workflow: Workflow; prompt: string; input: WorkerInput; warnings: string[]; effectiveSeconds: number; params: InferenceParams; paramSources: string[] };
 
 /* H3 renders 17k+5 frames at 24 fps (handoff): 5 s → 124 frames (5.17 s),
-   10 s → 243 (10.1 s), 15 s → 362 (15.1 s). The worker does the same rounding. */
-export function h3Frames(seconds: number): number {
-  const k = Math.max(0, Math.round((seconds * 24 - 5) / 17));
-  return Math.max(124, Math.min(362, 17 * k + 5));
-}
+   10 s → 243 (10.1 s), 15 s → 362 (15.1 s). The worker does the same rounding.
+   One formula, in the director package, so the cue map and the batch planner
+   count the same frames as the compiler. */
+export { h3Frames };
 export function h3EffectiveSeconds(seconds: number): number {
   return Math.round((h3Frames(seconds) / 24) * 100) / 100;
 }

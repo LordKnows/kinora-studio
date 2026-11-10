@@ -78,12 +78,22 @@ export const LOCAL_TRANSITIONS = ["cut", "dissolve", "fade_black", "fade_white",
 export type LocalTransition = (typeof LOCAL_TRANSITIONS)[number];
 
 /**
- * Duration snapping on the H3 frame grid. `compile_prompt` reports the exact
- * `effectiveSeconds`; these are the values measured so far (5 → 5.2, 10 → 10.13,
- * 12 → 12.25, 15 → 15.1). Other lengths fall back to the requested seconds, a
- * lower bound that keeps `cutOnBeats` safe.
+ * The H3 frame grid. The node takes a frame count of the form 17k+5 at 24 fps,
+ * 124 to 362 frames, and the worker rounds a shot's seconds to the nearest
+ * one. So a take is not exactly as long as the shot asks: 5 s → 124 frames
+ * (5.17 s), 6 s → 141 (5.88 s), 10 s → 243 (10.13 s), 15 s → 362 (15.08 s).
+ * This is the Studio compiler's formula; the compiler imports it from here.
  */
-const MEASURED_GRID: Record<number, number> = { 5: 5.2, 10: 10.13, 12: 12.25, 15: 15.1 };
+export const H3_FPS = 24;
+export const H3_FRAME_MIN = 124;
+export const H3_FRAME_MAX = 362;
+
+export function h3Frames(seconds: number): number {
+  const k = Math.max(0, Math.round((seconds * H3_FPS - 5) / 17));
+  return Math.max(H3_FRAME_MIN, Math.min(H3_FRAME_MAX, 17 * k + 5));
+}
+
+/** The exact length of the take H3 renders for a shot of `durationS` seconds. */
 export function effectiveSeconds(durationS: number): number {
-  return MEASURED_GRID[durationS] ?? durationS;
+  return h3Frames(durationS) / H3_FPS;
 }

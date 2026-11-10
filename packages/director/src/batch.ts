@@ -1,4 +1,4 @@
-import { baseModelFor, type LinkType, type ShotMode } from "./catalog.js";
+import { baseModelFor, effectiveSeconds, type LinkType, type ShotMode } from "./catalog.js";
 
 /**
  * Batch planning: order renders by base model (R2VA first, then the fl2va
@@ -20,13 +20,13 @@ export interface BatchShot {
 }
 
 /**
- * Rough cost when `compile_prompt` has not been called: measured on the
- * self-hosted H3, a 10 s take cost about 32 GPU-seconds per output second and
- * a 12 s take about 121, so the per-second price roughly quadruples above 10 s.
+ * Rough cost when `compile_prompt` has not been called. The Studio's cost
+ * model is linear: GPU-seconds per output second (an average per GPU type,
+ * from finished takes) times the pod's price, times the length H3 really
+ * renders on its frame grid. There is no length surcharge.
  */
 export function fallbackEstimateUsd(durationS: number, perSecondUsd: number): number {
-  const factor = durationS > 10 ? 4 : 1;
-  return durationS * perSecondUsd * factor;
+  return effectiveSeconds(durationS) * perSecondUsd;
 }
 
 export interface BatchPlan {
@@ -89,6 +89,6 @@ export function planBatch(shots: BatchShot[], budget: { capUsd: number; spentUsd
   const remaining = budget.capUsd - budget.spentUsd;
   const fallbacks = estimates.filter((e) => e.source === "fallback").length;
   const warnings: string[] = [];
-  if (fallbacks) warnings.push(`${fallbacks} shot(s) estimated by the fallback curve; pass estimateUsd from compile_prompt for a real number before confirming`);
+  if (fallbacks) warnings.push(`${fallbacks} shot(s) estimated from the per-second average; pass estimateUsd from compile_prompt for the compiler's own number before confirming`);
   return { groups, deferred, order, totalEstimateUsd: +total.toFixed(3), withinCap: total <= remaining, remainingCapUsd: +remaining.toFixed(3), passes, estimates, warnings };
 }
