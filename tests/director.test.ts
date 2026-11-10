@@ -152,7 +152,7 @@ describe("lightx2v structured prompt and loops", () => {
   it("serialises the sections the way the handoff prompts are written", async () => {
     const { compileShot } = await import("@/studio/compiler");
     const base = { id: "s", projectId: "p", sceneId: "c", index: 0, createdAt: 0, updatedAt: 0 };
-    const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["no logos"], loras: [] };
+    const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["no logos"], loras: [], dialogueLanguage: "en" };
     const assets = new Map([
       ["h", { id: "h", projectId: "p", url: "https://r2/h.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
       ["e", { id: "e", projectId: "p", url: "https://r2/e.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
@@ -161,14 +161,14 @@ describe("lightx2v structured prompt and loops", () => {
     const elements = new Map([["mara", { id: "mara", projectId: "p", kind: "character" as const, name: "Mara", description: "silver crop, charcoal coat", refAssetIds: ["m"], createdAt: 0, updatedAt: 0 }]]);
 
     const fl = compileShot({
-      shot: { ...base, spec: shot({ mode: "keyframe", dialogue: [{ speaker: "mara", text: "Not tonight.", language: "en", delivery: "breathless" }], sound: { sfx: ["rain"], ambience: "wet street", music: "N/A" } }), heroAssetId: "h", endAssetId: "e" },
+      shot: { ...base, spec: shot({ mode: "keyframe", dialogue: [{ speaker: "mara", text: "Not tonight.", language: "en", delivery: "breathless", kind: "onscreen" }], sound: { sfx: ["rain"], ambience: "wet street", music: "N/A" } }), heroAssetId: "h", endAssetId: "e" },
       look, elements, assets, format: "lightx2v-lines",
     });
     expect(fl.workflow).toBe("FL2VA");
     const paragraphs = fl.prompt.split("\n\n");
     expect(paragraphs[0]).toBe("integrated_multimodal_description: For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced, and the target video ends on <Picture 2>.");
     expect(paragraphs[1]).toMatch(/^\[Shot 1\] neo-noir\. teal and amber\. One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>\. Mara crosses the lobby\./);
-    expect(paragraphs[1]).toContain('Dialogue — Mara (en, breathless): "Not tonight."');
+    expect(paragraphs[1]).toContain('Mara (S1) says (breathless): <d>[English] Not tonight.</d>');
     expect(paragraphs[1]).toContain("no logos");
     expect(paragraphs[2]).toBe("overall_soundscape: rain. wet street.");
     expect(paragraphs[3]).toBe("non_diegetic_music: N/A");

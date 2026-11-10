@@ -1,5 +1,5 @@
 {
-  "_comment": "Node ids follow the handoff (HANDOFF.md \u00a71): every value lives on the same id in all four graphs. length is in frames (17k+5 at 24 fps); the handler converts seconds. H3 has no negative input. LoRA slot = node 7 (LoraLoaderModelOnly). reference_images lists the LoadImage nodes wired to 104.ref_images.ref_image_N. reference_extra lets the handler clone a LoadImage slot for references beyond the template's two. sampling (sampler/scheduler/shift) lets a job swap the turbo chain (euler/simple, shift 6/3, 8 steps) for the base chain (res_multistep, simple or beta, no shift, 20 steps) when no speed LoRA is used.",
+  "_comment": "Node ids follow the handoff (HANDOFF.md §1): every value lives on the same id in all four graphs. length is in frames (17k+5 at 24 fps); the handler converts seconds. H3 has no negative input. LoRA slot = node 7 (LoraLoaderModelOnly). reference_images lists the LoadImage nodes wired to 104.ref_images.ref_image_N. reference_extra lets the handler clone a LoadImage slot for references beyond the template's two. sampling (sampler/scheduler/shift) lets a job swap the turbo chain (euler/simple, shift 6/3, 8 steps) for the base chain (res_multistep, simple or beta, no shift, 20 steps) when no speed LoRA is used.",
   "T2VA": {
     "template": "T2VA",
     "prompt": [
@@ -104,6 +104,68 @@
       "video": "shift_video",
       "audio": "shift_audio"
     }
+  },
+  "I2VA_GUIDE": {
+    "template": "I2VA_GUIDE",
+    "prompt": [
+      "104",
+      "prompt"
+    ],
+    "negative": null,
+    "length": [
+      "104",
+      "length"
+    ],
+    "width": [
+      "104",
+      "width"
+    ],
+    "height": [
+      "104",
+      "height"
+    ],
+    "steps": [
+      "9",
+      "steps"
+    ],
+    "seed": [
+      "15",
+      "noise_seed"
+    ],
+    "first_frame": [
+      "200",
+      "image"
+    ],
+    "loras": [
+      {
+        "node": "7",
+        "name": "lora_name",
+        "strength": "strength_model"
+      }
+    ],
+    "output_node": "92",
+    "timeout_s": 1800,
+    "sampler": [
+      "17",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "9",
+      "scheduler"
+    ],
+    "shift": {
+      "node": "8",
+      "video": "shift_video",
+      "audio": "shift_audio"
+    },
+    "guide_audio": [
+      "210",
+      "audio"
+    ],
+    "guide_frame": [
+      "211",
+      "frame_idx"
+    ]
   },
   "FL2VA": {
     "template": "FL2VA",
@@ -227,6 +289,11 @@
       "node": "8",
       "video": "shift_video",
       "audio": "shift_audio"
+    },
+    "reference_audio": {
+      "target_node": "104",
+      "input_pattern": "ref_audios.ref_audio_{i}",
+      "max": 3
     }
   },
   "REGEN": {

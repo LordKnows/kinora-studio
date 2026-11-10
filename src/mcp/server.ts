@@ -26,7 +26,7 @@ import { nameOfUploadKey, presignPut, objectExists, publicUrl, uploadKey } from 
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import {
-  ElementInput, ExportRequest, LookSettings, LoraInput, PresignRequest, ProjectInput, PromptExperiments, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
+  ElementInput, ExportRequest, VoiceCardInput, LookSettings, LoraInput, PresignRequest, ProjectInput, PromptExperiments, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -216,7 +216,20 @@ export function createStudioServer(actor: Actor): McpServer {
     return { elements: elements.map((e) => ({ ...e, refs: e.refAssetIds.map((a) => assets.get(a)).filter(Boolean) })) };
   });
   tool("create_element", "Create a character, location or prop with a concrete visual description.", z.object({ projectId: id }).extend(ElementInput.shape), async ({ projectId, ...input }) => ({ element: await repo.createElement(projectId, input) }));
-  tool("update_element", "Patch an element's name, kind or description.", z.object({ elementId: id }).extend(ElementInput.partial().shape), async ({ elementId, ...patch }) => ({ element: await repo.updateElement(elementId, patch) }));
+  tool("update_element", "Patch an element's name, kind, description, fixed features or voice card.", z.object({ elementId: id }).extend(ElementInput.partial().shape), async ({ elementId, ...patch }) => ({ element: await repo.updateElement(elementId, patch) }));
+  tool("list_voice_cards", "Voice cards: the project's own and the global library's (shared by every project). A card is a character's voice as states (本声·18, 嘶哑, an older self), each with an English description that goes verbatim into the prompt and reference audio for R2VA and the voice conversion.", z.object({ projectId: id.optional().describe("Leave out for the global library alone"), includeLibrary: z.boolean().default(true) }), async ({ projectId, includeLibrary }) => {
+    const cards = await repo.listVoiceCards(projectId ?? null, includeLibrary);
+    const audio = await repo.getAssets(cards.flatMap((c) => c.states.flatMap((st) => st.refAssetIds)));
+    return { voiceCards: cards.map((c) => ({ ...c, states: c.states.map((st) => ({ ...st, refs: st.refAssetIds.map((a) => audio.get(a)).filter(Boolean) })) })) };
+  });
+  tool("get_voice_card", "One voice card with its reference audio and the elements (in any project) that speak with it.", z.object({ voiceCardId: id }), async ({ voiceCardId }) => {
+    const card = await repo.getVoiceCard(voiceCardId);
+    const audio = await repo.getAssets(card.states.flatMap((st) => st.refAssetIds));
+    const usedBy = (await repo.elementsUsingVoiceCard(voiceCardId)).map((e) => ({ id: e.id, name: e.name, projectId: e.projectId, voiceState: e.voiceState }));
+    return { voiceCard: { ...card, states: card.states.map((st) => ({ ...st, refs: st.refAssetIds.map((a) => audio.get(a)).filter(Boolean) })) }, usedBy };
+  });
+  tool("create_voice_card", "Create a voice card. Leave projectId out to put it in the global library, where every project can use it; then point a character at it with update_element (voiceCardId, voiceState). Reference audio must be the user's to use: synthetic (voice design), a licensed library, or a consenting performer — never a cloned real person without consent. Record which in source.", z.object({ projectId: id.optional().describe("Leave out for the global library") }).extend(VoiceCardInput.shape), async ({ projectId, ...input }) => ({ voiceCard: await repo.createVoiceCard(projectId ?? null, input) }));
+  tool("update_voice_card", "Patch a voice card: name, states (whole list), default state, source, notes, status (draft → auditioning → locked). projectId null moves it into the global library. Every element that uses the card sees the change.", z.object({ voiceCardId: id, projectId: id.nullable().optional() }).extend(VoiceCardInput.partial().shape), async ({ voiceCardId, ...patch }) => ({ voiceCard: await repo.updateVoiceCard(voiceCardId, patch) }));
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
   tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Every picture has a handle (IMG-12, per project) and a name: use the handle when you talk with the user about a picture, and either the id or the handle in the picture tools (select_element_refs / select_hero_frame / select_end_frame / edit_frame / view_frames / review_packet). rename_picture names one; delete_pictures removes unused ones. With image generation on (image_status) draw them with generate_element_sheet / generate_shot_frame / edit_frame; otherwise the user uploads them, or import_image brings in what your own tools drew.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
   tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary) and, optionally, which view each shows (front, three_quarter, side, back, full_body, expression, detail). Tagged views let R2VA pick the reference that matches the shot's angle and size.", z.object({ elementId: id, assetIds: z.array(id).max(6), views: z.record(z.string(), z.enum(REF_VIEWS)).optional().describe("asset id → view") }), async ({ elementId, assetIds, views }) => {

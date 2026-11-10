@@ -4,7 +4,7 @@ import { grammarFor } from "./editing";
 import { config } from "./config";
 import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate, estimateUpscale } from "./cost";
 import * as director from "@/director";
-import { autopilotCovers, consumeAutopilot, identicalTakes, renderHash, reviewState } from "./craft-core";
+import { audioInputs, autopilotCovers, consumeAutopilot, identicalTakes, renderHash, reviewState } from "./craft-core";
 import { paletteContrastWarnings } from "./sketch";
 
 import { StudioError } from "./errors";
@@ -179,10 +179,17 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
   const project = await repo.getProject(shot.projectId);
   const scene = await repo.getScene(shot.sceneId);
   const experiments = { ...(project.look.experiments ?? {}), ...(opts?.experiments ?? {}) };
-  const ids = [...shot.spec.characters, ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])];
+  /* speakers too: an off-screen speaker need not be in the shot's characters */
+  const ids = [...new Set([...shot.spec.characters, ...shot.spec.dialogue.map((l) => l.speaker), ...shot.spec.props, ...(shot.spec.location ? [shot.spec.location] : [])])];
   const elements = await repo.getElements(ids);
   const assetIds = new Set<string>();
-  for (const el of elements.values()) for (const id of el.refAssetIds) assetIds.add(id);
+  for (const el of elements.values()) {
+    for (const id of el.refAssetIds) assetIds.add(id);
+    /* the voice: every state's reference audio (the compiler picks by line), the legacy single sample */
+    for (const st of el.voice?.states ?? []) for (const id of st.refAssetIds) assetIds.add(id);
+    if (el.voiceAssetId) assetIds.add(el.voiceAssetId);
+  }
+  for (const l of shot.spec.dialogue) if (l.audioAssetId) assetIds.add(l.audioAssetId);
   if (shot.heroAssetId) assetIds.add(shot.heroAssetId);
   if (shot.endAssetId) assetIds.add(shot.endAssetId);
   const assets = await repo.getAssets([...assetIds]);
@@ -248,7 +255,7 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
 
   /* Keep errors in front of the spend: a cold-reader review of this exact
      prompt and these frames, and no blind re-render of a rejected input. */
-  const subject = renderHash(compiled.workflow, compiled.prompt, compiled.input.images);
+  const subject = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
   const review = await reviewState(ctx.project.id, "shot", subject, shotId);
   const same = identicalTakes(await repo.listShotTakes(shotId), subject);
   const guards = preRenderGuards(review.state, same);

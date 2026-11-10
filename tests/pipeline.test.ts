@@ -82,7 +82,7 @@ describe("pipeline", () => {
       scenes: [{
         slug: "alley", summary: "Mara is chased", shots: [
           shot(),
-          shot({ mode: "reference", characters: [mara.id], intent: "Mara looks back over her shoulder", dialogue: [{ speaker: mara.id, text: "Not tonight.", language: "en", delivery: "breathless" }] }),
+          shot({ mode: "reference", characters: [mara.id], intent: "Mara looks back over her shoulder", dialogue: [{ speaker: mara.id, text: "Not tonight.", language: "en", delivery: "breathless", kind: "onscreen" }] }),
         ],
       }],
     });
@@ -101,7 +101,7 @@ describe("pipeline", () => {
     expect(compiledRef.workflow).toBe("R2VA");
     expect(compiledRef.input.images).toEqual([{ url: "https://r2/mara-front.png", role: "reference", label: "Mara" }]);
     expect(compiledRef.prompt).toContain("Image 1: Mara, the character");
-    expect(compiledRef.prompt).toContain('Mara (en, breathless): "Not tonight."');
+    expect(compiledRef.prompt).toContain('Mara (S1) says (breathless): <d>[English] Not tonight.</d>');
     expect(compiledRef.prompt).not.toContain("cropped silver hair");
 
     expect(compiledText.prompt).not.toContain("cropped silver hair");
@@ -267,7 +267,7 @@ describe("pipeline", () => {
     const spec = shot({ mode: "reference", props: ["e0", "e1", "e2"], characters: ["e3"] });
     const job = compileShot({
       shot: { id: "s", projectId: "p", sceneId: "c", index: 0, spec, createdAt: 0, updatedAt: 0 },
-      look: { genre: "", palette: "", camera: "", lens: "", lighting: "", aspectRatio: "9:16", resolution: "768p", upscale: false, negative: [], loras: [] },
+      look: { genre: "", palette: "", camera: "", lens: "", lighting: "", aspectRatio: "9:16", resolution: "768p", upscale: false, negative: [], loras: [], dialogueLanguage: "en" },
       elements, assets,
     });
     expect(job.input.images).toHaveLength(3);

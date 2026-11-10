@@ -23,6 +23,7 @@ import userSettings from "./migrations/0015_user_settings";
 import loraParams from "./migrations/0016_lora_params";
 import seedQwenLoras from "./migrations/0017_seed_qwen_loras";
 import userReferences from "./migrations/0018_user_references";
+import voiceCards from "./migrations/0019_voice_cards";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -43,6 +44,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0016_lora_params", sql: loraParams },
   { name: "0017_seed_qwen_loras", sql: seedQwenLoras },
   { name: "0018_user_references", sql: userReferences },
+  { name: "0019_voice_cards", sql: voiceCards },
 ];
 
 export async function migrate(db: Db): Promise<void> {

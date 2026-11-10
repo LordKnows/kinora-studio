@@ -354,7 +354,7 @@ export function ShotEditor({
       <div className="st-card st-stack">
         <div className="st-row st-row--between">
           <span className="st-label" style={{ marginBottom: 0 }}>Dialogue</span>
-          <Button size="sm" disabled={value.dialogue.length >= 8 || characters.length === 0} onClick={() => set("dialogue", [...value.dialogue, { speaker: characters[0]!.id, text: "", language: "en", delivery: "neutral" }])}>
+          <Button size="sm" disabled={value.dialogue.length >= 8 || characters.length === 0} onClick={() => set("dialogue", [...value.dialogue, { speaker: characters[0]!.id, text: "", delivery: "neutral", kind: "onscreen" }])}>
             Add line
           </Button>
         </div>
@@ -369,7 +369,7 @@ export function ShotEditor({
               ))}
             </select>
             <input className="st-input st-input--sm" placeholder="The exact line" value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
-            <input className="st-input st-input--sm" placeholder="en" value={l.language} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value } : x)))} aria-label="Language" />
+            <input className="st-input st-input--sm" placeholder="zh" value={l.language ?? ""} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value || undefined } : x)))} aria-label="Language" />
             <input className="st-input st-input--sm" placeholder="delivery" value={l.delivery} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, delivery: e.target.value } : x)))} aria-label="Delivery" />
             <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove line" onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
               <CloseIcon size={11} />

@@ -214,7 +214,7 @@ def test_handler_health_lists_templates(monkeypatch):
     monkeypatch.setattr(h, "WORKFLOW_DIR", HERE / "workflows")
     monkeypatch.setattr(h.ComfyClient, "health", lambda self: {"reachable": False})
     out = h.handler({"input": {"action": "health"}})
-    assert out["ok"] and out["workflows"] == ["FL2VA", "I2VA", "QIE2509_2IMG", "QIE2509_3IMG", "QWEN21_EDIT", "QWEN21_EDIT_BASE", "R2VA", "REGEN", "REMAKE", "T2VA"] and "remake" in out
+    assert out["ok"] and out["workflows"] == ["FL2VA", "I2VA", "I2VA_GUIDE", "QIE2509_2IMG", "QIE2509_3IMG", "QWEN21_EDIT", "QWEN21_EDIT_BASE", "R2VA", "REGEN", "REMAKE", "T2VA"] and "remake" in out
     assert out["image_models"]["qwen-image-2.1-turbo"]["ready"] is False and out["image_models"]["qwen-image-2.1-turbo"]["missing"]
 
 
@@ -538,3 +538,73 @@ def test_studio_video_latent_node_keeps_the_video_half():
     assert node.split({"samples": Nested()})[0]["samples"] == "video"
     assert node.split({"samples": "plain"})[0]["samples"] == "plain"
     assert "StudioH3VideoLatent" in mod.NODE_CLASS_MAPPINGS
+
+
+# ---------- voice: reference audio (R2VA) and the audio guide (I2VA) ----------
+
+
+def test_validate_audios_belong_to_r2va_and_respect_the_model_card():
+    ok = h.validate_input(good_input(workflow="R2VA", images=[{"url": "u", "role": "reference"}], audios=[{"url": "https://x/a.wav", "role": "reference", "seconds": 4}]))
+    assert ok["audios"] == [{"url": "https://x/a.wav", "seconds": 4.0}] and ok["guide_audio"] is None
+    with pytest.raises(h.JobError, match="need the R2VA workflow"):
+        h.validate_input(good_input(audios=[{"url": "https://x/a.wav"}]))
+    with pytest.raises(h.JobError, match="at most 3 reference audios"):
+        h.validate_input(good_input(workflow="R2VA", images=[{"url": "u", "role": "reference"}], audios=[{"url": f"https://x/{i}.wav"} for i in range(4)]))
+    with pytest.raises(h.JobError, match="between 2 and 15"):
+        h.validate_input(good_input(workflow="R2VA", images=[{"url": "u", "role": "reference"}], audios=[{"url": "https://x/a.wav", "seconds": 1}]))
+
+
+def test_validate_guide_audio_belongs_to_i2va():
+    first = [{"url": "f", "role": "first_frame"}]
+    ok = h.validate_input(good_input(workflow="I2VA", images=first, guide_audio={"url": "https://x/line.wav", "frame": 36}))
+    assert ok["guide_audio"] == {"url": "https://x/line.wav", "frame": 36}
+    with pytest.raises(h.JobError, match="needs the I2VA workflow"):
+        h.validate_input(good_input(guide_audio={"url": "https://x/line.wav", "frame": 0}))
+    with pytest.raises(h.JobError, match="frame index"):
+        h.validate_input(good_input(workflow="I2VA", images=first, guide_audio={"url": "https://x/line.wav", "frame": -1}))
+
+
+def test_reference_audio_fits_the_15_second_total():
+    assert h.reference_audio_seconds([{"seconds": 10.0}, {"seconds": 10.0}, {"seconds": 10.0}]) == [10.0, 5.0]
+    assert h.reference_audio_seconds([{"seconds": 14.0}, {"seconds": 3.0}]) == [14.0]
+
+
+def test_fill_graph_wires_reference_audio_into_r2va():
+    mapping = h.load_mapping()["R2VA"]
+    graph = h.load_workflow("R2VA", HERE / "workflows")
+    params = {**h.validate_input(good_input(workflow="R2VA", images=[{"url": "u", "role": "reference"}])), "files": {"reference": ["r0.png"], "reference_audio": ["a0.wav", "a1.wav"]}}
+    filled = h.fill_graph(graph, mapping, params)
+    assert filled["ref_audio_0"] == {"class_type": "LoadAudio", "inputs": {"audio": "a0.wav"}, "_meta": {"title": "Reference Audio 0"}}
+    assert filled["104"]["inputs"]["ref_audios.ref_audio_0"] == ["ref_audio_0", 0]
+    assert filled["104"]["inputs"]["ref_audios.ref_audio_1"] == ["ref_audio_1", 0]
+    assert filled["104"]["inputs"]["audio_vae"] == ["24", 0]  # without the audio VAE the reference only reaches the text encoder
+    with pytest.raises(h.JobError, match="takes no reference audio"):
+        h.fill_graph(h.load_workflow("T2VA", HERE / "workflows"), h.load_mapping()["T2VA"], {**h.validate_input(good_input()), "files": {"reference": [], "reference_audio": ["a0.wav"]}})
+
+
+def test_i2va_guide_graph_anchors_the_line_and_feeds_the_guider():
+    mapping = h.load_mapping()["I2VA_GUIDE"]
+    graph = h.load_workflow(mapping["template"], HERE / "workflows")
+    assert graph["211"]["class_type"] == "MiniMaxH3AddGuide" and graph["16"]["inputs"]["conditioning"] == ["211", 0]
+    assert graph["14"]["inputs"]["latent_image"] == ["104", 1]
+    params = {**h.validate_input(good_input(workflow="I2VA", images=[{"url": "f", "role": "first_frame"}], guide_audio={"url": "https://x/line.wav", "frame": 36})),
+              "files": {"first_frame": "f.png", "reference": [], "guide_audio": "g.wav"}}
+    filled = h.fill_graph(graph, mapping, params)
+    assert filled["210"]["inputs"]["audio"] == "g.wav" and filled["211"]["inputs"]["frame_idx"] == 36
+    assert filled["200"]["inputs"]["image"] == "f.png"
+    # every mapped node exists in the template
+    for field in ("prompt", "length", "width", "height", "steps", "seed", "first_frame", "guide_audio", "guide_frame", "sampler", "scheduler"):
+        assert mapping[field][0] in graph, field
+
+
+def test_prepare_audio_cuts_and_makes_stereo(tmp_path):
+    src = tmp_path / "mono.wav"
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=220:duration=3", "-ac", "1", "-ar", "24000", str(src)], check=True)
+    out = h.prepare_audio(src, tmp_path / "ref.wav", 2.0)
+    info = subprocess.run([h.FFPROBE, "-v", "error", "-show_entries", "stream=channels,sample_rate", "-of", "csv=p=0", str(out)], capture_output=True, text=True, check=True).stdout.strip()
+    assert info == "48000,2"
+    assert abs(h.probe_duration(out) - 2.0) < 0.05
+    clip = make_clip(tmp_path / "clip.mp4", 2.0)  # a video's soundtrack works too
+    assert h.prepare_audio(clip, tmp_path / "from_video.wav").exists()
+    with pytest.raises(h.JobError, match="could not read the audio"):
+        h.prepare_audio(tmp_path / "missing.wav", tmp_path / "x.wav")

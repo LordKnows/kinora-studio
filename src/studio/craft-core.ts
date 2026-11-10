@@ -22,13 +22,22 @@ type Img = { url: string; role: string };
 
 /** What a take renders: the workflow, the prompt and the input frames. Two
     takes with the same hash differ only by seed. */
-export function renderHash(workflow: string, prompt: string, images: Img[]): string {
-  return hashOf({ workflow, prompt, images: images.map((i) => `${i.role}:${i.url}`) });
+/** Audio inputs (voice references, an anchored line) join the hash only when
+    present, so every hash computed before they existed stays the same. */
+export function renderHash(workflow: string, prompt: string, images: Img[], audio: string[] = []): string {
+  return hashOf({ workflow, prompt, images: images.map((i) => `${i.role}:${i.url}`), ...(audio.length ? { audio } : {}) });
+}
+
+/** The audio inputs of a worker input, as renderHash takes them. */
+export function audioInputs(input: Record<string, unknown>): string[] {
+  const refs = Array.isArray(input.audios) ? (input.audios as { url: string; seconds?: number }[]).map((a) => `reference:${a.url}:${a.seconds ?? ""}`) : [];
+  const guide = input.guide_audio as { url?: string; frame?: number } | undefined;
+  return guide?.url ? [...refs, `guide:${guide.url}@${guide.frame ?? 0}`] : refs;
 }
 
 export function takeRenderHash(take: Take): string {
   const images = Array.isArray(take.input.images) ? (take.input.images as Img[]) : [];
-  return renderHash(take.workflow, take.prompt, images);
+  return renderHash(take.workflow, take.prompt, images, audioInputs(take.input as Record<string, unknown>));
 }
 
 export type ReviewState = { state: "pass" | "fail" | "stale" | "none"; review?: StageReview };

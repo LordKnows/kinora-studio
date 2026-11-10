@@ -60,6 +60,8 @@ export const PromptExperiments = z.object({
   frameHolds: z.boolean().optional().describe("Add 'the first 0.2 s hold on the first frame' and 'the last 0.3 s settle exactly on the final frame' lines (frame-driven shots)"),
   restateFrame: z.boolean().optional().describe("Keyframe shots: restate who and what the first frame shows (people, wardrobe, props, place) instead of trusting the frame alone"),
   positiveCast: z.boolean().optional().describe("Frame-driven shots: 'only the people and objects of the first frame appear throughout' as a positive constraint"),
+  voiceRefs: z.boolean().optional().describe("R2VA shots: give each on-screen speaker's voice-card reference audio as <Audio j>, bound to the speaker (official H3 wording). Unverified on the turbo LoRA"),
+  audioFirst: z.boolean().optional().describe("I2VA shots: anchor each on-screen line's prepared audio (line.audioAssetId) at its start frame with MiniMaxH3AddGuide, so the picture follows the given voice. Unverified"),
 });
 export type PromptExperiments = z.infer<typeof PromptExperiments>;
 
@@ -77,6 +79,7 @@ export const LookSettings = z.object({
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
   experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
   styleFrameAssetId: z.string().optional().describe("The approved style frame (asset id): every generated sheet and frame takes it as a reference for the look"),
+  dialogueLanguage: z.string().max(10).default("zh").describe("Language code for dialogue lines that name none (zh = Mandarin Chinese, en = English)"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
 
@@ -92,13 +95,56 @@ export const Beat = z.object({
 });
 export type Beat = z.infer<typeof Beat>;
 
+export const LINE_KINDS = ["onscreen", "offscreen", "inner"] as const;
+
 export const Line = z.object({
   speaker: z.string().describe("Element id of the character speaking"),
   text: z.string().min(1).max(300).describe("The exact line, verbatim"),
-  language: z.string().max(10).default("en"),
+  language: z.string().max(10).optional().describe("Language code (zh, en, …); leave out to use the project's dialogue language (look.dialogueLanguage, default zh)"),
   delivery: z.string().max(80).default("neutral").describe("e.g. 'whispered, exhausted'"),
+  kind: z.enum(LINE_KINDS).default("onscreen").describe("onscreen = the speaker's mouth is in frame and H3 voices the line; offscreen = present but not visible (back to camera, silhouette, off frame); inner = inner monologue. Only onscreen lines go into the H3 prompt: the model would make whoever is in frame lip-sync the others, so they are synthesised from the voice card and laid on the timeline"),
+  startS: z.number().min(0).max(15).optional().describe("When the line starts inside the shot, in seconds. A line stays inside one shot and one beat (never across a hard cut)"),
+  endS: z.number().min(0).max(15).optional().describe("When the line ends inside the shot, in seconds"),
+  voiceState: z.string().max(40).optional().describe("Id of the speaker's voice-card state for this line (e.g. hoarse); default: the card's default state"),
+  audioAssetId: z.string().optional().describe("Prepared audio of this line (voice-card TTS), used by the audioFirst experiment"),
 });
 export type Line = z.infer<typeof Line>;
+
+/* A character's voice card: one identity, several states (age, hoarse, a
+   disguised register). Each state's description goes verbatim into every
+   prompt that voices the character; its reference audio feeds R2VA and the
+   post-production voice conversion. */
+export const VoiceState = z.object({
+  id: z.string().min(1).max(40).regex(/^[a-z0-9_-]+$/).describe("Stable id, e.g. base18, hoarse, low_male, base28"),
+  name: z.string().max(40).describe("Human name, e.g. 本声·18"),
+  description: z.string().max(400).describe("One English sentence for the prompt: gender, age, pitch, timbre, pace, accent, usual emotion"),
+  refAssetIds: z.array(z.string()).max(8).default([]).describe("Audio assets: the primary 10–15 s dry reference first, then emotion samples"),
+});
+export type VoiceState = z.infer<typeof VoiceState>;
+
+/* The resolved voice a character speaks with: its card's states, with the
+   character's own default state. Elements reference a card (voiceCardId);
+   reads fill this in, so the compiler never looks the card up itself. */
+export const ElementVoice = z.object({
+  defaultState: z.string().max(40).optional().describe("State id used when a line names none; default: the first state"),
+  states: z.array(VoiceState).min(1).max(8),
+  source: z.object({
+    kind: z.enum(["synthetic", "licensed", "recorded"]),
+    detail: z.string().max(500).describe("Model + version + prompt + seed, or library + licence id, or performer + consent record"),
+  }).optional(),
+});
+export type ElementVoice = z.infer<typeof ElementVoice>;
+
+/* A voice card lives in the global library (no project) or in one project,
+   like elements: the same card serves every project and chapter a character
+   appears in, so a change to it reaches all of them. */
+export const VOICE_CARD_STATUS = ["draft", "auditioning", "locked"] as const;
+export const VoiceCardInput = ElementVoice.extend({
+  name: z.string().min(1).max(80).describe("Who the voice belongs to, e.g. 沈知微"),
+  status: z.enum(VOICE_CARD_STATUS).default("draft").describe("draft → auditioning → locked; a locked card's changes mean every line voiced with it is checked again"),
+  notes: z.string().max(1000).optional().describe("Free notes: what the voice must sound like, who approved it"),
+});
+export type VoiceCardInput = z.infer<typeof VoiceCardInput>;
 
 export const Camera = z.object({
   move: z.enum(CAMERA_MOVES).describe(
@@ -258,6 +304,8 @@ export const ElementInput = z.object({
   name: z.string().min(1).max(80),
   description: z.string().max(1200).default("").describe("Visual description the compiler and image model use"),
   fixedFeatures: z.array(FixedFeature).max(8).optional().describe("Details that must never move or vanish (a tattoo on the LEFT forearm, a hat, a scar). Restated in every shot the element appears in."),
+  voiceCardId: z.string().optional().describe("Characters: the voice card they speak with (create_voice_card; library cards serve every project). Each state's description is written verbatim where the character speaks; its reference audio feeds R2VA (experiments.voiceRefs) and the voice conversion"),
+  voiceState: z.string().max(40).optional().describe("The card state this element speaks in by default (e.g. base28 for the older self); lines can still name another"),
 });
 
 export type ElementInput = z.infer<typeof ElementInput>;

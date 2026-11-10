@@ -98,7 +98,7 @@ Then the frames: write what the first and last frame show (`frames`), get it rev
 
 - **One primary action per beat**: start state → action → end state. Beats tile the shot exactly.
 - Characters change emotion inside the shot; say so in the beat.
-- Dialogue is unverified on H3: keep lines short or describe the vocal sound; put narration on the local track instead.
+- Dialogue on H3: on-screen lines only, short, one beat each, in the speaker's voice-card voice; off-screen lines, inner monologue and narration go on the local track, synthesised from the same voice card.
 - Identity: open every sequence with `reference` mode and pass identity by frame inside it (`continuous`, `reverse`, `insert_return`, `bridge`).
 - One clip is one shot: a reaction the beat needs is staged in the first frame, or it gets its own shot.
 - **Write what the model cannot misread**: screen directions, counts, unambiguous places, the cause of every movement and where the hands are; what happens rather than what must not; materials rather than "cartoon"; props with an obvious use kept out of action shots.

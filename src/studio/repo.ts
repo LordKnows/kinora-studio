@@ -2,11 +2,11 @@ import { getDb, type Db, type SqlValue } from "@/db";
 
 import { newId } from "./ids";
 import { notFound } from "./errors";
-import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput } from "./schemas";
+import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput, type VoiceCardInput } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
-  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline,
+  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
 import { isAdultLora, loraParams, type InferenceParams } from "./models";
@@ -292,9 +292,34 @@ function mapElement(r: Row): Element {
   };
 }
 
-function elementMeta(v: unknown): { fixedFeatures: FixedFeature[]; refViews: Record<string, RefView> } {
-  const m = json<{ fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView> }>(v, {});
-  return { fixedFeatures: Array.isArray(m.fixedFeatures) ? m.fixedFeatures : [], refViews: m.refViews && typeof m.refViews === "object" ? m.refViews : {} };
+function elementMeta(v: unknown): { fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; voiceCardId?: string; voiceState?: string } {
+  const m = json<{ fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: unknown; voiceState?: unknown }>(v, {});
+  return {
+    fixedFeatures: Array.isArray(m.fixedFeatures) ? m.fixedFeatures : [],
+    refViews: m.refViews && typeof m.refViews === "object" ? m.refViews : {},
+    ...(typeof m.voiceCardId === "string" && m.voiceCardId ? { voiceCardId: m.voiceCardId } : {}),
+    ...(typeof m.voiceState === "string" && m.voiceState ? { voiceState: m.voiceState } : {}),
+  };
+}
+
+/** Fill in each element's voice from its card: the card's states, the element's default state. */
+async function withVoices<T extends Element>(elements: T[]): Promise<T[]> {
+  const ids = [...new Set(elements.map((e) => e.voiceCardId).filter((x): x is string => !!x))];
+  if (!ids.length) return elements;
+  const cards = await getVoiceCards(ids);
+  for (const el of elements) {
+    const card = el.voiceCardId ? cards.get(el.voiceCardId) : undefined;
+    if (!card) continue;
+    el.voice = { states: card.states, defaultState: el.voiceState ?? card.defaultState, ...(card.source ? { source: card.source } : {}) };
+  }
+  return elements;
+}
+
+function metaJson(m: { fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: string | null; voiceState?: string | null }): string {
+  return JSON.stringify({
+    fixedFeatures: m.fixedFeatures ?? [], refViews: m.refViews ?? {},
+    ...(m.voiceCardId ? { voiceCardId: m.voiceCardId } : {}), ...(m.voiceState ? { voiceState: m.voiceState } : {}),
+  });
 }
 
 export async function listElements(projectId: string, includeLibrary = false): Promise<Element[]> {
@@ -302,18 +327,18 @@ export async function listElements(projectId: string, includeLibrary = false): P
     ? "SELECT * FROM elements WHERE project_id = ? OR project_id IS NULL ORDER BY kind, name"
     : "SELECT * FROM elements WHERE project_id = ? ORDER BY kind, name";
   const rows = await (await db()).all(sql, [projectId]);
-  return rows.map(mapElement);
+  return withVoices(rows.map(mapElement));
 }
 
 export async function listLibraryElements(): Promise<Element[]> {
   const rows = await (await db()).all("SELECT * FROM elements WHERE project_id IS NULL ORDER BY kind, name");
-  return rows.map(mapElement);
+  return withVoices(rows.map(mapElement));
 }
 
 export async function getElement(id: string): Promise<Element> {
   const row = await (await db()).get("SELECT * FROM elements WHERE id = ?", [id]);
   if (!row) throw notFound("element", id);
-  return mapElement(row);
+  return (await withVoices([mapElement(row)]))[0]!;
 }
 
 export async function getElements(ids: string[]): Promise<Map<string, Element>> {
@@ -321,26 +346,25 @@ export async function getElements(ids: string[]): Promise<Map<string, Element>> 
   if (ids.length === 0) return out;
   const marks = ids.map(() => "?").join(",");
   const rows = await (await db()).all(`SELECT * FROM elements WHERE id IN (${marks})`, ids);
-  for (const row of rows) {
-    const el = mapElement(row);
-    out.set(el.id, el);
-  }
+  for (const el of await withVoices(rows.map(mapElement))) out.set(el.id, el);
   return out;
 }
 
-export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView> }): Promise<Element> {
+export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: string; voiceState?: string }): Promise<Element> {
+  if (input.voiceCardId) await getVoiceCard(input.voiceCardId);
   const id = newId("ele");
   const now = Date.now();
   await (await db()).run(
     "INSERT INTO elements (id, project_id, kind, name, description, ref_asset_ids_json, meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    [id, projectId, input.kind, input.name, input.description, JSON.stringify(input.refAssetIds ?? []), JSON.stringify({ fixedFeatures: input.fixedFeatures ?? [], refViews: input.refViews ?? {} }), now, now],
+    [id, projectId, input.kind, input.name, input.description, JSON.stringify(input.refAssetIds ?? []), metaJson(input), now, now],
   );
   if (projectId) await touchProject(projectId);
   return getElement(id);
 }
 
-export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView> }>): Promise<Element> {
+export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; voiceCardId: string | null; voiceState: string | null }>): Promise<Element> {
   const current = await getElement(id);
+  if (patch.voiceCardId) await getVoiceCard(patch.voiceCardId);
   const refAssetIds = patch.refAssetIds ?? current.refAssetIds;
   /* Views follow the refs: a view for an asset that is no longer a ref is dropped. */
   const views = { ...(current.refViews ?? {}), ...(patch.refViews ?? {}) };
@@ -351,7 +375,11 @@ export async function updateElement(id: string, patch: Partial<{ kind: ElementKi
       patch.kind ?? current.kind, patch.name ?? current.name, patch.description ?? current.description,
       JSON.stringify(refAssetIds),
       patch.voiceAssetId === undefined ? (current.voiceAssetId ?? null) : patch.voiceAssetId,
-      JSON.stringify({ fixedFeatures: patch.fixedFeatures ?? current.fixedFeatures ?? [], refViews }),
+      metaJson({
+        fixedFeatures: patch.fixedFeatures ?? current.fixedFeatures, refViews,
+        voiceCardId: patch.voiceCardId === undefined ? current.voiceCardId : patch.voiceCardId,
+        voiceState: patch.voiceState === undefined ? current.voiceState : patch.voiceState,
+      }),
       Date.now(), id,
     ],
   );
@@ -365,7 +393,103 @@ export async function deleteElement(id: string): Promise<void> {
 /** Copy an element (and its refs) into another scope: library (null) or a project. */
 export async function copyElement(id: string, targetProjectId: string | null): Promise<Element> {
   const source = await getElement(id);
-  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews });
+  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews, voiceCardId: source.voiceCardId, voiceState: source.voiceState });
+}
+
+/* ---------- voice cards ---------- */
+
+/* Created on first use as well as by migration 0019 (one statement each: D1's exec splits on newlines). */
+const VOICE_CARDS_SQL = [
+  "CREATE TABLE IF NOT EXISTS voice_cards (id TEXT PRIMARY KEY, project_id TEXT, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', data_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS voice_cards_project ON voice_cards (project_id)",
+];
+let voiceCardsReady = false;
+
+async function voiceCardsDb(): Promise<Db> {
+  const d = await db();
+  if (!voiceCardsReady) {
+    for (const sql of VOICE_CARDS_SQL) await d.run(sql);
+    voiceCardsReady = true;
+  }
+  return d;
+}
+
+function mapVoiceCard(r: Row): VoiceCard {
+  const data = json<{ defaultState?: string; states?: VoiceCard["states"]; source?: VoiceCard["source"]; notes?: string }>(r.data_json, {});
+  return {
+    id: str(r.id), projectId: r.project_id === null || r.project_id === undefined ? null : str(r.project_id),
+    name: str(r.name), status: (str(r.status) || "draft") as VoiceCard["status"],
+    ...(data.defaultState ? { defaultState: data.defaultState } : {}), states: Array.isArray(data.states) ? data.states : [],
+    ...(data.source ? { source: data.source } : {}), ...(data.notes ? { notes: data.notes } : {}),
+    createdAt: num(r.created_at), updatedAt: num(r.updated_at),
+  };
+}
+
+function voiceCardData(c: { defaultState?: string; states: VoiceCard["states"]; source?: VoiceCard["source"]; notes?: string }): string {
+  return JSON.stringify({ ...(c.defaultState ? { defaultState: c.defaultState } : {}), states: c.states, ...(c.source ? { source: c.source } : {}), ...(c.notes ? { notes: c.notes } : {}) });
+}
+
+function checkStates(c: { defaultState?: string; states: VoiceCard["states"] }): void {
+  const ids = c.states.map((s) => s.id);
+  if (new Set(ids).size !== ids.length) throw new Error(`voice card states need distinct ids (${ids.join(", ")})`);
+  if (c.defaultState && !ids.includes(c.defaultState)) throw new Error(`defaultState "${c.defaultState}" is not one of the card's states (${ids.join(", ")})`);
+}
+
+export async function createVoiceCard(projectId: string | null, input: VoiceCardInput): Promise<VoiceCard> {
+  checkStates(input);
+  const id = newId("vc");
+  const now = Date.now();
+  await (await voiceCardsDb()).run(
+    "INSERT INTO voice_cards (id, project_id, name, status, data_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, projectId, input.name, input.status ?? "draft", voiceCardData(input), now, now],
+  );
+  return getVoiceCard(id);
+}
+
+export async function getVoiceCard(id: string): Promise<VoiceCard> {
+  const row = await (await voiceCardsDb()).get("SELECT * FROM voice_cards WHERE id = ?", [id]);
+  if (!row) throw notFound("voice card", id);
+  return mapVoiceCard(row);
+}
+
+export async function getVoiceCards(ids: string[]): Promise<Map<string, VoiceCard>> {
+  const out = new Map<string, VoiceCard>();
+  if (!ids.length) return out;
+  const rows = await (await voiceCardsDb()).all(`SELECT * FROM voice_cards WHERE id IN (${ids.map(() => "?").join(",")})`, ids);
+  for (const row of rows) {
+    const card = mapVoiceCard(row);
+    out.set(card.id, card);
+  }
+  return out;
+}
+
+/** A project's cards and, with includeLibrary, the global library; no project = the library alone. */
+export async function listVoiceCards(projectId: string | null, includeLibrary = true): Promise<VoiceCard[]> {
+  const d = await voiceCardsDb();
+  const rows = projectId === null
+    ? await d.all("SELECT * FROM voice_cards WHERE project_id IS NULL ORDER BY name")
+    : await d.all(includeLibrary ? "SELECT * FROM voice_cards WHERE project_id = ? OR project_id IS NULL ORDER BY name" : "SELECT * FROM voice_cards WHERE project_id = ? ORDER BY name", [projectId]);
+  return rows.map(mapVoiceCard);
+}
+
+export async function updateVoiceCard(id: string, patch: Partial<VoiceCardInput> & { projectId?: string | null }): Promise<VoiceCard> {
+  const current = await getVoiceCard(id);
+  const next = {
+    defaultState: patch.defaultState ?? current.defaultState, states: patch.states ?? current.states,
+    source: patch.source ?? current.source, notes: patch.notes ?? current.notes,
+  };
+  checkStates(next);
+  await (await voiceCardsDb()).run(
+    "UPDATE voice_cards SET project_id = ?, name = ?, status = ?, data_json = ?, updated_at = ? WHERE id = ?",
+    [patch.projectId === undefined ? current.projectId : patch.projectId, patch.name ?? current.name, patch.status ?? current.status, voiceCardData(next), Date.now(), id],
+  );
+  return getVoiceCard(id);
+}
+
+/** Elements (in any project) that speak with this card. */
+export async function elementsUsingVoiceCard(id: string): Promise<Element[]> {
+  const rows = await (await db()).all("SELECT * FROM elements WHERE meta_json LIKE ?", [`%"voiceCardId":"${id}"%`]);
+  return rows.map(mapElement).filter((e) => e.voiceCardId === id);
 }
 
 /* ---------- scenes & shots ---------- */
