@@ -28,7 +28,9 @@ Facts from the handoff that the handler relies on:
   the prompt text.
 - Steps live on `9.steps` and must match the turbo LoRA (8); seed on
   `15.noise_seed`; width/height on `104` must be multiples of 32.
-- One LoRA slot: `7` (LoraLoaderModelOnly, `lora_name` + `strength_model`).
+- One LoRA slot in the templates: `7` (LoraLoaderModelOnly, `lora_name` +
+  `strength_model`); the handler chains more loaders behind it when a job
+  carries more LoRAs (see LoRAs below).
   T2VA/I2VA/FL2VA use the fl2v turbo LoRA and the fl2va base model; R2VA uses
   the ref2v turbo LoRA and the ref2va base model (node `6.unet_name`).
 - R2VA ships with two LoadImage slots (`201`, `202` → `104.ref_images.ref_image_0/1`);
@@ -83,6 +85,13 @@ strength 0. Files are read from `LORA_DIR` (default
 `hf_url` first (set `HF_TOKEN` on the pod for gated repos). Put the LoRA
 loaders in the graph where ComfyUI's H3 template expects them (between the
 model loader and the sampler) and keep a speed LoRA as slot 1.
+
+A job with more LoRAs than the graph has slots (the speed LoRA plus a style
+LoRA from the Look, say) grows the chain: each extra one becomes a
+`LoraLoaderModelOnly` node (`7_lora1`, `7_lora2`, …) wired after the last
+slot, and every node that read the last slot's model reads the end of the
+chain instead. At most 4 LoRAs per take (`MAX_LORAS`); only a
+`LoraLoaderModelOnly` slot can be chained.
 
 ## Image models (Canvas)
 

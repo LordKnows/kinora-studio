@@ -62,6 +62,7 @@ FPS = 24
 FRAME_MIN = 124
 FRAME_MAX = 362
 LORA_DIR = Path(os.environ.get("LORA_DIR", "/workspace/ComfyUI/models/loras"))
+MAX_LORAS = 4  # one speed LoRA and up to three style / effect LoRAs per take
 HF_TOKEN = os.environ.get("HF_TOKEN")
 
 
@@ -379,12 +380,14 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
         put(mapping.get("guide_frame"), int((params.get("guide_audio") or {}).get("frame", 0)), True, "guide_frame")
 
     # LoRA slots: [{"node": "12", "name": "lora_name", "strength": "strength_model", "strength_clip": "strength_clip"}, ...]
-    slots = mapping.get("loras", [])
+    slots = list(mapping.get("loras", []))
     loras = params.get("loras", [])
     if len(loras) > len(slots):
         if not slots:
             raise JobError("this workflow has no LoRA slots in mapping.json but the job asks for LoRAs")
-        raise JobError(f"workflow has {len(slots)} LoRA slot(s), got {len(loras)}")
+        if len(loras) > MAX_LORAS:
+            raise JobError(f"at most {MAX_LORAS} LoRAs per take, got {len(loras)}")
+        slots = chain_lora_slots(graph, slots, len(loras))
     if "loras" in params:
         for i, slot in enumerate(slots):
             node_id = slot.get("node")
@@ -399,6 +402,34 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
                 if slot.get("strength_clip"):
                     put((node_id, slot["strength_clip"]), 0.0, False, "loras")
     return graph
+
+
+def chain_lora_slots(graph: dict[str, Any], slots: list[dict[str, Any]], wanted: int) -> list[dict[str, Any]]:
+    """Grow the graph's LoRA chain to `wanted` loaders. The templates carry one
+    slot (the speed LoRA); a Look that adds a style LoRA to it sends two, and
+    the job used to be refused. Each extra loader is a copy of the last slot,
+    wired after it, and whatever read the last slot's model now reads the end
+    of the chain."""
+    last = slots[-1]
+    last_id = str(last.get("node"))
+    proto = graph.get(last_id)
+    if proto is None:
+        raise JobError(f"mapping points a LoRA slot at node {last_id}, which is not in the graph")
+    if proto.get("class_type") != "LoraLoaderModelOnly":
+        raise JobError(f"workflow has {len(slots)} LoRA slot(s) and its loader ({proto.get('class_type')}) cannot be chained, got {wanted}")
+    readers = [(nid, name) for nid, node in graph.items() if nid != last_id
+               for name, value in (node.get("inputs") or {}).items() if isinstance(value, list) and len(value) == 2 and str(value[0]) == last_id and value[1] == 0]
+    out = list(slots)
+    prev = last_id
+    for i in range(len(slots), wanted):
+        node_id = f"{last_id}_lora{i}"
+        graph[node_id] = {"class_type": "LoraLoaderModelOnly", "inputs": {"model": [prev, 0], last.get("name", "lora_name"): "", last.get("strength", "strength_model"): 0.0},
+                          "_meta": {"title": f"LoRA {i + 1}"}}
+        out.append({"node": node_id, "name": last.get("name", "lora_name"), "strength": last.get("strength", "strength_model")})
+        prev = node_id
+    for nid, name in readers:
+        graph[nid]["inputs"][name] = [prev, 0]
+    return out
 
 
 # ---------- LoRA files ----------
