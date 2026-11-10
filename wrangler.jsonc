@@ -30,6 +30,10 @@
     "RUNPOD_CLOUD_TYPE": "SECURE",
     "RUNPOD_CONTAINER_DISK_GB": "200",
     "RUNPOD_VOLUME_MOUNT_PATH": "/runpod-volume",
+    // none = stay in the model volume's data center: no listed GPU there reports
+    // 暂时没资源 (with RunPod's answer per attempt) instead of a pod elsewhere
+    // without the volume. "local" brings that fallback back.
+    "RUNPOD_VOLUME_FALLBACK": "none",
     "RUNPOD_POD_IMAGE": "runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0",
     "RUNPOD_CUDA_VERSIONS": "",
     "H3_PROMPT_FORMAT": "lightx2v-lines",

@@ -251,8 +251,9 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
        （默认 80）建；没挂卷的 Pod 仍按 `RUNPOD_CONTAINER_DISK_GB`（200）。
      - **退路**：卷所在的数据中心里列表上的 GPU 都没货时，Studio 在任意数据中心起一个不挂卷的 Pod
        （名字带 `-local`，本地盘模式，先下载模型，启动慢），Pod 卡片会说明原因。这种 Pod 停下后
-       不会被恢复，下次启动先删掉它、重新试卷所在的数据中心。不想要退路就设
-       `RUNPOD_VOLUME_FALLBACK=none`（同样用密钥），没货时显示"暂时没资源"。
+       不会被恢复，下次启动先删掉它、重新试卷所在的数据中心。
+       **`wrangler.jsonc` 里现在是 `RUNPOD_VOLUME_FALLBACK=none`，退路关闭**：没货时显示"暂时没资源"，
+       并列出每次尝试 RunPod 的回答，不会去别的数据中心起 Pod。想要退路就把它改成 `local`。
      - 卷是全局盘（只填 `RUNPOD_NETWORK_VOLUME_ID`、不限数据中心）时没有退路，也不需要。
 6. **工作流**：`workers/h3-runpod/workflows/` 里的 T2VA/I2VA/FL2VA/R2VA JSON 和
    `mapping.json`（已随交接文档放好）。
