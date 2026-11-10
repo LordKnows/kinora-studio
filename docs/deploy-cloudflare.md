@@ -202,8 +202,8 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 
 1. **镜像**：默认不需要自己构建。`RUNPOD_POD_IMAGE` 用 RunPod 官方的
    `runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0`（宿主 CUDA ≥ 13.0）。官方镜像自带的 ComfyUI
-   最新也只到 v0.35.0，而 Qwen-Image 2.1 的节点要 v0.37 以上，所以启动脚本会在镜像的入口跑之前
-   把 ComfyUI 换成 `COMFYUI_VERSION`（默认 `v0.44.2`，从 GitHub 拉，几秒钟），镜像入口再按这个
+   最新也只到 v0.35.0，而 Qwen-Image 2.1 的节点要 v0.37 以上、MiniMax-H3-Image 要 v0.45.0，所以启动脚本会在镜像的入口跑之前
+   把 ComfyUI 换成 `COMFYUI_VERSION`（默认 `v0.45.0`，从 GitHub 拉，几秒钟），镜像入口再按这个
    版本装它钉死的依赖包（前端、comfy-kitchen 等，torch 不动，约半分钟）。在 Worker 上设
    `COMFYUI_VERSION` 会传给 Pod：设成别的版本号就用那个版本，设成 `image` 就退回镜像自带的版本。`RUNPOD_POD_BOOTSTRAP=1` 时 Pod 启动会
    先跑镜像自己的入口（ComfyUI），再从 `https://studio.zyhu.dev/api/pod/bundle` 拉取作业
@@ -218,7 +218,7 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
 4. **模型放哪**（默认：**本地盘，每次开机下载**）：`RUNPOD_NETWORK_VOLUME_ID` 留空、
    `RUNPOD_NETWORK_VOLUMES` 不填时，Pod 不挂任何卷，启动脚本用 aria2 十六线程把 `models.txt`
    里的 68 GB 下到容器盘（RunPod 机房到 HuggingFace 通常 300 MB/s 以上，几分钟），`/health` 报告
-   `models.ready`，齐了 Studio 才显示 running。容器盘默认 200 GB（H3、2K 重生成、Qwen-Image 2.1 与 Qwen-Image-Edit 2509 合计约 145 GB）。Stop 会清空容器盘，所以
+   `models.ready`，齐了 Studio 才显示 running。容器盘默认 200 GB（H3、MiniMax-H3-Image、2K 重生成、Qwen-Image 2.1 与 Qwen-Image-Edit 2509 合计约 167 GB）。Stop 会清空容器盘，所以
    空闲自动关机默认 45 分钟。好处：不依赖任何卷，数据中心随便挑，没有全局盘的 venv 和读取
    速度问题。想不自动下载就在 Pod 环境变量里设 `AUTO_DOWNLOAD_MODELS=0`。
    用卷的两种方式如下。
@@ -240,9 +240,9 @@ GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就
      （**密钥**，部署不会覆盖；多个卷用逗号分隔），起 Pod 时按顺序遍历数据中心（上次成功的优先）。
      EU-RO-1 有 RTX 5090、RTX PRO 6000（含 WK 版）、A100 SXM / PCIe 80 GB，正好是 `RUNPOD_GPU_TYPES`
      里能跑 H3 视频的几种；H100 / H200 只在退路上用得到。
-     - **建卷**：RunPod → Storage → New Network Volume，数据中心 EU-RO-1，250 GB（模型约 145 GB，
+     - **建卷**：RunPod → Storage → New Network Volume，数据中心 EU-RO-1，250 GB（模型约 167 GB，其中 MiniMax-H3-Image 22 GB：已有的卷如果剩余不足 30 GB，开机时会跳过它并在日志里说明，扩容或设 `H3_IMAGE=0`；
        Viggle Remake 两个模型按需再下约 42 GB，LoRA 和 Codex 登录也在卷上；以后可以扩容）。
-       第一次开机时 Pod 把 `models.txt`、2509、Qwen-Image 2.1、2K 重生成一个接一个下到卷上；
+       第一次开机时 Pod 把 `models.txt`、MiniMax-H3-Image、2509、Qwen-Image 2.1、2K 重生成一个接一个下到卷上；
        **每次开机都会按清单里的字节数核对一遍**：大小对的跳过（只读一下大小，几秒钟），缺的、
        断掉的、大小不对的接着下，某个文件失败不会影响后面的。下载进行中 Pod 显示「starting:
        downloading models: N GB left」，这期间 Studio 会直接拒绝视频、2K、Remake 和 GPU 上的图片
@@ -328,7 +328,7 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   detailed_description / overall_soundscape / non_diegetic_music`；没有音乐写 `N/A`。镜头内的硬切
   变成 `[Shot 2]`、`[Shot 3]` 段。
 - 镜像用 `runpod/comfyui:2.0.0-comfyuiv0.35.0-cuda13.0`（交接时是 1.3.3 / ComfyUI v0.30.0；宿主
-  CUDA ≥ 13），ComfyUI 在启动时换成 `COMFYUI_VERSION`（默认 v0.44.2）。这个镜像把
+  CUDA ≥ 13），ComfyUI 在启动时换成 `COMFYUI_VERSION`（默认 v0.45.0）。这个镜像把
   ComfyUI 装在卷上的 `/workspace/runpod-slim/ComfyUI`，模型目录就是它下面的
   `models/{unet,text_encoders,vae,loras}`；作业服务启动时自动把 `MODELS_DIR` / `LORA_DIR`
   指到那里。`workers/h3-runpod/download_models.sh` 按 `models.txt` 下载约 68 GB 的底模、
@@ -428,7 +428,7 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    GPU Pod 兜底画图时用的是网络卷上自己的登录（`/workspace/codex/home`），需要的话同样在
    Painters 里给 "GPU pod" 登录一次。
 5. **按项目开启**：项目 Settings → Director → *Allow image generation by agent*，打开开关、选模型
-   （GPT Image 选后端 Codex / API）、设图片上限。GPU Pod 模型（Qwen-Image 2.1）下面还能选 **LoRAs**
+   （GPT Image 选后端 Codex / API）、设图片上限。GPU Pod 模型里，**MiniMax H3 Image** 是 MiniMax 2026-11-10 开放权重的图片模型，直接部署在 GPU Pod 的 ComfyUI 里，不走 API（6 步、无 CFG，按 4 MP 画完再缩到所需尺寸；许可证不覆盖欧盟、英国、韩国、美国，见 README）。GPU Pod 模型（Qwen-Image 2.1）下面还能选 **LoRAs**
    （只列为该模型训练的；勾选后按 LoRA 卡片的推荐设置画，如 ChatR Omni：35 步、CFG 5）。18+ 的 LoRA
    要先在 Canvas 打开 18+，而且只用 Studio 自己画的图和参考库的图，上传或导入的图（可能是真人）会被拒绝。
    **Agent use Canvas**（默认关）：打开后 Claude / Grok 可以通过 MCP 的 `compose_character` 用 Canvas 的参考库

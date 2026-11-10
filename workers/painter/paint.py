@@ -79,6 +79,11 @@ REVIEW_TIMEOUT_S = int(os.environ.get("CODEX_REVIEW_TIMEOUT_S", "300"))
 QUOTA_WORDS = ("usage limit", "rate limit", "429", "quota", "insufficient_quota", "billing")
 MAX_REDRAWS = 2
 MAX_COMFY_PICTURES = 10
+# a pod model that draws at its own resolution (MiniMax-H3-Image: 4–20 MP, 6272x2688 its widest): the largest picture a job may ask for
+MAX_POD_SIDE = 6400
+MAX_POD_PIXELS = 21_000_000
+# a reference picture larger than this is scaled down before it is sent on: no model reads more, and a 16 MP picture is tens of MB
+REF_MAX_SIDE = 4096
 MAX_QWEN_PICTURES = 3
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 # the pod's ComfyUI queue is shared with the video takes: a picture may wait behind one
@@ -128,12 +133,16 @@ def _box(raw: Any, name: str) -> dict[str, float] | None:
     return {"x": x, "y": y, "w": min(w, 1 - x), "h": min(h, 1 - y)}
 
 
-def parse_size(value: Any) -> tuple[int, int]:
+def parse_size(value: Any, large: bool = False) -> tuple[int, int]:
+    """WIDTHxHEIGHT. large: a picture a pod model draws at its own resolution (MiniMax-H3-Image: up to about 20 MP)."""
     m = re.fullmatch(r"(\d{2,5})x(\d{2,5})", str(value or ""))
     if not m:
         raise PaintError('size must look like "1344x768"')
     w, h = int(m.group(1)), int(m.group(2))
-    if not (64 <= w <= 4096 and 64 <= h <= 4096):
+    if large:
+        if not (64 <= w <= MAX_POD_SIDE and 64 <= h <= MAX_POD_SIDE) or w * h > MAX_POD_PIXELS:
+            raise PaintError(f"size must be between 64 and {MAX_POD_SIDE} pixels per side and at most {MAX_POD_PIXELS // 1_000_000} MP for a pod model")
+    elif not (64 <= w <= 4096 and 64 <= h <= 4096):
         raise PaintError("size must be between 64 and 4096 pixels per side")
     return w, h
 
@@ -161,7 +170,7 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
         raise PaintError("output.key must be an R2 key ending in .png")
     params: dict[str, Any] = {"op": op, "output_key": key, "studio_job_id": raw.get("studio_job_id")}
     if op in ("paint", "crop") or raw.get("size"):
-        params["size"] = parse_size(raw.get("size", "1344x768"))
+        params["size"] = parse_size(raw.get("size", "1344x768"), large=op == "paint" and str(raw.get("backend", "")).startswith("comfy:"))
     if op == "paint":
         prompt = raw.get("prompt")
         if not isinstance(prompt, str) or len(prompt.strip()) < 5:
@@ -762,7 +771,7 @@ def comfy_preflight(graph: dict[str, Any], http: Any) -> None:
         else:
             infos[cls] = info
     if missing_nodes:
-        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later — the pod swaps it in at boot from COMFYUI_VERSION (default v0.44.2; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
+        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later, MiniMax-H3-Image v0.45.0 — the pod swaps it in at boot from COMFYUI_VERSION (default v0.45.0; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
     problems = []
     for nid, node in graph.items():
         spec = {**((infos[node["class_type"]].get("input") or {}).get("required") or {}), **((infos[node["class_type"]].get("input") or {}).get("optional") or {})}
@@ -827,6 +836,29 @@ def chain_loras(graph: dict[str, Any], entry: dict[str, Any], loras: list[dict[s
     _put(graph, into, [prev, 0])
 
 
+def working_canvas(w: int, h: int, multiple: int, min_area: int = 0) -> tuple[int, int]:
+    """The canvas a pod model draws on: the asked size on the model's grid — or, for a model with a working
+    range (MiniMax-H3-Image: about 4–20 MP, image_models.json min_area), the same shape scaled up to that
+    area, on the grid size that keeps the shape best. The picture is resized back to the asked size after."""
+    m = max(1, multiple)
+    snap = lambda v: max(m, round(v / m) * m)  # noqa: E731
+    # within 3% of the area counts as in range: 2688x1536, the 4 MP canvas of a 1344x768 frame, is drawn as asked
+    if not min_area or w * h >= 0.97 * min_area:
+        return snap(w), snap(h)
+    scale = (min_area / (w * h)) ** 0.5
+    first = max(1, int(h * scale / m))
+    best: tuple[float, int, int, int] | None = None
+    for rows in range(first, first + 8):
+        ch = rows * m
+        cw = snap(ch * w / h)
+        if cw * ch < 0.97 * min_area:
+            continue
+        off = round(abs(cw / ch - w / h) / (w / h), 4)
+        if best is None or (off, cw * ch) < best[:2]:
+            best = (off, cw * ch, cw, ch)
+    return (best[2], best[3]) if best else (snap(w * scale), snap(h * scale))
+
+
 def comfy_upload(path: Path, http: Any) -> str:
     with open(path, "rb") as fh:
         res = http.post(f"{COMFY_URL}/upload/image", files={"image": (path.name, fh, "image/png")}, data={"overwrite": "true", "subfolder": "studio"}, timeout=120)
@@ -838,7 +870,8 @@ def comfy_upload(path: Path, http: Any) -> str:
 
 def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, settings: dict[str, Any], http: Any = requests) -> Any:
     """One picture from an image model on the pod's ComfyUI: the model's API-format graph, its reference
-    slots filled in order (<image1> is the first), the Studio's settings applied, then the first saved image."""
+    slots filled in order (<image1> / <Picture 1> is the first), the Studio's settings applied, then the first
+    saved image — at the canvas the model drew on, which the caller fits to the asked size."""
     Image = _pil()
     import random
     import uuid
@@ -849,7 +882,7 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (H3_IMAGE=1 / QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_h3_image.log, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
     if len(pictures) < int(entry.get("min_images", 0)):
@@ -876,8 +909,11 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
     _put(graph, entry.get("prompt"), prompt)
     # above CFG 1 the negative branch runs: a single space, as the Omni card asks (empty would switch true CFG off)
     _put(graph, entry.get("negative"), " " if settings.get("cfg", 1) > 1 else "")
-    _put(graph, entry.get("width"), max(m, round(w / m) * m))
-    _put(graph, entry.get("height"), max(m, round(h / m) * m))
+    # a model with a working range draws small requests larger (the job's resolution is the side of that area)
+    min_area = settings["resolution"] ** 2 if entry.get("min_area") and "resolution" in settings else int(entry.get("min_area") or 0)
+    cw, ch = working_canvas(w, h, m, min_area)
+    _put(graph, entry.get("width"), cw)
+    _put(graph, entry.get("height"), ch)
     _put(graph, entry.get("seed"), settings.get("seed", random.randint(1, 2**48)))
     if "resolution" in settings:
         _put(graph, entry.get("resolution"), settings["resolution"])
@@ -1091,7 +1127,7 @@ def run_api(prompt: str, pictures: list[Path], w: int, h: int, quality: str, htt
 # ---------- ops ----------
 
 
-def _download_picture(url: str, dest: Path, http: Any) -> Path:
+def _download_picture(url: str, dest: Path, http: Any, max_side: int | None = None) -> Path:
     with http.get(url, stream=True, timeout=300) as res:
         res.raise_for_status()
         with open(dest, "wb") as fh:
@@ -1103,7 +1139,11 @@ def _download_picture(url: str, dest: Path, http: Any) -> Path:
     # normalise to PNG so every backend reads it
     Image = _pil()
     out = dest.with_suffix(".png") if dest.suffix != ".png" else dest
-    Image.open(dest).convert("RGB").save(out)
+    img = Image.open(dest).convert("RGB")
+    if max_side and max(img.size) > max_side:
+        scale = max_side / max(img.size)
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+    img.save(out)
     return out
 
 
@@ -1180,7 +1220,7 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
     else:
         w, h = params["size"]
         check = params.get("check") or {"review": False, "redraws": 0, "kind": ""}
-        refs = [_download_picture(u, workdir / f"ref{i}", http) for i, u in enumerate(params["refs"])]
+        refs = [_download_picture(u, workdir / f"ref{i}", http, max_side=REF_MAX_SIDE) for i, u in enumerate(params["refs"])]
         for i in params.get("mirror_refs") or []:
             refs[i] = mirror_picture(refs[i])
         pictures = list(refs)

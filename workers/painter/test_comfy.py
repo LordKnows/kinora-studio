@@ -397,3 +397,218 @@ def test_a_flipped_reference_reaches_the_model_mirrored(tmp_path, monkeypatch):
     paint.run_paint_job(params, Up(), tmp_path, http=Http())
     assert seen[0].getpixel((0, 0)) == (255, 0, 0)  # as drawn
     assert seen[1].getpixel((0, 0)) == (0, 0, 255)  # flipped left to right
+
+
+# ---------- MiniMax-H3-Image (open weights; Comfy-Org's templates without the prompt enhancer) ----------
+
+H3I = MANIFESTS["minimax-h3-image"]
+H3I_GRAPH = json.loads((POD / "workflows" / "H3_IMAGE.json").read_text())
+H3I_SETTINGS = {"steps": 6, "cfg": 1, "sampler": "euler", "scheduler": "simple", "resolution": 2048, "seed": 11}
+
+
+class ComfyH3Image(FakeComfy):
+    """Answers with a picture of the canvas the job asked for, from the graph's own SaveImage node."""
+
+    def __init__(self, **kw):
+        super().__init__(graph=H3I_GRAPH, **kw)
+
+    def get(self, url, params=None, timeout=0, stream=False, headers=None):
+        if "/history/" in url:
+            pid = url.rsplit("/", 1)[-1]
+            return Res(payload={pid: {"status": {"status_str": "success"}, "outputs": {"9": {"images": [{"filename": "h3_image_00001_.png", "subfolder": "studio", "type": "output"}]}}}})
+        if url.endswith("/view"):
+            cond = self.queued[-1]["5"]["inputs"]
+            return Res(content=png((30, 160, 90), (cond["width"], cond["height"])))
+        return super().get(url, params=params, timeout=timeout, stream=stream, headers=headers)
+
+
+@pytest.fixture
+def weights_h3_image(tmp_path, monkeypatch):
+    for line in (POD / H3I["files"]).read_text().splitlines():
+        if line.strip() and not line.startswith("#"):
+            subdir, url = line.split("\t")[:2]
+            whole(tmp_path / subdir / url.rsplit("/", 1)[-1], line)
+    monkeypatch.setenv("MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(paint, "COMFY_POLL_S", 0)
+    return tmp_path
+
+
+def test_h3_image_shares_the_video_models_text_encoder():
+    """The model uses the MiniMax-H3 text encoder unchanged: the same file the video graphs load, so it is on the pod once."""
+    files = paint.model_files(H3I)
+    assert [(d, n) for d, n, _ in files] == [
+        ("diffusion_models", "minimax_h3_image_pruned_int8_convrot.safetensors"),
+        ("text_encoders", "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors"),
+        ("vae", "minimax_h3_image_vae_fp16.safetensors")]
+    core = [line.split("\t") for line in (POD / "models.txt").read_text().splitlines() if line.startswith("text_encoders")]
+    mine = [line.split("\t") for line in (POD / H3I["files"]).read_text().splitlines() if line.startswith("text_encoders")]
+    assert mine == core
+    video = json.loads((POD / "workflows" / "T2VA.json").read_text())
+    video_clip = next(n["inputs"] for n in video.values() if isinstance(n, dict) and n.get("class_type") == "CLIPLoader")
+    assert H3I_GRAPH["2"]["inputs"] == video_clip
+
+
+def test_the_h3_image_manifest_matches_its_workflow():
+    graph = {k: v for k, v in H3I_GRAPH.items() if not k.startswith("_")}
+    for key in ("prompt", "width", "height", "seed", "steps", "sampler", "scheduler", "cfg"):
+        node, field = H3I[key]
+        assert field in graph[node]["inputs"], key
+    # no negative prompt (the model takes none: the negative is the positive zeroed) and no fixed sigma schedule
+    assert H3I["negative"] is None and H3I["sigmas"] is None and H3I["resolution"] is None
+    assert graph["7"]["inputs"]["negative"] == ["6", 0] and graph["6"]["class_type"] == "ConditioningZeroOut"
+    assert all(graph[n]["class_type"] == "LoadImage" for n in H3I["image_loaders"])
+    cond = graph[H3I["image_target"]]
+    assert cond["class_type"] == "MiniMaxH3ImageConditioning"
+    assert [cond["inputs"][f"images.image_{i + 1}"][0] for i in range(10)] == H3I["image_loaders"]
+    # the distilled chain of the model card: 6 steps, no guidance
+    k = graph["7"]["inputs"]
+    assert (k["steps"], k["cfg"], k["sampler_name"], k["scheduler"], k["denoise"]) == (6, 1.0, "euler", "simple", 1.0)
+    assert graph[H3I["lora_after"]]["class_type"] == "UNETLoader" and H3I["lora_into"] == ["7", "model"]
+    assert graph[H3I["output_node"]]["class_type"] == "SaveImage"
+    # every link points at a node the graph has
+    for node in graph.values():
+        for value in node["inputs"].values():
+            if isinstance(value, list):
+                assert value[0] in graph
+
+
+def test_the_working_canvas_keeps_the_shape_at_four_megapixels():
+    """Below its working range the model is weak: a small request is drawn larger, on its 32-pixel grid, in the same shape."""
+    area = H3I["min_area"]
+    assert area == 2048 * 2048
+    for (w, h), want in {(1344, 768): (2688, 1536), (1024, 1024): (2048, 2048), (1024, 1536): (1664, 2496), (1536, 1024): (2496, 1664), (1008, 1344): (1824, 2432)}.items():
+        cw, ch = paint.working_canvas(w, h, 32, area)
+        assert (cw, ch) == want, (w, h)
+        assert cw % 32 == 0 and ch % 32 == 0 and cw * ch >= 0.97 * area and abs(cw / ch - w / h) < 1e-9
+    # an odd shape lands on the nearest grid size (under 1% off) rather than failing
+    cw, ch = paint.working_canvas(1000, 700, 32, area)
+    assert cw % 32 == 0 and ch % 32 == 0 and cw * ch >= 0.97 * area and abs(cw / ch - 1000 / 700) / (1000 / 700) < 0.01
+    # a request inside the range is only put on the grid; a model without a range never scales
+    assert paint.working_canvas(5472, 3072, 32, area) == (5472, 3072)
+    assert paint.working_canvas(1000, 1500, 32) == (992, 1504)
+
+
+def test_h3_image_text_to_image_draws_at_four_megapixels(tmp_path, weights_h3_image):
+    comfy = ComfyH3Image()
+    img = paint.run_comfy("minimax-h3-image", "a rooftop after rain, neon in the puddles", [], 1344, 768, paint._settings(H3I_SETTINGS), comfy)
+    # the picture comes back at the working canvas; run_paint_job fits it to the asked 1344x768
+    assert img.size == (2688, 1536)
+    assert paint.cropped_share(img.size, 1344, 768)[0] == 0
+    g = comfy.queued[0]
+    cond = g["5"]["inputs"]
+    assert cond["prompt"] == "a rooftop after rain, neon in the puddles" and (cond["width"], cond["height"]) == (2688, 1536)
+    assert not [k for k in cond if k.startswith("images.")] and not any(str(n) in g for n in range(31, 41))
+    assert "resolution" not in cond and comfy.uploads == []
+    k = g["7"]["inputs"]
+    assert (k["steps"], k["cfg"], k["sampler_name"], k["scheduler"], k["seed"]) == (6, 1.0, "euler", "simple", 11)
+
+
+def test_h3_image_edits_from_pictures_in_order(tmp_path, weights_h3_image):
+    comfy = ComfyH3Image()
+    settings = paint._settings({**H3I_SETTINGS, "resolution": 4096})
+    img = paint.run_comfy("minimax-h3-image", "<Picture 1> wears the coat of <Picture 2>", pictures(tmp_path, 2), 1024, 1024, settings, comfy)
+    # resolution 4096: the 16 MP the model card recommends
+    assert img.size == (4096, 4096)
+    g = comfy.queued[0]
+    cond = g["5"]["inputs"]
+    assert [k for k in cond if k.startswith("images.")] == ["images.image_1", "images.image_2"]
+    assert [g[n]["inputs"]["image"] for n in ("31", "32")] == ["studio/ref0.png", "studio/ref1.png"] and "33" not in g
+    assert cond["prompt"] == "<Picture 1> wears the coat of <Picture 2>"
+
+
+def test_h3_image_is_advertised_and_refused_like_the_other_pod_models(tmp_path, weights_h3_image):
+    assert paint.comfy_backends(ComfyH3Image()) == ["comfy:minimax-h3-image"]
+    with pytest.raises(paint.PaintError, match="lacks the nodes MiniMaxH3ImageConditioning.*MiniMax-H3-Image v0.45.0"):
+        paint.run_comfy("minimax-h3-image", "a prompt", [], 1024, 1024, {}, ComfyH3Image(missing_node="MiniMaxH3ImageConditioning"))
+    with pytest.raises(paint.PaintError, match="at most 10"):
+        paint.run_comfy("minimax-h3-image", "a prompt", pictures(tmp_path, 11), 1024, 1024, {}, ComfyH3Image())
+    (weights_h3_image / "vae" / "minimax_h3_image_vae_fp16.safetensors").unlink()
+    with pytest.raises(paint.PaintError, match="model files not on the pod yet .*H3_IMAGE=1"):
+        paint.run_comfy("minimax-h3-image", "a prompt", [], 1024, 1024, {}, ComfyH3Image())
+
+
+# ---------- a picture delivered at the model's own resolution (Canvas → Resolution: 4, 9, 16 MP) ----------
+
+# src/studio/canvas-prompt.ts canvasOutputSize: the Studio's shapes at each resolution (tests/models.test.ts holds the same table)
+DELIVERED = {
+    2048: {"1024x1536": "1664x2496", "1008x1344": "1824x2432", "1024x1024": "2048x2048", "1536x1024": "2496x1664", "1344x768": "2688x1536"},
+    3072: {"1024x1536": "2496x3744", "1008x1344": "2688x3584", "1024x1024": "3072x3072", "1536x1024": "3744x2496", "1344x768": "4032x2304"},
+    4096: {"1024x1536": "3328x4992", "1008x1344": "3552x4736", "1024x1024": "4096x4096", "1536x1024": "4992x3328", "1344x768": "5376x3072"},
+}
+
+
+def test_a_delivered_size_is_the_canvas_the_model_draws_on():
+    """The Studio asks for the size it computed; the painter draws exactly that, at the model's default 4 MP floor or the job's own."""
+    for side, table in DELIVERED.items():
+        for shape, size in table.items():
+            w, h = (int(v) for v in shape.split("x"))
+            cw, ch = (int(v) for v in size.split("x"))
+            # the same search from the Studio shape lands on it
+            assert paint.working_canvas(w, h, 32, side * side) == (cw, ch), (side, shape)
+            # and asked for directly it is kept: never scaled again, whatever the floor
+            assert paint.working_canvas(cw, ch, 32, H3I["min_area"]) == (cw, ch)
+            assert paint.working_canvas(cw, ch, 32, side * side) == (cw, ch)
+            assert paint.parse_size(size, large=True) == (cw, ch)
+
+
+def test_h3_image_draws_sixteen_megapixels_as_asked(tmp_path, weights_h3_image):
+    comfy = ComfyH3Image()
+    img = paint.run_comfy("minimax-h3-image", "a rooftop after rain, neon in the puddles", [], 5376, 3072, paint._settings(H3I_SETTINGS), comfy)
+    cond = comfy.queued[0]["5"]["inputs"]
+    assert (cond["width"], cond["height"]) == (5376, 3072) and img.size == (5376, 3072)
+    # nothing is cut or resized when the job fits it to its size
+    assert paint.cropped_share(img.size, 5376, 3072)[0] == 0 and paint.fit(img, 5376, 3072).size == (5376, 3072)
+
+
+def test_only_a_pod_model_may_be_asked_for_a_large_picture():
+    base = {"op": "paint", "prompt": "a picture", "output": {"key": "projects/p/images/j.png"}}
+    assert paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "5376x3072"})["size"] == (5376, 3072)
+    assert paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "6272x2688"})["size"] == (6272, 2688)
+    for backend in ("codex", "api", "qwen"):
+        with pytest.raises(paint.PaintError, match="between 64 and 4096"):
+            paint.validate_paint_input({**base, "backend": backend, "size": "5376x3072"})
+    with pytest.raises(paint.PaintError, match="at most 21 MP"):
+        paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "6400x6400"})
+    with pytest.raises(paint.PaintError, match="6400 pixels per side"):
+        paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "8192x2048"})
+    # crops and extracts stay within the Studio's sizes
+    with pytest.raises(paint.PaintError, match="between 64 and 4096"):
+        paint.validate_paint_input({"op": "crop", "output": {"key": "projects/p/images/j.png"}, "base": "https://x/b.png", "crop": {"x": 0, "y": 0, "w": 1, "h": 1}, "size": "5376x3072", "backend": "comfy:minimax-h3-image"})
+
+
+def test_a_large_reference_is_scaled_down_and_a_base_picture_is_not(tmp_path):
+    """A 16 MP picture used as a reference goes on at 4096 px: no model reads more. The picture being edited keeps its pixels."""
+
+    class Http:
+        def get(self, url, stream=False, timeout=0):
+            return Res(content=png((90, 90, 90), (5376, 3072)))
+
+    ref = paint._download_picture("https://x/big.png", tmp_path / "ref0", Http(), max_side=paint.REF_MAX_SIDE)
+    assert Image.open(ref).size == (4096, 2341)
+    base = paint._download_picture("https://x/big.png", tmp_path / "base", Http())
+    assert Image.open(base).size == (5376, 3072)
+    small = paint._download_picture("https://x/small.png", tmp_path / "ref1", type("H", (), {"get": lambda self, url, stream=False, timeout=0: Res(content=png((1, 2, 3), (1024, 1536)))})(), max_side=paint.REF_MAX_SIDE)
+    assert Image.open(small).size == (1024, 1536)
+
+
+def test_the_whole_job_delivers_the_resolution_asked_for(tmp_path, weights_h3_image):
+    """Through the painter's job: a 16 MP request is saved at 16 MP; a Studio size is drawn at 4 MP and saved at the Studio size."""
+    saved = {}
+
+    class Up:
+        def upload(self, path, key, ctype):
+            if key.endswith(".png"):
+                saved[key] = Image.open(path).size
+            return f"https://studio.example/media/{key}"
+
+    for name, size, want in (("big", "5376x3072", (5376, 3072)), ("std", "1344x768", (1344, 768))):
+        comfy = ComfyH3Image()
+        params = paint.validate_paint_input({"op": "paint", "backend": "comfy:minimax-h3-image", "prompt": "a harbour at dawn, fishing boats", "size": size,
+                                             "output": {"key": f"projects/p/images/{name}.png"}, "params": H3I_SETTINGS, "check": {"review": False, "redraws": 0}})
+        work = tmp_path / name
+        work.mkdir()
+        out = paint.run_paint_job(params, Up(), work, http=comfy)
+        assert (out["width"], out["height"]) == want and saved[f"projects/p/images/{name}.png"] == want
+        # nothing was cut to fit: the canvas had the picture's shape
+        assert not [c for c in out.get("checks", []) if c["id"] == "cropped"]
+    assert (comfy.queued[0]["5"]["inputs"]["width"], comfy.queued[0]["5"]["inputs"]["height"]) == (2688, 1536)

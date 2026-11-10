@@ -106,6 +106,32 @@ unused picture slots, applies the settings the Studio sends (steps, CFG,
 sampler, sigmas, resolution, seed — `src/studio/models.ts`), and returns the
 first saved image.
 
+`H3_IMAGE.json` is MiniMax-H3-Image (the open weights of 2026-11-10):
+Comfy-Org's *MiniMax H3 Image* text-to-image and edit templates
+(`image_minimax_h3_image_t2i.json`, `image_minimax_h3_image_edit.json`,
+comfyui-workflow-templates 0.11.105) in API format as one graph, without
+their prompt-enhancer branch (Qwen3.5 9B + Generate Text) and without the
+edit template's resize nodes: `MiniMaxH3ImageConditioning` takes the prompt,
+the canvas size and up to ten pictures (`<Picture 1>`… in the prompt; the
+node scales each to a 1024 short edge for the text encoder and to 1024–2048
+for the VAE itself), `ConditioningZeroOut` makes the negative (the model
+takes no negative prompt), KSampler runs the distilled chain (6 steps, CFG 1,
+euler, simple) and the image VAE decodes. The text encoder is
+`qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors`, the file the video graphs
+load (the model uses the MiniMax-H3 encoder unchanged; Comfy-Org's
+MiniMax-H3-Image repository lists it too, its templates default to the int8
+one). It needs ComfyUI v0.45.0 (the node, the `minimax_h3_image` model and
+its VAE arrived there). `min_area` in the manifest is the model's working
+area: it is weak below about 4 MP, so the painter (`working_canvas`) draws a
+smaller request on a canvas of the same shape scaled up to 4 MP on the
+32-pixel grid — 1344×768 → 2688×1536 — and resizes the picture back; the
+job's `resolution` (the side of that area, 2048 by default, 4096 for the
+16 MP the model card recommends) overrides it. A request already within 3%
+of that area is drawn as asked, on the grid: Canvas → Resolution asks for
+the large size itself (5376×3072 for a 16:9 picture at 16 MP) and gets it
+back pixel for pixel. The painter accepts up to 6400 px a side and 21 MP
+from a `comfy:` backend (`MAX_POD_SIDE`, `MAX_POD_PIXELS`).
+
 `QWEN21_EDIT.json` is Comfy-Org's *Qwen Image 2.1 Turbo: Image edit*
 template (`image_qwen_image_2_1_turbo_image_edit.json`) in API format,
 without its prompt-enhancer branch: `TextEncodeQwenImage21` with up to ten

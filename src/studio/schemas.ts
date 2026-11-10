@@ -48,7 +48,7 @@ export const LoraInput = z.object({
   stepsHint: z.number().int().min(1).max(60).optional().describe("speed LoRAs: the step count they are trained for"),
   workflows: z.array(z.enum(["T2VA", "I2VA", "FL2VA", "R2VA"])).default([]).describe("Empty = every workflow"),
   notes: z.string().max(1000).default(""),
-  baseModel: z.string().max(60).default("minimax-h3").describe("The model family it was trained for (models.ts): minimax-h3, qwen-image-2.1"),
+  baseModel: z.string().max(60).default("minimax-h3").describe("The model family it was trained for (models.ts): minimax-h3, minimax-h3-image, qwen-image-2.1"),
   params: InferenceParamsInput.default({}).describe("Recommended settings from its card: a speed LoRA's steps, sampler, scheduler, shift; any LoRA's strength range. Selecting it applies them."),
 });
 export type LoraInput = z.infer<typeof LoraInput>;

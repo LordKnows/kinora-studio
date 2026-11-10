@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
-import { buildCanvasPrompt } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_STYLES } from "@/studio/canvas-prompt";
 import { agentComposeCharacter, CanvasCompose, composeCharacter, importReference } from "@/studio/canvas";
 import { firstRealIn } from "@/studio/provenance";
 import * as imaging from "@/studio/imaging";
@@ -153,6 +153,92 @@ describe("the composed prompt", () => {
     expect(mannequin).toContain("图2中人体模型（白模）的动作和镜头角度摆姿势（已左右镜像，以图中方向为准）；图2只是动作示意，不照搬白模的灰白材质");
     const depth = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, pose: { upload: { name: "p" }, picture: "depth" } });
     expect(depth).toContain("图2是灰度深度图，只表示动作与远近");
+  });
+});
+
+describe("the composed prompt in English", () => {
+  let portrait: RefPortrait, costume: RefCostume, pose: RefPose;
+  const cjk = /[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/;
+  beforeAll(() => {
+    portrait = listReferences("portrait", false).items.find((x) => (x as RefPortrait).hairstyle !== "标准基础款") as RefPortrait;
+    costume = listReferences("costume", false).items.find((x) => (x as RefCostume).source === "gia") as RefCostume;
+    pose = listReferences("pose", false).items.find((x) => (x as RefPose).angle === "diag") as RefPose;
+  });
+
+  it("says the Chinese recipe clause for clause, with the pictures named as the model reads them", () => {
+    const recipe = { portrait: { item: portrait }, costume: { item: costume }, pose: { item: pose }, style: "realistic" };
+    const text = buildCanvasPrompt({ ...recipe, lang: "en" });
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("From the 3 reference pictures provided, create one complete photograph of one real person:");
+    expect(lines[1]).toMatch(/^- Person: the person in Picture 1\. Keep their face shape, facial features, hairstyle.* and hair colour the same\. The person's skin tone must match the person in Picture 1: all bare skin/);
+    expect(lines[2]).toMatch(/^- Outfit: dress the person in the complete outfit and accessories shown in Picture 2.*The colour, cut, fabric and accessories of every piece follow Picture 2/);
+    expect(lines[3]).toMatch(/^- Pose: take the action and the camera angle of the mannequin in Picture 3 \(.*three-quarter view\); Picture 3 only shows the action; the person in the final picture is a real person with real, natural skin, wearing the outfit of Picture 2\.$/);
+    expect(lines[4]).toMatch(/^- Style: Photorealistic commercial photography.*Natural proportions, hands and facial features, consistent lighting\.$/);
+    expect(lines[5]).toBe("Everyone in the picture is an adult. There is no text, logo or watermark anywhere in the picture.");
+    /* as many clauses as the Chinese one */
+    expect(lines).toHaveLength(buildCanvasPrompt(recipe).split("\n").length);
+    /* the library's Chinese names stay out: the pictures carry them */
+    expect(text).not.toMatch(cjk);
+    /* each model's own tokens */
+    expect(buildCanvasPrompt({ ...recipe, lang: "en", refStyle: "h3" })).toContain("of the mannequin in <Picture 3>");
+    expect(buildCanvasPrompt({ ...recipe, lang: "en", refStyle: "qwen" })).toContain("wearing the outfit of <image2>");
+    /* zh, or nothing, is the Chinese original */
+    expect(buildCanvasPrompt({ ...recipe, lang: "zh" })).toBe(buildCanvasPrompt(recipe));
+  });
+
+  it("keeps a name that is not Chinese, the user's own words, and every style line", () => {
+    const named = buildCanvasPrompt({ portrait: { upload: { name: "me" } }, costume: { item: { ...costume, name: "Navy sailor uniform" } }, extras: [{ name: "red scarf" }, { name: "" }], note: "by a classroom window", lang: "en" });
+    expect(named).toContain("shown in Picture 2 (reference name: Navy sailor uniform). The colour, cut, fabric and accessories of every piece follow Picture 2; the name is only a hint.");
+    expect(named).toContain("- Extra reference: work in the elements, accessories, background or lighting details of Picture 3 (red scarf).");
+    expect(named).toContain("of Picture 4 (an extra element).");
+    expect(named).toContain("- Also: by a classroom window");
+    /* without a costume the person keeps what they wear */
+    expect(buildCanvasPrompt({ portrait: { upload: { name: "me" } }, lang: "en" })).toContain("Keep the clothing and accessories visible on the person in Picture 1; do not copy the clothing or the mannequin look of the pose reference.");
+    for (const s of CANVAS_STYLES) {
+      expect(!!s.promptEn).toBe(!!s.prompt);
+      expect(s.promptEn).not.toMatch(cjk);
+      if (s.promptEn) expect(buildCanvasPrompt({ portrait: { upload: { name: "me" } }, style: s.id, lang: "en" })).toContain(`- Style: ${s.promptEn}`);
+    }
+  });
+
+  it("says what the pose picture is, flipped or not, and draws a faceless figure without a face", () => {
+    const me = { portrait: { upload: { name: "me" } } };
+    expect(buildCanvasPrompt({ ...me, pose: { upload: { name: "p" } }, lang: "en" })).toContain("- Pose: take the person's action and the camera angle from Picture 2; use only the pose and the composition, do not copy the look or the clothing of the person in Picture 2;");
+    expect(buildCanvasPrompt({ ...me, pose: { upload: { name: "p" }, picture: "mannequin", mirror: true }, lang: "en" })).toContain("of the plain mannequin in Picture 2 (mirrored left to right: go by the directions as the picture shows them); Picture 2 only shows the action, do not copy the mannequin's grey-white material;");
+    expect(buildCanvasPrompt({ ...me, pose: { upload: { name: "p" }, picture: "depth" }, lang: "en" })).toContain("Picture 2 is a greyscale depth map that only shows the action and the distances;");
+    const faceless = buildCanvasPrompt({ costume: { item: costume }, pose: { item: pose, depth: true }, style: "anime", lang: "en" });
+    expect(faceless.split("\n")[0]).toBe("From the 2 reference pictures provided, create one complete outfit display picture of one figure:");
+    expect(faceless).toContain("Picture 2 only shows the action (a greyscale depth map: only the action and the distances); the person's skin tone and texture follow the style, wearing the outfit of Picture 1.");
+    expect(faceless).toContain("- Faceless display: an adult display figure wearing the reference outfit. The face stays a smooth surface of natural skin colour with no eyes, nose or mouth");
+    expect(faceless).toContain("Natural proportions and hands, a face without features, consistent lighting.");
+    expect(buildCanvasPrompt({ lang: "en" })).toBe("");
+  });
+
+  it("tells two people apart by name and place, and a description alone is the picture", () => {
+    const two = buildCanvasPrompt({
+      character: { name: "Lin" }, costume: { item: costume }, name: "Lin",
+      partner: { portrait: { upload: { name: "him" } } }, aIs: "front", pose: { upload: { name: "duo" }, picture: "depth" }, style: "anime", refStyle: "h3", lang: "en",
+    });
+    expect(two.split("\n")[0]).toBe("From the 4 reference pictures provided, create one complete picture of two people, Lin and Person B:");
+    expect(two).toContain("- Lin: <Picture 1> is the character reference for Lin (the same person). Keep their face shape, facial features, hairstyle, hair colour and skin tone the same.");
+    expect(two).toContain("- Lin's outfit: dress Lin in the complete outfit and accessories shown in <Picture 2>");
+    expect(two).toContain("- Person B: the person in <Picture 3>.");
+    expect(two).toContain("in <Picture 4> the one in front (nearer the camera) is Lin and the other is Person B;");
+    expect(two).toContain("the two people's skin tone and texture follow the style, Lin wearing the outfit of <Picture 2>.");
+    expect(two).toContain("do not mix them, and do not draw the same person twice. Exactly these two people are in the picture.");
+    /* a character without a costume keeps its own clothes; an unnamed stranger is made up; no pose: a shared frame */
+    const loose = buildCanvasPrompt({ character: { name: "Lin" }, partner: {}, lang: "en" });
+    expect(loose).toContain("hairstyle, hair colour, skin tone, clothing and accessories the same.");
+    expect(loose).toContain("- Person B: an adult with a natural face, clearly different from Lin.");
+    expect(loose).toContain("- Composition: Lin and Person B share the frame, interacting naturally.");
+    const text = buildCanvasPrompt({ text: "a rooftop after rain, neon in the puddles", style: "film", note: "half body", lang: "en" });
+    expect(text.split("\n")).toEqual([
+      "a rooftop after rain, neon in the puddles",
+      "- Also: half body",
+      "- Style: A 35mm Fujifilm photograph, light film grain, soft vintage warm tones, natural street light and a cinematic, breathing feel. Balanced proportions, consistent lighting.",
+      "Anyone in the picture is an adult. There is no text, logo or watermark anywhere in the picture.",
+    ]);
+    expect(buildCanvasPrompt({ portrait: { upload: { name: "me" } }, text: "a beach at sunset", lang: "en" })).toContain("- Scene: a beach at sunset");
   });
 });
 

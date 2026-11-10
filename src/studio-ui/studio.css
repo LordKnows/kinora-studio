@@ -2244,7 +2244,8 @@ button.st-pill {
   cursor: default;
 }
 .studio .st-canvas-fields {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  /* wide enough to read "16 MP · 5376×3072": two to a row in the recipe column */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 .studio .st-canvas-prompt {

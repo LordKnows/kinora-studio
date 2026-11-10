@@ -10,7 +10,7 @@ import { getProjectView, type ProjectView, type ShotView } from "./orchestrator"
 import * as painter from "./painter";
 import * as repo from "./repo";
 import type { RefView } from "./schemas";
-import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
+import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, editSizeFor, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
 import { firstRealIn, inputsOf, realnessOfDrawing } from "./provenance";
 import { adultAllowed } from "./references";
 import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types";
@@ -699,7 +699,8 @@ export async function editFrame(assetId: string, input: { instruction: string; r
   const pv = await getProjectView(asset.projectId);
   const refs = (input.refAssetIds ?? []).map((id) => assetUrl(pv, id)).filter((u): u is string => !!u).slice(0, Math.min(4, refCap(pv.project, true)));
   const prompt = editPrompt(input.instruction, { refsFirst: refs.length });
-  const size = asset.width && asset.height ? `${asset.width}x${asset.height}` : sizeFor(pv.project.look);
+  /* the picture's own size, within what the project's model draws (a 16 MP picture edited by a model that draws 1 MP is reduced) */
+  const size = asset.width && asset.height ? editSizeFor(projectImageModel(pv.project.imaging), asset.width, asset.height).size : sizeFor(pv.project.look);
   const takeId = typeof asset.meta.takeId === "string" ? asset.meta.takeId : undefined;
   const frame = typeof asset.meta.frame === "number" ? asset.meta.frame : undefined;
   const r = await submitImage(asset.projectId, { op: "paint", purpose: input.purpose ?? "edit", prompt, refUrls: refs, baseUrl: asset.url, baseAssetId: asset.id, region: input.region, size, quality: input.quality, targetId: takeId ?? asset.id, takeId, frame, attach: input.attach, label: `edit · ${input.instruction.slice(0, 40)}` }, actor, input);

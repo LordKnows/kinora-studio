@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { buildCanvasPrompt, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, PLACE_ZH, PLACES, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
-import { describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
+import { buildCanvasPrompt, CANVAS_LANG_LABEL, CANVAS_LANGS, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_RESOLUTION_LABEL, CANVAS_RESOLUTIONS, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, canvasOutputSize, PLACE_ZH, PLACES, type CanvasLang, type CanvasResolution, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
+import { canvasLangFor, describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefPortrait, type RefPose } from "@/studio/references-model";
 import { REF_VIEWS, type LoraRef, type RefView } from "@/studio/schemas";
@@ -50,7 +50,11 @@ type Recipe = {
   nameB?: string;
   extras: Upload[];
   style: string;
+  /** The language the prompt is composed in; unset = the model's own (English for MiniMax H3 Image, Chinese for the others). */
+  lang?: CanvasLang;
   size: (typeof CANVAS_SIZES)[number];
+  /** MiniMax H3 Image: the picture delivered at the model's own resolution (4, 9 or 16 MP) in the shape of size; unset = the Studio size. */
+  resolution?: CanvasResolution;
   quality?: "low" | "medium" | "high";
   /** The image model (models.ts); unset = the project's (Settings → Director). */
   model?: string;
@@ -102,7 +106,7 @@ function characterPicture(el: Element | undefined, assets: Asset[]): Asset | und
   return assets.find((a) => a.id === id);
 }
 
-function toPromptRecipe(r: Recipe, refStyle: "zh" | "qwen" | undefined, elements: Element[]): CanvasPromptRecipe {
+function toPromptRecipe(r: Recipe, refStyle: ModelEntry["refStyle"], lang: CanvasLang, elements: Element[]): CanvasPromptRecipe {
   const charName = (id?: string) => (id ? elements.find((e) => e.id === id)?.name ?? "character" : undefined);
   const person = (portrait: Slot<RefPortrait> | undefined, costume: Slot<RefCostume> | undefined, character: string | undefined, name: string | undefined): CanvasPerson => ({
     ...(character ? { character: { name: charName(character)! } } : portrait ? { portrait: slotPrompt(portrait) } : {}),
@@ -118,6 +122,7 @@ function toPromptRecipe(r: Recipe, refStyle: "zh" | "qwen" | undefined, elements
     style: r.style,
     note: r.note,
     refStyle,
+    lang,
   };
 }
 
@@ -273,7 +278,11 @@ export function CanvasPage() {
   const effective: Recipe = textMode
     ? { ...EMPTY, mode: "text", text: recipe.text, style: recipe.style, note: recipe.note, size: recipe.size }
     : { ...recipe, characterA: castA, characterB: castB };
-  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(effective, model.refStyle, elements)), [effective, model.refStyle, elements]);
+  /* the prompt's language: the one picked here, else the model's own */
+  const lang = canvasLangFor(model, recipe.lang);
+  /* the resolution travels only with a model that draws at it */
+  const resolution = recipe.resolution && model.resolutions?.includes(recipe.resolution) ? recipe.resolution : undefined;
+  const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(effective, model.refStyle, lang, elements)), [effective, model.refStyle, lang, elements]);
   const prompt = recipe.prompt ?? composed;
   const partnerItems = recipe.two ? [recipe.partner?.portrait?.item, recipe.partner?.costume?.item] : [];
   const nsfwInRecipe = [recipe.portrait?.item, recipe.costume?.item, recipe.pose?.item, ...partnerItems].some((x) => x?.nsfw);
@@ -379,7 +388,9 @@ export function CanvasPage() {
       const body = {
         ...refs,
         style: recipe.style,
+        lang,
         size: recipe.size,
+        ...(resolution ? { resolution } : {}),
         model: model.id,
         ...(activeLoras.length ? { loras: activeLoras.map((l) => ({ id: l.id, strength: l.strength })) } : {}),
         ...(recipe.quality && takesQuality ? { quality: recipe.quality } : {}),
@@ -407,14 +418,16 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; text?: string; costumeView?: string; note?: string; model?: string; promptExtend?: boolean; negativePrompt?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; text?: string; costumeView?: string; note?: string; model?: string; lang?: CanvasLang; resolution?: CanvasResolution; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
+    /* a picture drawn before the language could be chosen was composed in Chinese */
+    const langOf = { lang: (CANVAS_LANGS as readonly string[]).includes(c.lang ?? "") ? c.lang! : "zh" as CanvasLang, ...((CANVAS_RESOLUTIONS as readonly string[]).includes(c.resolution ?? "") ? { resolution: c.resolution } : {}) };
     if (!c.refs.length && c.text) {
-      setRecipe({ ...EMPTY, mode: "text", text: c.text, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", note: c.note ?? "", ...(c.model ? { model: c.model } : {}) });
+      setRecipe({ ...EMPTY, mode: "text", text: c.text, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...langOf });
       setResult(null);
       return;
     }
-    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, ...(c.posePicture ? { posePicture: c.posePicture } : {}), ...(c.people === 2 ? { two: true, partner: {}, aIs: c.aIs ?? "left", nameA: c.nameA, nameB: c.nameB } : {}), note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
+    const next: Recipe = { ...EMPTY, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", depth: !!c.depth, mirror: !!c.mirror, ...(c.posePicture ? { posePicture: c.posePicture } : {}), ...(c.people === 2 ? { two: true, partner: {}, aIs: c.aIs ?? "left", nameA: c.nameA, nameB: c.nameB } : {}), note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...langOf, ...(c.promptExtend ? { promptExtend: true } : {}), ...(c.negativePrompt ? { negative: c.negativePrompt } : {}) };
     for (const ref of c.refs) {
       const up: Upload | undefined = ref.assetId ? { assetId: ref.assetId, url: ref.url, name: ref.label } : undefined;
       let item: RefItem | undefined;
@@ -502,7 +515,7 @@ export function CanvasPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
+          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or MiniMax H3 Image or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
         </div>
         <div className="st-row">
           <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
@@ -645,6 +658,19 @@ export function CanvasPage() {
               <Field label="Size" hint={model.canvasSize ? `${model.label}: follows the pose picture` : undefined}>
                 <select className="st-select" value={model.canvasSize ?? recipe.size} disabled={!!model.canvasSize} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
+                </select>
+              </Field>
+              {!!model.resolutions?.length && (
+                <Field label="Resolution" hint={resolution ? `drawn at ${canvasOutputSize(recipe.size, resolution).replace("x", "×")}, not resized${resolution === "16mp" ? "; several times slower" : ""}` : "drawn at 4 MP, resized to the size"}>
+                  <select className="st-select" value={resolution ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, resolution: (e.target.value || undefined) as CanvasResolution | undefined }))}>
+                    <option value="">Standard · {recipe.size.replace("x", "×")}</option>
+                    {model.resolutions.map((x) => <option key={x} value={x}>{CANVAS_RESOLUTION_LABEL[x]} · {canvasOutputSize(recipe.size, x).replace("x", "×")}</option>)}
+                  </select>
+                </Field>
+              )}
+              <Field label="Prompt language" hint={recipe.lang ? (recipe.prompt !== undefined ? "the edited prompt stays as typed" : undefined) : `${model.label}'s own`}>
+                <select className="st-select" value={lang} onChange={(e) => setRecipe((r) => ({ ...r, lang: e.target.value as CanvasLang }))}>
+                  {CANVAS_LANGS.map((l) => <option key={l} value={l}>{CANVAS_LANG_LABEL[l]}{canvasLangFor(model) === l ? " · model default" : ""}</option>)}
                 </select>
               </Field>
               {takesQuality && (

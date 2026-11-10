@@ -1,0 +1,253 @@
+{
+  "_comment": "MiniMax-H3-Image (open weights, 2026-11-10): text to image and multi-reference editing with one checkpoint (API format). Comfy-Org's templates image_minimax_h3_image_t2i.json / image_minimax_h3_image_edit.json without their prompt-enhancer branch (Qwen3.5 9B + Generate Text): MiniMaxH3ImageConditioning with up to ten pictures (<Picture N> in the prompt), ConditioningZeroOut for the negative (the model takes no negative prompt), KSampler 6 steps / CFG 1 / euler / simple (the checkpoint is distilled to 6 steps without guidance), the image VAE. The text encoder is the H3 video graphs' own file (the model uses the MiniMax-H3 text encoder unchanged), so the pod downloads only the DiT and the VAE. The painter sets the canvas (node 5 width / height: the asked shape scaled up to the model's 4 MP working area, image_models.json min_area) and drops the unused picture slots. LoRAs are chained by the painter between node 1 and node 7 (image_models.json lora_after / lora_into). Needs ComfyUI v0.45.0 or later.",
+  "1": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "minimax_h3_image_pruned_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "_meta": {
+      "title": "MiniMax-H3-Image"
+    }
+  },
+  "2": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "_meta": {
+      "title": "MiniMax H3 text encoder (shared with the video graphs)"
+    }
+  },
+  "3": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "minimax_h3_image_vae_fp16.safetensors"
+    },
+    "_meta": {
+      "title": "MiniMax-H3-Image VAE"
+    }
+  },
+  "31": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_1.png"
+    },
+    "_meta": {
+      "title": "<Picture 1>"
+    }
+  },
+  "32": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_2.png"
+    },
+    "_meta": {
+      "title": "<Picture 2>"
+    }
+  },
+  "33": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_3.png"
+    },
+    "_meta": {
+      "title": "<Picture 3>"
+    }
+  },
+  "34": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_4.png"
+    },
+    "_meta": {
+      "title": "<Picture 4>"
+    }
+  },
+  "35": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_5.png"
+    },
+    "_meta": {
+      "title": "<Picture 5>"
+    }
+  },
+  "36": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_6.png"
+    },
+    "_meta": {
+      "title": "<Picture 6>"
+    }
+  },
+  "37": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_7.png"
+    },
+    "_meta": {
+      "title": "<Picture 7>"
+    }
+  },
+  "38": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_8.png"
+    },
+    "_meta": {
+      "title": "<Picture 8>"
+    }
+  },
+  "39": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_9.png"
+    },
+    "_meta": {
+      "title": "<Picture 9>"
+    }
+  },
+  "40": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "ref_10.png"
+    },
+    "_meta": {
+      "title": "<Picture 10>"
+    }
+  },
+  "5": {
+    "class_type": "MiniMaxH3ImageConditioning",
+    "inputs": {
+      "clip": [
+        "2",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ],
+      "prompt": "",
+      "width": 2048,
+      "height": 2048,
+      "images.image_1": [
+        "31",
+        0
+      ],
+      "images.image_2": [
+        "32",
+        0
+      ],
+      "images.image_3": [
+        "33",
+        0
+      ],
+      "images.image_4": [
+        "34",
+        0
+      ],
+      "images.image_5": [
+        "35",
+        0
+      ],
+      "images.image_6": [
+        "36",
+        0
+      ],
+      "images.image_7": [
+        "37",
+        0
+      ],
+      "images.image_8": [
+        "38",
+        0
+      ],
+      "images.image_9": [
+        "39",
+        0
+      ],
+      "images.image_10": [
+        "40",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Prompt + pictures → conditioning + canvas"
+    }
+  },
+  "6": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "5",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Negative (zeroed)"
+    }
+  },
+  "7": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 424242,
+      "steps": 6,
+      "cfg": 1.0,
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "denoise": 1.0,
+      "model": [
+        "1",
+        0
+      ],
+      "positive": [
+        "5",
+        0
+      ],
+      "negative": [
+        "6",
+        0
+      ],
+      "latent_image": [
+        "5",
+        1
+      ]
+    },
+    "_meta": {
+      "title": "Sample"
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "7",
+        0
+      ],
+      "vae": [
+        "3",
+        0
+      ]
+    },
+    "_meta": {
+      "title": "Decode"
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "filename_prefix": "studio/h3_image"
+    },
+    "_meta": {
+      "title": "Save"
+    }
+  }
+}

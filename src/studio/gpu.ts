@@ -69,10 +69,10 @@ function podEnv(): Record<string, string> {
 
 function imagesApiEnv(): Record<string, string> {
   const out: Record<string, string> = {};
-  /* QWEN_IMAGE / QWEN_IMAGE_BASE / QWEN_EDIT_2509 = 0: skip that Canvas model's download on the GPU pod; COMFY_PAINT_TIMEOUT_S: how long a picture may wait in the pod's ComfyUI queue;
+  /* H3_IMAGE / QWEN_IMAGE / QWEN_IMAGE_BASE / QWEN_EDIT_2509 = 0: skip that image model's download on the GPU pod; COMFY_PAINT_TIMEOUT_S: how long a picture may wait in the pod's ComfyUI queue;
      COMFYUI_VERSION: the ComfyUI release the pod runs in place of the image's (start.sh; "image" = the image's own);
      REGEN_2K=0: no Open-H3-Regenerate-2K (21 GB, node packs) on the pod */
-  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "QWEN_EDIT_2509", "COMFY_PAINT_TIMEOUT_S", "COMFYUI_VERSION", "REGEN_2K"]) {
+  for (const name of ["OPENAI_API_KEY", "OPENAI_BASE_URL", "IMAGE_MODEL", "CODEX_PAINT_MODEL", "H3_IMAGE", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "QWEN_EDIT_2509", "COMFY_PAINT_TIMEOUT_S", "COMFYUI_VERSION", "REGEN_2K"]) {
     const v = process.env[name];
     if (v) out[name] = v;
   }

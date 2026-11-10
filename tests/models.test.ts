@@ -6,8 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { CanvasCompose, composeCharacter } from "@/studio/canvas";
+import { buildCanvasPrompt, CANVAS_RESOLUTION_SIDE, CANVAS_RESOLUTIONS, CANVAS_SIZES, canvasOutputSize } from "@/studio/canvas-prompt";
 import * as imaging from "@/studio/imaging";
-import { describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
+import { AGENT_IMAGE_MODELS, canvasLangFor, defaultImageParams, editSizeFor, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
 import * as painter from "@/studio/painter";
 import { listReferences, setAdultContent } from "@/studio/references";
 import * as repo from "@/studio/repo";
@@ -264,5 +265,161 @@ describe("Qwen-Image-Edit 2509: the pose gallery's workflow", () => {
     expect(old.jobs.some((j) => j.jobId === job.id)).toBe(false);
     const fresh = await painter.claim({ painterId: "new-cpu", name: "new", want: 4, info: { backends: ["codex"], ops: ["paint", "crop", "extract"], features: ["mirror_refs"] } });
     expect(fresh.jobs.find((j) => j.jobId === job.id)?.input.mirror_refs).toEqual([1]);
+  });
+});
+
+describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
+  const H3I = findModel("minimax-h3-image") as ModelEntry;
+  let projectId = "";
+
+  it("is a pod model on its distilled chain, self-hosted, with the licence's limits said", () => {
+    expect(H3I).toMatchObject({ kind: "image", runtime: "pod", backend: "comfy:minimax-h3-image", workflows: ["H3_IMAGE"], family: "minimax-h3-image", maxRefs: 10, refStyle: "h3", moderation: "none" });
+    /* 6 steps without guidance (the model card); drawn at 4 MP whatever size is asked */
+    expect(resolveParams(H3I).params).toEqual({ steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048 });
+    expect(defaultImageParams(H3I)).toEqual(resolveParams(H3I).params);
+    expect(describeParams(H3I.params)).toBe("6 steps · euler/simple · CFG 1");
+    /* not an open-source licence: excluded territories and a revenue / hosting threshold */
+    expect(H3I.commercial).toBe("ask");
+    expect(H3I.license).toMatch(/EU.*UK.*South Korea.*US/);
+    expect(H3I.license).toMatch(/1M USD/);
+    /* open weights from HuggingFace, no API: the text encoder is the file the video graphs load */
+    expect(H3I.files!.every((f) => f.url.startsWith("https://huggingface.co/Comfy-Org/"))).toBe(true);
+    const pod = readFileSync(join(__dirname, "../workers/h3-runpod/models.txt"), "utf8");
+    expect(pod).toContain(H3I.files!.find((f) => f.dir === "text_encoders")!.url);
+    /* the director may draw with it (Settings → Director) */
+    expect(AGENT_IMAGE_MODELS.map((m) => m.id)).toContain("minimax-h3-image");
+  });
+
+  it("names its pictures <Picture N>, in the director's prompts and in Canvas recipes", () => {
+    expect(namePicturesFor(H3I, "Picture 1 is Mia. Keep picture 2's coat; edit Picture 10.")).toBe("<Picture 1> is Mia. Keep <Picture 2>'s coat; edit <Picture 10>.");
+    /* a prompt that already carries the token stays as it is */
+    expect(namePicturesFor(H3I, "<Picture 1> wears the coat of Picture 2")).toBe("<Picture 1> wears the coat of <Picture 2>");
+    const text = buildCanvasPrompt({ character: { name: "Lin" }, extras: [{ name: "red scarf" }], refStyle: "h3" });
+    expect(text).toContain("<Picture 1>是Lin的角色参考");
+    expect(text).toContain("融合<Picture 2>（red scarf）");
+    expect(text).not.toMatch(/图\d/);
+  });
+
+  it("gets its Canvas recipe in English unless the user picks Chinese; the other models stay Chinese", () => {
+    expect(canvasLangFor(H3I)).toBe("en");
+    expect(canvasLangFor(H3I, "zh")).toBe("zh");
+    for (const m of IMAGE_MODELS.filter((x) => x.id !== "minimax-h3-image")) expect(canvasLangFor(m)).toBe("zh");
+    expect(canvasLangFor(QWEN, "en")).toBe("en");
+  });
+
+  it("is chosen for a project on the web and queues for the GPU pod with its settings", async () => {
+    projectId = (await repo.createProject({ name: "H3 Image" })).id;
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, web);
+    const summary = imaging.imagingSummary(await repo.getProject(projectId));
+    expect(summary).toMatchObject({ enabled: true, model: "minimax-h3-image", modelLabel: "MiniMax H3 Image", runtime: "pod", backend: "comfy:minimax-h3-image", maxRefs: 10 });
+    expect((await imaging.imagingStatus(await repo.getProject(projectId))).settings).toBe("6 steps · euler/simple · CFG 1");
+    /* Canvas, text to image: no picture, the project's model */
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ text: "a rooftop after rain, neon in the puddles", size: "1344x768", seed: 5 }), web);
+    expect(r.model).toBe("minimax-h3-image");
+    const job = await repo.getJob(r.job.id);
+    expect(job.input).toMatchObject({ backend: "comfy:minimax-h3-image", size: "1344x768" });
+    /* composed in English, the model's own language, and the recipe remembers it */
+    expect(r.lang).toBe("en");
+    expect(String(job.input.prompt)).toBe("a rooftop after rain, neon in the puddles\n- Style: Photorealistic commercial photography, an 85mm portrait lens, soft natural light, real skin texture and fabric detail, 8K clarity. Balanced proportions, consistent lighting.\nAnyone in the picture is an adult. There is no text, logo or watermark anywhere in the picture.");
+    expect((job.input.canvas as { lang: string }).lang).toBe("en");
+    expect(job.input.params).toMatchObject({ steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048, seed: 5 });
+    expect((job.input.check as { review: boolean }).review).toBe(false);
+    expect(painter.isPodBackend(job)).toBe(true);
+    expect(r.runner).toContain("GPU pod");
+  });
+
+  it("composes the references in English with <Picture N>, or in Chinese when asked", async () => {
+    const portrait = (await listReferences("portrait", false)).items[0]!;
+    const costume = (await listReferences("costume", false)).items.find((x) => x.kind === "costume" && x.source === "gia")!;
+    const recipe = { model: "minimax-h3-image", portrait: { id: portrait.id }, costume: { id: costume.id } };
+    const en = await composeCharacter(projectId, CanvasCompose.parse(recipe), web);
+    expect(en.lang).toBe("en");
+    expect(en.prompt).toContain("From the 2 reference pictures provided, create one complete photograph of one real person:");
+    expect(en.prompt).toContain("- Person: the person in <Picture 1>.");
+    expect(en.prompt).toContain("dress the person in the complete outfit and accessories shown in <Picture 2>");
+    expect(en.prompt).toContain("Everyone in the picture is an adult.");
+    /* an English prompt carries no Chinese: the library's names are left to the pictures */
+    expect(en.prompt).not.toMatch(/[\u3400-\u9fff]/);
+    const zh = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, lang: "zh" }), web);
+    expect(zh.lang).toBe("zh");
+    expect(zh.prompt).toContain("<Picture 1>中的人物");
+    expect(((await repo.getJob(zh.job.id)).input.canvas as { lang: string }).lang).toBe("zh");
+    /* any model can be asked for English: GPT Image reads "Picture N", Qwen-Image 2.1 <imageN> */
+    const gpt = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "gpt-image-codex", lang: "en" }), web);
+    expect(gpt.prompt).toContain("- Person: the person in Picture 1.");
+    const qwen = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "qwen-image-2.1-turbo", lang: "en" }), web);
+    expect(qwen.prompt).toContain("shown in <image2>");
+    /* left out, the others are composed in Chinese as before */
+    const before = await composeCharacter(projectId, CanvasCompose.parse({ ...recipe, model: "qwen-image-2.1-turbo" }), web);
+    expect(before.lang).toBe("zh");
+    expect(before.prompt).toContain("<image1>中的人物");
+  });
+
+  it("delivers a Studio shape at 4, 9 or 16 MP: the same shape, on the 32-pixel grid", () => {
+    /* workers/painter/test_comfy.py holds the same table: the painter's working_canvas lands on these sizes and keeps them */
+    const table: Record<string, Record<string, string>> = {
+      "4mp": { "1024x1536": "1664x2496", "1008x1344": "1824x2432", "1024x1024": "2048x2048", "1536x1024": "2496x1664", "1344x768": "2688x1536" },
+      "9mp": { "1024x1536": "2496x3744", "1008x1344": "2688x3584", "1024x1024": "3072x3072", "1536x1024": "3744x2496", "1344x768": "4032x2304" },
+      "16mp": { "1024x1536": "3328x4992", "1008x1344": "3552x4736", "1024x1024": "4096x4096", "1536x1024": "4992x3328", "1344x768": "5376x3072" },
+    };
+    expect(H3I.resolutions).toEqual([...CANVAS_RESOLUTIONS]);
+    for (const res of CANVAS_RESOLUTIONS) {
+      for (const shape of CANVAS_SIZES) {
+        const out = canvasOutputSize(shape, res);
+        expect(out).toBe(table[res]![shape]);
+        const [w, h] = out.split("x").map(Number) as [number, number];
+        const [sw, sh] = shape.split("x").map(Number) as [number, number];
+        expect(w % 32).toBe(0);
+        expect(h % 32).toBe(0);
+        expect(w / h).toBeCloseTo(sw / sh, 9);
+        /* at least 97% of the area asked for, within what the painter accepts from a pod model */
+        expect(w * h).toBeGreaterThanOrEqual(0.97 * CANVAS_RESOLUTION_SIDE[res] ** 2);
+        expect(Math.max(w, h)).toBeLessThanOrEqual(6400);
+        expect(w * h).toBeLessThanOrEqual(21_000_000);
+      }
+    }
+    /* no resolution: the Studio size itself */
+    expect(canvasOutputSize("1344x768", undefined)).toBe("1344x768");
+    /* the other models draw at the Studio's sizes only */
+    expect(IMAGE_MODELS.filter((m) => m.resolutions?.length).map((m) => m.id)).toEqual(["minimax-h3-image"]);
+  });
+
+  it("queues a 16 MP picture at its own size, remembers the shape and the resolution, and refuses it on other models", async () => {
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", size: "1344x768", resolution: "16mp" }), web);
+    expect(r.size).toBe("5376x3072");
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.size).toBe("5376x3072");
+    /* the floor stays the model's 4 MP: the size asked for is above it, so it is drawn as asked */
+    expect(job.input.params).toMatchObject({ steps: 6, resolution: 2048 });
+    expect(job.input.canvas).toMatchObject({ size: "1344x768", resolution: "16mp" });
+    const four = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", resolution: "4mp" }), web);
+    expect(four.size).toBe("1664x2496");
+    /* left out: the Studio size, drawn at 4 MP by the painter and resized */
+    const std = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", size: "1344x768" }), web);
+    expect(std.size).toBe("1344x768");
+    expect((await repo.getJob(std.job.id)).input.canvas).not.toHaveProperty("resolution");
+    for (const model of ["gpt-image-codex", "qwen-image-2.1-turbo"]) {
+      await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", model, resolution: "9mp" }), web)).rejects.toThrow(/Studio's sizes only.*MiniMax H3 Image for a 9 MP picture/);
+    }
+  });
+
+  it("edits a large picture at its own size with H3 Image, and within 4096 px with a model that draws small", () => {
+    expect(editSizeFor(H3I, 5376, 3072)).toEqual({ size: "5376x3072", reduced: false });
+    expect(editSizeFor(QWEN, 5376, 3072)).toEqual({ size: "4096x2340", reduced: true });
+    expect(editSizeFor(findModel("gpt-image-codex")!, 3328, 4992)).toEqual({ size: "2730x4096", reduced: true });
+    expect(editSizeFor(QWEN, 1344, 768)).toEqual({ size: "1344x768", reduced: false });
+  });
+
+  it("only the pod's painter that has the model claims it", async () => {
+    const cpu = await painter.claim({ painterId: "h3i-cpu", name: "cpu", want: 4, info: { backends: ["codex", "api"], ops: ["paint", "crop", "extract"] } });
+    expect(cpu.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
+    const qwenOnly = await painter.claim({ painterId: "h3i-pod-old", name: "gpu-pod", want: 4, info: { onPod: true, backends: ["codex", "comfy:qwen-image-2.1-turbo"], ops: ["paint", "crop", "extract"] } });
+    expect(qwenOnly.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
+    expect((await painter.runnerSummary("paint", "comfy:minimax-h3-image")).note).toMatch(/cannot draw minimax-h3-image yet/);
+    const pod = await painter.claim({ painterId: "h3i-pod", name: "gpu-pod", want: 4, info: { onPod: true, backends: ["codex", "comfy:minimax-h3-image"], ops: ["paint", "crop", "extract"] } });
+    const mine = pod.jobs.filter((j) => j.input.backend === "comfy:minimax-h3-image");
+    expect(mine.find((j) => j.input.size === "1344x768")?.input).toMatchObject({ refs: [], params: { steps: 6, resolution: 2048 } });
+    /* the 16 MP job reaches the painter at its own size */
+    expect(mine.map((j) => j.input.size)).toContain("5376x3072");
   });
 });
