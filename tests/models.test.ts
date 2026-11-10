@@ -6,9 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { CanvasCompose, composeCharacter } from "@/studio/canvas";
-import { buildCanvasPrompt } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_RESOLUTION_SIDE, CANVAS_RESOLUTIONS, CANVAS_SIZES, canvasOutputSize } from "@/studio/canvas-prompt";
 import * as imaging from "@/studio/imaging";
-import { AGENT_IMAGE_MODELS, canvasLangFor, defaultImageParams, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
+import { AGENT_IMAGE_MODELS, canvasLangFor, defaultImageParams, editSizeFor, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
 import * as painter from "@/studio/painter";
 import { listReferences, setAdultContent } from "@/studio/references";
 import * as repo from "@/studio/repo";
@@ -355,6 +355,61 @@ describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
     expect(before.prompt).toContain("<image1>中的人物");
   });
 
+  it("delivers a Studio shape at 4, 9 or 16 MP: the same shape, on the 32-pixel grid", () => {
+    /* workers/painter/test_comfy.py holds the same table: the painter's working_canvas lands on these sizes and keeps them */
+    const table: Record<string, Record<string, string>> = {
+      "4mp": { "1024x1536": "1664x2496", "1008x1344": "1824x2432", "1024x1024": "2048x2048", "1536x1024": "2496x1664", "1344x768": "2688x1536" },
+      "9mp": { "1024x1536": "2496x3744", "1008x1344": "2688x3584", "1024x1024": "3072x3072", "1536x1024": "3744x2496", "1344x768": "4032x2304" },
+      "16mp": { "1024x1536": "3328x4992", "1008x1344": "3552x4736", "1024x1024": "4096x4096", "1536x1024": "4992x3328", "1344x768": "5376x3072" },
+    };
+    expect(H3I.resolutions).toEqual([...CANVAS_RESOLUTIONS]);
+    for (const res of CANVAS_RESOLUTIONS) {
+      for (const shape of CANVAS_SIZES) {
+        const out = canvasOutputSize(shape, res);
+        expect(out).toBe(table[res]![shape]);
+        const [w, h] = out.split("x").map(Number) as [number, number];
+        const [sw, sh] = shape.split("x").map(Number) as [number, number];
+        expect(w % 32).toBe(0);
+        expect(h % 32).toBe(0);
+        expect(w / h).toBeCloseTo(sw / sh, 9);
+        /* at least 97% of the area asked for, within what the painter accepts from a pod model */
+        expect(w * h).toBeGreaterThanOrEqual(0.97 * CANVAS_RESOLUTION_SIDE[res] ** 2);
+        expect(Math.max(w, h)).toBeLessThanOrEqual(6400);
+        expect(w * h).toBeLessThanOrEqual(21_000_000);
+      }
+    }
+    /* no resolution: the Studio size itself */
+    expect(canvasOutputSize("1344x768", undefined)).toBe("1344x768");
+    /* the other models draw at the Studio's sizes only */
+    expect(IMAGE_MODELS.filter((m) => m.resolutions?.length).map((m) => m.id)).toEqual(["minimax-h3-image"]);
+  });
+
+  it("queues a 16 MP picture at its own size, remembers the shape and the resolution, and refuses it on other models", async () => {
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", size: "1344x768", resolution: "16mp" }), web);
+    expect(r.size).toBe("5376x3072");
+    const job = await repo.getJob(r.job.id);
+    expect(job.input.size).toBe("5376x3072");
+    /* the floor stays the model's 4 MP: the size asked for is above it, so it is drawn as asked */
+    expect(job.input.params).toMatchObject({ steps: 6, resolution: 2048 });
+    expect(job.input.canvas).toMatchObject({ size: "1344x768", resolution: "16mp" });
+    const four = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", resolution: "4mp" }), web);
+    expect(four.size).toBe("1664x2496");
+    /* left out: the Studio size, drawn at 4 MP by the painter and resized */
+    const std = await composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", size: "1344x768" }), web);
+    expect(std.size).toBe("1344x768");
+    expect((await repo.getJob(std.job.id)).input.canvas).not.toHaveProperty("resolution");
+    for (const model of ["gpt-image-codex", "qwen-image-2.1-turbo"]) {
+      await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a harbour at dawn, fishing boats", model, resolution: "9mp" }), web)).rejects.toThrow(/Studio's sizes only.*MiniMax H3 Image for a 9 MP picture/);
+    }
+  });
+
+  it("edits a large picture at its own size with H3 Image, and within 4096 px with a model that draws small", () => {
+    expect(editSizeFor(H3I, 5376, 3072)).toEqual({ size: "5376x3072", reduced: false });
+    expect(editSizeFor(QWEN, 5376, 3072)).toEqual({ size: "4096x2340", reduced: true });
+    expect(editSizeFor(findModel("gpt-image-codex")!, 3328, 4992)).toEqual({ size: "2730x4096", reduced: true });
+    expect(editSizeFor(QWEN, 1344, 768)).toEqual({ size: "1344x768", reduced: false });
+  });
+
   it("only the pod's painter that has the model claims it", async () => {
     const cpu = await painter.claim({ painterId: "h3i-cpu", name: "cpu", want: 4, info: { backends: ["codex", "api"], ops: ["paint", "crop", "extract"] } });
     expect(cpu.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
@@ -362,7 +417,9 @@ describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
     expect(qwenOnly.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
     expect((await painter.runnerSummary("paint", "comfy:minimax-h3-image")).note).toMatch(/cannot draw minimax-h3-image yet/);
     const pod = await painter.claim({ painterId: "h3i-pod", name: "gpu-pod", want: 4, info: { onPod: true, backends: ["codex", "comfy:minimax-h3-image"], ops: ["paint", "crop", "extract"] } });
-    const mine = pod.jobs.find((j) => j.input.backend === "comfy:minimax-h3-image");
-    expect(mine?.input).toMatchObject({ size: "1344x768", refs: [], params: { steps: 6, resolution: 2048 } });
+    const mine = pod.jobs.filter((j) => j.input.backend === "comfy:minimax-h3-image");
+    expect(mine.find((j) => j.input.size === "1344x768")?.input).toMatchObject({ refs: [], params: { steps: 6, resolution: 2048 } });
+    /* the 16 MP job reaches the painter at its own size */
+    expect(mine.map((j) => j.input.size)).toContain("5376x3072");
   });
 });

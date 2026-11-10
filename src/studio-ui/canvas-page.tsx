@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 
-import { buildCanvasPrompt, CANVAS_LANG_LABEL, CANVAS_LANGS, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, PLACE_ZH, PLACES, type CanvasLang, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
+import { buildCanvasPrompt, CANVAS_LANG_LABEL, CANVAS_LANGS, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_RESOLUTION_LABEL, CANVAS_RESOLUTIONS, CANVAS_SIZE_LABEL, CANVAS_SIZES, CANVAS_STYLES, canvasOutputSize, PLACE_ZH, PLACES, type CanvasLang, type CanvasResolution, type CanvasPerson, type CanvasPromptRecipe, type Place, type PosePicture } from "@/studio/canvas-prompt";
 import { canvasLangFor, describeParams, findModel, IMAGE_MODELS, projectImageModel, resolveParams, type ModelEntry, type Resolved } from "@/studio/models";
 import type { ProjectView } from "@/studio/orchestrator";
 import { COSTUME_SOURCES, POSE_ANGLES, referenceImage, type RefCostume, type RefItem, type RefPortrait, type RefPose } from "@/studio/references-model";
@@ -53,6 +53,8 @@ type Recipe = {
   /** The language the prompt is composed in; unset = the model's own (English for MiniMax H3 Image, Chinese for the others). */
   lang?: CanvasLang;
   size: (typeof CANVAS_SIZES)[number];
+  /** MiniMax H3 Image: the picture delivered at the model's own resolution (4, 9 or 16 MP) in the shape of size; unset = the Studio size. */
+  resolution?: CanvasResolution;
   quality?: "low" | "medium" | "high";
   /** The image model (models.ts); unset = the project's (Settings → Director). */
   model?: string;
@@ -278,6 +280,8 @@ export function CanvasPage() {
     : { ...recipe, characterA: castA, characterB: castB };
   /* the prompt's language: the one picked here, else the model's own */
   const lang = canvasLangFor(model, recipe.lang);
+  /* the resolution travels only with a model that draws at it */
+  const resolution = recipe.resolution && model.resolutions?.includes(recipe.resolution) ? recipe.resolution : undefined;
   const composed = useMemo(() => buildCanvasPrompt(toPromptRecipe(effective, model.refStyle, lang, elements)), [effective, model.refStyle, lang, elements]);
   const prompt = recipe.prompt ?? composed;
   const partnerItems = recipe.two ? [recipe.partner?.portrait?.item, recipe.partner?.costume?.item] : [];
@@ -386,6 +390,7 @@ export function CanvasPage() {
         style: recipe.style,
         lang,
         size: recipe.size,
+        ...(resolution ? { resolution } : {}),
         model: model.id,
         ...(activeLoras.length ? { loras: activeLoras.map((l) => ({ id: l.id, strength: l.strength })) } : {}),
         ...(recipe.quality && takesQuality ? { quality: recipe.quality } : {}),
@@ -413,10 +418,10 @@ export function CanvasPage() {
   };
 
   const restore = async (asset: Asset) => {
-    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; text?: string; costumeView?: string; note?: string; model?: string; lang?: CanvasLang; promptExtend?: boolean; negativePrompt?: string } | undefined;
+    const c = asset.meta.canvas as { refs?: Array<{ role: string; refId?: string; assetId?: string; elementId?: string; url: string; label: string }>; style?: string; size?: string; depth?: boolean; mirror?: boolean; posePicture?: PosePicture; people?: number; aIs?: Place; nameA?: string; nameB?: string; text?: string; costumeView?: string; note?: string; model?: string; lang?: CanvasLang; resolution?: CanvasResolution; promptExtend?: boolean; negativePrompt?: string } | undefined;
     if (!c?.refs) return;
     /* a picture drawn before the language could be chosen was composed in Chinese */
-    const langOf = { lang: (CANVAS_LANGS as readonly string[]).includes(c.lang ?? "") ? c.lang! : "zh" as CanvasLang };
+    const langOf = { lang: (CANVAS_LANGS as readonly string[]).includes(c.lang ?? "") ? c.lang! : "zh" as CanvasLang, ...((CANVAS_RESOLUTIONS as readonly string[]).includes(c.resolution ?? "") ? { resolution: c.resolution } : {}) };
     if (!c.refs.length && c.text) {
       setRecipe({ ...EMPTY, mode: "text", text: c.text, style: c.style ?? "realistic", size: (CANVAS_SIZES as readonly string[]).includes(c.size ?? "") ? (c.size as Recipe["size"]) : "1024x1536", note: c.note ?? "", ...(c.model ? { model: c.model } : {}), ...langOf });
       setResult(null);
@@ -655,6 +660,14 @@ export function CanvasPage() {
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>
+              {!!model.resolutions?.length && (
+                <Field label="Resolution" hint={resolution ? `drawn at ${canvasOutputSize(recipe.size, resolution).replace("x", "×")}, not resized${resolution === "16mp" ? "; several times slower" : ""}` : "drawn at 4 MP, resized to the size"}>
+                  <select className="st-select" value={resolution ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, resolution: (e.target.value || undefined) as CanvasResolution | undefined }))}>
+                    <option value="">Standard · {recipe.size.replace("x", "×")}</option>
+                    {model.resolutions.map((x) => <option key={x} value={x}>{CANVAS_RESOLUTION_LABEL[x]} · {canvasOutputSize(recipe.size, x).replace("x", "×")}</option>)}
+                  </select>
+                </Field>
+              )}
               <Field label="Prompt language" hint={recipe.lang ? (recipe.prompt !== undefined ? "the edited prompt stays as typed" : undefined) : `${model.label}'s own`}>
                 <select className="st-select" value={lang} onChange={(e) => setRecipe((r) => ({ ...r, lang: e.target.value as CanvasLang }))}>
                   {CANVAS_LANGS.map((l) => <option key={l} value={l}>{CANVAS_LANG_LABEL[l]}{canvasLangFor(model) === l ? " · model default" : ""}</option>)}

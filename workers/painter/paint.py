@@ -79,6 +79,11 @@ REVIEW_TIMEOUT_S = int(os.environ.get("CODEX_REVIEW_TIMEOUT_S", "300"))
 QUOTA_WORDS = ("usage limit", "rate limit", "429", "quota", "insufficient_quota", "billing")
 MAX_REDRAWS = 2
 MAX_COMFY_PICTURES = 10
+# a pod model that draws at its own resolution (MiniMax-H3-Image: 4–20 MP, 6272x2688 its widest): the largest picture a job may ask for
+MAX_POD_SIDE = 6400
+MAX_POD_PIXELS = 21_000_000
+# a reference picture larger than this is scaled down before it is sent on: no model reads more, and a 16 MP picture is tens of MB
+REF_MAX_SIDE = 4096
 MAX_QWEN_PICTURES = 3
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
 # the pod's ComfyUI queue is shared with the video takes: a picture may wait behind one
@@ -128,12 +133,16 @@ def _box(raw: Any, name: str) -> dict[str, float] | None:
     return {"x": x, "y": y, "w": min(w, 1 - x), "h": min(h, 1 - y)}
 
 
-def parse_size(value: Any) -> tuple[int, int]:
+def parse_size(value: Any, large: bool = False) -> tuple[int, int]:
+    """WIDTHxHEIGHT. large: a picture a pod model draws at its own resolution (MiniMax-H3-Image: up to about 20 MP)."""
     m = re.fullmatch(r"(\d{2,5})x(\d{2,5})", str(value or ""))
     if not m:
         raise PaintError('size must look like "1344x768"')
     w, h = int(m.group(1)), int(m.group(2))
-    if not (64 <= w <= 4096 and 64 <= h <= 4096):
+    if large:
+        if not (64 <= w <= MAX_POD_SIDE and 64 <= h <= MAX_POD_SIDE) or w * h > MAX_POD_PIXELS:
+            raise PaintError(f"size must be between 64 and {MAX_POD_SIDE} pixels per side and at most {MAX_POD_PIXELS // 1_000_000} MP for a pod model")
+    elif not (64 <= w <= 4096 and 64 <= h <= 4096):
         raise PaintError("size must be between 64 and 4096 pixels per side")
     return w, h
 
@@ -161,7 +170,7 @@ def validate_paint_input(raw: Any) -> dict[str, Any]:
         raise PaintError("output.key must be an R2 key ending in .png")
     params: dict[str, Any] = {"op": op, "output_key": key, "studio_job_id": raw.get("studio_job_id")}
     if op in ("paint", "crop") or raw.get("size"):
-        params["size"] = parse_size(raw.get("size", "1344x768"))
+        params["size"] = parse_size(raw.get("size", "1344x768"), large=op == "paint" and str(raw.get("backend", "")).startswith("comfy:"))
     if op == "paint":
         prompt = raw.get("prompt")
         if not isinstance(prompt, str) or len(prompt.strip()) < 5:
@@ -833,7 +842,8 @@ def working_canvas(w: int, h: int, multiple: int, min_area: int = 0) -> tuple[in
     area, on the grid size that keeps the shape best. The picture is resized back to the asked size after."""
     m = max(1, multiple)
     snap = lambda v: max(m, round(v / m) * m)  # noqa: E731
-    if not min_area or w * h >= min_area:
+    # within 3% of the area counts as in range: 2688x1536, the 4 MP canvas of a 1344x768 frame, is drawn as asked
+    if not min_area or w * h >= 0.97 * min_area:
         return snap(w), snap(h)
     scale = (min_area / (w * h)) ** 0.5
     first = max(1, int(h * scale / m))
@@ -1117,7 +1127,7 @@ def run_api(prompt: str, pictures: list[Path], w: int, h: int, quality: str, htt
 # ---------- ops ----------
 
 
-def _download_picture(url: str, dest: Path, http: Any) -> Path:
+def _download_picture(url: str, dest: Path, http: Any, max_side: int | None = None) -> Path:
     with http.get(url, stream=True, timeout=300) as res:
         res.raise_for_status()
         with open(dest, "wb") as fh:
@@ -1129,7 +1139,11 @@ def _download_picture(url: str, dest: Path, http: Any) -> Path:
     # normalise to PNG so every backend reads it
     Image = _pil()
     out = dest.with_suffix(".png") if dest.suffix != ".png" else dest
-    Image.open(dest).convert("RGB").save(out)
+    img = Image.open(dest).convert("RGB")
+    if max_side and max(img.size) > max_side:
+        scale = max_side / max(img.size)
+        img = img.resize((max(1, round(img.width * scale)), max(1, round(img.height * scale))), Image.LANCZOS)
+    img.save(out)
     return out
 
 
@@ -1206,7 +1220,7 @@ def run_paint_job(params: dict[str, Any], uploader: Any, workdir: Path, http: An
     else:
         w, h = params["size"]
         check = params.get("check") or {"review": False, "redraws": 0, "kind": ""}
-        refs = [_download_picture(u, workdir / f"ref{i}", http) for i, u in enumerate(params["refs"])]
+        refs = [_download_picture(u, workdir / f"ref{i}", http, max_side=REF_MAX_SIDE) for i, u in enumerate(params["refs"])]
         for i in params.get("mirror_refs") or []:
             refs[i] = mirror_picture(refs[i])
         pictures = list(refs)

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { ADULTS_LINE, buildCanvasPrompt, CANVAS_LANGS, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, PLACES, POSE_PICTURES, type CanvasLang, type CanvasPerson, type CanvasPromptRecipe } from "./canvas-prompt";
+import { ADULTS_LINE, buildCanvasPrompt, CANVAS_LANGS, CANVAS_RESOLUTION_LABEL, CANVAS_RESOLUTIONS, canvasOutputSize, CANVAS_MAX_REFS, CANVAS_MAX_REFS_ANY, CANVAS_SIZES, CANVAS_STYLE_IDS, PLACES, POSE_PICTURES, type CanvasLang, type CanvasPerson, type CanvasPromptRecipe } from "./canvas-prompt";
 import { StudioError } from "./errors";
 import * as imaging from "./imaging";
 import { importImageFromUrl } from "./images";
@@ -65,6 +65,7 @@ export const CanvasCompose = z.object({
   note: z.string().max(600).optional().describe("Free text added to the composed prompt"),
   prompt: z.string().min(5).max(4000).optional().describe("Replace the composed prompt entirely"),
   size: z.enum(CANVAS_SIZES).default("1024x1536"),
+  resolution: z.enum(CANVAS_RESOLUTIONS).optional().describe("MiniMax H3 Image only: deliver the picture at the model's own resolution instead of the Studio size — 4mp, 9mp or 16mp, in the shape of `size` (1344x768 at 16mp is 5376x3072), drawn at that size and not resized. Omit for the Studio size (drawn at 4 MP and resized down). 16mp is the model's best and several times slower; use it for a picture that will be printed, cropped or shown large, not for references"),
   quality: Quality.optional(),
   attach: z.object({ elementId: z.string(), view: z.enum(REF_VIEWS).default("full_body") }).optional().describe("Put the picture on this element as a reference view"),
   startPod: z.boolean().default(false),
@@ -131,7 +132,7 @@ export function canvasModel(id: string | undefined, imaging?: { model?: string; 
   return model;
 }
 
-export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; lang: CanvasLang; warnings: string[] }> {
+export async function composeCharacter(projectId: string, input: CanvasCompose, actor: Actor): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string; refs: CanvasRef[]; model: string; lang: CanvasLang; size: string; warnings: string[] }> {
   await repo.getProject(projectId);
   const adult = await adultAllowed(actor);
   if (input.character && input.portrait) throw new StudioError("validation", "person A: a character or a portrait, not both");
@@ -245,14 +246,19 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...(model.options?.includes("negative_prompt") && input.negativePrompt?.trim() ? { negative_prompt: input.negativePrompt.trim() } : {}),
   } : undefined;
   /* a model whose canvas follows a picture (2509: the pose) is delivered at that shape, not cropped to the one picked */
-  const size = model.canvasSize ?? input.size;
+  const shape = model.canvasSize ?? input.size;
+  /* a model with a working range of its own delivers the shape at 4, 9 or 16 MP when asked */
+  if (input.resolution && !model.resolutions?.includes(input.resolution)) {
+    throw new StudioError("validation", `${model.label} draws at the Studio's sizes only: leave resolution out, or pick MiniMax H3 Image for a ${CANVAS_RESOLUTION_LABEL[input.resolution]} picture`);
+  }
+  const size = canvasOutputSize(shape, input.resolution);
   const r = await imaging.submitImage(projectId, {
     op: "paint", purpose: "canvas", prompt, refUrls: refs.map((x) => x.url), refRoles: refs.map((x) => CANVAS_REF_ROLE[x.role]), size, quality: input.quality, targetId: input.attach?.elementId ?? projectId,
     attach: input.attach ? { elementRef: { elementId: input.attach.elementId, view: input.attach.view } } : undefined,
     model: model.id, backend: model.backend, ...(params ? { params } : {}), ...(mirror.length ? { mirrorRefs: mirror } : {}),
-    label, canvas: { refs, style: input.style, note: input.note, ...(input.text?.trim() ? { text: input.text.trim() } : {}), size, depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), lang, model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
+    label, canvas: { refs, style: input.style, note: input.note, ...(input.text?.trim() ? { text: input.text.trim() } : {}), size: shape, ...(input.resolution ? { resolution: input.resolution } : {}), depth: input.pose?.depth ?? false, ...(partner ? { people: 2, aIs: input.aIs, ...(input.name?.trim() ? { nameA: input.name.trim() } : {}), ...(partner.name?.trim() ? { nameB: partner.name.trim() } : {}) } : {}), ...(pose?.asset && input.pose?.picture && input.pose.picture !== "photo" ? { posePicture: input.pose.picture } : {}), ...(mirror.length ? { mirror: true } : {}), costumeView: input.costume?.view, promptEdited: !!input.prompt?.trim(), lang, model: model.id, ...(loras.length ? { loras: loras.map((l) => ({ id: l.id, name: l.name, strength: l.strength })) } : {}), ...(model.apiModel ? { promptExtend: input.promptExtend, ...(input.negativePrompt?.trim() ? { negativePrompt: input.negativePrompt.trim() } : {}) } : {}) },
   }, actor, { startPod: input.startPod });
-  return { ...r, prompt, refs, model: model.id, lang, warnings: resolved?.warnings ?? [] };
+  return { ...r, prompt, refs, model: model.id, lang, size, warnings: resolved?.warnings ?? [] };
 }
 
 /**

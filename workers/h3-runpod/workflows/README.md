@@ -126,7 +126,11 @@ area: it is weak below about 4 MP, so the painter (`working_canvas`) draws a
 smaller request on a canvas of the same shape scaled up to 4 MP on the
 32-pixel grid — 1344×768 → 2688×1536 — and resizes the picture back; the
 job's `resolution` (the side of that area, 2048 by default, 4096 for the
-16 MP the model card recommends) overrides it.
+16 MP the model card recommends) overrides it. A request already within 3%
+of that area is drawn as asked, on the grid: Canvas → Resolution asks for
+the large size itself (5376×3072 for a 16:9 picture at 16 MP) and gets it
+back pixel for pixel. The painter accepts up to 6400 px a side and 21 MP
+from a `comfy:` backend (`MAX_POD_SIDE`, `MAX_POD_PIXELS`).
 
 `QWEN21_EDIT.json` is Comfy-Org's *Qwen Image 2.1 Turbo: Image edit*
 template (`image_qwen_image_2_1_turbo_image_edit.json`) in API format,

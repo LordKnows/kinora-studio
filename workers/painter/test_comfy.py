@@ -525,3 +525,90 @@ def test_h3_image_is_advertised_and_refused_like_the_other_pod_models(tmp_path, 
     (weights_h3_image / "vae" / "minimax_h3_image_vae_fp16.safetensors").unlink()
     with pytest.raises(paint.PaintError, match="model files not on the pod yet .*H3_IMAGE=1"):
         paint.run_comfy("minimax-h3-image", "a prompt", [], 1024, 1024, {}, ComfyH3Image())
+
+
+# ---------- a picture delivered at the model's own resolution (Canvas → Resolution: 4, 9, 16 MP) ----------
+
+# src/studio/canvas-prompt.ts canvasOutputSize: the Studio's shapes at each resolution (tests/models.test.ts holds the same table)
+DELIVERED = {
+    2048: {"1024x1536": "1664x2496", "1008x1344": "1824x2432", "1024x1024": "2048x2048", "1536x1024": "2496x1664", "1344x768": "2688x1536"},
+    3072: {"1024x1536": "2496x3744", "1008x1344": "2688x3584", "1024x1024": "3072x3072", "1536x1024": "3744x2496", "1344x768": "4032x2304"},
+    4096: {"1024x1536": "3328x4992", "1008x1344": "3552x4736", "1024x1024": "4096x4096", "1536x1024": "4992x3328", "1344x768": "5376x3072"},
+}
+
+
+def test_a_delivered_size_is_the_canvas_the_model_draws_on():
+    """The Studio asks for the size it computed; the painter draws exactly that, at the model's default 4 MP floor or the job's own."""
+    for side, table in DELIVERED.items():
+        for shape, size in table.items():
+            w, h = (int(v) for v in shape.split("x"))
+            cw, ch = (int(v) for v in size.split("x"))
+            # the same search from the Studio shape lands on it
+            assert paint.working_canvas(w, h, 32, side * side) == (cw, ch), (side, shape)
+            # and asked for directly it is kept: never scaled again, whatever the floor
+            assert paint.working_canvas(cw, ch, 32, H3I["min_area"]) == (cw, ch)
+            assert paint.working_canvas(cw, ch, 32, side * side) == (cw, ch)
+            assert paint.parse_size(size, large=True) == (cw, ch)
+
+
+def test_h3_image_draws_sixteen_megapixels_as_asked(tmp_path, weights_h3_image):
+    comfy = ComfyH3Image()
+    img = paint.run_comfy("minimax-h3-image", "a rooftop after rain, neon in the puddles", [], 5376, 3072, paint._settings(H3I_SETTINGS), comfy)
+    cond = comfy.queued[0]["5"]["inputs"]
+    assert (cond["width"], cond["height"]) == (5376, 3072) and img.size == (5376, 3072)
+    # nothing is cut or resized when the job fits it to its size
+    assert paint.cropped_share(img.size, 5376, 3072)[0] == 0 and paint.fit(img, 5376, 3072).size == (5376, 3072)
+
+
+def test_only_a_pod_model_may_be_asked_for_a_large_picture():
+    base = {"op": "paint", "prompt": "a picture", "output": {"key": "projects/p/images/j.png"}}
+    assert paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "5376x3072"})["size"] == (5376, 3072)
+    assert paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "6272x2688"})["size"] == (6272, 2688)
+    for backend in ("codex", "api", "qwen"):
+        with pytest.raises(paint.PaintError, match="between 64 and 4096"):
+            paint.validate_paint_input({**base, "backend": backend, "size": "5376x3072"})
+    with pytest.raises(paint.PaintError, match="at most 21 MP"):
+        paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "6400x6400"})
+    with pytest.raises(paint.PaintError, match="6400 pixels per side"):
+        paint.validate_paint_input({**base, "backend": "comfy:minimax-h3-image", "size": "8192x2048"})
+    # crops and extracts stay within the Studio's sizes
+    with pytest.raises(paint.PaintError, match="between 64 and 4096"):
+        paint.validate_paint_input({"op": "crop", "output": {"key": "projects/p/images/j.png"}, "base": "https://x/b.png", "crop": {"x": 0, "y": 0, "w": 1, "h": 1}, "size": "5376x3072", "backend": "comfy:minimax-h3-image"})
+
+
+def test_a_large_reference_is_scaled_down_and_a_base_picture_is_not(tmp_path):
+    """A 16 MP picture used as a reference goes on at 4096 px: no model reads more. The picture being edited keeps its pixels."""
+
+    class Http:
+        def get(self, url, stream=False, timeout=0):
+            return Res(content=png((90, 90, 90), (5376, 3072)))
+
+    ref = paint._download_picture("https://x/big.png", tmp_path / "ref0", Http(), max_side=paint.REF_MAX_SIDE)
+    assert Image.open(ref).size == (4096, 2341)
+    base = paint._download_picture("https://x/big.png", tmp_path / "base", Http())
+    assert Image.open(base).size == (5376, 3072)
+    small = paint._download_picture("https://x/small.png", tmp_path / "ref1", type("H", (), {"get": lambda self, url, stream=False, timeout=0: Res(content=png((1, 2, 3), (1024, 1536)))})(), max_side=paint.REF_MAX_SIDE)
+    assert Image.open(small).size == (1024, 1536)
+
+
+def test_the_whole_job_delivers_the_resolution_asked_for(tmp_path, weights_h3_image):
+    """Through the painter's job: a 16 MP request is saved at 16 MP; a Studio size is drawn at 4 MP and saved at the Studio size."""
+    saved = {}
+
+    class Up:
+        def upload(self, path, key, ctype):
+            if key.endswith(".png"):
+                saved[key] = Image.open(path).size
+            return f"https://studio.example/media/{key}"
+
+    for name, size, want in (("big", "5376x3072", (5376, 3072)), ("std", "1344x768", (1344, 768))):
+        comfy = ComfyH3Image()
+        params = paint.validate_paint_input({"op": "paint", "backend": "comfy:minimax-h3-image", "prompt": "a harbour at dawn, fishing boats", "size": size,
+                                             "output": {"key": f"projects/p/images/{name}.png"}, "params": H3I_SETTINGS, "check": {"review": False, "redraws": 0}})
+        work = tmp_path / name
+        work.mkdir()
+        out = paint.run_paint_job(params, Up(), work, http=comfy)
+        assert (out["width"], out["height"]) == want and saved[f"projects/p/images/{name}.png"] == want
+        # nothing was cut to fit: the canvas had the picture's shape
+        assert not [c for c in out.get("checks", []) if c["id"] == "cropped"]
+    assert (comfy.queued[0]["5"]["inputs"]["width"], comfy.queued[0]["5"]["inputs"]["height"]) == (2688, 1536)

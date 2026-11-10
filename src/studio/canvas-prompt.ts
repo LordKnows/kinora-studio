@@ -308,6 +308,39 @@ export const CANVAS_SIZE_LABEL: Record<(typeof CANVAS_SIZES)[number], string> = 
   "1536x1024": "3:2 landscape",
   "1344x768": "16:9 wide",
 };
+/* ---------- resolution: a picture delivered at the model's own working area ---------- */
+
+/** The areas a model with a working range (MiniMax-H3-Image: about 4–20 MP) can deliver a picture at, instead of the Studio size. */
+export const CANVAS_RESOLUTIONS = ["4mp", "9mp", "16mp"] as const;
+export type CanvasResolution = (typeof CANVAS_RESOLUTIONS)[number];
+/** The side of the square of each area: 2048² = 4 MP, 3072² = 9 MP, 4096² = 16 MP. */
+export const CANVAS_RESOLUTION_SIDE: Record<CanvasResolution, number> = { "4mp": 2048, "9mp": 3072, "16mp": 4096 };
+export const CANVAS_RESOLUTION_LABEL: Record<CanvasResolution, string> = { "4mp": "4 MP", "9mp": "9 MP", "16mp": "16 MP" };
+
+/**
+ * The size a picture of a Studio shape is delivered at for a resolution: the same shape scaled up to that
+ * area, on the model's 32-pixel grid — 1344x768 at 16 MP is 5376x3072, 1024x1536 at 4 MP is 1664x2496.
+ * The painter's working_canvas (paint.py) finds the same canvas for the same shape, so a picture asked
+ * for at this size is drawn at it, pixel for pixel, and never resized.
+ */
+export function canvasOutputSize(size: string, resolution: CanvasResolution | undefined, multiple = 32): string {
+  const m = /^(\d+)x(\d+)$/.exec(size);
+  if (!m || !resolution) return size;
+  const [w, h] = [Number(m[1]), Number(m[2])];
+  const area = CANVAS_RESOLUTION_SIDE[resolution] ** 2;
+  const scale = Math.sqrt(area / (w * h));
+  const first = Math.max(1, Math.floor((h * scale) / multiple));
+  let best: { off: number; px: number; w: number; h: number } | undefined;
+  for (let rows = first; rows < first + 8; rows++) {
+    const ch = rows * multiple;
+    const cw = Math.max(multiple, Math.round((ch * w) / h / multiple) * multiple);
+    if (cw * ch < 0.97 * area) continue;
+    const off = Math.round((Math.abs(cw / ch - w / h) / (w / h)) * 1e4) / 1e4;
+    if (!best || off < best.off || (off === best.off && cw * ch < best.px)) best = { off, px: cw * ch, w: cw, h: ch };
+  }
+  return best ? `${best.w}x${best.h}` : size;
+}
+
 /** Codex's image tool takes at most five pictures per call (paint.py MAX_CODEX_PICTURES); each model says its own (models.ts maxRefs). */
 export const CANVAS_MAX_REFS = 5;
 /** The most any model takes (Qwen-Image 2.1: ten). */

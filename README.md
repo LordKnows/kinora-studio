@@ -449,8 +449,19 @@ working range is about 4–20 MP and it is weak below, so a Studio size
 (1344×768, 1024×1536…) is drawn on a canvas of the same shape at 4 MP
 (2688×1536, 1664×2496; `image_models.json` `min_area`, the job's
 `resolution` 2048) and resized to the asked size, as MiniMax's own server
-does (`min_generation_area`); `resolution` 4096 draws at the 16 MP the card
-recommends, several times slower. Choose it per project in Settings →
+does (`min_generation_area`). Canvas can also deliver the picture at the
+model's own resolution: *Resolution* offers 4, 9 and 16 MP beside the
+Studio size — the same shape on the 32-pixel grid (16:9: 2688×1536,
+4032×2304, 5376×3072; 2:3: 1664×2496, 2496×3744, 3328×4992), drawn at that
+size and saved as drawn, never resized (`canvasOutputSize` in
+`canvas-prompt.ts`; the painter takes sizes up to 6400 px a side and 21 MP
+from a pod model, 4096 px from the others). 16 MP is what the card
+recommends: several times slower and tens of MB a picture, so it is for a
+picture that will be shown large, printed or cropped, not for a reference.
+A reference picture over 4096 px is scaled to 4096 before it is sent to any
+model, and an edit of a large picture by a model that draws small comes
+back at most 4096 px on its long side (edit it with MiniMax H3 Image to
+keep its pixels). Choose it per project in Settings →
 Director (the director's sheets, frames and edits) or per picture in Canvas.
 The model expects a detailed English description of the whole picture: the
 director's sectioned prompts fit; MiniMax's API expands short prompts first
