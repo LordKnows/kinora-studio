@@ -2,14 +2,14 @@ import * as director from "@/director";
 
 import type { BackendStatus } from "./backends/types";
 import { renderCinematography } from "./cinematography";
-import { effectiveLink, pickRefForViews, placedFeature, preferredViews, VIDEO_SIZES } from "./compiler";
+import { effectiveLink, faceRef, pickRefForViews, placedFeature, preferredViews, VIDEO_SIZES } from "./compiler";
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as gpu from "./gpu";
 import { getProjectView, type ProjectView, type ShotView } from "./orchestrator";
 import * as painter from "./painter";
 import * as repo from "./repo";
-import type { RefView } from "./schemas";
+import { MAX_ELEMENT_REFS, type RefView } from "./schemas";
 import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, editSizeFor, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
 import { firstRealIn, inputsOf, realnessOfDrawing } from "./provenance";
 import { adultAllowed } from "./references";
@@ -337,7 +337,7 @@ async function attach(projectId: string, asset: Asset, a?: Attach): Promise<void
   if (a.endOf) await repo.updateShot(a.endOf, { endAssetId: asset.id });
   if (a.elementRef) {
     const el = await repo.getElement(a.elementRef.elementId);
-    await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds.filter((x) => x !== asset.id), asset.id].slice(-6), ...(a.elementRef.view ? { refViews: { [asset.id]: a.elementRef.view } } : {}) });
+    await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds.filter((x) => x !== asset.id), asset.id].slice(-MAX_ELEMENT_REFS), ...(a.elementRef.view ? { refViews: { [asset.id]: a.elementRef.view } } : {}) });
   }
   if (a.styleFrame) {
     const p = await repo.getProject(projectId);
@@ -366,6 +366,7 @@ const ANATOMY = "Natural anatomy: two hands with five fingers each, two arms, tw
 const BACKDROP = "Plain, evenly lit light-grey studio backdrop with a soft floor shadow; nothing else in the picture.";
 
 export const VIEW_TEXT: Record<RefView, string> = {
+  face: "a head-and-shoulders portrait, facing the camera straight on, head level, a neutral relaxed expression with the mouth closed, eyes open and looking into the lens; the whole head and all of the hair inside the frame with a little space above, the face large and sharp, in even soft light with no hard shadow across it",
   front: "full-body front view, standing straight, arms relaxed at the sides, facing the camera, the whole figure from the top of the head to below the feet with a little space around it",
   three_quarter: "full-body three-quarter view, body turned 45 degrees toward frame left, the whole figure from head to feet",
   side: "full-body side view in strict profile, facing frame left, the whole figure from head to feet",
@@ -393,17 +394,23 @@ export function sidedFeature(f: { feature: string; where: string }, facing: "cam
   return `${placedFeature(f)} — their OWN ${side}${lands}; never mirrored`;
 }
 
-function features(el: Element, facing: "camera" | "away" | "unknown" = "camera"): string {
-  return el.fixedFeatures?.length ? `Always: ${el.fixedFeatures.map((f) => sidedFeature(f, facing)).join("; ")}.` : "";
+function features(el: Element, facing: "camera" | "away" | "unknown" = "camera", headOnly = false): string {
+  if (!el.fixedFeatures?.length) return "";
+  /* a portrait shows the head and shoulders: a patch on an arm is named so it is not moved up into the frame */
+  return `${headOnly ? "Always, where it falls inside this head-and-shoulders frame (what sits lower on the body stays out of the picture)" : "Always"}: ${el.fixedFeatures.map((f) => sidedFeature(f, facing)).join("; ")}.`;
 }
 
-const FACING: Partial<Record<RefView, "camera" | "away" | "unknown">> = { front: "camera", full_body: "camera", expression: "camera", back: "away", side: "unknown", three_quarter: "camera", detail: "unknown" };
+const FACING: Partial<Record<RefView, "camera" | "away" | "unknown">> = { face: "camera", front: "camera", full_body: "camera", expression: "camera", back: "away", side: "unknown", three_quarter: "camera", detail: "unknown" };
 
 /** One view of an element's sheet. */
-export function elementViewPrompt(el: Element, view: RefView, look: Project["look"], opts: { hasIdentityRef: boolean; hasStyleRef: boolean }): string {
+export function elementViewPrompt(el: Element, view: RefView, look: Project["look"], opts: { hasIdentityRef: boolean; hasStyleRef: boolean; hasFaceRef?: boolean }): string {
   const refs: string[] = [];
-  if (opts.hasIdentityRef) refs.push(`Picture 1 is ${el.name}: copy exactly the face, hair, build, age, clothes, colours and props. Ignore its pose, framing and background.`);
-  if (opts.hasStyleRef) refs.push(`Picture ${opts.hasIdentityRef ? 2 : 1} is the film's style frame: copy only its rendering, colour and texture, none of its content.`);
+  /* the portrait is the identity; the whole-figure picture then gives everything below the neck */
+  if (opts.hasFaceRef) refs.push(`Picture ${refs.length + 1} is ${el.name}'s face, large: copy exactly the face — its shape, the eyes and eyelids, brows, nose, mouth, skin and hairline — and the hair. It shows the head only: its framing, expression and light are not this picture's.`);
+  if (opts.hasIdentityRef) refs.push(opts.hasFaceRef
+    ? `Picture ${refs.length + 1} is ${el.name}, whole: copy exactly the build, age, clothes, colours and props; the face is the one in Picture 1. Ignore its pose, framing and background.`
+    : `Picture ${refs.length + 1} is ${el.name}: copy exactly the face, hair, build, age, clothes, colours and props. Ignore its pose, framing and background.`);
+  if (opts.hasStyleRef) refs.push(`Picture ${refs.length + 1} is the film's style frame: copy only its rendering, colour and texture, none of its content.`);
   const who = `${el.name}: ${el.description || "(no description yet)"}`;
   if (el.kind === "location") {
     return join([
@@ -426,7 +433,7 @@ export function elementViewPrompt(el: Element, view: RefView, look: Project["loo
   }
   return join([
     `A single character picture for a film's casting file: ONE figure, ONE view — ${VIEW_TEXT[view]}.`,
-    section("CHARACTER", `${who} ${features(el, FACING[view] ?? "unknown")}`),
+    section("CHARACTER", `${who} ${features(el, FACING[view] ?? "unknown", view === "face")}`),
     section("REFERENCES", refs.join(" ")),
     section("BACKDROP", BACKDROP),
     section("STYLE", styleLine(look)),
@@ -437,13 +444,14 @@ export function elementViewPrompt(el: Element, view: RefView, look: Project["loo
 const POS_WORD: Record<string, string> = { off_left: "just outside frame left", left: "on the left of the frame", center: "in the centre", right: "on the right of the frame", off_right: "just outside frame right", foreground: "in the foreground", background: "in the background" };
 const X_WORD = { left: "on the left third (about 38% from the left)", center: "on the centre line", right: "on the right third (about 62% from the left)" } as const;
 
-export type FrameRef = { name: string; role: "character" | "location" | "style" | "other" };
+export type FrameRef = { name: string; role: "character" | "face" | "location" | "style" | "other" };
 /** A shot frame's reference as provenance reads it: a character's face, or a place or look it borrows. */
 const frameRefRole = (r: FrameRef["role"]): RefRole => (r === "location" ? "scene" : r === "style" ? "style" : "face");
 
 /** How a reference picture is to be used: copy what it is for, ignore the rest. */
 export function refRole(r: FrameRef, n: number): string {
   if (r.role === "character") return `Picture ${n} is ${r.name}: copy exactly their face, hair, build, age, clothes and colours; ignore that picture's pose, framing, plain backdrop and light.`;
+  if (r.role === "face") return `Picture ${n} is ${r.name}'s face, large: the same person — copy exactly the face (its shape, the eyes and eyelids, brows, nose, mouth, skin, hairline). It shows the head only: take nothing else from it, not its framing, its neutral expression or its light.`;
   if (r.role === "location") return `Picture ${n} is ${r.name}: the same place — architecture, materials, layout and props — seen from this shot's camera; ignore any people in it.`;
   if (r.role === "style") return `Picture ${n} is the film's style frame: match its rendering, colour grade and texture only, none of its content.`;
   return `Picture ${n} is ${r.name}.`;
@@ -558,7 +566,7 @@ export function planFrames(view: ProjectView): { shots: FramePlanRow[]; elements
     const row = rows.find((r) => r.shotId === sh.id)!;
     if (row.first === "none" || row.first === "anchor") continue;
     for (const id of sh.spec.characters) {
-      const set = needed.get(id) ?? new Set<RefView>(["front"]);
+      const set = needed.get(id) ?? new Set<RefView>(["face", "front"]);
       for (const v of preferredViews(sh.spec).slice(0, 1)) set.add(v);
       needed.set(id, set);
     }
@@ -584,28 +592,47 @@ function assetUrl(view: ProjectView, id?: string): string | undefined {
   return id ? view.assets.find((a) => a.id === id)?.url : undefined;
 }
 
-/** One element view (front first: later views take it as the identity reference). */
+/** One element view (the face portrait first, then the front: later views copy the face from one and the figure from the other). */
 export async function generateElementView(elementId: string, view: RefView, actor: Actor, opts: { quality?: Imaging["quality"]; startPod?: boolean } = {}): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string }> {
   const el = await repo.getElement(elementId);
   if (!el.projectId) throw new StudioError("validation", "library elements are drawn inside a project (import it first)");
   const pv = await getProjectView(el.projectId);
-  const identity = el.refAssetIds.length ? pickRefForViews(el, ["front", "three_quarter", "full_body"]) : undefined;
+  if (view === "face" && el.kind !== "character") throw new StudioError("validation", `the face view is a character's portrait; ${el.name} is a ${el.kind}`);
+  /* The portrait is the identity of a character: every other view copies the
+     face from it and the rest (build, clothes) from a whole-figure picture.
+     A back view shows no face, so it takes the figure alone; the portrait
+     itself is drawn from the figure when one exists first (older projects). */
+  const whole = el.refAssetIds.filter((a) => el.refViews?.[a] !== "face");
+  const identity = whole.length ? pickRefForViews({ ...el, refAssetIds: whole }, ["front", "three_quarter", "full_body"]) : undefined;
+  const face = el.kind === "character" && view !== "face" && view !== "back" ? faceRef(el) : undefined;
   const refs = [
+    { url: assetUrl(pv, face), role: "face" as RefRole },
     { url: assetUrl(pv, identity), role: (el.kind === "character" ? "face" : "scene") as RefRole },
     { url: assetUrl(pv, pv.project.look.styleFrameAssetId), role: "style" as RefRole },
   ].filter((r): r is { url: string; role: RefRole } => !!r.url);
-  const prompt = elementViewPrompt(el, view, pv.project.look, { hasIdentityRef: !!identity, hasStyleRef: !!pv.project.look.styleFrameAssetId });
-  const size = el.kind === "location" ? sizeFor(pv.project.look) : el.kind === "prop" || view === "expression" ? "1024x1024" : "1008x1344";
+  const prompt = elementViewPrompt(el, view, pv.project.look, { hasFaceRef: !!assetUrl(pv, face), hasIdentityRef: !!assetUrl(pv, identity), hasStyleRef: !!pv.project.look.styleFrameAssetId });
+  const size = el.kind === "location" ? sizeFor(pv.project.look) : el.kind === "prop" || view === "expression" || view === "face" ? "1024x1024" : "1008x1344";
   const r = await submitImage(el.projectId, { op: "paint", purpose: "element_sheet", prompt, refUrls: refs.map((r) => r.url), refRoles: refs.map((r) => r.role), size, quality: opts.quality, targetId: el.id, attach: { elementRef: { elementId: el.id, view } }, label: `${el.name} · ${view}` }, actor, opts);
   return { ...r, prompt };
 }
 
-/** The views a sheet needs, front first; with no picture yet only the front is queued (the others need it as identity). */
+/** The views a sheet needs: the face portrait first, then the front figure; with no picture yet only the first is queued (the others copy it). */
 export async function generateElementSheet(elementId: string, views: RefView[], actor: Actor, opts: { quality?: Imaging["quality"]; startPod?: boolean } = {}): Promise<{ queued: Array<{ view: RefView; jobId: string }>; later: RefView[]; note?: string; painters?: painter.RunnerSummary }> {
   const el = await repo.getElement(elementId);
-  const wanted = [...new Set(views.length ? views : (["front", "side", "back", "expression"] as RefView[]))];
+  /* no views named: the usual set, less what is already there — the sheet is
+     filled in over several calls, and a second portrait would compete with the first */
+  const have = new Set(Object.values(el.refViews ?? {}));
+  const usual = el.kind === "character" ? (["face", "front", "side", "back", "expression"] as RefView[]) : (["front"] as RefView[]);
+  const asked = views.length ? views : el.refAssetIds.length ? usual.filter((v) => !have.has(v)) : usual;
+  if (!asked.length) return { queued: [], later: [], note: `${el.name} already has ${usual.join(", ")}: name the views to redraw` };
+  /* identity order: the portrait, then the front figure, then the rest */
+  const wanted = [...new Set(asked)].sort((a, b) => Number(b === "face") - Number(a === "face") || Number(b === "front") - Number(a === "front"));
   const hasIdentity = el.refAssetIds.length > 0;
-  const now = hasIdentity ? wanted : wanted.includes("front") ? (["front"] as RefView[]) : [wanted[0]!];
+  /* nothing drawn yet: one picture first, the others copy it. With a portrait
+     in hand but no figure, the front is next: the views after it need the
+     clothes and the build from a whole figure. */
+  const hasFigure = el.refAssetIds.some((a) => el.refViews?.[a] !== "face");
+  const now = !hasIdentity ? [wanted[0]!] : el.kind === "character" && !hasFigure && wanted.includes("front") ? (["front"] as RefView[]) : wanted;
   const queued: Array<{ view: RefView; jobId: string }> = [];
   let painters: painter.RunnerSummary | undefined;
   for (const v of now) {
@@ -643,18 +670,28 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   const elements = new Map(pv.elements.map((e) => [e.id, e]));
   const refs: Array<{ url: string; name: string; role: FrameRef["role"] }> = [];
   const wanted = preferredViews(sh.spec);
+  /* each character by the figure this shot's size and angle want, then their
+     portrait: the figure gives the clothes and the build, the portrait the face
+     at a size it can be copied from */
+  const faces: typeof refs = [];
   for (const id of sh.spec.characters) {
     const el = elements.get(id);
-    const ref = el ? assetUrl(pv, pickRefForViews(el, wanted)) : undefined;
-    if (ref && el) refs.push({ url: ref, name: el.name, role: "character" });
+    if (!el) continue;
+    const figure = pickRefForViews(el, wanted.filter((v) => v !== "face"));
+    const face = faceRef(el);
+    const ref = assetUrl(pv, figure);
+    if (ref) refs.push({ url: ref, name: el.name, role: figure === face ? "face" : "character" });
+    const faceUrl = face && face !== figure ? assetUrl(pv, face) : undefined;
+    if (faceUrl) faces.push({ url: faceUrl, name: el.name, role: "face" });
   }
+  refs.push(...faces);
   const loc = elements.get(sh.spec.location ?? scene.locationElementId ?? "");
   const locRef = loc ? assetUrl(pv, loc.refAssetIds[0]) : undefined;
   if (locRef && loc) refs.push({ url: locRef, name: loc.name, role: "location" });
   const style = assetUrl(pv, pv.project.look.styleFrameAssetId);
   if (style) refs.push({ url: style, name: "the film's style frame", role: "style" });
   if (method === "new") {
-    /* at most five pictures, or fewer when the project's model takes fewer: characters first, then the place, the style frame last (dropped first) */
+    /* at most five pictures, or fewer when the project's model takes fewer: the characters' figures first, then their portraits, then the place, the style frame last (dropped first) */
     const use = refs.slice(0, Math.min(5, refCap(pv.project, false)));
     const prompt = shotFramePrompt(sh, which, { elements, palette: scene.palette, look: pv.project.look, refs: use });
     const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: use.map((x) => x.url), refRoles: use.map((x) => frameRefRole(x.role)), size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);

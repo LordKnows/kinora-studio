@@ -344,7 +344,7 @@ function SheetNeeds({ shot }: { shot: ShotView }) {
               <strong>{el.name}</strong> <span className="st-muted">({el.kind})</span> ·{" "}
               {!has ? "no sheet yet" : needsView ? `has ${views.join(", ") || "an untagged picture"}; this shot's angle wants the ${wanted.replace("_", " ")} view` : `ready${views.length ? ` (${views.join(", ")})` : ""}`}
             </span>
-            {!has && <ImageButton label={isChar ? "Generate sheet (front first)" : "Generate reference"} body={{ action: "element_sheet", elementId: el.id, views: ["front"] }} />}
+            {!has && <ImageButton label={isChar ? "Generate sheet (face first)" : "Generate reference"} body={{ action: "element_sheet", elementId: el.id, views: [isChar ? "face" : "front"] }} />}
             {needsView && <ImageButton label={`Add the ${wanted.replace("_", " ")} view`} body={{ action: "element_view", elementId: el.id, view: wanted }} />}
           </div>
         );

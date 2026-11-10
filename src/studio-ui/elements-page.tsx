@@ -342,14 +342,14 @@ function ElementEditor({
 function SheetTools({ element }: { element: ElementRow }) {
   const imaging = useImagingOn();
   const isChar = element.kind === "character";
-  const [views, setViews] = useState<RefView[]>(isChar ? ["front", "side", "back", "expression"] : ["front"]);
+  const [views, setViews] = useState<RefView[]>(isChar ? ["face", "front", "side", "back", "expression"] : ["front"]);
   const have = new Set(Object.values(element.refViews ?? {}));
   return (
     <Section title={`Generate with ${imaging.label}`}>
       <div className="st-stack st-stack--tight">
         <span className="st-muted">
           {isChar
-            ? "Front first: the other views take it as the identity reference. Fixed features and the project's style frame are part of every prompt."
+            ? "The face portrait first, then the front figure: the other views copy the face from one and the build and clothes from the other, so generate again as each lands. Fixed features and the project's style frame are part of every prompt."
             : "One reference picture in the project's look."}
         </span>
         {isChar && (

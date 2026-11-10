@@ -343,7 +343,12 @@ export type ElementInput = z.infer<typeof ElementInput>;
 
 /* Which view a reference image shows, so R2VA can pick the one that matches
    the shot's angle and size (a profile shot gets the side view). */
-export const REF_VIEWS = ["front", "three_quarter", "side", "back", "full_body", "expression", "detail"] as const;
+/* face: one head-and-shoulders portrait, straight on — the character's
+   identity. Every other view is a whole figure (the face is a small part of
+   it) or a grid, so without it nothing shows the face large enough to copy. */
+export const REF_VIEWS = ["face", "front", "three_quarter", "side", "back", "full_body", "expression", "detail"] as const;
+/** An element keeps at most one reference per view. */
+export const MAX_ELEMENT_REFS = REF_VIEWS.length;
 export type RefView = (typeof REF_VIEWS)[number];
 
 
