@@ -7,13 +7,15 @@ import { createContext, useContext, type ReactNode } from "react";
 import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
-import { Lamp, Skeleton } from "./common";
+import { Lamp, Skeleton, usePopover } from "./common";
 import { GpuMenu } from "./gpu-panel";
+import { MenuIcon } from "./icons";
 import { useProject } from "./use-project";
 
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
-   pill, the global pages. ProjectShell adds the left rail with the six
-   steps of a film in working order and the budget; GlobalShell is the plain
+   pill, the global pages (folded into a menu on phones). ProjectShell adds
+   the left rail with the six steps of a film in working order and the
+   budget; GlobalShell is the plain
    frame for the home, Canvas, Library, Machine and Connect pages. Pages read the
    shared project view through ProjectContext so one SSE subscription serves
    the whole project. */
@@ -46,28 +48,52 @@ const GLOBAL_NAV: Array<{ href: string; label: string }> = [
   { href: "/connect", label: "Connect" },
 ];
 
+function isCurrent(href: string, pathname: string | null): boolean {
+  return href === "/" ? pathname === "/" : !!pathname?.startsWith(href);
+}
+
 export function TopBar({ crumb }: { crumb?: ReactNode }) {
   const pathname = usePathname();
   return (
     <header className="st-topbar">
       <Link className="st-brand" href="/">
         <span className="st-brand-mark">H3</span>
-        Cinema Studio
+        <span className="st-brand-name">Cinema Studio</span>
       </Link>
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />
       <GpuMenu />
       <nav className="st-topbar-nav" aria-label="Studio">
-        {GLOBAL_NAV.map((item) => {
-          const current = item.href === "/" ? pathname === "/" : pathname?.startsWith(item.href);
-          return (
-            <Link key={item.href} href={item.href} aria-current={current ? "page" : undefined}>
+        {GLOBAL_NAV.map((item) => (
+          <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
+            {item.label}
+          </Link>
+        ))}
+      </nav>
+      <NavMenu pathname={pathname} />
+    </header>
+  );
+}
+
+/* Phones: the global pages do not fit beside the GPU pill, so the bar shows
+   this button in their place (studio.css hides it on wider screens). */
+function NavMenu({ pathname }: { pathname: string | null }) {
+  const { open, setOpen, ref } = usePopover();
+  return (
+    <div className="st-nav-menu-anchor" ref={ref}>
+      <button type="button" className="st-iconbtn" aria-label="Studio pages" aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
+        <MenuIcon size={16} />
+      </button>
+      {open && (
+        <nav id="st-nav-menu" className="st-nav-menu" aria-label="Studio">
+          {GLOBAL_NAV.map((item) => (
+            <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined} onClick={() => setOpen(false)}>
               {item.label}
             </Link>
-          );
-        })}
-      </nav>
-    </header>
+          ))}
+        </nav>
+      )}
+    </div>
   );
 }
 

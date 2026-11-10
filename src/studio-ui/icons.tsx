@@ -46,6 +46,9 @@ export function ArrowDownIcon({ size = 12 }: IconProps) {
 export function BoltIcon({ size = 13 }: IconProps) {
   return <Svg size={size} fill><path d="M9 1.5L3 9h4l-1 5.5L13 7H9l1-5.5z" /></Svg>;
 }
+export function MenuIcon({ size = 16 }: IconProps) {
+  return <Svg size={size}><path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" /></Svg>;
+}
 export function GridIcon({ size = 14 }: IconProps) {
   return <Svg size={size}><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></Svg>;
 }

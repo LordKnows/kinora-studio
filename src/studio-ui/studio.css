@@ -291,26 +291,104 @@ button.st-pill {
   cursor: pointer;
   font: inherit;
 }
-.studio .st-gpu-menu-anchor {
+.studio .st-gpu-menu-anchor,
+.studio .st-nav-menu-anchor {
   position: relative;
   flex: none;
 }
-.studio .st-gpu-menu {
+/* Menus that drop from the top bar. The bar is sticky, so scrolling the page
+   never brings a menu's lower part into view: each is capped to the screen
+   and scrolls inside. */
+.studio .st-gpu-menu,
+.studio .st-nav-menu {
   position: absolute;
   right: 0;
   top: calc(100% + 8px);
   z-index: 60;
-  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - var(--topbar) - 16px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
   border-radius: 12px;
   border: 1px solid var(--line-2);
   background: var(--s1);
   box-shadow: var(--shadow-2);
   font-size: 13px;
   white-space: normal;
+}
+.studio .st-gpu-menu {
+  width: min(320px, calc(100vw - 24px));
+  overflow: hidden;
+}
+.studio .st-gpu-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
+}
+/* Start / Stop (and a spend confirmation) stay in view however long the state is */
+.studio .st-gpu-menu-foot {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--line);
+}
+.studio .st-gpu-menu-foot .st-alert > span {
+  max-height: 30dvh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+/* the global pages on phones */
+.studio .st-nav-menu-anchor {
+  display: none;
+}
+.studio .st-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-ctl);
+  border: 1px solid var(--line-2);
+  background: var(--s1);
+  color: var(--tx2);
+}
+.studio .st-iconbtn:hover,
+.studio .st-iconbtn[aria-expanded="true"] {
+  border-color: var(--line-3);
+  color: var(--tx);
+}
+.studio .st-nav-menu {
+  width: 200px;
+  gap: 2px;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.studio .st-nav-menu a {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tx2);
+  text-decoration: none;
+}
+.studio .st-nav-menu a:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--tx);
+}
+.studio .st-nav-menu a[aria-current="page"] {
+  background: var(--s3);
+  color: var(--tx);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 /* ---------- shell: rail + main ---------- */
@@ -466,9 +544,14 @@ button.st-pill {
   .studio .st-topbar {
     padding: 0 14px;
     gap: 10px;
+    /* its menus open over the bottom tab bar, not under it */
+    z-index: 31;
   }
   .studio .st-topbar-nav {
     display: none;
+  }
+  .studio .st-nav-menu-anchor {
+    display: block;
   }
   .studio .st-tabsbar {
     position: fixed;
@@ -506,6 +589,22 @@ button.st-pill {
   }
   .studio .st-main {
     padding-bottom: 72px;
+  }
+}
+/* narrow phones: room for the crumb, the GPU pill and the menu button; the
+   GPU menu spans the screen (its pill is no longer at the right edge) */
+@media (max-width: 520px) {
+  .studio .st-brand-name,
+  .studio .st-gpu-pill-name {
+    display: none;
+  }
+  .studio .st-gpu-menu {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: calc(var(--topbar) + 6px);
+    width: auto;
+    max-height: calc(100dvh - var(--topbar) - 18px);
   }
 }
 
