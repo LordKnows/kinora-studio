@@ -300,6 +300,8 @@ def test_pixel_checks():
     sheet.paste(Image.effect_noise((400, 1000), 80).convert("RGB"), (300, 200))
     assert not any(c["id"] == "busy_background" for c in paint.auto_checks(sheet, drawn_size=None, target=(1008, 1344), kind="element_sheet"))
     assert any(c["id"] == "busy_background" for c in paint.auto_checks(Image.effect_noise((1008, 1344), 80).convert("RGB"), drawn_size=None, target=(1008, 1344), kind="element_sheet"))
+    # a detail is a close picture of one part: it is not held to a whole figure's empty corners
+    assert not any(c["id"] in ("busy_background", "border") for c in paint.auto_checks(Image.effect_noise((1024, 1024), 80).convert("RGB"), drawn_size=None, target=(1024, 1024), kind="element_detail"))
 
 
 def test_self_review_redraws_a_blocker_once_with_the_findings(tmp_path, codex_env):

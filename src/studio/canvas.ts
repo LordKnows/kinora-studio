@@ -10,7 +10,7 @@ import { firstRealIn } from "./provenance";
 import { adultAllowed, getReference } from "./references";
 import { referenceImage, referenceName, type RefCostume, type RefItem, type RefKind, type RefPortrait, type RefPose } from "./references-model";
 import * as repo from "./repo";
-import { LoraRef, MAX_ELEMENT_REFS, REF_VIEWS } from "./schemas";
+import { LoraRef, REF_VIEWS } from "./schemas";
 import type { Actor, Asset, Element, Job } from "./types";
 
 /*
@@ -295,8 +295,7 @@ export async function importReference(projectId: string, input: CanvasImport, ac
   const face = item.kind === "portrait" && item.mine ? (item.mine.faceCheck ? { faceCheck: item.mine.faceCheck } : { faceCheckError: item.mine.faceCheckError ?? { why: "not checked" } }) : {};
   const asset = await importImageFromUrl(projectId, pic.image, actor, { label: `ref · ${name}`.slice(0, 80), reference: { id: item.id, kind: item.kind, depth: input.depth || undefined, view: input.view, ...mine }, ...face });
   if (input.attach) {
-    const el = await repo.getElement(input.attach.elementId);
-    await repo.updateElement(el.id, { refAssetIds: [...el.refAssetIds.filter((x) => x !== asset.id), asset.id].slice(-MAX_ELEMENT_REFS), refViews: { [asset.id]: input.attach.view } });
+    await repo.attachElementRef(input.attach.elementId, asset.id, { view: input.attach.view });
   }
   return { asset };
 }

@@ -7,6 +7,24 @@ import { LINK_TYPES } from "./editing";
    the rules the agent reads, so the H3 prompt grammar lives here and in the
    compiler, not in the agent's memory. */
 
+/**
+ * A patch of `schema`: every field optional, and none filled in. zod's own
+ * .partial() keeps each field's default, so a key the caller left out came
+ * back as its default and overwrote the stored value: an element's
+ * description emptied, a shot's characters, props, dialogue and sound cleared,
+ * a locked voice card back to draft. Use this wherever a tool takes "only the
+ * keys you pass".
+ */
+export function patchOf<T extends z.ZodObject>(schema: T): z.ZodObject<{ [K in keyof T["shape"]]: z.ZodOptional<T["shape"][K]> }> {
+  const shape = Object.fromEntries(Object.entries(schema.shape).map(([key, value]) => {
+    const field = value as z.ZodType;
+    if (!(field instanceof z.ZodDefault || field instanceof z.ZodPrefault)) return [key, field];
+    const inner = field.unwrap() as z.ZodType;
+    return [key, field.description ? inner.describe(field.description) : inner];
+  }));
+  return z.object(shape).partial() as never;
+}
+
 export const ASPECT_RATIOS = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"] as const;
 export const CAMERA_MOVES = [
   "static", "push_in", "pull_out", "pan", "tilt", "truck", "pedestal",
@@ -51,6 +69,9 @@ export const LoraInput = z.object({
   baseModel: z.string().max(60).default("minimax-h3").describe("The model family it was trained for (models.ts): minimax-h3, minimax-h3-image, qwen-image-2.1"),
   params: InferenceParamsInput.default({}).describe("Recommended settings from its card: a speed LoRA's steps, sampler, scheduler, shift; any LoRA's strength range. Selecting it applies them."),
 });
+/** Some of a LoRA's fields; the rest stay as they are. */
+export const LoraPatch = patchOf(LoraInput);
+
 export type LoraInput = z.infer<typeof LoraInput>;
 
 /* Prompt experiments for A/B tests on the self-hosted H3. Off by default:
@@ -175,6 +196,9 @@ export const VoiceCardInput = ElementVoice.extend({
   status: z.enum(VOICE_CARD_STATUS).default("draft").describe("draft → auditioning → locked; a locked card's changes mean every line voiced with it is checked again"),
   notes: z.string().max(1000).optional().describe("Free notes: what the voice must sound like, who approved it"),
 });
+/** Some of a voice card's fields; the rest stay as they are. */
+export const VoiceCardPatch = patchOf(VoiceCardInput);
+
 export type VoiceCardInput = z.infer<typeof VoiceCardInput>;
 
 export const Camera = z.object({
@@ -319,7 +343,7 @@ export const SceneInput = z.object({
 export const ShotlistInput = z.object({ scenes: z.array(SceneInput).min(1) });
 export type ShotlistInput = z.infer<typeof ShotlistInput>;
 
-export const ShotPatch = ShotBase.partial().extend({
+export const ShotPatch = patchOf(ShotBase).extend({
   promptOverride: z.string().max(7000).nullable().optional().describe("null clears the override"),
 });
 export type ShotPatch = z.infer<typeof ShotPatch>;
@@ -327,6 +351,7 @@ export type ShotPatch = z.infer<typeof ShotPatch>;
 export const FixedFeature = z.object({
   feature: z.string().min(1).max(80).describe("e.g. 'dragon tattoo', 'red beret'"),
   where: z.string().min(1).max(120).describe("Exact place, with the character's own left/right, e.g. 'left forearm, inner side'"),
+  detail: z.boolean().optional().describe("true = draw a close detail picture of it for the sheet (at most 3 per character; the whole-figure views copy it), false = never. Left out: the first three features that are not on the face get one."),
 });
 export type FixedFeature = z.infer<typeof FixedFeature>;
 
@@ -338,6 +363,9 @@ export const ElementInput = z.object({
   voiceCardId: z.string().optional().describe("Characters: the voice card they speak with (create_voice_card; library cards serve every project). Each state's description is written verbatim where the character speaks; its reference audio feeds R2VA (experiments.voiceRefs) and the voice conversion"),
   voiceState: z.string().max(40).optional().describe("The card state this element speaks in by default (e.g. older for the older self); lines can still name another"),
 });
+/** Some of an element's fields; the rest stay as they are. */
+export const ElementPatch = patchOf(ElementInput);
+
 
 export type ElementInput = z.infer<typeof ElementInput>;
 
@@ -347,8 +375,12 @@ export type ElementInput = z.infer<typeof ElementInput>;
    identity. Every other view is a whole figure (the face is a small part of
    it) or a grid, so without it nothing shows the face large enough to copy. */
 export const REF_VIEWS = ["face", "front", "three_quarter", "side", "back", "full_body", "expression", "detail"] as const;
-/** An element keeps at most one reference per view. */
-export const MAX_ELEMENT_REFS = REF_VIEWS.length;
+/** The views that show the whole figure; the others are the head (face, expression) or one detail. */
+export const FIGURE_VIEWS = ["front", "three_quarter", "side", "back", "full_body"] as const;
+/** Detail pictures per character: one close picture of a fixed feature each (a tattoo, an emblem, a prop in hand). */
+export const MAX_DETAILS = 3;
+/** One reference per view, and up to MAX_DETAILS details: face, expression, 3 details, 5 figures. */
+export const MAX_ELEMENT_REFS = REF_VIEWS.length - 1 + MAX_DETAILS;
 export type RefView = (typeof REF_VIEWS)[number];
 
 

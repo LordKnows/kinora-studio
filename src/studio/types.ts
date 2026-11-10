@@ -113,6 +113,8 @@ export type Element = {
   fixedFeatures?: FixedFeature[];
   /** Which view each reference image shows, by asset id. */
   refViews?: Record<string, RefView>;
+  /** Detail pictures: which fixed feature (its `feature` text) each one shows, by asset id. */
+  refFeatures?: Record<string, string>;
   /** The voice card the character speaks with, and its default state on that card. */
   voiceCardId?: string;
   voiceState?: string;

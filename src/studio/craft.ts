@@ -73,7 +73,7 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
     picture: asset.url, handle: asset.handle, name: asset.name, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
     refsUsed,
     shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
-    element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
+    element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], detailOf: element.refFeatures?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
     sheets, renderSize: VIDEO_SIZES[view.project.look.aspectRatio],
     /* measured on the pixels by the painter: facts, not opinions */
     pixelChecks: m.checks,

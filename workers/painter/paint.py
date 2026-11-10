@@ -377,7 +377,9 @@ def auto_checks(img: Any, *, drawn_size: tuple[int, int] | None, target: tuple[i
         if share > 0.02:
             out.append({"id": "cropped", "level": "warn" if share < 0.2 else "fail",
                         "message": f"drawn {drawn_size[0]}x{drawn_size[1]}; {share:.0%} cut off the {sides} to fit {w}x{h} — check heads, feet and hands at the edges"})
-    bars = [s for s in ("top", "bottom", "left", "right") if _flat_band(img, s)] if kind != "element_sheet" else []
+    # sheet pictures stand on a plain backdrop, so a flat edge is no border; a detail (element_detail) is
+    # a close picture of one part and is not held to the empty-corners rule of a whole figure
+    bars = [s for s in ("top", "bottom", "left", "right") if _flat_band(img, s)] if kind not in ("element_sheet", "element_detail") else []
     if bars:
         out.append({"id": "border", "level": "warn", "message": f"a flat band along the {', '.join(bars)} edge: a border or letterbox bar drawn into the picture"})
     if kind in ("element_sheet",) and img.width > 64:
@@ -576,7 +578,7 @@ Check, in this order:
 4. feature_side: a fixed feature the brief puts on one side (a scar on the LEFT cheek, a bag on the RIGHT shoulder) is on that side of the PERSON; a mirrored picture is a blocker.
 5. text: any letters, numbers, captions, labels, logos, watermarks, signatures, borders or panel grids that the brief did not ask for.
 6. framing: heads, feet or hands cut by the edge when they should be in; the subject where the brief puts it (left third / centre / right third); headroom.
-7. style / background: matches the style asked for and, for a reference sheet, one figure only on a plain empty backdrop; for a frame, the setting asked for.
+7. style / background: matches the style asked for and, for a reference sheet (element_sheet), one figure only on a plain empty backdrop; for a detail (element_detail), the one detail the brief names, close and clear, and no face or whole figure is expected; for a frame, the setting asked for.
 8. edit_scope (edits only): only what the brief asked to change changed; faces, light, framing and everything else identical to the picture being edited.
 9. prompt_mismatch: anything else the brief asks for that is not there, or is clearly wrong.
 
