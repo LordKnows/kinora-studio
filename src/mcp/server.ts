@@ -150,7 +150,7 @@ export function createStudioServer(actor: Actor): McpServer {
     paletteSuffix: z.string().max(80).optional(),
   }), async ({ style, ...o }) => {
     const s = await styles.mustResolveStyle(style);
-    return { look: director.compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations };
+    return { look: director.compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(s.style.engine.loraSuggestions.length ? { loraSuggestions: { note: "Not in the look: no take has been rendered with them on this style. Offer them to the user; if they agree, render one probe shot with and one without (revise_shot loras) and keep it only if the picture is better.", loras: s.style.engine.loraSuggestions } } : {}) };
   });
   tool("apply_style", "Fill every shot's cinematography with the style defaults (explicit values win), append the beat suffix, default ambience/music, and warn about camera moves and links outside the style's grammar. Returns the shotlist to pass to save_shotlist.", z.object({ style: z.string().min(1), shotlist: ShotlistShape, beatSuffix: z.boolean().default(true), musicForShotsWithScore: z.boolean().default(true) }), async ({ style, shotlist, beatSuffix, musicForShotsWithScore }) => {
     const s = await styles.mustResolveStyle(style);

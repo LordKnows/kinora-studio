@@ -138,6 +138,10 @@ A menu: use the ones your story needs.
 }
 ```
 
+Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+
+- `lora_prithiv_anime_motion` at 0.8: keyframe shots (I2VA / FL2VA) that animate a drawn hero frame: genre-typical anime movement. The compiler leaves it off reference and text shots.
+
 Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).
 
 ## 11. Variation space

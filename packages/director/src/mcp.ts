@@ -70,7 +70,7 @@ server.registerTool("compile_look", {
 }, async ({ style, ...o }) => {
   const s = findStyle(style);
   if (!s) return text({ error: `no style matches "${style}"` });
-  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations });
+  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(s.style.engine.loraSuggestions.length ? { loraSuggestions: { note: "Not in the look: no take has been rendered with them on this style. Offer them to the user; if they agree, render one probe shot with and one without (revise_shot loras) and keep it only if the picture is better.", loras: s.style.engine.loraSuggestions } } : {}) });
 });
 
 const ShotlistSchema = z.object({ scenes: z.array(z.object({ slug: z.string(), summary: z.string().optional(), location: z.string().optional(), shots: z.array(z.any()) })) });

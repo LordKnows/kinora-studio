@@ -85,6 +85,12 @@ export function styleToMarkdown(s: Style): string {
   p(JSON.stringify({ look: s.engine.look, negative: s.engine.negative, cinematography: s.engine.cinematography, bySize: s.engine.bySize ?? {}, loras: s.engine.loras, beatSuffix: s.engine.beatSuffix ?? "" }, null, 2));
   p("```");
   p("");
+  if (s.engine.loraSuggestions.length) {
+    p("Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):");
+    p("");
+    for (const l of s.engine.loraSuggestions) p(`- \`${l.id}\` at ${l.strength}: ${l.when}`);
+    p("");
+  }
   p("Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).");
   p("");
   p("## 11. Variation space");

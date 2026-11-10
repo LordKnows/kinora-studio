@@ -342,3 +342,12 @@ test("a style of your own: three groups, a fork, what changed and what it costs"
   assert.ok(checkFork(base, { ...mine, slug: "their-style" }, taken).warnings.some((w) => w.code === "style.slug.taken"));
   assert.ok(checkFork(undefined, { ...mine, slug: "Bad Slug" }, taken).warnings.some((w) => w.code === "style.slug"));
 });
+
+test("style LoRA suggestions are offered, never applied", () => {
+  const cel = findStyle("cel-anime-80s")!.style;
+  assert.equal(cel.engine.loraSuggestions[0].id, "lora_prithiv_anime_motion");
+  const look = compileLook(cel, { loras: [{ id: "lora_h3_turbo_fl2v" }] });
+  assert.deepEqual(look.loras, [{ id: "lora_h3_turbo_fl2v" }]);
+  assert.match(styleToMarkdown(cel), /not applied by default/);
+  assert.deepEqual(findStyle("ink-wash")!.style.engine.loraSuggestions, []);
+});
