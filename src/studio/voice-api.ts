@@ -164,7 +164,7 @@ function countChars(text: string): number {
 }
 
 /** Speak text with a card state's API voice (or a named voice / the model's default) and keep it as an audio asset. */
-export async function speak(projectId: string, input: { text: string; voiceCardId?: string; stateId?: string; voice?: string; model?: string; format?: "wav" | "mp3" | "opus"; label?: string; addAsReference?: boolean }, actor: Actor): Promise<{ asset: Asset; model: string; voice?: string; chars: number }> {
+export async function speak(projectId: string, input: { text: string; voiceCardId?: string; stateId?: string; voice?: string; model?: string; format?: "wav" | "mp3" | "opus"; label?: string; addAsReference?: boolean; providerOptions?: Record<string, unknown>; inputOptions?: Record<string, unknown> }, actor: Actor): Promise<{ asset: Asset; model: string; voice?: string; chars: number }> {
   const text = input.text.trim();
   if (!text) throw new StudioError("validation", "text is empty");
   const chars = countChars(text);
@@ -189,7 +189,7 @@ export async function speak(projectId: string, input: { text: string; voiceCardI
   const res = await fetch(`${api.base}/audio/speech`, {
     method: "POST",
     headers: { authorization: `Bearer ${api.key}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, input: text, ...(voice ? { voice } : {}), response_format: format }),
+    body: JSON.stringify({ ...passThrough(input.providerOptions), model, input: input.inputOptions ? { ...passThrough(input.inputOptions), text } : text, ...(voice ? { voice } : {}), response_format: format }),
   });
   if (!res.ok) throw await apiError(res, "speech");
   const bytes = new Uint8Array(await res.arrayBuffer());
@@ -200,7 +200,7 @@ export async function speak(projectId: string, input: { text: string; voiceCardI
   await putObject(key, bytes, res.headers.get("content-type") || t.type);
   const asset = await repo.createAsset({
     projectId, url: publicUrl(key), kind: "audio", source: "generated",
-    meta: { key, provider: "tokensail", model, ...(voice ? { voice } : {}), text, ...(card ? { voiceCardId: card.id, stateId } : {}), requestId: res.headers.get("x-tokensail-request-id") ?? undefined },
+    meta: { key, provider: "tokensail", model, ...(voice ? { voice } : {}), text, ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}), ...(input.inputOptions ? { inputOptions: input.inputOptions } : {}), ...(card ? { voiceCardId: card.id, stateId } : {}), requestId: res.headers.get("x-tokensail-request-id") ?? undefined },
     name: input.label ?? nameOfUploadKey(key),
   });
   const latest = (await repo.getVoicing(projectId)) ?? v;
@@ -209,6 +209,13 @@ export async function speak(projectId: string, input: { text: string; voiceCardI
     await repo.updateVoiceCard(card.id, { states: card.states.map((s) => (s.id === stateId ? { ...s, refAssetIds: [...s.refAssetIds, asset.id].slice(-8) } : s)) });
   }
   return { asset, model, ...(voice ? { voice } : {}), chars };
+}
+
+/* Experimental fields passed to the provider as they are (an emotion or style instruction a model may take):
+   never the ones the Studio sets itself. */
+const RESERVED = new Set(["model", "input", "text", "voice", "response_format"]);
+function passThrough(o: Record<string, unknown> | undefined): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(o ?? {}).filter(([k]) => !RESERVED.has(k)));
 }
 
 /** Speech back to text; with the intended text, the share of characters it got wrong (punctuation ignored). */

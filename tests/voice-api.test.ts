@@ -129,6 +129,14 @@ describe("making and using a voice", () => {
     expect(calls.filter((c) => c.url.endsWith("/audio/speech"))).toEqual([]);
   });
 
+  it("passes experimental provider fields through, never over the Studio's own", async () => {
+    const { project } = await setup();
+    await voiceApi.setVoicing(project.id, { enabled: true }, user);
+    await voiceApi.speak(project.id, { text: "你好。", model: "cosyvoice-v3.5-plus", voice: "tv_x", providerOptions: { instructions: "用愤怒的语气说", model: "other" }, inputOptions: { instruction: "愤怒" } }, user);
+    const body = JSON.parse(String(calls.find((c) => c.url.endsWith("/audio/speech"))!.body));
+    expect(body).toEqual({ instructions: "用愤怒的语气说", model: "cosyvoice-v3.5-plus", input: { instruction: "愤怒", text: "你好。" }, voice: "tv_x", response_format: "wav" });
+  });
+
   it("transcribes an asset and scores it against the intended text", async () => {
     const { project, sample } = await setup();
     await voiceApi.setVoicing(project.id, { enabled: true }, user);
