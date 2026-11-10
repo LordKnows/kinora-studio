@@ -425,16 +425,30 @@ function pickReferences(ctx: CompileContext, warnings: string[], max = MAX_REFER
 
 /* A character's reference images are tagged with the view they show; the
    shot's angle and size decide which one R2VA gets (a profile shot gets the
-   side view, a close-up the front or an expression sheet). */
+   side view, a close-up the face portrait). The portrait is offered only to
+   close-ups: with one reference per character, a wider shot needs the picture
+   that also shows the clothes and the build. */
 export function preferredViews(spec: ShotInput): RefView[] {
   const c = spec.cinematography ?? {};
   if (c.angle === "profile") return ["side", "three_quarter", "front"];
   const backs = (spec.blocking ?? []).some((b) => /\b(back to (the )?camera|from behind|walks away)\b/i.test(b.note ?? ""));
   if (backs) return ["back", "three_quarter", "full_body"];
-  if (c.size === "ecu" || c.size === "cu") return ["expression", "front", "three_quarter"];
+  /* a close-up is the face: the portrait first (one face, large), the expression grid only without one */
+  if (c.size === "ecu" || c.size === "cu") return ["face", "expression", "front", "three_quarter"];
   if (c.size === "mcu" || c.size === "ms" || c.size === "ots" || c.size === "twoshot") return ["front", "three_quarter", "full_body"];
   if (c.size === "ls" || c.size === "els" || c.size === "mls") return ["full_body", "front", "three_quarter"];
   return ["front", "three_quarter", "full_body"];
+}
+
+/** The view a reference picture of this element was tagged with, found by its url. */
+export function viewOfRef(el: Element, url: string, assets: Map<string, Asset>): RefView | undefined {
+  const id = el.refAssetIds.find((a) => assets.get(a)?.url === url);
+  return id ? el.refViews?.[id] : undefined;
+}
+
+/** The element's face portrait, when it has one. */
+export function faceRef(el: Element): string | undefined {
+  return el.refAssetIds.find((a) => el.refViews?.[a] === "face");
 }
 
 export function pickRefForViews(el: Element, wanted: RefView[]): string | undefined {
@@ -443,7 +457,8 @@ export function pickRefForViews(el: Element, wanted: RefView[]): string | undefi
     const hit = el.refAssetIds.find((a) => views[a] === v);
     if (hit) return hit;
   }
-  return el.refAssetIds[0];
+  /* no tagged match: the first picture that is not the portrait (a head alone carries no clothes), else whatever there is */
+  return el.refAssetIds.find((a) => views[a] !== "face") ?? el.refAssetIds[0];
 }
 
 /** "a scar" + where it sits, as one phrase. The place is written by hand, so it
@@ -531,7 +546,9 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
       : img.label === "hero frame"
       ? "the look of this shot: composition, light and wardrobe"
       : el?.kind === "character"
-        ? `${el.name}, the character. Keep face, hair and wardrobe exactly.`
+        ? viewOfRef(el, img.url, ctx.assets) === "face"
+          ? `${el.name}, the character. Keep face and hair exactly. The reference is a portrait: it gives the identity only, not this shot's framing, expression or light.`
+          : `${el.name}, the character. Keep face, hair and wardrobe exactly.`
         : el?.kind === "location"
           ? `${el.name}, the setting. Keep layout and light direction.`
           : `${img.label ?? "reference"}. Keep its shape and materials.`;
