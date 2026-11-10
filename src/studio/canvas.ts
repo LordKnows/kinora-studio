@@ -53,7 +53,7 @@ export const CanvasCompose = z.object({
     picture: z.enum(POSE_PICTURES).default("photo").describe("An uploaded pose (assetId): what the picture is — photo (a person: only the pose and framing are taken), mannequin (白模 / line art), depth (a grey depth map)"),
     mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)"),
   }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's model (Settings → Director)."),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod minimax-h3-image (MiniMax's open weights, text to image and up to 10 pictures), qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's model (Settings → Director)."),
   promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
   negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),

@@ -1,5 +1,67 @@
 {
-  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio. lora_after / lora_into: where the painter chains LoraLoaderModelOnly nodes for the job's LoRAs (fetched from their HuggingFace link into models/loras when missing). min_images / variants: a model that needs a set number of pictures (Qwen-Image-Edit 2509: portrait + costume + pose, or person + pose) picks its graph and picture slots by the count.",
+  "_comment": "Image models the GPU pod draws for the Studio's painters (paint.py run_comfy). Keys are the model ids of src/studio/models.ts; the painter on the pod advertises backend comfy:<id> once ComfyUI answers and every file in `files` is on disk. Each target is [node id, input]. The settings themselves (steps, CFG, sampler, sigmas, resolution) come with the job from the Studio. lora_after / lora_into: where the painter chains LoraLoaderModelOnly nodes for the job's LoRAs (fetched from their HuggingFace link into models/loras when missing). min_images / variants: a model that needs a set number of pictures (Qwen-Image-Edit 2509: portrait + costume + pose, or person + pose) picks its graph and picture slots by the count. min_area: a model with a working range (MiniMax-H3-Image: about 4–20 MP) draws a smaller request on a canvas of the same shape scaled up to this many pixels (the job's `resolution`, squared, when it carries one) and the painter resizes the picture back, as MiniMax's own server does (min_generation_area).",
+  "minimax-h3-image": {
+    "workflow": "H3_IMAGE",
+    "files": "models-h3-image.txt",
+    "max_images": 10,
+    "image_target": "5",
+    "image_prefix": "images.image_",
+    "image_loaders": [
+      "31",
+      "32",
+      "33",
+      "34",
+      "35",
+      "36",
+      "37",
+      "38",
+      "39",
+      "40"
+    ],
+    "prompt": [
+      "5",
+      "prompt"
+    ],
+    "negative": null,
+    "resolution": null,
+    "width": [
+      "5",
+      "width"
+    ],
+    "height": [
+      "5",
+      "height"
+    ],
+    "seed": [
+      "7",
+      "seed"
+    ],
+    "sampler": [
+      "7",
+      "sampler_name"
+    ],
+    "scheduler": [
+      "7",
+      "scheduler"
+    ],
+    "sigmas": null,
+    "cfg": [
+      "7",
+      "cfg"
+    ],
+    "steps": [
+      "7",
+      "steps"
+    ],
+    "output_node": "9",
+    "size_multiple": 32,
+    "min_area": 4194304,
+    "lora_after": "1",
+    "lora_into": [
+      "7",
+      "model"
+    ]
+  },
   "qwen-image-2.1-turbo": {
     "workflow": "QWEN21_EDIT",
     "files": "models-qwen-image.txt",

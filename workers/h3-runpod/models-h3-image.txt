@@ -1,0 +1,5 @@
+# MiniMax-H3-Image (open weights, 2026-11-10; Comfy-Org's ComfyUI repackage): ComfyUI subdir<TAB>URL<TAB>bytes. The DiT (int8, 21 GB) and the image VAE; the text encoder is the H3 video set's own file (models.txt), listed again so the model is whole on a pod without the video set. Downloaded after the core set when H3_IMAGE=1 (the default) and the disk has 30 GB free (+22 GB beside the video models).
+# MiniMax-H3-Image Community License Agreement: not for use in the EU, the UK, South Korea or the US; a written authorization from MiniMax above 1M USD of annual revenue or to host it for third parties (https://huggingface.co/MiniMaxAI/MiniMax-H3-Image/blob/main/LICENSE).
+diffusion_models	https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors	20979314802
+text_encoders	https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors	15687142551
+vae	https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors	1168505312

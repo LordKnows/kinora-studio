@@ -10,7 +10,8 @@
  * Image via Codex or the images API; Qwen-Image 3.0 Pro through TokenSail
  * or DashScope, on the CPU painter pod). "pod": a ComfyUI workflow on the GPU
  * pod — the same pod as the video models, so it draws only while the pod
- * runs. Pure data and functions: the pages import it too.
+ * runs (MiniMax-H3-Image, the open weights of 2026-11-10, and the Qwen-Image
+ * models). Pure data and functions: the pages import it too.
  */
 
 export type ModelKind = "image" | "video";
@@ -28,9 +29,15 @@ export type InferenceParams = {
   /** LoRAs: the strength to start at, and the range the author suggests. */
   strength?: number;
   strengthRange?: [number, number];
-  /** Image models: the pixel budget reference pictures are resized to. */
+  /** Image models: the pixel budget reference pictures are resized to (Qwen-Image 2.1), or the side of
+      the square whose area the model draws at before the picture is resized to the asked size
+      (MiniMax-H3-Image: 2048 = 4 MP, 4096 = 16 MP). */
   resolution?: number;
 };
+
+/** How a model's prompt names its reference pictures: 图1 / "Picture 1" (GPT Image, the Qwen APIs),
+    <image1> (Qwen-Image 2.1) or <Picture 1> (MiniMax-H3-Image). */
+export type RefStyle = "zh" | "qwen" | "h3";
 
 export type ModelFile = { dir: string; file: string; url: string; gb: number };
 
@@ -53,7 +60,7 @@ export type ModelEntry = {
   graphDefaults?: InferenceParams;
   /** Image models: reference pictures per call, and how the prompt names them. */
   maxRefs?: number;
-  refStyle?: "zh" | "qwen";
+  refStyle?: RefStyle;
   /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
   poseRecipe?: boolean;
   /** The size its pictures come at whatever was picked (2509: the canvas follows the pose picture, 3:4 like every library pose). */
@@ -92,6 +99,22 @@ export const MODELS: ModelEntry[] = [
     license: "Alibaba Cloud Model Studio terms, through TokenSail (or DashScope directly); paid per picture and per reference picture", commercial: "ask", moderation: "alibaba",
     source: "https://tokensail.ai/docs/api/images.html",
     notes: "The pose gallery's 阿里云百炼 path (anhao/ai-pose-gallery-zh: qwen-image-3.0-pro, references as URLs, 图1/图2/图3 in the prompt, prompt_extend, watermark off, negative prompt). Drawn by the CPU painter pod with TOKENSAIL_API_KEY (TokenSail's /v1/images/generations) or DASHSCOPE_API_KEY (DashScope's multimodal-generation); no GPU. The vendor fetches the references itself, so the painter puts them in R2 for the job's length. TokenSail lists ¥0.25 per picture at 1K and ¥0.50 at 2K, each reference billed on top; cn region only. Alibaba Cloud moderates every request: sexual content is refused.",
+  },
+  {
+    id: "minimax-h3-image", kind: "image", runtime: "pod", label: "MiniMax H3 Image", zh: "MiniMax H3 Image（GPU pod，开源权重）", family: "minimax-h3-image",
+    backend: "comfy:minimax-h3-image", workflows: ["H3_IMAGE"],
+    /* the checkpoint is distilled to 6 steps without guidance (the model card: other values are refused by MiniMax's own server);
+       resolution 2048 = drawn at 4 MP, the card's min_generation_area default, then resized to the asked size */
+    params: { steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048 },
+    maxRefs: 10, refStyle: "h3",
+    files: [
+      { dir: "diffusion_models", file: "minimax_h3_image_pruned_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors", gb: 21 },
+      { dir: "text_encoders", file: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", url: "https://huggingface.co/Comfy-Org/MiniMax-H3/resolve/main/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", gb: 15.7 },
+      { dir: "vae", file: "minimax_h3_image_vae_fp16.safetensors", url: "https://huggingface.co/Comfy-Org/MiniMax-H3-Image/resolve/main/vae/minimax_h3_image_vae_fp16.safetensors", gb: 1.2 },
+    ],
+    license: "MiniMax-H3-Image Community License Agreement: not for use in the EU, the UK, South Korea or the US; a written authorization from MiniMax is needed above 1M USD of annual revenue or to host it for third parties, and a commercial product names MiniMax-H3-Image in its interface", commercial: "ask", moderation: "none",
+    source: "https://huggingface.co/MiniMaxAI/MiniMax-H3-Image",
+    notes: "MiniMax's open-weight image model of the H3 family (released 2026-11-10): text to image and multi-reference editing in one checkpoint, a 33B single-stream DiT (H3 without the audio layers) distilled to 6 steps without guidance. Self-hosted on the GPU pod in ComfyUI (v0.45.0 or later: MiniMaxH3ImageConditioning, KSampler 6 steps / CFG 1 / euler / simple; Comfy-Org's templates without their prompt-enhancer branch), not through MiniMax's API. It uses the MiniMax-H3 text encoder unchanged, the file the video graphs already load, so it adds 22 GB on the pod (int8 DiT + image VAE). Pictures are <Picture 1>…<Picture 10> in the prompt (the model takes 16; the Studio sends up to ten). Its working range is about 4–20 MP and it is weak below: a smaller request (a 1344×768 frame) is drawn on a canvas of the same shape at 4 MP and resized to the asked size, as MiniMax's server does; 16 MP is its best quality and several times slower. It expects a detailed English description of the whole picture: the director's sectioned prompts fit, a short or Chinese Canvas recipe is followed less closely (MiniMax's API expands prompts first; that step is not run here). No negative prompt, no content filter of its own.",
   },
   {
     id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",
@@ -189,9 +212,12 @@ export function projectImageModel(imaging?: { model?: string; backend?: string }
 }
 
 /** The Studio's prompts name their pictures "Picture 1", "Picture 2" …; a model that reads them as
-    tokens (Qwen-Image 2.1: <image1> …) gets those instead. */
+    tokens (Qwen-Image 2.1: <image1> …; MiniMax-H3-Image: <Picture 1> …) gets those instead. */
 export function namePicturesFor(model: ModelEntry, prompt: string): string {
-  return model.refStyle === "qwen" ? prompt.replace(/\b[Pp]icture (\d+)\b/g, "<image$1>") : prompt;
+  if (model.refStyle === "qwen") return prompt.replace(/\b[Pp]icture (\d+)\b/g, "<image$1>");
+  /* a prompt that already carries the token (<Picture 1>) is left as it is */
+  if (model.refStyle === "h3") return prompt.replace(/(?<!<)\b[Pp]icture (\d+)\b(?!>)/g, "<Picture $1>");
+  return prompt;
 }
 
 /** What an agent picture sends with the job: the model's recommended settings (pod models), or the

@@ -6,8 +6,9 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { CanvasCompose, composeCharacter } from "@/studio/canvas";
+import { buildCanvasPrompt } from "@/studio/canvas-prompt";
 import * as imaging from "@/studio/imaging";
-import { describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
+import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, findModel, IMAGE_MODELS, isGraphDefault, MODELS, namePicturesFor, QWEN21_TURBO_SIGMAS, resolveParams, type ModelEntry } from "@/studio/models";
 import * as painter from "@/studio/painter";
 import { listReferences, setAdultContent } from "@/studio/references";
 import * as repo from "@/studio/repo";
@@ -264,5 +265,66 @@ describe("Qwen-Image-Edit 2509: the pose gallery's workflow", () => {
     expect(old.jobs.some((j) => j.jobId === job.id)).toBe(false);
     const fresh = await painter.claim({ painterId: "new-cpu", name: "new", want: 4, info: { backends: ["codex"], ops: ["paint", "crop", "extract"], features: ["mirror_refs"] } });
     expect(fresh.jobs.find((j) => j.jobId === job.id)?.input.mirror_refs).toEqual([1]);
+  });
+});
+
+describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
+  const H3I = findModel("minimax-h3-image") as ModelEntry;
+  let projectId = "";
+
+  it("is a pod model on its distilled chain, self-hosted, with the licence's limits said", () => {
+    expect(H3I).toMatchObject({ kind: "image", runtime: "pod", backend: "comfy:minimax-h3-image", workflows: ["H3_IMAGE"], family: "minimax-h3-image", maxRefs: 10, refStyle: "h3", moderation: "none" });
+    /* 6 steps without guidance (the model card); drawn at 4 MP whatever size is asked */
+    expect(resolveParams(H3I).params).toEqual({ steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048 });
+    expect(defaultImageParams(H3I)).toEqual(resolveParams(H3I).params);
+    expect(describeParams(H3I.params)).toBe("6 steps · euler/simple · CFG 1");
+    /* not an open-source licence: excluded territories and a revenue / hosting threshold */
+    expect(H3I.commercial).toBe("ask");
+    expect(H3I.license).toMatch(/EU.*UK.*South Korea.*US/);
+    expect(H3I.license).toMatch(/1M USD/);
+    /* open weights from HuggingFace, no API: the text encoder is the file the video graphs load */
+    expect(H3I.files!.every((f) => f.url.startsWith("https://huggingface.co/Comfy-Org/"))).toBe(true);
+    const pod = readFileSync(join(__dirname, "../workers/h3-runpod/models.txt"), "utf8");
+    expect(pod).toContain(H3I.files!.find((f) => f.dir === "text_encoders")!.url);
+    /* the director may draw with it (Settings → Director) */
+    expect(AGENT_IMAGE_MODELS.map((m) => m.id)).toContain("minimax-h3-image");
+  });
+
+  it("names its pictures <Picture N>, in the director's prompts and in Canvas recipes", () => {
+    expect(namePicturesFor(H3I, "Picture 1 is Mia. Keep picture 2's coat; edit Picture 10.")).toBe("<Picture 1> is Mia. Keep <Picture 2>'s coat; edit <Picture 10>.");
+    /* a prompt that already carries the token stays as it is */
+    expect(namePicturesFor(H3I, "<Picture 1> wears the coat of Picture 2")).toBe("<Picture 1> wears the coat of <Picture 2>");
+    const text = buildCanvasPrompt({ character: { name: "Lin" }, extras: [{ name: "red scarf" }], refStyle: "h3" });
+    expect(text).toContain("<Picture 1>是Lin的角色参考");
+    expect(text).toContain("融合<Picture 2>（red scarf）");
+    expect(text).not.toMatch(/图\d/);
+  });
+
+  it("is chosen for a project on the web and queues for the GPU pod with its settings", async () => {
+    projectId = (await repo.createProject({ name: "H3 Image" })).id;
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, web);
+    const summary = imaging.imagingSummary(await repo.getProject(projectId));
+    expect(summary).toMatchObject({ enabled: true, model: "minimax-h3-image", modelLabel: "MiniMax H3 Image", runtime: "pod", backend: "comfy:minimax-h3-image", maxRefs: 10 });
+    expect((await imaging.imagingStatus(await repo.getProject(projectId))).settings).toBe("6 steps · euler/simple · CFG 1");
+    /* Canvas, text to image: no picture, the project's model */
+    const r = await composeCharacter(projectId, CanvasCompose.parse({ text: "a rooftop after rain, neon in the puddles", size: "1344x768", seed: 5 }), web);
+    expect(r.model).toBe("minimax-h3-image");
+    const job = await repo.getJob(r.job.id);
+    expect(job.input).toMatchObject({ backend: "comfy:minimax-h3-image", size: "1344x768" });
+    expect(job.input.params).toMatchObject({ steps: 6, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 2048, seed: 5 });
+    expect((job.input.check as { review: boolean }).review).toBe(false);
+    expect(painter.isPodBackend(job)).toBe(true);
+    expect(r.runner).toContain("GPU pod");
+  });
+
+  it("only the pod's painter that has the model claims it", async () => {
+    const cpu = await painter.claim({ painterId: "h3i-cpu", name: "cpu", want: 4, info: { backends: ["codex", "api"], ops: ["paint", "crop", "extract"] } });
+    expect(cpu.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
+    const qwenOnly = await painter.claim({ painterId: "h3i-pod-old", name: "gpu-pod", want: 4, info: { onPod: true, backends: ["codex", "comfy:qwen-image-2.1-turbo"], ops: ["paint", "crop", "extract"] } });
+    expect(qwenOnly.jobs.some((j) => j.input.backend === "comfy:minimax-h3-image")).toBe(false);
+    expect((await painter.runnerSummary("paint", "comfy:minimax-h3-image")).note).toMatch(/cannot draw minimax-h3-image yet/);
+    const pod = await painter.claim({ painterId: "h3i-pod", name: "gpu-pod", want: 4, info: { onPod: true, backends: ["codex", "comfy:minimax-h3-image"], ops: ["paint", "crop", "extract"] } });
+    const mine = pod.jobs.find((j) => j.input.backend === "comfy:minimax-h3-image");
+    expect(mine?.input).toMatchObject({ size: "1344x768", refs: [], params: { steps: 6, resolution: 2048 } });
   });
 });

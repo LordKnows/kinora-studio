@@ -102,7 +102,7 @@ function characterPicture(el: Element | undefined, assets: Asset[]): Asset | und
   return assets.find((a) => a.id === id);
 }
 
-function toPromptRecipe(r: Recipe, refStyle: "zh" | "qwen" | undefined, elements: Element[]): CanvasPromptRecipe {
+function toPromptRecipe(r: Recipe, refStyle: ModelEntry["refStyle"], elements: Element[]): CanvasPromptRecipe {
   const charName = (id?: string) => (id ? elements.find((e) => e.id === id)?.name ?? "character" : undefined);
   const person = (portrait: Slot<RefPortrait> | undefined, costume: Slot<RefCostume> | undefined, character: string | undefined, name: string | undefined): CanvasPerson => ({
     ...(character ? { character: { name: charName(character)! } } : portrait ? { portrait: slotPrompt(portrait) } : {}),

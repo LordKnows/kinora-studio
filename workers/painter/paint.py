@@ -762,7 +762,7 @@ def comfy_preflight(graph: dict[str, Any], http: Any) -> None:
         else:
             infos[cls] = info
     if missing_nodes:
-        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later — the pod swaps it in at boot from COMFYUI_VERSION (default v0.44.2; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
+        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later, MiniMax-H3-Image v0.45.0 — the pod swaps it in at boot from COMFYUI_VERSION (default v0.45.0; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
     problems = []
     for nid, node in graph.items():
         spec = {**((infos[node["class_type"]].get("input") or {}).get("required") or {}), **((infos[node["class_type"]].get("input") or {}).get("optional") or {})}
@@ -827,6 +827,28 @@ def chain_loras(graph: dict[str, Any], entry: dict[str, Any], loras: list[dict[s
     _put(graph, into, [prev, 0])
 
 
+def working_canvas(w: int, h: int, multiple: int, min_area: int = 0) -> tuple[int, int]:
+    """The canvas a pod model draws on: the asked size on the model's grid — or, for a model with a working
+    range (MiniMax-H3-Image: about 4–20 MP, image_models.json min_area), the same shape scaled up to that
+    area, on the grid size that keeps the shape best. The picture is resized back to the asked size after."""
+    m = max(1, multiple)
+    snap = lambda v: max(m, round(v / m) * m)  # noqa: E731
+    if not min_area or w * h >= min_area:
+        return snap(w), snap(h)
+    scale = (min_area / (w * h)) ** 0.5
+    first = max(1, int(h * scale / m))
+    best: tuple[float, int, int, int] | None = None
+    for rows in range(first, first + 8):
+        ch = rows * m
+        cw = snap(ch * w / h)
+        if cw * ch < 0.97 * min_area:
+            continue
+        off = round(abs(cw / ch - w / h) / (w / h), 4)
+        if best is None or (off, cw * ch) < best[:2]:
+            best = (off, cw * ch, cw, ch)
+    return (best[2], best[3]) if best else (snap(w * scale), snap(h * scale))
+
+
 def comfy_upload(path: Path, http: Any) -> str:
     with open(path, "rb") as fh:
         res = http.post(f"{COMFY_URL}/upload/image", files={"image": (path.name, fh, "image/png")}, data={"overwrite": "true", "subfolder": "studio"}, timeout=120)
@@ -838,7 +860,8 @@ def comfy_upload(path: Path, http: Any) -> str:
 
 def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, settings: dict[str, Any], http: Any = requests) -> Any:
     """One picture from an image model on the pod's ComfyUI: the model's API-format graph, its reference
-    slots filled in order (<image1> is the first), the Studio's settings applied, then the first saved image."""
+    slots filled in order (<image1> / <Picture 1> is the first), the Studio's settings applied, then the first
+    saved image — at the canvas the model drew on, which the caller fits to the asked size."""
     Image = _pil()
     import random
     import uuid
@@ -849,7 +872,7 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (H3_IMAGE=1 / QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_h3_image.log, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
     if len(pictures) < int(entry.get("min_images", 0)):
@@ -876,8 +899,11 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
     _put(graph, entry.get("prompt"), prompt)
     # above CFG 1 the negative branch runs: a single space, as the Omni card asks (empty would switch true CFG off)
     _put(graph, entry.get("negative"), " " if settings.get("cfg", 1) > 1 else "")
-    _put(graph, entry.get("width"), max(m, round(w / m) * m))
-    _put(graph, entry.get("height"), max(m, round(h / m) * m))
+    # a model with a working range draws small requests larger (the job's resolution is the side of that area)
+    min_area = settings["resolution"] ** 2 if entry.get("min_area") and "resolution" in settings else int(entry.get("min_area") or 0)
+    cw, ch = working_canvas(w, h, m, min_area)
+    _put(graph, entry.get("width"), cw)
+    _put(graph, entry.get("height"), ch)
     _put(graph, entry.get("seed"), settings.get("seed", random.randint(1, 2**48)))
     if "resolution" in settings:
         _put(graph, entry.get("resolution"), settings["resolution"])

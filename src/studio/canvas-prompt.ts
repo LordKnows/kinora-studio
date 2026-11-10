@@ -69,8 +69,8 @@ export type CanvasPromptRecipe = CanvasPerson & {
   text?: string;
   style?: string;
   note?: string;
-  /** How the model names the pictures: 图1, 图2 … (GPT Image), or <image1>, <image2> … (Qwen-Image 2.1). */
-  refStyle?: "zh" | "qwen";
+  /** How the model names the pictures: 图1, 图2 … (GPT Image), <image1>, <image2> … (Qwen-Image 2.1), or <Picture 1>, <Picture 2> … (MiniMax-H3-Image). */
+  refStyle?: "zh" | "qwen" | "h3";
 };
 
 const SKIN = (i: number) => `肤色必须与图${i}人物一致，所有裸露皮肤（包括服装镂空处露出的皮肤）必须与脸部肤色统一，统一后的肤色与质感按风格要求呈现。`;
@@ -169,8 +169,8 @@ export function buildCanvasPrompt(r: CanvasPromptRecipe): string {
   if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
   lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");
   const out = lines.join("\n");
-  /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10> */
-  return r.refStyle === "qwen" ? out.replace(/图(\d+)/g, "<image$1>") : out;
+  /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10>, MiniMax-H3-Image as <Picture 1> … */
+  return r.refStyle === "qwen" ? out.replace(/图(\d+)/g, "<image$1>") : r.refStyle === "h3" ? out.replace(/图(\d+)/g, "<Picture $1>") : out;
 }
 
 export const CANVAS_SIZES = ["1024x1536", "1008x1344", "1024x1024", "1536x1024", "1344x768"] as const;
