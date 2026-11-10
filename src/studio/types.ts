@@ -1,5 +1,5 @@
 import type { InferenceParams } from "./models";
-import type { FixedFeature, LookSettings, RefView, ScenePalette, ShotInput, TakeFault, TimelineInput } from "./schemas";
+import type { ElementVoice, VoiceState, FixedFeature, LookSettings, RefView, ScenePalette, ShotInput, TakeFault, TimelineInput } from "./schemas";
 
 export type Approval = "draft" | "approved";
 
@@ -113,6 +113,36 @@ export type Element = {
   fixedFeatures?: FixedFeature[];
   /** Which view each reference image shows, by asset id. */
   refViews?: Record<string, RefView>;
+  /** The voice card the character speaks with, and its default state on that card. */
+  voiceCardId?: string;
+  voiceState?: string;
+  /** Resolved from the card on read (states, this element's default state); not stored on the element. */
+  voice?: ElementVoice;
+  createdAt: number;
+  updatedAt: number;
+};
+
+/* A project's voice generation through the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY):
+   on or off, the TTS model, and a character budget (TTS is billed per character). Web only to change. */
+export type Voicing = {
+  enabled: boolean;
+  model: string;
+  maxChars: number;
+  usedChars: number;
+  grantedBy: string;
+  grantedAt: number;
+};
+
+export type VoiceCard = {
+  id: string;
+  /** null = global library */
+  projectId: string | null;
+  name: string;
+  status: (typeof import("./schemas").VOICE_CARD_STATUS)[number];
+  defaultState?: string;
+  states: VoiceState[];
+  source?: ElementVoice["source"];
+  notes?: string;
   createdAt: number;
   updatedAt: number;
 };

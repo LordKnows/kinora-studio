@@ -53,6 +53,25 @@ Field semantics:
 | `output_node` | the SaveVideo node whose output the handler downloads |
 | `timeout_s` | how long to wait for ComfyUI before failing the job |
 
+## Voice: reference audio and the audio guide
+
+- **R2VA reference audio.** `mapping.json` → `R2VA.reference_audio` names the H3
+  node and its `ref_audios.ref_audio_{i}` inputs (0–2). The handler adds one
+  `LoadAudio` node per clip, so `R2VA.json` carries none. The Studio sends
+  `audios: [{url, role: "reference", seconds}]`; each clip is cut to `seconds`
+  from its start and made 48 kHz stereo (the audio VAE encodes left and right
+  separately), inside the model card's limits: at most 3 clips, 2–15 s each,
+  15 s in all (later clips are shortened, and dropped below 2 s). Node 104 must
+  keep `audio_vae` wired: without it a reference only reaches the text encoder.
+  The prompt binds each clip as `<Audio j> is the voice-timbre reference for
+  <Subject k> (S1).` (MiniMax's Ref2VA prompting guide).
+- **I2VA_GUIDE.json** is `I2VA.json` with `MiniMaxH3AddGuide` (node 211) between
+  the H3 node and the guider, fed by `LoadAudio` (node 210): a prepared line is
+  anchored from `frame_idx` on and stays fixed while the rest is generated
+  (audio first). The handler picks it when a job carries `guide_audio: {url,
+  frame}`; the mapping entry is `I2VA_GUIDE`. Experimental: whether the fl2va
+  base was trained to follow an anchored voice is not documented.
+
 ## LoRAs
 
 `mapping.json` lists the LoraLoader nodes of each graph under `loras`, in

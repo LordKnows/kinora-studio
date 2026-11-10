@@ -1,6 +1,6 @@
 import * as director from "@/director";
 
-import { hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
+import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
 import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
@@ -150,7 +150,7 @@ async function shotPacket(projectId: string, shotId: string): Promise<ReviewPack
   const sh = flat[i]!;
   const scene = view.scenes.find((s) => s.id === sh.sceneId)!;
   const compiled = await compileForShot(shotId);
-  const subjectHash = renderHash(compiled.workflow, compiled.prompt, compiled.input.images);
+  const subjectHash = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
   const ids = new Set([...sh.spec.characters, ...sh.spec.props, ...(sh.spec.location ? [sh.spec.location] : [])]);
   const assetUrl = new Map(view.assets.map((a) => [a.id, a]));
   const elements = view.elements.filter((e) => ids.has(e.id)).map((e) => ({

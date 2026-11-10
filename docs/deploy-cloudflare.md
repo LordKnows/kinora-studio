@@ -42,6 +42,8 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0015_user_settings.sql` | Canvas：`user_settings` 表（每个用户的设置，目前是「显示 18+ 参考图」开关）。幂等；不执行也能用——Studio 首次用到时会自己建这张表 |
 | `migrations/0016_lora_params.sql` | 模型与 LoRA 推荐参数：`loras` 表加 `params_json`、`base_model`（两条 ALTER 只执行一次；不执行也能用——Studio 首次读写 LoRA 时会自己加这两列，报 `duplicate column` 说明已经有了） |
 | `migrations/0017_seed_qwen_loras.sql` | Qwen-Image 2.1 的 LoRA：预置 ChatR Omni v0.1（18+，需在 Canvas 打开 18+ 才能用），并建 `studio_seeds` 表记录已预置（删掉的不会再回来）。幂等；不执行也能用——Studio 首次读写 LoRA 时会自己预置 |
+| `migrations/0018_user_references.sql` | Canvas「我的」：`user_references` 表（用户自己上传的肖像、服装、姿势，所有项目可见）。幂等；不执行也能用——Studio 首次用到时会自己建表 |
+| `migrations/0019_voice_cards.sql` | 声音卡：`voice_cards` 表（`project_id` 为空即全局声音库，所有项目共用）和 `voice_settings` 表（每个项目的语音 API 开关、模型和字数额度）。幂等；不执行也能用——Studio 首次读写声音卡时会自己建表。角色对声音卡的引用存在 `elements.meta_json`，不需要改表 |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。

@@ -16,6 +16,7 @@ type ImagingSummary = {
   enabled: boolean; model: string; modelLabel: string; runtime: "api" | "pod"; backend: string; license?: string;
   loras?: Array<{ id: string; name: string; strength: number; adult?: boolean }>; agentCanvas?: boolean; settings?: string; settingsFrom?: string[]; warnings?: string[]; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
 type ModelReadiness = { id: string; painters?: { ready: boolean; note?: string } };
+type VoicingSummary = { enabled: boolean; model: string; maxChars: number; usedChars: number; leftChars: number; keyReady: boolean; note?: string; models: Array<{ id: string; label: string; modes: string[]; note: string }> };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
@@ -27,6 +28,8 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
   const [notes, setNotes] = useState<Notes | null>(null);
   const [deleg, setDeleg] = useState<Delegation | null>(null);
   const [img, setImg] = useState<ImagingSummary | null>(null);
+  const [voice, setVoice] = useState<VoicingSummary | null>(null);
+  const [voiceMax, setVoiceMax] = useState("20000");
   const [ready, setReady] = useState<ModelReadiness[]>([]);
   const [adult, setAdult] = useState(false);
   /* the LoRAs as picked, shown at once; a strength typed in is saved when the typing pauses */
@@ -48,6 +51,9 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     void get<{ models: ModelReadiness[] }>("/api/models?kind=image").then((r) => setReady(r.models)).catch(() => undefined);
     void get<{ adultContent?: boolean }>("/api/me/settings").then((s) => setAdult(!!s.adultContent)).catch(() => undefined);
     setImgMax(String(im.maxImages));
+    const vo = await get<VoicingSummary>(`/api/projects/${projectId}/voicing`).catch(() => null);
+    setVoice(vo);
+    if (vo) setVoiceMax(String(vo.maxChars));
     await reload();
   }, [projectId, reload]);
   useEffect(() => {
@@ -77,6 +83,12 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await put(`/api/projects/${projectId}/imaging`, { enabled: next.enabled ?? img?.enabled ?? false, ...next });
     await refresh();
   });
+  const setVoicing = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; maxChars: number; resetUsed: boolean }>) => {
+    const label = voice?.models.find((m) => m.id === (next.model ?? voice?.model))?.label ?? "the model below";
+    if (next.enabled && !voice?.enabled && !window.confirm(`Allow voice generation on this project? The director may then make voices and speak lines through the voice API (TokenSail) with ${label}, billed per character, up to the budget below.`)) return;
+    await put(`/api/projects/${projectId}/voicing`, { enabled: next.enabled ?? voice?.enabled ?? false, ...next });
+    await refresh();
+  });
   const pickLoras = (next: LoraRef[]) => {
     const prev = loraDraft ?? img?.loras ?? [];
     const sameSet = next.length === prev.length && next.every((r) => prev.some((p) => p.id === r.id));
@@ -99,12 +111,12 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await post(`/api/notes/${id}/overturn`, { reason });
     await refresh();
   });
-  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error ?? setImaging.error;
+  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
 
   return (
     <div className="st-card st-stack" style={{ marginTop: 20 }}>
       <span className="st-h2">Director</span>
-      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); }} />
+      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />
 
       <div className="st-stack st-stack--tight">
         <strong>Image generation</strong>
@@ -204,6 +216,33 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
           return r && !r.ready && r.note ? <span className="st-warn">{r.note}</span> : null;
         })()}
         {img?.enabled && img.license && <span className="st-warn">{img.license}</span>}
+      </div>
+
+      <div className="st-stack st-stack--tight">
+        <strong>Voice generation</strong>
+        <span className="st-muted">
+          Off by default. Switched on, the director may make character voices on the voice API (TokenSail, with the Worker&apos;s TOKENSAIL_API_KEY) — cloned from a voice card&apos;s reference audio, or designed from its description with CosyVoice — speak lines with them (off-screen lines, inner monologue, audition samples) and transcribe audio to check pronunciation. Speech is billed per character, up to the budget below.
+        </span>
+        <label className="st-row" style={{ gap: 8 }}>
+          <input type="checkbox" disabled={!voice || setVoicing.busy} checked={!!voice?.enabled} onChange={(e) => void setVoicing.fire({ enabled: e.target.checked })} />
+          <span>Allow voice API use by agent</span>
+        </label>
+        {voice?.enabled && (
+          <div className="st-row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+            <Field label="Voice model">
+              <select className="st-select st-input--sm" value={voice.model} disabled={setVoicing.busy} onChange={(e) => void setVoicing.fire({ model: e.target.value })}>
+                {voice.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.modes.includes("design") ? " · clone or design" : " · clone"}</option>)}
+              </select>
+            </Field>
+            <Field label="Character budget">
+              <input className="st-input st-input--sm" type="number" min={100} max={10000000} value={voiceMax} onChange={(e) => setVoiceMax(e.target.value)} onBlur={() => Number(voiceMax) !== voice.maxChars && void setVoicing.fire({ maxChars: Math.max(100, Number(voiceMax) || 100) })} style={{ width: 110 }} />
+            </Field>
+            <span className="st-muted">{voice.usedChars.toLocaleString()} used · {voice.leftChars.toLocaleString()} left</span>
+            {voice.usedChars > 0 && <Button size="sm" onClick={() => void setVoicing.fire({ resetUsed: true })}>Reset count</Button>}
+          </div>
+        )}
+        {voice?.enabled && <span className="st-muted">{voice.models.find((m) => m.id === voice.model)?.note}</span>}
+        {voice?.enabled && !voice.keyReady && voice.note && <span className="st-warn">{voice.note}</span>}
       </div>
 
       <div className="st-stack st-stack--tight">

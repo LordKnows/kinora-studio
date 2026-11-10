@@ -43,6 +43,12 @@ REMAKE_MODES = ("edit", "swap")
 REMAKE_FILES = {"edit": ("diffusion_models", "viggle_remake_edit_pruned_int8_convrot.safetensors"), "swap": ("diffusion_models", "viggle_remake_swap_pruned_int8_convrot.safetensors")}
 REMAKE_NODE_DIR = os.environ.get("REMAKE_NODE_DIR", "/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-Viggle-Remake")
 ROLES = ("first_frame", "last_frame", "reference")
+# Ref2VA reference audio, as the H3 model card states it: at most 3 clips,
+# each 2–15 s, 15 s in all.
+MAX_REF_AUDIOS = 3
+REF_AUDIO_MIN_S = 2.0
+REF_AUDIO_MAX_S = 15.0
+REF_AUDIO_TOTAL_S = 15.0
 HERE = Path(__file__).resolve().parent
 WORKFLOW_DIR = Path(os.environ.get("WORKFLOW_DIR", HERE / "workflows"))
 COMFY_URL = os.environ.get("COMFY_URL", "http://127.0.0.1:8188").rstrip("/")
@@ -117,6 +123,8 @@ def validate_input(raw: Any) -> dict[str, Any]:
     video = raw.get("video")
     if video is not None and not isinstance(video, str):
         raise JobError("video must be a url string")
+    audios = validate_audios(raw.get("audios"), workflow)
+    guide_audio = validate_guide_audio(raw.get("guide_audio"), workflow)
     output = raw.get("output") or {}
     key = output.get("key") if isinstance(output, dict) else None
     if not isinstance(key, str) or not key.endswith(".mp4"):
@@ -149,11 +157,70 @@ def validate_input(raw: Any) -> dict[str, Any]:
         "seed": seed,
         "enhance": bool(raw.get("enhance", False)),
         "images": images,
+        "audios": audios,
+        "guide_audio": guide_audio,
         "video": video,
         "output_key": key,
         "studio_take_id": raw.get("studio_take_id"),
         "loras": clean_loras,
     }
+
+
+def validate_audios(raw: Any, workflow: str) -> list[dict[str, Any]]:
+    """R2VA voice references: [{url, role: reference, seconds?}], each cut to `seconds` from its start."""
+    audios = raw or []
+    if not isinstance(audios, list):
+        raise JobError("audios must be a list")
+    if audios and workflow != "R2VA":
+        raise JobError("reference audios need the R2VA workflow")
+    if len(audios) > MAX_REF_AUDIOS:
+        raise JobError(f"H3 takes at most {MAX_REF_AUDIOS} reference audios, got {len(audios)}")
+    out = []
+    for a in audios:
+        if not isinstance(a, dict) or not isinstance(a.get("url"), str) or a.get("role", "reference") != "reference":
+            raise JobError("each audio needs a url and the role reference")
+        seconds = a.get("seconds", REF_AUDIO_MAX_S)
+        if not isinstance(seconds, (int, float)) or not REF_AUDIO_MIN_S <= seconds <= REF_AUDIO_MAX_S:
+            raise JobError(f"audio seconds must be between {REF_AUDIO_MIN_S:g} and {REF_AUDIO_MAX_S:g}")
+        out.append({"url": a["url"], "seconds": float(seconds)})
+    return out
+
+
+def validate_guide_audio(raw: Any, workflow: str) -> dict[str, Any] | None:
+    """Audio first: a prepared line anchored at a frame of an I2VA take (MiniMaxH3AddGuide)."""
+    if raw is None:
+        return None
+    if workflow != "I2VA":
+        raise JobError("guide_audio needs the I2VA workflow")
+    frame = raw.get("frame", 0) if isinstance(raw, dict) else None
+    if not isinstance(raw, dict) or not isinstance(raw.get("url"), str) or not isinstance(frame, int) or frame < 0:
+        raise JobError("guide_audio needs a url and a frame index of 0 or more")
+    return {"url": raw["url"], "frame": frame}
+
+
+def reference_audio_seconds(audios: list[dict[str, Any]]) -> list[float]:
+    """Each clip's length inside the 15 s total: later clips are shortened, and dropped below 2 s."""
+    out, left = [], REF_AUDIO_TOTAL_S
+    for a in audios:
+        seconds = min(a["seconds"], left)
+        if seconds < REF_AUDIO_MIN_S:
+            break
+        out.append(seconds)
+        left -= seconds
+    return out
+
+
+def prepare_audio(src: Path, dest: Path, seconds: float | None = None) -> Path:
+    """Any audio (or a video's soundtrack) → 48 kHz stereo WAV, cut to `seconds` from the start.
+    The H3 audio VAE encodes left and right separately, so a mono clip is doubled."""
+    cmd = [FFMPEG, "-y", "-v", "error", "-i", str(src), "-vn"]
+    if seconds is not None:
+        cmd += ["-t", f"{seconds:.3f}"]
+    cmd += ["-ac", "2", "-ar", "48000", "-c:a", "pcm_s16le", str(dest)]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0 or not dest.exists():
+        raise JobError(f"could not read the audio at {src.name}: {proc.stderr.strip()[:200]}")
+    return dest
 
 
 def seconds_to_frames(seconds: float) -> int:
@@ -290,6 +357,26 @@ def fill_graph(graph: dict[str, Any], mapping: dict[str, Any], params: dict[str,
             graph.pop(node_id, None)
     if files.get("video"):
         put(mapping.get("video"), files["video"], True, "video")
+
+    # Reference audio: one LoadAudio node per clip, wired into the H3 node's
+    # ref_audios.ref_audio_N inputs (the prompt calls them <Audio N+1>).
+    audios = files.get("reference_audio", [])
+    if audios:
+        slot = mapping.get("reference_audio")
+        if not slot:
+            raise JobError("this workflow takes no reference audio (mapping.json has no reference_audio)")
+        if len(audios) > int(slot.get("max", MAX_REF_AUDIOS)):
+            raise JobError(f"H3 takes at most {slot.get('max', MAX_REF_AUDIOS)} reference audios, got {len(audios)}")
+        target = graph.get(str(slot["target_node"]))
+        if target is None:
+            raise JobError("reference_audio.target_node is not in the graph")
+        for i, name in enumerate(audios):
+            node_id = f"ref_audio_{i}"
+            graph[node_id] = {"class_type": "LoadAudio", "inputs": {"audio": name}, "_meta": {"title": f"Reference Audio {i}"}}
+            target.setdefault("inputs", {})[slot["input_pattern"].format(i=i)] = [node_id, 0]
+    if files.get("guide_audio"):
+        put(mapping.get("guide_audio"), files["guide_audio"], True, "guide_audio")
+        put(mapping.get("guide_frame"), int((params.get("guide_audio") or {}).get("frame", 0)), True, "guide_frame")
 
     # LoRA slots: [{"node": "12", "name": "lora_name", "strength": "strength_model", "strength_clip": "strength_clip"}, ...]
     slots = mapping.get("loras", [])
@@ -1027,9 +1114,11 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     report = report or (lambda p: None)
     report({"stage": "inputs"})
     mapping = mapping or load_mapping()
-    entry = mapping.get(params["workflow"])
+    # an anchored line runs the workflow's _GUIDE graph (MiniMaxH3AddGuide wired in)
+    entry_name = f"{params['workflow']}_GUIDE" if params.get("guide_audio") else params["workflow"]
+    entry = mapping.get(entry_name)
     if not entry:
-        raise JobError(f"mapping.json has no entry for {params['workflow']}")
+        raise JobError(f"mapping.json has no entry for {entry_name}")
     graph = load_workflow(entry.get("template", params["workflow"]))
 
     inputs = workdir / "in"
@@ -1045,6 +1134,14 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     if params.get("video"):
         local = download(params["video"], inputs / f"source.{ext_of(params['video'], 'mp4')}", comfy.http)
         files["video"] = comfy.upload_image(local)
+    audios = params.get("audios") or []
+    files["reference_audio"] = []
+    for i, (a, seconds) in enumerate(zip(audios, reference_audio_seconds(audios))):
+        src = download(a["url"], inputs / f"ref_audio{i}.src.{ext_of(a['url'], 'wav')}", comfy.http)
+        files["reference_audio"].append(comfy.upload_image(prepare_audio(src, inputs / f"ref_audio{i}.wav", seconds)))
+    if params.get("guide_audio"):
+        src = download(params["guide_audio"]["url"], inputs / f"guide_audio.src.{ext_of(params['guide_audio']['url'], 'wav')}", comfy.http)
+        files["guide_audio"] = comfy.upload_image(prepare_audio(src, inputs / "guide_audio.wav"))
 
     if params.get("loras"):
         ensure_loras(params["loras"], session=comfy.http)

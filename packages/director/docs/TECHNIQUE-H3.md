@@ -37,7 +37,7 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - One camera move per shot, with amplitude and speed; `static` compiles to a locked-off instruction (H3 drifts otherwise).
 - Cinematography keys (size, angle, lens, dof, lighting, grade, texture, vfx, animation, pace) compile to prose; the project Look is injected into every shot's prompt, so the style's Look fields carry most of the style.
 - `apply_style` appends the style's beat suffix to every beat so the medium is restated per shot; H3 forgets the Look in long beats otherwise.
-- Dialogue: the verified clips used whispers and laughter; spoken lines are unverified. Keep them short or describe the vocal sound in `sound`.
+- Dialogue: on-screen lines compile to the H3 guide's `(S1) says: <d>[Chinese] …</d>` with the speaker's voice-card description; off-screen and inner lines stay out of the prompt and are voiced separately. Mandarin accuracy and lip-sync are not yet measured here: keep lines short, one beat each. `experiments.voiceRefs` (R2VA `<Audio j>` voice references) and `experiments.audioFirst` (an I2VA take anchored on a prepared line) are under test.
 - On-screen text: never ask the model; the local assembler adds titles, captions and OSD.
 
 ## Staging fields and what they compile to

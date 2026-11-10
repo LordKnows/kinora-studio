@@ -1,7 +1,7 @@
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
-import { CAMERA_MOVES, type Blocking, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink } from "./schemas";
+import { CAMERA_MOVES, type Blocking, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
 import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
@@ -15,12 +15,20 @@ export type WorkerImage = { url: string; role: "first_frame" | "last_frame" | "r
 
 export type WorkerLora = { name: string; file: string; strength: number; hf_url?: string; kind: Lora["kind"] };
 
+/** A reference audio for R2VA (`<Audio j>`): the worker trims it to `seconds`
+    from its start and feeds it to MiniMaxH3ReferenceToVideo.ref_audios. */
+export type WorkerAudio = { url: string; role: "reference"; label?: string; seconds?: number; speaker?: number };
+
 export type WorkerInput = {
   workflow: Workflow;
   prompt: string;
   seconds: number;
   video_size: string;
   images: WorkerImage[];
+  /** R2VA voice references (experiments.voiceRefs), at most 3. */
+  audios?: WorkerAudio[];
+  /** I2VA audio-first (experiments.audioFirst): a prepared line anchored at a frame. */
+  guide_audio?: { url: string; frame: number };
   video?: string;
   enhance: boolean;
   steps: number;
@@ -193,10 +201,14 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   }
   workflow ??= "T2VA";
 
+  const audios = voiceReferences(ctx, workflow, warnings);
+  const guide = audioGuide(ctx, workflow, warnings);
+  dialogueWarnings(spec, warnings);
+
   /* only LoRAs trained for H3 load into its graphs (an image model's LoRA in the library is skipped) */
   const loras = (ctx.loras ?? []).filter((l) => (l.baseModel ?? "minimax-h3") === H3_MODEL.family && (l.workflows.length === 0 || l.workflows.includes(workflow)));
   const speed = loras.find((l) => l.kind === "speed");
-  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type);
+  const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type, audios);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
   /* The settings follow the model and its speed LoRA (models.ts): the turbo
      LoRA's chain is the one the graphs carry (euler/simple, shift 6/3, 8
@@ -216,6 +228,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     seconds: spec.durationS,
     video_size: VIDEO_SIZES[look.aspectRatio],
     images,
+    ...(audios.length ? { audios } : {}),
+    ...(guide ? { guide_audio: guide } : {}),
     ...(video ? { video } : {}),
     enhance: spec.mode === "text",
     steps,
@@ -234,6 +248,138 @@ export class CompileError extends Error {
     super(message);
     this.name = "CompileError";
   }
+}
+
+/* ---------- dialogue and voice ---------- */
+
+/* The H3 prompting guide writes every spoken line as
+   `<speaker phrase> (S1) says: <d>[Language] verbatim words</d>`, with a
+   stable speaker id and the voice described where the speaker first speaks.
+   Only on-screen lines go in: an off-screen or inner line in the prompt makes
+   whoever is in frame lip-sync it, so those are synthesised separately. */
+
+const LANGUAGE_TAGS: Record<string, string> = {
+  zh: "Chinese", "zh-cn": "Chinese", "zh-hans": "Chinese", cmn: "Chinese", yue: "Cantonese",
+  en: "English", ja: "Japanese", ko: "Korean", fr: "French", de: "German", es: "Spanish", ru: "Russian",
+};
+
+/** `[Chinese]`-style tag for a language code; unknown codes are capitalised as given. */
+export function languageTag(code: string | undefined): string {
+  const k = (code ?? "").trim().toLowerCase();
+  if (!k) return "Chinese";
+  return LANGUAGE_TAGS[k] ?? k.charAt(0).toUpperCase() + k.slice(1);
+}
+
+export function lineLanguage(line: Line, look: LookSettings): string {
+  return line.language ?? look.dialogueLanguage ?? "zh";
+}
+
+/** The lines H3 voices: on-screen ones (the default kind). */
+export function onscreenLines(spec: ShotInput): Line[] {
+  return spec.dialogue.filter((l) => (l.kind ?? "onscreen") === "onscreen");
+}
+
+/** On-screen speakers in order of their first line: index + 1 is the speaker id (S1, S2…). */
+export function onscreenSpeakers(spec: ShotInput): string[] {
+  const out: string[] = [];
+  for (const l of onscreenLines(spec)) if (!out.includes(l.speaker)) out.push(l.speaker);
+  return out;
+}
+
+/** The voice-card state a line uses: the named state, else the card's default, else its first. */
+export function voiceStateFor(el: Element | undefined, stateId?: string): VoiceState | undefined {
+  const v = el?.voice;
+  if (!v?.states.length) return undefined;
+  return (stateId ? v.states.find((s) => s.id === stateId) : undefined)
+    ?? v.states.find((s) => s.id === v.defaultState)
+    ?? v.states[0];
+}
+
+/* Mandarin runs about 4 characters a second; weak, hoarse or slow delivery about 3. */
+const SLOW_DELIVERY = /whisper|weak|hoarse|rasp|slow|faint|breath|嘶哑|气弱|极轻|低声|哭|颤/i;
+
+/** How long a line takes: its time window when given, else an estimate from its length. */
+export function lineSeconds(line: Line): number {
+  if (line.startS !== undefined && line.endS !== undefined && line.endS > line.startS) return line.endS - line.startS;
+  const chars = line.text.replace(/[\s\p{P}]/gu, "").length;
+  const latin = /^[\x00-\x7F]*$/.test(line.text);
+  const perSecond = latin ? 2.5 /* words */ : SLOW_DELIVERY.test(line.delivery) ? 3 : 4;
+  const units = latin ? line.text.trim().split(/\s+/).length : chars;
+  return Math.round((units / perSecond) * 10) / 10;
+}
+
+/* The [Shot k] segment a moment falls in: one more for every hard cut at or before it. */
+function segmentAt(spec: ShotInput, t: number): number {
+  return spec.beats.filter((b) => b.cut && b.from <= t + 1e-6).length;
+}
+
+function dialogueWarnings(spec: ShotInput, warnings: string[]): void {
+  for (const l of spec.dialogue) {
+    const quote = l.text.length > 12 ? `${l.text.slice(0, 12)}…` : l.text;
+    if (l.startS !== undefined && l.startS >= spec.durationS) warnings.push(`line "${quote}" starts at ${l.startS} s, after the ${spec.durationS} s shot ends`);
+    if (l.startS !== undefined && l.endS !== undefined) {
+      if (l.endS <= l.startS) warnings.push(`line "${quote}": endS must come after startS`);
+      if (segmentAt(spec, l.startS) !== segmentAt(spec, Math.max(l.startS, l.endS - 0.01))) warnings.push(`line "${quote}" runs across a hard cut; a line stays inside one beat (split it at a full stop)`);
+      if (l.endS > spec.durationS) warnings.push(`line "${quote}" ends at ${l.endS} s, after the ${spec.durationS} s shot ends`);
+    }
+  }
+  const spoken = onscreenLines(spec).reduce((t, l) => t + lineSeconds(l), 0);
+  if (spoken > 0 && spoken + 1 > spec.durationS) warnings.push(`the on-screen lines need about ${Math.round(spoken * 10) / 10} s; with 0.5 s either side they do not fit a ${spec.durationS} s shot`);
+}
+
+/** R2VA voice references: one per on-screen speaker (at most 3), cut to about the length of their lines. */
+function voiceReferences(ctx: CompileContext, workflow: Workflow, warnings: string[]): WorkerAudio[] {
+  const spec = ctx.shot.spec;
+  if (!ctx.experiments?.voiceRefs) return [];
+  const speakers = onscreenSpeakers(spec);
+  if (!speakers.length) return [];
+  if (workflow !== "R2VA") {
+    warnings.push(`voice references need R2VA (reference mode); this shot renders ${workflow}, so they are left out`);
+    return [];
+  }
+  const out: WorkerAudio[] = [];
+  speakers.forEach((id, i) => {
+    const el = ctx.elements.get(id);
+    const lines = onscreenLines(spec).filter((l) => l.speaker === id);
+    const state = voiceStateFor(el, lines[0]?.voiceState);
+    const assetId = state?.refAssetIds[0] ?? el?.voiceAssetId;
+    const asset = assetId ? ctx.assets.get(assetId) : undefined;
+    if (!asset?.url) {
+      warnings.push(`${el?.name ?? id} has no reference audio${state ? ` for voice state "${state.id}"` : ""}; the line is voiced from the text alone`);
+      return;
+    }
+    if (out.length >= 3) {
+      warnings.push(`${el?.name ?? id}: H3 takes at most 3 reference audios; this speaker gets none`);
+      return;
+    }
+    const need = lines.reduce((t, l) => t + lineSeconds(l), 0) + 1;
+    out.push({ url: asset.url, role: "reference", label: el?.name ?? id, seconds: Math.max(2, Math.min(15, Math.round(need * 10) / 10)), speaker: i + 1 });
+  });
+  const total = out.reduce((t, a) => t + (a.seconds ?? 15), 0);
+  if (total > 15) warnings.push(`reference audio totals ${total} s; H3 takes at most 15 s in all, the worker shortens the last ones`);
+  return out;
+}
+
+/** Audio-first (I2VA): the first on-screen line with prepared audio is anchored at its start frame. */
+function audioGuide(ctx: CompileContext, workflow: Workflow, warnings: string[]): { url: string; frame: number } | undefined {
+  if (!ctx.experiments?.audioFirst) return undefined;
+  const lines = onscreenLines(ctx.shot.spec).filter((l) => l.audioAssetId);
+  if (!lines.length) {
+    warnings.push("audioFirst is on but no on-screen line has prepared audio (audioAssetId)");
+    return undefined;
+  }
+  if (workflow !== "I2VA") {
+    warnings.push(`audioFirst needs I2VA (a first frame, no end frame); this shot renders ${workflow}, so the line's audio is not anchored`);
+    return undefined;
+  }
+  if (lines.length > 1) warnings.push("audioFirst anchors only the first prepared line; the others are voiced by the model");
+  const line = lines[0]!;
+  const asset = ctx.assets.get(line.audioAssetId!);
+  if (!asset?.url) {
+    warnings.push(`the prepared audio of "${line.text.slice(0, 12)}" is not in the project's assets`);
+    return undefined;
+  }
+  return { url: asset.url, frame: Math.round((line.startS ?? 0.5) * 24) };
 }
 
 /* Reference budget is tight (≈3 images): the hero frame first, then one ref
@@ -333,17 +479,21 @@ type Sections = {
   camera: string;
   cinematography: string[];
   dialogue: string[];
+  /** On-screen lines in the official format, each with the [Shot k] segment it belongs to (-1 = the last). */
+  spoken: { segment: number; text: string }[];
+  /** `<Audio j>` bindings for R2VA: subject_definitions and retention_analysis lines. */
+  voiceRefs: { definition: string; retention: string }[];
   sound: { sfx: string; ambience: string; music: string };
   constraints: string[];
   edit?: string;
 };
 
-function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = [], linkType: LinkType = "cut"): string {
-  const sections = buildSections(ctx, images, workflow, loras, linkType);
+function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = [], linkType: LinkType = "cut", audios: WorkerAudio[] = []): string {
+  const sections = buildSections(ctx, images, workflow, loras, linkType, audios);
   return serializePrompt(sections, workflow, images, ctx.format ?? promptFormat());
 }
 
-function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[], linkType: LinkType): Sections {
+function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[], linkType: LinkType, audios: WorkerAudio[] = []): Sections {
   const { shot, look } = ctx;
   const spec = shot.spec;
   const blocks: string[] = [];
@@ -371,7 +521,7 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   });
   if (spec.mode === "edit") refLines.unshift("Video 1: the source take. Keep its framing, camera motion, timing and everything not listed under EDIT.");
   if (refLines.length) blocks.push(`REFERENCES\n${refLines.join("\n")}`);
-  const out: Sections = { references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [] };
+  const out: Sections = { references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], spoken: [], voiceRefs: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [] };
 
   /* LOOK — always; style LoRAs contribute their trigger words here, the
      scene's colour script its palette. */
@@ -436,10 +586,36 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   if (cinema.block || compLine) blocks.push([cinema.block || "CINEMATOGRAPHY", ...(compLine ? [compLine] : [])].join("\n"));
   out.cinematography = [...(cinema.block ? cinema.block.split("\n").slice(1) : []), ...(compLine ? [compLine] : [])];
 
-  /* DIALOGUE */
-  if (spec.dialogue.length) {
-    out.dialogue = spec.dialogue.map((l) => `${name(l.speaker)} (${l.language}, ${l.delivery}): "${l.text}"`);
-    blocks.push(`DIALOGUE\n${out.dialogue.join("\n")}`);
+  /* DIALOGUE — on-screen lines only, in the H3 guide's format. In R2VA a
+     speaker shown by a reference image is called by its <Subject N>. */
+  const onscreen = onscreenLines(spec);
+  const speakers = onscreenSpeakers(spec);
+  const refImages = images.filter((i) => i.role === "reference");
+  const who = (id: string) => {
+    if (workflow !== "R2VA" || (ctx.format ?? promptFormat()) === "blocks") return name(id);
+    const k = refImages.findIndex((img) => img.label === ctx.elements.get(id)?.name);
+    return k >= 0 ? `<Subject ${k + 1}>` : name(id);
+  };
+  const introduced = new Set<string>();
+  for (const l of onscreen) {
+    const sid = speakers.indexOf(l.speaker) + 1;
+    const voice = introduced.has(l.speaker) ? undefined : voiceStateFor(ctx.elements.get(l.speaker), l.voiceState)?.description;
+    introduced.add(l.speaker);
+    const delivery = l.delivery && l.delivery !== "neutral" ? ` (${l.delivery})` : "";
+    const at = l.startS !== undefined ? `At ${fmt(l.startS)}s, ` : "";
+    const text = `${at}${who(l.speaker)} (S${sid})${voice ? `, ${voice},` : ""} says${delivery}: <d>[${languageTag(lineLanguage(l, look))}] ${l.text}</d>`;
+    out.dialogue.push(text);
+    out.spoken.push({ segment: l.startS !== undefined ? segmentAt(spec, l.startS) : -1, text });
+  }
+  if (out.dialogue.length) blocks.push(`DIALOGUE\n${out.dialogue.join("\n")}`);
+  for (const [j, a] of audios.entries()) {
+    const sid = a.speaker ?? j + 1;
+    const speakerId = speakers[sid - 1];
+    const target = speakerId ? who(speakerId) : a.label ?? "the speaker";
+    out.voiceRefs.push({
+      definition: `<Audio ${j + 1}> is the voice-timbre reference for ${target} (S${sid}).`,
+      retention: `<Audio ${j + 1}>: reference - the target speaker (S${sid}) follows <Audio ${j + 1}>'s voice timbre without copying the original signal.`,
+    });
   }
 
   /* SOUND */
@@ -451,7 +627,9 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   const seen = new Set<string>();
   const castLine = ctx.experiments?.positiveCast && images.some((i) => i.role === "first_frame") && !(spec.blocking ?? []).some((b) => b.from === "off_left" || b.from === "off_right")
     ? ["Only the people and objects already in the first frame appear, throughout"] : [];
-  const constraints = [...castLine, ...look.negative, spec.dialogue.length ? "No extra dialogue beyond the lines above" : "No dialogue", "No subtitles"].filter((c) => {
+  const unvoiced = spec.dialogue.length > onscreen.length;
+  const speechRule = onscreen.length ? "No extra dialogue beyond the lines above" : unvoiced ? "No one in the frame speaks; every mouth stays closed" : "No dialogue";
+  const constraints = [...castLine, ...look.negative, speechRule, "No subtitles"].filter((c) => {
     const key = c.trim().toLowerCase().replace(/[.\s]+$/, "");
     if (!key || seen.has(key)) return false;
     seen.add(key);
@@ -487,10 +665,12 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
   }
   const look = sentence(sec.look);
   const camera = `Camera: ${sec.camera}`;
-  const tail = sentence([...sec.cinematography, ...(sec.dialogue.length ? [`Dialogue — ${sec.dialogue.join(" ")}`] : []), ...sec.constraints]);
+  const tail = sentence([...sec.cinematography, ...sec.constraints]);
+  const last = segments.length - 1;
+  const spokenIn = (k: number) => (sec.spoken ?? []).filter((d) => Math.min(d.segment < 0 ? last : d.segment, last) === k).map((d) => d.text);
   const shotBlocks = segments.map((lines, k) => {
     const first = k === 0 ? (hasFirst && hasLast ? "One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>." : hasFirst ? "One single continuous take with no cuts, continuing directly from <Picture 1>." : "") : "";
-    return `[Shot ${k + 1}] ${sentence([k === 0 ? look : "", first, sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : k === 0 ? sec.intent : "", ...(k === 0 ? sec.who : []), ...lines, camera, k === segments.length - 1 ? tail : ""])}`;
+    return `[Shot ${k + 1}] ${sentence([k === 0 ? look : "", first, sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : k === 0 ? sec.intent : "", ...(k === 0 ? sec.who : []), ...lines, ...spokenIn(k), camera, k === last ? tail : ""])}`;
   });
 
   let fields: Array<[string, string, "inline" | "block"]>;
@@ -505,10 +685,12 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
       const keep = /Keep ([^.]+)\./.exec(line)?.[1] ?? "identity, proportions and materials";
       return `<Subject ${i + 1}> (appears in [Shot 1]): fully_preserved - ${keep} are retained.`;
     });
+    const voiceRefs = sec.voiceRefs ?? [];
+    const audioNote = voiceRefs.length ? [`${voiceRefs.map((_v, j) => `<Audio ${j + 1}>`).join(" and ")} give the speakers' voice timbre`] : [];
     fields = [
-      ["subject_definitions", subjects.join("\n"), "block"],
-      ["summary", `[reference generation] ${sentence([sec.intent, `${refs.map((_r, i) => `<Subject ${i + 1}>`).join(" and ")} guide character identity and wardrobe throughout`])}`, "block"],
-      ["retention_analysis", retention.join("\n"), "block"],
+      ["subject_definitions", [...subjects, ...voiceRefs.map((v) => v.definition)].join("\n"), "block"],
+      ["summary", `[reference generation${voiceRefs.length ? " + audio reference" : ""}] ${sentence([sec.intent, `${refs.map((_r, i) => `<Subject ${i + 1}>`).join(" and ")} guide character identity and wardrobe throughout`, ...audioNote])}`, "block"],
+      ["retention_analysis", [...retention, ...voiceRefs.map((v) => v.retention)].join("\n"), "block"],
       ["detailed_description", `${look ? `The target video uses this look: ${look}\n` : ""}${shotBlocks.join("\n")}`, "block"],
       ["overall_soundscape", soundscape, "block"],
       ["non_diegetic_music", music, "inline"],
