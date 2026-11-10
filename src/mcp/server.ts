@@ -12,6 +12,7 @@ import { imageBlock } from "@/studio/image-content";
 import { ImageAction, runImageAction } from "@/studio/image-actions";
 import * as imaging from "@/studio/imaging";
 import * as voiceApi from "@/studio/voice-api";
+import { agentProjectView, compactAsset, compactScenes, compactTake } from "@/studio/agent-view";
 import * as canvas from "@/studio/canvas";
 import { checkOnArrival } from "@/studio/face-check";
 import * as models from "@/studio/models";
@@ -27,7 +28,7 @@ import { nameOfUploadKey, presignPut, objectExists, publicUrl, uploadKey } from 
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import {
-  ElementInput, ExportRequest, VoiceCardInput, LookSettings, LoraInput, PresignRequest, ProjectInput, PromptExperiments, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
+  ElementInput, ExportRequest, VoiceCardInput, LookPatch, LoraInput, PresignRequest, ProjectInput, PromptExperiments, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -172,7 +173,7 @@ export function createStudioServer(actor: Actor): McpServer {
     brief: z.string().min(5).max(8000).describe("The user's own words for the film"),
     totalSeconds: z.number().int().min(5).max(3600).describe("Target running time in seconds"),
     shots: z.number().int().min(1).max(120).optional().describe("Preferred shot count; otherwise derived from the length"),
-    look: LookSettings.partial().optional(),
+    look: LookPatch.optional(),
     budgetCapUsd: z.number().min(0).max(100000).optional(),
   }), async ({ name, brief, totalSeconds, shots, look, budgetCapUsd }) => {
     const project = await repo.createProject({ name, brief, targetSeconds: totalSeconds, look, budgetCapUsd });
@@ -186,8 +187,8 @@ export function createStudioServer(actor: Actor): McpServer {
 
   tool("list_projects", "List projects.", z.object({}), async () => ({ projects: await repo.listProjects() }));
   tool("create_project", "Create a project with an optional Look draft.", ProjectInput, async (input) => ({ project: await repo.createProject(input) }));
-  tool("get_project", "Aggregate view: look, budget, approvals, elements, scenes, shots with takes, timeline, blockers.", z.object({ projectId: id }), async ({ projectId }) => orch.getProjectView(projectId));
-  tool("update_look", "Patch the project-level Look (genre, palette, camera, lens, lighting, aspect ratio, negatives).", z.object({ projectId: id, look: LookSettings.partial() }), async ({ projectId, look }) => ({ project: await repo.setProjectLook(projectId, look) }));
+  tool("get_project", "Aggregate view: look, budget, approvals, the project's elements, scenes, shots (full spec) with their takes and frames as one-line summaries, timeline, blockers, and counts of the assets. For detail: get_take (a take's prompt, input, thumbnails), list_assets (the pictures), list_elements with includeLibrary (the library).", z.object({ projectId: id }), async ({ projectId }) => agentProjectView(await orch.getProjectView(projectId)));
+  tool("update_look", "Patch the project-level Look (genre, palette, camera, lens, lighting, aspect ratio, negatives, LoRAs). Only the keys you pass change; the rest of the Look stays as it is.", z.object({ projectId: id, look: LookPatch }), async ({ projectId, look }) => ({ project: await repo.setProjectLook(projectId, look) }));
   tool("gpu_status", "The GPU pod: status (none/starting/running/stopped/unavailable), GPU type, cost per hour, uptime, session cost, allowed GPU types, pending takes. 'unavailable' means none of the allowed GPU types has capacity right now; try again later.", z.object({}), async () => {
     try {
       await gpu.refreshGpu();
@@ -238,7 +239,17 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("list_api_voices", "The voices this account holds on the voice API (10 by default).", z.object({ projectId: id }), async ({ projectId }) => ({ voices: await voiceApi.listApiVoices(projectId) }));
   tool("delete_api_voice", "Delete a voice on the voice API (tv_ id) and forget it on every voice card that used it. Ask the user first: a deleted voice cannot be restored.", z.object({ projectId: id, voiceId: z.string().max(80) }), async ({ projectId, voiceId }) => voiceApi.deleteApiVoice(projectId, voiceId));
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
-  tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports). Every picture has a handle (IMG-12, per project) and a name: use the handle when you talk with the user about a picture, and either the id or the handle in the picture tools (select_element_refs / select_hero_frame / select_end_frame / edit_frame / view_frames / review_packet). rename_picture names one; delete_pictures removes unused ones. With image generation on (image_status) draw them with generate_element_sheet / generate_shot_frame / edit_frame; otherwise the user uploads them, or import_image brings in what your own tools drew.", z.object({ projectId: id, kind: z.enum(["image", "video", "audio"]).optional() }), async ({ projectId, kind }) => ({ assets: await repo.listAssets(projectId, kind) }));
+  tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports), one line each; pass ids with full for whole records. Every picture has a handle (IMG-12, per project) and a name: use the handle when you talk with the user about a picture, and either the id or the handle in the picture tools (select_element_refs / select_hero_frame / select_end_frame / edit_frame / view_frames / review_packet). rename_picture names one; delete_pictures removes unused ones. With image generation on (image_status) draw them with generate_element_sheet / generate_shot_frame / edit_frame; otherwise the user uploads them, or import_image brings in what your own tools drew.", z.object({
+    projectId: id, kind: z.enum(["image", "video", "audio"]).optional(),
+    purpose: z.string().max(40).optional().describe("Only pictures made for this: element_sheet, shot_first, shot_last, style_frame, edit, canvas, extract, crop, remake_key"),
+    ids: z.array(id).max(12).optional().describe("Only these (asset ids or handles like IMG-12)"),
+    full: z.boolean().default(false).describe("With ids: the whole record of each (the prompt it was drawn from, its checks and reviews). Without it every asset is one line"),
+  }), async ({ projectId, kind, purpose, ids, full }) => {
+    const wanted = ids ? new Set(await Promise.all(ids.map((r) => repo.resolveAssetRef(projectId, r)))) : undefined;
+    const assets = (await repo.listAssets(projectId, kind)).filter((a) => (!wanted || wanted.has(a.id)) && (!purpose || a.meta?.purpose === purpose));
+    if (full && !wanted) throw new StudioError("validation", "full needs ids: name the assets (at most 12) whose whole record you want");
+    return { count: assets.length, assets: full ? assets : assets.map(compactAsset) };
+  });
   tool("select_element_refs", "Set the element's reference images (asset ids, first one is the primary) and, optionally, which view each shows (front, three_quarter, side, back, full_body, expression, detail). Tagged views let R2VA pick the reference that matches the shot's angle and size.", z.object({ elementId: id, assetIds: z.array(id).max(6), views: z.record(z.string(), z.enum(REF_VIEWS)).optional().describe("asset id → view") }), async ({ elementId, assetIds, views }) => {
     const el = await repo.getElement(elementId);
     const ids = el.projectId ? await Promise.all(assetIds.map((a) => repo.resolveAssetRef(el.projectId!, a))) : assetIds;
@@ -258,9 +269,9 @@ export function createStudioServer(actor: Actor): McpServer {
       : lint?.counts.warn ? `${lint.counts.warn} lint warning(s): fix them or say in one line why each stays, then run the shot reviews` : "lint clean: run the shot reviews (review_packet stage shot)";
     return { approval: view.project.shotlistApproval, merge: view.merge, lint: lint ? { counts: lint.counts, errors } : undefined, next, warnings, scenes: view.scenes.map((s) => ({ id: s.id, slug: s.slug, shots: s.shots.map((sh) => ({ id: sh.id, index: sh.index, intent: sh.spec.intent, mode: sh.spec.mode, durationS: sh.spec.durationS, link: sh.spec.link?.type ?? sh.spec.linkToPrev, cinematography: sh.spec.cinematography ?? null })) })) };
   });
-  tool("get_shotlist", "Scenes and shots with their takes, hero frames and approval.", z.object({ projectId: id }), async ({ projectId }) => {
+  tool("get_shotlist", "Scenes and shots (full spec) with their takes and hero / end frames as summaries, and the approval. get_take has a take's prompt and thumbnails.", z.object({ projectId: id }), async ({ projectId }) => {
     const view = await orch.getProjectView(projectId);
-    return { approval: view.project.shotlistApproval, canGenerate: view.canGenerate, blockers: view.blockers, scenes: view.scenes };
+    return { approval: view.project.shotlistApproval, canGenerate: view.canGenerate, blockers: view.blockers, scenes: compactScenes(view) };
   });
   tool("add_shot", "Append a shot to a scene, with its link and cinematography.", z.object({ sceneId: id, shot: ShotInput }), async ({ sceneId, shot }) => {
     const saved = await orch.addShot(sceneId, shot);
@@ -273,9 +284,9 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("select_hero_frame", "Choose the hero frame (asset id or handle like IMG-12) for a shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { heroAssetId: await shotPicture(shotId, assetId) }) }));
   tool("select_end_frame", "Choose an end frame (asset id or handle like IMG-12) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: await shotPicture(shotId, assetId) }) }));
 
-  tool("generate_take", "Render takes for a shot on the H3 worker (costs money; confirm). Requires approved script and shotlist.", z.object({ shotId: id }).extend(TakeRequest.shape), async ({ shotId, ...req }) => orch.createTakes(shotId, req, actor));
-  tool("get_take", "Status, video url, last frame, thumbnails, cost and review of a take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.refreshTake(takeId) }));
-  tool("list_takes", "All takes of a shot.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: await repo.listShotTakes(shotId) }));
+  tool("generate_take", "Render takes for a shot on the H3 worker (costs money; confirm). Requires approved script and shotlist, and a passing shot review of this exact prompt and these frames (review_packet stage shot → record_review); skipReview with a reason renders without one, on the record.", z.object({ shotId: id }).extend(TakeRequest.shape), async ({ shotId, ...req }) => orch.createTakes(shotId, req, actor));
+  tool("get_take", "One take in full: status, video url, last frame, thumbnails, cost, review, the compiled prompt and the worker input.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.refreshTake(takeId) }));
+  tool("list_takes", "All takes of a shot, one summary each (status, steps, LoRAs, cost, urls, review); get_take has the prompt, input and thumbnails of one.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: (await repo.listShotTakes(shotId)).map(compactTake) }));
   tool("cancel_take", "Cancel a queued or running take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));
   tool("retry_take", "Retry a failed or timed-out take (costs money; confirm).", z.object({ takeId: id, confirm: z.boolean().default(false) }), async ({ takeId, confirm }) => ({ take: await orch.retryTake(takeId, actor, confirm) }));
   tool("regenerate_take", "Open-H3-Regenerate-2K: re-generate a completed take at 1080p / 2K / 4K in three refine steps (costs money; confirm). It redraws, not just upscales: start_sigma 0 is sharper, 0.8 stays closer to the draft (use for character shots). The 2K file sits beside the 768p take and the master-upscaled export uses it.", z.object({ takeId: id }).extend(UpscaleRequest.shape), async ({ takeId, ...req }) => orch.regenerateTake(takeId, req, actor));

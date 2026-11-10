@@ -257,18 +257,32 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
      prompt and these frames, and no blind re-render of a rejected input. */
   const subject = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
   const review = await reviewState(ctx.project.id, "shot", subject, shotId);
-  const same = identicalTakes(await repo.listShotTakes(shotId), subject);
-  const guards = preRenderGuards(review.state, same);
+  const earlier = await repo.listShotTakes(shotId);
+  const same = identicalTakes(earlier, subject);
+  const guards = preRenderGuards(review.state, same, earlier);
   compiled.warnings.push(...guards);
-  if (actor.via === "mcp" && !req.confirm) {
-    const auto = review.state === "pass" && same.rejected.length === 0 && autopilotCovers(ctx.project, estimate.usd);
-    if (!auto) {
+  let unreviewed: string | undefined;
+  if (actor.via === "mcp") {
+    /* The envelope spends without asking, so it takes an independent read: the
+       agent's own review of its own shot is not one (the script checkpoint has
+       the same rule). */
+    const independent = review.state === "pass" && review.review?.reviewer !== "self";
+    const auto = !req.confirm && independent && same.rejected.length === 0 && autopilotCovers(ctx.project, estimate.usd);
+    if (!req.confirm && !auto) {
       throw new StudioError("needs_confirm", `${req.n} take(s) of ${ctx.shot.spec.durationS}s costs about ${estimate.usd.toFixed(2)} USD. Call again with confirm: true.`, {
-        estimateUsd: estimate.usd, review: review.state, warnings: guards,
-        autopilot: ctx.project.autopilot ? { envelopeUsd: ctx.project.autopilot.envelopeUsd, usedUsd: ctx.project.autopilot.usedUsd, covers: autopilotCovers(ctx.project, estimate.usd), needs: "a passing shot review and no identical rejected take" } : undefined,
+        estimateUsd: estimate.usd, review: review.state, reviewer: review.review?.reviewer, warnings: guards,
+        autopilot: ctx.project.autopilot ? { envelopeUsd: ctx.project.autopilot.envelopeUsd, usedUsd: ctx.project.autopilot.usedUsd, covers: autopilotCovers(ctx.project, estimate.usd), needs: "a passing shot review by a fresh reviewer (not your own) and no identical rejected take" } : undefined,
       });
     }
-    await consumeAutopilot(ctx.project, estimate.usd, `${req.n} take(s) of shot ${ctx.shot.index + 1} (${ctx.shot.spec.intent})`, `shot review passed (${review.review?.reviewer ?? "?"}); inside the envelope`, shotId);
+    /* A confirmation says the price is accepted, not that the shot was read.
+       An agent renders an unreviewed shot only by saying so, on the record. */
+    if (review.state !== "pass") {
+      if (!req.skipReview) {
+        throw new StudioError("not_approved", `this shot has ${review.state === "none" ? "no shot review" : review.state === "stale" ? "only a review of an earlier prompt or frame" : "a failed shot review"}: review_packet(stage 'shot') → a fresh reviewer → record_review, then render. To render without one, pass skipReview with the reason; it goes to the decision log.`, { review: review.state, estimateUsd: estimate.usd, warnings: guards });
+      }
+      unreviewed = req.skipReview;
+    }
+    if (auto) await consumeAutopilot(ctx.project, estimate.usd, `${req.n} take(s) of shot ${ctx.shot.index + 1} (${ctx.shot.spec.intent})`, `shot review passed (${review.review?.reviewer ?? "?"}); inside the envelope`, shotId);
   }
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
@@ -283,6 +297,11 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
     }
   }
 
+  if (unreviewed) {
+    await repo.insertNote(ctx.project.id, "decision", "standing", {
+      decision: `rendered shot ${ctx.shot.index + 1} without a passing shot review (${review.state})`, why: unreviewed, confidence: "low", spendUsd: estimate.usd, shotId, by: actor.user,
+    });
+  }
   const takes: Take[] = [];
   for (let i = 0; i < req.n; i++) {
     const seed = req.seed !== undefined ? req.seed + i : Math.floor(Math.random() * 2 ** 31);
@@ -308,8 +327,11 @@ function onExperiments(e: PromptExperiments | undefined): boolean {
 
 /** Warnings before a render: the review state of this exact input, and
     earlier takes that rendered the same thing. */
-export function preRenderGuards(state: "pass" | "fail" | "stale" | "none", same: { rejected: Take[]; any: Take[] }): string[] {
+export function preRenderGuards(state: "pass" | "fail" | "stale" | "none", same: { rejected: Take[]; any: Take[] }, earlier: Take[] = []): string[] {
   const out: string[] = [];
+  /* A re-render with no verdict on the takes before it teaches the retro nothing. */
+  const unjudged = earlier.filter((t) => t.status === "completed" && !t.review);
+  if (unjudged.length) out.push(`take ${unjudged.map((t) => `#${t.n}`).join(", ")} of this shot ${unjudged.length > 1 ? "have" : "has"} no review: note what was wrong first — the user's tags on the Board, or review_take with faults and a basis (you see stills only) — so the next render and the retro know what failed`);
   if (same.rejected.length) out.push(`same prompt and frames as rejected take ${same.rejected.map((t) => `#${t.n}`).join(", ")}: re-rendering the same input usually fails the same way — change the beats, wording or frames first (revise_shot), or pass a seed on purpose`);
   else if (same.any.length) out.push(`same prompt and frames as take ${same.any.map((t) => `#${t.n}`).join(", ")}; only the seed differs`);
   if (state === "none") out.push("no cold-reader review of this shot yet: review_packet(stage 'shot') → a fresh agent → record_review");
@@ -709,6 +731,9 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
     const without = view.timeline.clips.filter((c) => { const t = takes.get(c.takeId); return t && !(t.upscale?.status === "completed" && t.upscale.url); });
     if (without.length) warnings.push(`${without.length} clip(s) have no Regenerate 2K pass yet and use the 768p take: ${without.map((c) => c.takeId).join(", ")}`);
   }
+  /* A cut is where the user's asks are settled: say which ones nobody closed. */
+  const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
+  if (open.length) warnings.push(`${open.length} requirement(s) from the user are still open: go through them against this cut and set each met or dropped (set_requirement) — ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}`);
   return { job, estimateUsd, warnings };
 }
 

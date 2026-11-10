@@ -65,23 +65,41 @@ export const PromptExperiments = z.object({
 });
 export type PromptExperiments = z.infer<typeof PromptExperiments>;
 
-export const LookSettings = z.object({
+/* The Look's fields without defaults. A patch is parsed with this shape: a
+   default on a field would fill every key the caller left out, and merging
+   that over the stored Look wiped its LoRAs, negatives and language on any
+   update (update_look, the Look page). */
+const LOOK_FIELDS = {
   genre: z.string().max(200).describe("Genre and tone, e.g. 'neo-noir thriller'"),
   palette: z.string().max(200).describe("Colour palette, e.g. 'teal and amber, crushed blacks'"),
   camera: z.string().max(200).describe("Camera body / format, e.g. 'Arri Alexa, anamorphic'"),
   lens: z.string().max(200).describe("Lens and depth of field, e.g. '35mm, shallow DOF'"),
   lighting: z.string().max(200).describe("Lighting approach, e.g. 'practical sources, hard key'"),
-  aspectRatio: z.enum(ASPECT_RATIOS).default("9:16"),
-  resolution: z.literal("768p").default("768p").describe("Self-hosted H3-Base renders 768p only"),
-  upscale: z.boolean().default(false).describe("Upscale at export time (master-upscaled preset)"),
-  negative: z.array(z.string().max(80)).max(10).default(["no on-screen text", "no logos", "no subtitles"]),
-  loras: z.array(LoraRef).max(6).default([]).describe("Project-wide LoRAs (speed LoRA goes here); shots may override"),
+  aspectRatio: z.enum(ASPECT_RATIOS),
+  resolution: z.literal("768p").describe("Self-hosted H3-Base renders 768p only"),
+  upscale: z.boolean().describe("Upscale at export time (master-upscaled preset)"),
+  negative: z.array(z.string().max(80)).max(10),
+  loras: z.array(LoraRef).max(6).describe("Project-wide LoRAs (speed LoRA goes here); shots may override. Leave it out to keep the current set (a new project gets the speed LoRAs); [] renders on the base chain at 20 steps, about 2.5× the time"),
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
   experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
   styleFrameAssetId: z.string().optional().describe("The approved style frame (asset id): every generated sheet and frame takes it as a reference for the look"),
-  dialogueLanguage: z.string().max(10).default("zh").describe("Language code for dialogue lines that name none (zh = Mandarin Chinese, en = English)"),
+  dialogueLanguage: z.string().max(10).describe("Language code for dialogue lines that name none (zh = Mandarin Chinese, en = English)"),
+};
+
+export const LookSettings = z.object({
+  ...LOOK_FIELDS,
+  aspectRatio: LOOK_FIELDS.aspectRatio.default("9:16"),
+  resolution: LOOK_FIELDS.resolution.default("768p"),
+  upscale: LOOK_FIELDS.upscale.default(false),
+  negative: LOOK_FIELDS.negative.default(["no on-screen text", "no logos", "no subtitles"]),
+  loras: LOOK_FIELDS.loras.default([]),
+  dialogueLanguage: LOOK_FIELDS.dialogueLanguage.default("zh"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
+
+/** Some of the Look's fields, exactly as given: keys left out stay out. */
+export const LookPatch = z.object(LOOK_FIELDS).partial();
+export type LookPatch = z.infer<typeof LookPatch>;
 
 export const DEFAULT_LOOK: LookSettings = LookSettings.parse({
   genre: "", palette: "", camera: "", lens: "", lighting: "",
@@ -336,6 +354,7 @@ export const TakeRequest = z.object({
   seed: z.number().int().optional(),
   confirm: z.boolean().default(false).describe("Must be true to spend budget"),
   experiments: PromptExperiments.optional().describe("Prompt A/B switches for this take; recorded on the take"),
+  skipReview: z.string().min(8).max(300).optional().describe("Agents only: render although this exact prompt and these frames have no passing shot review. Give the reason (the user's words when they asked for it); it is written to the decision log. Without it an unreviewed, stale or failed shot is refused."),
 });
 export type TakeRequest = z.infer<typeof TakeRequest>;
 
@@ -382,7 +401,7 @@ export type ExportRequest = z.infer<typeof ExportRequest>;
 
 export const ProjectInput = z.object({
   name: z.string().min(1).max(120),
-  look: LookSettings.partial().optional(),
+  look: LookPatch.optional(),
   budgetCapUsd: z.number().min(0).max(100000).optional(),
   brief: z.string().max(8000).default("").describe("Tier 1: the user's own words for the film"),
   targetSeconds: z.number().int().min(5).max(3600).optional().describe("Target running time"),

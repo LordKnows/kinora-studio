@@ -91,7 +91,7 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - Title cards (full-frame) and overlays/captions (`drawtext`); OSD for found-footage styles.
 - A narration track (files from `synthesize_narration` or the user's recording) and a music file with ducking under narration, fades, and silences (whole bus out).
 - Burned subtitles from an SRT (`check_subtitles` writes it) and a loudnorm to −14 LUFS.
-- Inputs are the take files: download each selected take's URL (from `get_project` assets or `get_take`) next to the project and set `file` on the clip.
+- Inputs are the take files: download each selected take's URL (`resultUrl` in `get_project` / `list_takes`, or `get_take`) next to the project and set `file` on the clip.
 
 ## LoRAs and GPUs
 

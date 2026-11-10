@@ -2,7 +2,7 @@ import * as director from "@/director";
 
 import type { BackendStatus } from "./backends/types";
 import { renderCinematography } from "./cinematography";
-import { effectiveLink, pickRefForViews, preferredViews, VIDEO_SIZES } from "./compiler";
+import { effectiveLink, pickRefForViews, placedFeature, preferredViews, VIDEO_SIZES } from "./compiler";
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as gpu from "./gpu";
@@ -388,9 +388,9 @@ const join = (parts: string[]) => parts.filter((x) => x && x.trim()).join("\n");
 export function sidedFeature(f: { feature: string; where: string }, facing: "camera" | "away" | "unknown" = "camera"): string {
   const where = f.where.trim();
   const side = /\bleft\b/i.test(where) ? "left" : /\bright\b/i.test(where) ? "right" : undefined;
-  if (!side) return `${f.feature} on the ${where}`;
+  if (!side) return placedFeature(f);
   const lands = facing === "camera" ? ` (the ${side === "left" ? "right" : "left"} side of the picture when they face the camera)` : facing === "away" ? ` (the ${side} side of the picture, as they face away)` : "";
-  return `${f.feature} on the ${where} — their OWN ${side}${lands}; never mirrored`;
+  return `${placedFeature(f)} — their OWN ${side}${lands}; never mirrored`;
 }
 
 function features(el: Element, facing: "camera" | "away" | "unknown" = "camera"): string {

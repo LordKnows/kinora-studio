@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "director": {
-      "command": "node",
-      "args": ["packages/director/dist/mcp.js"]
+      "command": "sh",
+      "args": ["-c", "[ -f packages/director/dist/mcp.js ] || pnpm --filter @openhiggsfield/director build >&2; exec node packages/director/dist/mcp.js"]
     }
   }
 }
