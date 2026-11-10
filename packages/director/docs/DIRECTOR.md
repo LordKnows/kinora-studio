@@ -54,7 +54,7 @@ The script the user approves is this treatment plus the dialogue.
 
 ## 5. Prove the look
 
-Elements first: every character, location and prop with a concrete description written in the style's materials (a clay figure, a paper puppet, three ink strokes). The user uploads references; hero frames are chosen on the Board. If the user asked for a storyboard, stop after hero frames and wait.
+Elements first: every character, location and prop with a concrete description written in the style's materials (a clay figure, a paper puppet, three ink strokes). The user uploads references; hero frames are chosen on the Board. A character is designed face first: one portrait (the user's own, or drawn) that the user approves, then its expressions and the details the genre and the character call for (at most three, off the face), then the whole figure — never the figure first and the face found inside it. If the user asked for a storyboard, stop after hero frames and wait.
 
 ## 5b. Storyboard: staging, composition, colour
 

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { CheckIcon } from "./icons";
 import type { Asset, Element } from "@/studio/types";
-import { REF_VIEWS, type FixedFeature, type RefView } from "@/studio/schemas";
+import { MAX_DETAILS, REF_VIEWS, type FixedFeature, type RefView } from "@/studio/schemas";
+import { detailTargets, sheetStage } from "@/studio/sheet";
 
 import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
@@ -155,6 +156,7 @@ function ElementEditor({
   const [selected, setSelected] = useState<string[]>(element?.refAssetIds ?? []);
   const [features, setFeatures] = useState<FixedFeature[]>(element?.fixedFeatures ?? []);
   const [views, setViews] = useState<Record<string, RefView>>(element?.refViews ?? {});
+  const [refFeatures, setRefFeatures] = useState<Record<string, string>>(element?.refFeatures ?? {});
   /* Every image in the project is a candidate: uploads and last frames of
      finished takes, imports and generated pictures. */
   const [images, setImages] = useState<Asset[]>([]);
@@ -177,7 +179,7 @@ function ElementEditor({
 
   const saveRefs = useAction(async () => {
     if (!element) return;
-    await post(`/api/elements/${element.id}/refs`, { assetIds: selected, views: Object.fromEntries(Object.entries(views).filter(([a]) => selected.includes(a))) });
+    await post(`/api/elements/${element.id}/refs`, { assetIds: selected, views: Object.fromEntries(Object.entries(views).filter(([a]) => selected.includes(a))), features: Object.fromEntries(Object.entries(refFeatures).filter(([a, f]) => selected.includes(a) && views[a] === "detail" && f)) });
     await onSaved();
   });
 
@@ -231,12 +233,19 @@ function ElementEditor({
         <Field label="Visual description" hint="Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.">
           <textarea className="st-textarea" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile." group>
+        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile. For a character, tick detail on up to three that are not on the face: the sheet draws each close, and the whole-figure views copy it." group>
           <div className="st-stack st-stack--tight">
             {features.map((f, i) => (
               <div key={i} className="st-line">
                 <input className="st-input st-input--sm" placeholder="feature (dragon tattoo)" value={f.feature} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, feature: e.target.value } : x)))} />
                 <input className="st-input st-input--sm" placeholder="where (left forearm, inner side)" value={f.where} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, where: e.target.value } : x)))} />
+                {kind === "character" && (
+                  <label className="st-row" style={{ gap: 4, whiteSpace: "nowrap" }} title="Draw a close detail picture of this feature for the sheet (at most 3 per character). Whole-figure views copy it.">
+                    <input type="checkbox" checked={f.detail === true} disabled={f.detail !== true && features.filter((x) => x.detail === true).length >= MAX_DETAILS}
+                      onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, detail: e.target.checked ? true : undefined } : x)))} />
+                    <span className="st-muted">detail</span>
+                  </label>
+                )}
                 <Button size="sm" kind="quiet" onClick={() => setFeatures(features.filter((_, j) => j !== i))}>Remove</Button>
               </div>
             ))}
@@ -306,7 +315,7 @@ function ElementEditor({
                 </div>
                 {selected.length > 0 && (
                   <div className="st-stack st-stack--tight" style={{ marginTop: 10 }}>
-                    <span className="st-muted">Which view does each reference show? Tagged views let a profile shot use the side view and a close-up the expression sheet.</span>
+                    <span className="st-muted">Which view does each reference show? Face is the character&apos;s portrait: an uploaded one tagged face is the identity the rest of the sheet is drawn from. A detail names the fixed feature it shows. Tagged views let a profile shot use the side view and a close-up the portrait.</span>
                     {selected.map((id, k) => {
                       const a = candidates.find((c) => c.id === id);
                       return (
@@ -318,6 +327,12 @@ function ElementEditor({
                             <option value="">view —</option>
                             {REF_VIEWS.map((v) => <option key={v} value={v}>{v.replace("_", " ")}</option>)}
                           </select>
+                          {views[id] === "detail" && (
+                            <select className="st-select st-input--sm" value={refFeatures[id] ?? ""} aria-label="The fixed feature this detail shows" onChange={(e) => setRefFeatures({ ...refFeatures, [id]: e.target.value })}>
+                              <option value="">which feature —</option>
+                              {features.filter((f) => f.feature.trim()).map((f) => <option key={f.feature} value={f.feature}>{f.feature}</option>)}
+                            </select>
+                          )}
                         </div>
                       );
                     })}
@@ -342,26 +357,49 @@ function ElementEditor({
 function SheetTools({ element }: { element: ElementRow }) {
   const imaging = useImagingOn();
   const isChar = element.kind === "character";
-  const [views, setViews] = useState<RefView[]>(isChar ? ["face", "front", "side", "back", "expression"] : ["front"]);
+  const [views, setViews] = useState<RefView[]>([]);
   const have = new Set(Object.values(element.refViews ?? {}));
+  const { stage, now, later } = sheetStage(element);
+  const targets = detailTargets(element);
+  const name = (x: { view: RefView; feature?: string }) => (x.feature ? `detail: ${x.feature}` : x.view.replace("_", " "));
+  if (!isChar) {
+    return (
+      <Section title={`Generate with ${imaging.label}`}>
+        <div className="st-stack st-stack--tight">
+          <span className="st-muted">One reference picture in the project&apos;s look.</span>
+          <ImageButton label="Generate reference" body={{ action: "element_sheet", elementId: element.id, views: ["front"] }} kind="primary" />
+        </div>
+      </Section>
+    );
+  }
   return (
     <Section title={`Generate with ${imaging.label}`}>
       <div className="st-stack st-stack--tight">
         <span className="st-muted">
-          {isChar
-            ? "The face portrait first, then the front figure: the other views copy the face from one and the build and clothes from the other, so generate again as each lands. Fixed features and the project's style frame are part of every prompt."
-            : "One reference picture in the project's look."}
+          The sheet is drawn in the order identity is built: the face portrait (drawn here, or your own picture tagged face above) → four expressions and up to three details, from the portrait → the front figure → side and back.
+          Every picture copies the portrait itself. Look at each stage before the next is drawn from it.
         </span>
-        {isChar && (
-          <div className="st-chips">
-            {REF_VIEWS.map((v) => (
-              <button key={v} type="button" className="st-chip st-chip--btn" aria-pressed={views.includes(v)} onClick={() => setViews(views.includes(v) ? views.filter((x) => x !== v) : [...views, v])}>
-                {v.replace("_", " ")}{have.has(v) ? " ✓" : ""}
-              </button>
-            ))}
-          </div>
+        {stage === "complete" ? (
+          <span className="st-muted">The sheet is complete. Pick views below to redraw one; the new picture takes the old one&apos;s place.</span>
+        ) : (
+          <>
+            <span>
+              <strong>Next: {now.map(name).join(", ")}</strong>
+              {later.length > 0 && <span className="st-muted"> · then {[...new Set(later.map((x) => x.view.replace("_", " ")))].join(", ")}</span>}
+            </span>
+            <ImageButton label={`Generate ${now.map(name).join(", ")}`} body={{ action: "element_sheet", elementId: element.id, views: [] }} kind="primary" />
+          </>
         )}
-        <ImageButton label={isChar ? `Generate ${views.length} view${views.length === 1 ? "" : "s"}` : "Generate reference"} body={{ action: "element_sheet", elementId: element.id, views: isChar ? views : ["front"] }} kind="primary" />
+        {targets.length === 0 && <span className="st-muted">No detail pictures: this character has no fixed feature off the face. Add one above (a tattoo, an emblem, a prop in hand) and tick detail to get one.</span>}
+        <span className="st-muted">Redraw or add a view:</span>
+        <div className="st-chips">
+          {REF_VIEWS.map((v) => (
+            <button key={v} type="button" className="st-chip st-chip--btn" aria-pressed={views.includes(v)} onClick={() => setViews(views.includes(v) ? views.filter((x) => x !== v) : [...views, v])}>
+              {v.replace("_", " ")}{have.has(v) ? " ✓" : ""}
+            </button>
+          ))}
+        </div>
+        {views.length > 0 && <ImageButton label={`Generate ${views.map((v) => v.replace("_", " ")).join(", ")}`} body={{ action: "element_sheet", elementId: element.id, views }} />}
       </div>
     </Section>
   );

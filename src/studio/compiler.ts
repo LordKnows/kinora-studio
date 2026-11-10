@@ -1,7 +1,7 @@
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
-import { CAMERA_MOVES, type Blocking, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
+import { CAMERA_MOVES, FIGURE_VIEWS, type Blocking, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
 import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
@@ -457,8 +457,10 @@ export function pickRefForViews(el: Element, wanted: RefView[]): string | undefi
     const hit = el.refAssetIds.find((a) => views[a] === v);
     if (hit) return hit;
   }
-  /* no tagged match: the first picture that is not the portrait (a head alone carries no clothes), else whatever there is */
-  return el.refAssetIds.find((a) => views[a] !== "face") ?? el.refAssetIds[0];
+  /* no tagged match: a whole figure or an untagged picture first (a head, a grid
+     of expressions or a close detail carries no clothes), then the portrait, then whatever there is */
+  const figure = (a: string) => !views[a] || (FIGURE_VIEWS as readonly string[]).includes(views[a]!);
+  return el.refAssetIds.find(figure) ?? el.refAssetIds.find((a) => views[a] === "face") ?? el.refAssetIds[0];
 }
 
 /** "a scar" + where it sits, as one phrase. The place is written by hand, so it

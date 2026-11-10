@@ -3,7 +3,7 @@ import { getDb, type Db, type SqlValue } from "@/db";
 
 import { newId } from "./ids";
 import { notFound } from "./errors";
-import { DEFAULT_LOOK, LookSettings, ShotInput, TimelineInput, VoiceCardInput, VoiceState } from "./schemas";
+import { DEFAULT_LOOK, LookSettings, MAX_DETAILS, MAX_ELEMENT_REFS, ShotInput, TimelineInput, VoiceCardInput, VoiceState } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
@@ -293,11 +293,12 @@ function mapElement(r: Row): Element {
   };
 }
 
-function elementMeta(v: unknown): { fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; voiceCardId?: string; voiceState?: string } {
-  const m = json<{ fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: unknown; voiceState?: unknown }>(v, {});
+function elementMeta(v: unknown): { fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; refFeatures: Record<string, string>; voiceCardId?: string; voiceState?: string } {
+  const m = json<{ fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; refFeatures?: Record<string, string>; voiceCardId?: unknown; voiceState?: unknown }>(v, {});
   return {
     fixedFeatures: Array.isArray(m.fixedFeatures) ? m.fixedFeatures : [],
     refViews: m.refViews && typeof m.refViews === "object" ? m.refViews : {},
+    refFeatures: m.refFeatures && typeof m.refFeatures === "object" ? m.refFeatures : {},
     ...(typeof m.voiceCardId === "string" && m.voiceCardId ? { voiceCardId: m.voiceCardId } : {}),
     ...(typeof m.voiceState === "string" && m.voiceState ? { voiceState: m.voiceState } : {}),
   };
@@ -316,9 +317,10 @@ async function withVoices<T extends Element>(elements: T[]): Promise<T[]> {
   return elements;
 }
 
-function metaJson(m: { fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: string | null; voiceState?: string | null }): string {
+function metaJson(m: { fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; refFeatures?: Record<string, string>; voiceCardId?: string | null; voiceState?: string | null }): string {
   return JSON.stringify({
     fixedFeatures: m.fixedFeatures ?? [], refViews: m.refViews ?? {},
+    ...(m.refFeatures && Object.keys(m.refFeatures).length ? { refFeatures: m.refFeatures } : {}),
     ...(m.voiceCardId ? { voiceCardId: m.voiceCardId } : {}), ...(m.voiceState ? { voiceState: m.voiceState } : {}),
   });
 }
@@ -351,7 +353,7 @@ export async function getElements(ids: string[]): Promise<Map<string, Element>> 
   return out;
 }
 
-export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; voiceCardId?: string; voiceState?: string }): Promise<Element> {
+export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; refFeatures?: Record<string, string>; voiceCardId?: string; voiceState?: string }): Promise<Element> {
   if (input.voiceCardId) await getVoiceCard(input.voiceCardId);
   const id = newId("ele");
   const now = Date.now();
@@ -363,13 +365,14 @@ export async function createElement(projectId: string | null, input: { kind: Ele
   return getElement(id);
 }
 
-export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; voiceCardId: string | null; voiceState: string | null }>): Promise<Element> {
+export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; refFeatures: Record<string, string>; voiceCardId: string | null; voiceState: string | null }>): Promise<Element> {
   const current = await getElement(id);
   if (patch.voiceCardId) await getVoiceCard(patch.voiceCardId);
   const refAssetIds = patch.refAssetIds ?? current.refAssetIds;
   /* Views follow the refs: a view for an asset that is no longer a ref is dropped. */
   const views = { ...(current.refViews ?? {}), ...(patch.refViews ?? {}) };
   const refViews = Object.fromEntries(Object.entries(views).filter(([a]) => refAssetIds.includes(a)));
+  const refFeatures = Object.fromEntries(Object.entries({ ...(current.refFeatures ?? {}), ...(patch.refFeatures ?? {}) }).filter(([a]) => refAssetIds.includes(a) && refViews[a] === "detail"));
   await (await db()).run(
     "UPDATE elements SET kind = ?, name = ?, description = ?, ref_asset_ids_json = ?, voice_asset_id = ?, meta_json = ?, updated_at = ? WHERE id = ?",
     [
@@ -377,7 +380,7 @@ export async function updateElement(id: string, patch: Partial<{ kind: ElementKi
       JSON.stringify(refAssetIds),
       patch.voiceAssetId === undefined ? (current.voiceAssetId ?? null) : patch.voiceAssetId,
       metaJson({
-        fixedFeatures: patch.fixedFeatures ?? current.fixedFeatures, refViews,
+        fixedFeatures: patch.fixedFeatures ?? current.fixedFeatures, refViews, refFeatures,
         voiceCardId: patch.voiceCardId === undefined ? current.voiceCardId : patch.voiceCardId,
         voiceState: patch.voiceState === undefined ? current.voiceState : patch.voiceState,
       }),
@@ -394,7 +397,34 @@ export async function deleteElement(id: string): Promise<void> {
 /** Copy an element (and its refs) into another scope: library (null) or a project. */
 export async function copyElement(id: string, targetProjectId: string | null): Promise<Element> {
   const source = await getElement(id);
-  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews, voiceCardId: source.voiceCardId, voiceState: source.voiceState });
+  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews, refFeatures: source.refFeatures, voiceCardId: source.voiceCardId, voiceState: source.voiceState });
+}
+
+/**
+ * Put a picture among an element's references. A picture tagged with a view
+ * takes the place of the one that held that view (a detail: the one of the
+ * same fixed feature), so a redrawn view is the one that gets used; before,
+ * the older picture stayed first and went on being picked. Over the limit the
+ * untagged pictures go first, and the portrait last: it is the identity.
+ */
+export async function attachElementRef(id: string, assetId: string, tag: { view?: RefView; feature?: string } = {}): Promise<Element> {
+  const el = await getElement(id);
+  const views = { ...(el.refViews ?? {}) };
+  const feats = { ...(el.refFeatures ?? {}) };
+  const sameSlot = (a: string) => a !== assetId && !!tag.view && views[a] === tag.view && (tag.view !== "detail" || (feats[a] ?? "") === (tag.feature ?? ""));
+  const replaced = el.refAssetIds.find(sameSlot);
+  let ids = el.refAssetIds.filter((a) => a !== assetId);
+  ids = replaced ? ids.map((a) => (a === replaced ? assetId : a)) : [...ids, assetId];
+  if (tag.view) views[assetId] = tag.view;
+  if (tag.view === "detail" && tag.feature) feats[assetId] = tag.feature;
+  const drop = (pick: (a: string) => boolean) => {
+    const out = ids.find((a) => a !== assetId && pick(a));
+    if (out) ids = ids.filter((a) => a !== out);
+    return !!out;
+  };
+  while (ids.filter((a) => views[a] === "detail").length > MAX_DETAILS && drop((a) => views[a] === "detail")) { /* the oldest detail goes */ }
+  while (ids.length > MAX_ELEMENT_REFS && (drop((a) => !views[a]) || drop((a) => views[a] !== "face") || drop(() => true))) { /* untagged first, the portrait last */ }
+  return updateElement(id, { refAssetIds: ids, refViews: views, refFeatures: feats });
 }
 
 /* ---------- voice cards ---------- */
