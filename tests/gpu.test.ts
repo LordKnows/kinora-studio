@@ -127,7 +127,7 @@ describe("pod mode", () => {
     const state = await gpu.startGpu(web, true);
     expect(state.status).toBe("unavailable");
     expect(state.message).toContain("暂时没资源");
-    await expect(orch.createTakes(shotId, { n: 1, confirm: true }, mcp)).rejects.toMatchObject({ code: "backend_error", details: { noResources: true } });
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "backend_error", details: { noResources: true } });
     expect(await repo.listShotTakes(shotId)).toHaveLength(0);
   });
 
@@ -135,7 +135,7 @@ describe("pod mode", () => {
     scenario.createMode = "ok";
     scenario.healthy = false;
     const before = calls.length;
-    const { takes, gpu: state } = await orch.createTakes(shotId, { n: 1, confirm: true }, mcp);
+    const { takes, gpu: state } = await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp);
     expect(state?.status).toBe("starting");
     expect(takes[0]!.status).toBe("queued");
     expect(takes[0]!.requestId).toBeUndefined();

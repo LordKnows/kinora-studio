@@ -207,6 +207,23 @@ describe("reviews, guards, envelope, timeline", () => {
     expect(decisions.some((d) => String(d.body.decision).startsWith("auto-confirmed"))).toBe(true);
   });
 
+  it("an agent's own review does not open the envelope; a confirmed render needs a review or a logged reason", async () => {
+    /* s2 has no review: the price can be confirmed, the unread shot cannot */
+    await expect(orch.createTakes(s2, { n: 1, confirm: false }, mcp)).rejects.toMatchObject({ code: "needs_confirm", details: { review: "none" } });
+    await expect(orch.createTakes(s2, { n: 1, confirm: true }, mcp)).rejects.toMatchObject({ code: "not_approved", details: { review: "none" } });
+    /* a self-review lets the agent render on a confirmation, never on the envelope */
+    await craft.recordReview(projectId, { stage: "shot", shotId: s2, verdict: "pass", reviewer: "self", basis: "prompt and frame", findings: [] });
+    const before = (await repo.getProject(projectId)).autopilot!.usedUsd;
+    await expect(orch.createTakes(s2, { n: 1, confirm: false }, mcp)).rejects.toMatchObject({ code: "needs_confirm", details: { review: "pass", reviewer: "self" } });
+    expect((await repo.getProject(projectId)).autopilot!.usedUsd).toBe(before);
+    expect(await repo.listShotTakes(s2)).toHaveLength(0);
+    /* the web is the user: no review asked */
+    expect(orch.preRenderGuards("none", { rejected: [], any: [] })).toEqual([expect.stringContaining("no cold-reader review")]);
+    /* a revision makes it stale again, and the reason given to skip it is on the record */
+    await orch.patchShot(s2, { camera: { move: "static", amplitude: "moderate", speed: "slow", note: "hold on his back" } });
+    await expect(orch.createTakes(s2, { n: 1, confirm: true }, mcp)).rejects.toMatchObject({ code: "not_approved", details: { review: "stale" } });
+  });
+
   it("warns, and the envelope refuses, when the same input already failed", async () => {
     const take = (await repo.listShotTakes(s1))[0]!;
     const done = await orch.applyTakeStatus(take, mapRunPodStatus({ id: take.requestId!, status: "COMPLETED", executionTime: 10_000, output: { url: "https://r2/t1.mp4", last_frame_url: "https://r2/t1.last.png", thumb_urls: [], execution_ms: 10_000, duration_s: 5.17 } }));
@@ -219,9 +236,11 @@ describe("reviews, guards, envelope, timeline", () => {
     const t1 = (await repo.listShotTakes(s1))[0]!;
     await orch.selectTake(s1, t1.id);
     await orch.reviewTake(t1.id, 2, "wrong way, and the sound hums", web, { faults: ["wrong_direction"], audioOk: false });
-    const { takes } = await orch.createTakes(s2, { n: 1, confirm: true }, mcp);
+    const { takes } = await orch.createTakes(s2, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp);
     const t2 = await orch.applyTakeStatus(takes[0]!, mapRunPodStatus({ id: takes[0]!.requestId!, status: "COMPLETED", executionTime: 10_000, output: { url: "https://r2/t2.mp4", last_frame_url: "https://r2/t2.last.png", thumb_urls: [], execution_ms: 10_000, duration_s: 5.17 } }));
     expect(t2.workflow).toBe("I2VA");
+    const skipped = (await repo.listNotes(projectId, "decision")).find((d) => String(d.body.decision).includes("without a passing shot review"));
+    expect(skipped?.body).toMatchObject({ why: "test: the user asked to render it as it is", shotId: s2, by: "agent" });
     const tl = await orch.autoTimeline(projectId);
     expect(tl.clips.map((c) => c.transition)).toEqual(["cut", "cut"]);
     expect(tl.clips[0]!.inS).toBe(0);
@@ -264,6 +283,11 @@ describe("reviews, guards, envelope, timeline", () => {
     const retro = await craft.buildRetro(projectId);
     expect(retro).toContain("wrong_direction: 1");
     expect(retro).toContain("16:9, 30 seconds");
+    /* how it was made, and what to carry, come from the project's own records */
+    expect(retro).toMatch(/Shot reviews: \d of \d rendered shot\(s\) had one \(\d of \d by a fresh reviewer\); 1 render\(s\) skipped the review on the record/);
+    expect(retro).toContain("Requirements: 2 of 2 still open");
+    expect(retro).toMatch(/square #1: wrong_direction on take #1 .* → take #\d held; changed: the seed only/);
+    expect(retro).not.toContain("The wordings that fixed a fault");
   });
 });
 

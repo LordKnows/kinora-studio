@@ -100,6 +100,8 @@ export function promptFormat(): PromptFormat {
 }
 
 export const MAX_REFERENCE_IMAGES = 3;
+/** LoRAs one take can load: the speed LoRA and up to three style / effect LoRAs. */
+export const MAX_TAKE_LORAS = 4;
 export const MAX_PROMPT_CHARS = 7000;
 
 /** H3-Base presets per aspect ratio (768p class). */
@@ -207,6 +209,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
 
   /* only LoRAs trained for H3 load into its graphs (an image model's LoRA in the library is skipped) */
   const loras = (ctx.loras ?? []).filter((l) => (l.baseModel ?? "minimax-h3") === H3_MODEL.family && (l.workflows.length === 0 || l.workflows.includes(workflow)));
+  /* the pod chains them behind the graph's one slot, up to MAX_TAKE_LORAS (workers/h3-runpod/handler.py MAX_LORAS) */
+  if (loras.length > MAX_TAKE_LORAS) throw new CompileError(`this shot would load ${loras.length} LoRAs (${loras.map((l) => l.name).join(", ")}); a take takes at most ${MAX_TAKE_LORAS} — drop some from the Look or override the shot's loras`);
   const speed = loras.find((l) => l.kind === "speed");
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type, audios);
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
@@ -442,6 +446,20 @@ export function pickRefForViews(el: Element, wanted: RefView[]): string | undefi
   return el.refAssetIds[0];
 }
 
+/** "a scar" + where it sits, as one phrase. The place is written by hand, so it
+    may already open with its own preposition ("on his face") or determiner
+    ("his own right upper arm"); a fixed "on the" in front of those read
+    "on the on his face" in every prompt. */
+export function placedFeature(f: { feature: string; where: string }): string {
+  const where = f.where.trim();
+  if (/^(on|in|at|over|under|around|across|behind|above|below|along|between|inside|near|through|down|up)\b/i.test(where)) return `${f.feature} ${where}`;
+  if (/^(the|a|an|his|her|their|its|both|each|own)\b/i.test(where)) return `${f.feature} on ${where}`;
+  return `${f.feature} on the ${where}`;
+}
+
+/** Whether a phrase already ends a sentence, in Latin or CJK punctuation. */
+const ENDS_SENTENCE = /[.!?"。！？…”」』]$/;
+
 const SCREEN_WORDS: Record<ScreenPosition, string> = {
   off_left: "outside frame left", left: "frame left", center: "frame centre", right: "frame right",
   off_right: "outside frame right", foreground: "the foreground", background: "the background",
@@ -556,7 +574,7 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
        but the details that must never move or vanish. */
     for (const id of [...spec.characters, ...spec.props]) {
       const el = ctx.elements.get(id);
-      if (el?.fixedFeatures?.length) who.push(`${el.name} always has ${el.fixedFeatures.map((f) => `${f.feature} on the ${f.where}`).join("; ")}, in every frame.`);
+      if (el?.fixedFeatures?.length) who.push(`${el.name} always has ${el.fixedFeatures.map(placedFeature).join("; ")}, in every frame.`);
     }
     for (const b of spec.blocking ?? []) who.push(blockingLine(b, name));
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
@@ -653,7 +671,7 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
   const refs = images.filter((i) => i.role === "reference");
   const hasFirst = images.some((i) => i.role === "first_frame");
   const hasLast = images.some((i) => i.role === "last_frame");
-  const sentence = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).map((p) => (/[.!?"]$/.test(p) ? p : `${p}.`)).join(" ");
+  const sentence = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).map((p) => (ENDS_SENTENCE.test(p) ? p : `${p}.`)).join(" ");
   const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "N/A";
   const soundscape = sentence([sec.sound.sfx !== "only what the action makes" ? sec.sound.sfx : "", sec.sound.ambience]) || "Natural room tone.";
 

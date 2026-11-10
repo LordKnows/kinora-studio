@@ -403,8 +403,35 @@ export async function buildRetro(projectId: string): Promise<string> {
   const faults = new Map<string, number>();
   for (const t of takes) for (const f of t.review?.faults ?? []) faults.set(f, (faults.get(f) ?? 0) + 1);
   L.push("## What went wrong on H3", "");
+  const done = takes.filter((t) => t.status === "completed");
+  const unjudged = done.filter((t) => !t.review);
   if (faults.size === 0) L.push("No take was tagged with faults. Tag rejected takes on the Board so the next film learns from this one.");
   else for (const [f, n] of [...faults].sort((a, b) => b[1] - a[1])) L.push(`- ${f}: ${n}`);
+  if (unjudged.length) L.push("", `${unjudged.length} of ${done.length} finished take(s) have no review at all: what failed in them is not in this retro.`);
+  L.push("");
+
+  /* How the film was made, in numbers: the checks that ran, what they were worth, what the settings cost. */
+  const shotsAll = view.scenes.flatMap((sc) => sc.shots);
+  const byStage = (stage: ReviewStage) => reviews.filter((r) => r.stage === stage);
+  const independent = (rs: StageReview[]) => rs.filter((r) => r.reviewer !== "self").length;
+  const shotReviews = byStage("shot");
+  const reviewedShots = new Set(shotReviews.map((r) => r.shotId)).size;
+  const rendered = shotsAll.filter((sh) => sh.takes.length > 0).length;
+  const skipped = decisions.filter((d) => String(d.body.decision).includes("without a passing shot review")).length;
+  const pictures = view.assets.filter((a) => a.kind === "image" && a.projectId === projectId && a.source === "generated" && a.meta?.purpose !== "canvas");
+  const edits = pictures.filter((a) => a.meta?.purpose === "edit").length;
+  const checked = pictures.filter((a) => (a.meta?.autoReview as { verdict?: string } | undefined)?.verdict);
+  const failedCheck = checked.filter((a) => (a.meta.autoReview as { verdict?: string }).verdict === "fail").length;
+  const noSpeed = done.filter((t) => Array.isArray(t.input.loras) && !(t.input.loras as Array<{ kind?: string }>).some((l) => l.kind === "speed") && t.workflow !== "REMAKE" && t.workflow !== "REGEN");
+  const withSpeed = done.filter((t) => Array.isArray(t.input.loras) && (t.input.loras as Array<{ kind?: string }>).some((l) => l.kind === "speed"));
+  const avg = (ts: typeof takes) => (ts.length ? ts.reduce((a, t) => a + (t.costUsd ?? 0), 0) / ts.length : 0);
+  const open = requirements.filter((r) => r.status !== "met" && r.status !== "dropped").length;
+  L.push("## How it was made", "");
+  L.push(`- Shot reviews: ${reviewedShots} of ${rendered} rendered shot(s) had one (${independent(shotReviews)} of ${shotReviews.length} by a fresh reviewer)${skipped ? `; ${skipped} render(s) skipped the review on the record` : ""}.`);
+  L.push(`- Story reviews: ${byStage("story").length} (${independent(byStage("story"))} independent). Film reviews: ${byStage("film").length} (${independent(byStage("film"))} independent). Frame reviews: ${byStage("frame").length} (${independent(byStage("frame"))} independent).`);
+  if (pictures.length) L.push(`- Pictures drawn: ${pictures.length} for ${shotsAll.length} shot(s), ${edits} of them edits${checked.length ? `; the self-check failed ${failedCheck} of ${checked.length}` : ""}.`);
+  if (noSpeed.length) L.push(`- ${noSpeed.length} take(s) rendered without a speed LoRA (base chain), ${avg(noSpeed).toFixed(3)} USD each${withSpeed.length ? ` against ${avg(withSpeed).toFixed(3)} USD with one` : ""}. If nobody chose that, the Look lost its LoRAs: check look.loras.`);
+  if (requirements.length) L.push(`- Requirements: ${open} of ${requirements.length} still open.`);
   L.push("");
 
   L.push("## Shot by shot", "", "| Shot | Takes | Rejected | Prompt revisions | Faults | Experiments | Review |", "|---|---|---|---|---|---|---|");
@@ -437,6 +464,31 @@ export async function buildRetro(projectId: string): Promise<string> {
   L.push("", "## Decisions", "");
   if (!decisions.length) L.push("None were logged.");
   for (const d of decisions) L.push(`- ${new Date(d.createdAt).toISOString().slice(0, 16)} ${d.status === "overturned" ? "~~" : ""}${String(d.body.decision)}${d.status === "overturned" ? "~~ (overturned)" : ""} — ${String(d.body.why ?? "")}${d.body.confidence ? ` [${String(d.body.confidence)}]` : ""}`);
-  L.push("", "## Carry forward", "", "- The wordings that fixed a fault, with the fault tag they fixed.", "- The fragile pictures to avoid at the story stage next time.", "- Which experiment, if any, earned a default.", "");
+  L.push("", "## Carry forward", "");
+  /* A fault and the take that got past it: what changed between the two is the lesson. */
+  const fixes: string[] = [];
+  const costly: string[] = [];
+  for (const scene of view.scenes) for (const sh of scene.shots) {
+    const label = `${scene.slug} #${sh.index + 1}`;
+    const ts = [...sh.takes].sort((a, b) => a.n - b.n);
+    const usd = ts.reduce((a, t) => a + (t.costUsd ?? 0), 0);
+    if (ts.length >= 3) costly.push(`- ${label}: ${ts.length} takes, ${usd.toFixed(2)} USD${director.shotFragility(sh.spec as never).reasons.length ? ` (fragile: ${director.shotFragility(sh.spec as never).reasons.map((r) => r.code).join(", ")})` : ""}`);
+    const good = ts.find((t) => t.id === sh.selectedTakeId) ?? ts.find((t) => t.review && !isRejected(t));
+    if (!good) continue;
+    for (const bad of ts.filter((t) => t.n < good.n && (t.review?.faults?.length ?? 0) > 0)) {
+      const imgs = (t: typeof bad) => JSON.stringify(Array.isArray(t.input.images) ? t.input.images : []);
+      const changed = [bad.prompt !== good.prompt ? "prompt" : "", imgs(bad) !== imgs(good) ? "frames" : "", bad.workflow !== good.workflow ? `${bad.workflow} → ${good.workflow}` : "", bad.input.steps !== good.input.steps ? `${String(bad.input.steps)} → ${String(good.input.steps)} steps` : ""].filter(Boolean);
+      fixes.push(`- ${label}: ${bad.review!.faults!.join(", ")} on take #${bad.n}${bad.review!.notes ? ` ("${bad.review!.notes.slice(0, 140)}")` : ""} → take #${good.n} held; changed: ${changed.join(", ") || "the seed only"}`);
+    }
+  }
+  if (fixes.length) L.push("What got past a fault (compare the two takes' prompts with get_take):", ...fixes, "");
+  if (costly.length) L.push("Shots that took three takes or more — plan them differently at the story stage:", ...costly, "");
+  const exNames = [...new Set(pair.flatMap((t) => Object.entries((t.input.studio_experiments ?? {}) as Record<string, boolean>).filter(([, v]) => v).map(([k]) => k)))];
+  for (const name of exNames) {
+    const on = pair.filter((t) => (t.input.studio_experiments as Record<string, boolean>)[name]);
+    L.push(`- Experiment ${name}: ${on.length} take(s), ${on.filter((t) => shotsAll.some((sh) => sh.selectedTakeId === t.id)).length} picked, ${on.filter(isRejected).length} rejected.`);
+  }
+  if (!fixes.length && !costly.length && !exNames.length) L.push("Nothing to carry yet: no reviewed take followed a faulted one, no shot took three takes, no experiment ran. Review the takes (review_take with faults) so the next film has something to learn from.");
+  L.push("");
   return L.join("\n");
 }

@@ -174,7 +174,10 @@ export function CanvasPage() {
   }, [prefs, loaded]);
   useEffect(() => {
     if (!projects || !loaded) return;
-    if (projects.length && !projects.some((p) => p.id === prefs.projectId)) setPrefs((p) => ({ ...p, projectId: projects[0]!.id, attach: undefined }));
+    /* No project is picked for the user: the list is the whole workspace's,
+       newest first, so the first one is often someone else's film — pictures
+       drawn here would land in it and count against its image limit. */
+    if (prefs.projectId && !projects.some((p) => p.id === prefs.projectId)) setPrefs((p) => ({ ...p, projectId: undefined, attach: undefined }));
   }, [projects, loaded, prefs.projectId]);
 
   const projectId = prefs.projectId && projects?.some((p) => p.id === prefs.projectId) ? prefs.projectId : undefined;
@@ -526,9 +529,11 @@ export function CanvasPage() {
               </Empty>
             ) : (
               <div className="st-stack" style={{ gap: 10 }}>
-                <select className="st-select" value={projectId ?? ""} onChange={(e) => setPrefs((p) => ({ ...p, projectId: e.target.value, attach: undefined }))} aria-label="Project">
+                <select className="st-select" value={projectId ?? ""} onChange={(e) => setPrefs((p) => ({ ...p, projectId: e.target.value || undefined, attach: undefined }))} aria-label="Project">
+                  <option value="" disabled>Pick a project…</option>
                   {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+                {!projectId && <span className="st-muted">Canvas pictures are kept in a project and count against its image limit. Pick the one they belong to.</span>}
                 {project && (
                   imaging?.enabled ? (
                     <span className="st-muted st-num">{projectImageModel(imaging).label} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>

@@ -128,7 +128,7 @@ describe("pipeline", () => {
 
     await expect(orch.createTakes(shotId, { n: 1, confirm: false }, mcp)).rejects.toMatchObject({ code: "needs_confirm" });
 
-    const { takes, estimate } = await orch.createTakes(shotId, { n: 2, confirm: true, seed: 7 }, mcp);
+    const { takes, estimate } = await orch.createTakes(shotId, { n: 2, confirm: true, seed: 7, skipReview: "test: the user asked to render it as it is" }, mcp);
     expect(takes).toHaveLength(2);
     expect(takes.map((t) => t.status)).toEqual(["queued", "queued"]);
     expect(takes.map((t) => t.seed)).toEqual([7, 8]);
@@ -152,7 +152,7 @@ describe("pipeline", () => {
   it("budget counts takes still in flight", async () => {
     const project = await repo.getProject(projectId);
     await repo.updateProject(projectId, { budgetCapUsd: 0.2 });
-    await expect(orch.createTakes(shotId, { n: 1, confirm: true }, mcp)).rejects.toMatchObject({ code: "budget_exceeded" });
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "budget_exceeded" });
     await repo.updateProject(projectId, { budgetCapUsd: project.budgetCapUsd });
   });
 

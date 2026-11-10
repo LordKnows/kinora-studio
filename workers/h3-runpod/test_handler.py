@@ -245,6 +245,42 @@ def test_fill_graph_sets_lora_slots_and_neutralises_unused():
     assert untouched["7"]["inputs"]["lora_name"] == graph["7"]["inputs"]["lora_name"]
 
 
+@pytest.mark.parametrize("workflow", ["T2VA", "I2VA", "I2VA_GUIDE", "FL2VA", "R2VA"])
+def test_fill_graph_chains_extra_loras_after_the_slot(workflow):
+    """A speed LoRA plus style LoRAs: the templates carry one slot, the rest are chained behind it."""
+    mapping = json.loads((HERE / "workflows" / "mapping.json").read_text())[workflow]
+    graph = json.loads((HERE / "workflows" / f"{mapping['template']}.json").read_text())
+    readers = [(nid, name) for nid, node in graph.items() for name, v in node["inputs"].items() if v == ["7", 0]]
+    assert readers, "something reads the LoRA'd model"
+    params = {"prompt": "p", "negative": "", "seconds": 5, "width": 1344, "height": 768, "steps": 8, "seed": 1, "enhance": False, "files": {},
+              "loras": [{"file": "speed.safetensors", "strength": 1.0}, {"file": "realism.safetensors", "strength": 0.7}, {"file": "camera.safetensors", "strength": 0.6}]}
+    params["files"] = {"I2VA": {"first_frame": "a.png"}, "I2VA_GUIDE": {"first_frame": "a.png", "guide_audio": "g.wav"}, "FL2VA": {"first_frame": "a.png", "last_frame": "b.png"},
+                       "R2VA": {"reference": ["r.png"]}}.get(workflow, {})
+    filled = h.fill_graph(graph, mapping, params)
+    assert filled["7"]["inputs"]["lora_name"] == "speed.safetensors" and filled["7"]["inputs"]["strength_model"] == 1.0
+    second, third = filled["7_lora1"], filled["7_lora2"]
+    assert second["class_type"] == "LoraLoaderModelOnly" and second["inputs"] == {"model": ["7", 0], "lora_name": "realism.safetensors", "strength_model": 0.7}
+    assert third["inputs"] == {"model": ["7_lora1", 0], "lora_name": "camera.safetensors", "strength_model": 0.6}
+    for nid, name in readers:
+        assert filled[nid]["inputs"][name] == ["7_lora2", 0]
+    assert not [1 for nid, node in filled.items() if nid not in ("7_lora1",) for v in node["inputs"].values() if v == ["7", 0]]
+    # the template itself is not touched, and one LoRA still fills the slot alone
+    assert "7_lora1" not in graph
+    one = h.fill_graph(graph, mapping, {**params, "loras": params["loras"][:1]})
+    assert "7_lora1" not in one and one[readers[0][0]]["inputs"][readers[0][1]] == ["7", 0]
+    with pytest.raises(h.JobError, match="at most 4"):
+        h.fill_graph(graph, mapping, {**params, "loras": params["loras"] * 2})
+
+
+def test_fill_graph_refuses_extra_loras_on_a_loader_it_cannot_chain():
+    mapping = {"prompt": ["1", "text"], "seconds": ["1", "seconds"], "loras": [{"node": "3", "name": "lora_name", "strength": "strength"}]}
+    graph = {"1": {"class_type": "X", "inputs": {"text": ""}}, "3": {"class_type": "OpenH3RegenLora", "inputs": {"lora_name": "a", "strength": 1.0}}}
+    params = {"prompt": "p", "negative": "", "seconds": 5, "width": 1, "height": 1, "steps": 3, "seed": 1, "enhance": False, "files": {},
+              "loras": [{"file": "a.safetensors", "strength": 1.0}, {"file": "b.safetensors", "strength": 1.0}]}
+    with pytest.raises(h.JobError, match="cannot be chained"):
+        h.fill_graph(graph, mapping, params)
+
+
 def test_ensure_loras_downloads_missing_from_hf(tmp_path):
 
     class Res:
