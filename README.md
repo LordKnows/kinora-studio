@@ -100,6 +100,45 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   attach. `agent/director.md` is the director guide, served as a tool and a
   resource and pasteable into your chat client.
 
+## Private projects
+
+A project is **shared** (every signed-in user sees it — the default, and how
+every project before this one behaves) or **private** (only the user who made
+it). Choose on the Projects page when you create it, or later under Settings
+→ Sharing (the owner only, on the web; the director can create a private
+project — `create_project` / `start_film` take `visibility` — but never makes
+one public). The account is the Cloudflare Access email, and an OAuth
+connector acts as the user who approved it, so each user's Claude or Grok sees
+that user's private projects and nobody else's.
+
+- **One rule, enforced at the door.** Everything in a project hangs off its
+  `project_id`. Every web route (path, query and JSON body) and every MCP
+  tool (its arguments) is checked by `src/auth/scope.ts`: any Studio id in it
+  (`prj_`, `sht_`, `tke_`, `ast_`, `ele_`… by prefix, wherever it sits) that
+  belongs to someone else's private project answers `not_found`, the same as
+  an id that does not exist. New routes and tools are covered without being
+  listed; `tests/private-projects.test.ts` fails if a table or id prefix is
+  added that the guard does not know.
+- **What is private stays private.** Copying an element out of a private
+  project (to the library or another project) gives the copy pictures and a
+  voice card of its own; a shot, element or voice card elsewhere cannot point
+  at a private project's picture, audio or voice card. When a shared project
+  turns private, what the library and other projects took from it while it
+  was shared gets copies of its own there, so it keeps working for everyone
+  else (the decision log says how many).
+- **The machines stay shared.** The GPU pod, the painters, the libraries
+  (LoRAs, styles, Canvas references) and the API keys serve every project.
+  Others see that the pod is busy, never with what. Stopping the pod while it
+  works for someone else's project asks first (`needs_confirm`); terminating,
+  adopting or repairing it, and the painters' controls and Codex login, are
+  for `ADMIN_USERS` (every signed-in user when unset, as before).
+- **Projects from before** have no owner and stay shared; an admin makes one
+  private and becomes its owner.
+- **Limits.** Picture and video links (`/media/…`) are unguessable but not
+  signed: whoever is given one can open it. `MCP_STATIC_TOKEN` acts as
+  `MCP_STATIC_USER` (unset: nobody, shared projects only). With
+  `AUTH_MODE=dev` everyone is `DEV_USER`, so private means nothing there.
+
 ## Run it locally
 
 ```bash

@@ -34,7 +34,7 @@ export async function authenticateBearer(request: Request): Promise<Actor | null
   if (!match) return null;
   const token = match[1]!.trim();
   const fixed = config.mcpStaticToken();
-  if (fixed && token === fixed) return { user: "mcp-static", via: "mcp" };
+  if (fixed && token === fixed) return { user: config.mcpStaticUser(), via: "mcp" };
   const row = await getOAuthToken(await sha256Hex(token));
   if (!row || row.kind !== "access" || row.expiresAt < Date.now()) return null;
   return { user: row.user, via: "mcp" };

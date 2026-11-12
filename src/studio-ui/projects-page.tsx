@@ -3,22 +3,27 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import type { Project } from "@/studio/types";
+import type { Project, ProjectVisibility } from "@/studio/types";
 
 import { get, post, usd, when } from "./api";
 import { Button, Empty, ErrorBanner, Field, Skeleton } from "./common";
 
-/* Home: the films, and the path a new one takes. */
+type ListedProject = Project & { mine: boolean };
+
+/* Home: the films, and the path a new one takes. Your private projects come
+   first; the shared ones are everyone's (the GPU, painters and director
+   connector are shared either way). */
 export function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [projects, setProjects] = useState<ListedProject[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [name, setName] = useState("");
   const [cap, setCap] = useState("50");
+  const [visibility, setVisibility] = useState<ProjectVisibility>("shared");
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
     try {
-      const { projects } = await get<{ projects: Project[] }>("/api/projects");
+      const { projects } = await get<{ projects: ListedProject[] }>("/api/projects");
       setProjects(projects);
     } catch (caught) {
       setError(caught);
@@ -35,7 +40,7 @@ export function ProjectsPage() {
     setBusy(true);
     setError(null);
     try {
-      await post("/api/projects", { name: name.trim(), budgetCapUsd: Number(cap) || 50 });
+      await post("/api/projects", { name: name.trim(), budgetCapUsd: Number(cap) || 50, visibility });
       setName("");
       await reload();
     } catch (caught) {
@@ -66,6 +71,12 @@ export function ProjectsPage() {
               <input className="st-input" type="number" min={0} step={1} value={cap} onChange={(e) => setCap(e.target.value)} />
             </Field>
           </div>
+          <Field label="Who sees it" group>
+            <div className="st-seg" role="group" aria-label="Who sees it">
+              <button type="button" aria-pressed={visibility === "shared"} onClick={() => setVisibility("shared")} title="Every signed-in user of this studio">Shared</button>
+              <button type="button" aria-pressed={visibility === "private"} onClick={() => setVisibility("private")} title="Only you, on the web and through your director connector">Private</button>
+            </div>
+          </Field>
           <Button type="submit" kind="primary" busy={busy} disabled={!name.trim()}>Create</Button>
         </div>
       </form>
@@ -81,24 +92,16 @@ export function ProjectsPage() {
         ) : projects.length === 0 ? (
           <Empty title="No projects yet" hint="Create one above, or let your director agent call start_film over MCP." />
         ) : (
-          <div className="st-grid">
-            {projects.map((p) => {
-              const steps = [Boolean(p.brief), p.shotlistApproval === "approved", p.spentUsd > 0];
-              return (
-                <Link key={p.id} href={`/p/${p.id}/board`} className="st-project">
-                  <span className="st-project-name">{p.name}</span>
-                  <span className="st-project-meta">
-                    <span>{when(p.updatedAt)}</span>
-                    <span className="st-num">{usd(p.spentUsd)} / {usd(p.budgetCapUsd)}</span>
-                  </span>
-                  <span className="st-project-steps" aria-label="progress">
-                    {steps.map((done, i) => <span key={i} data-done={done ? "true" : "false"} />)}
-                  </span>
-                  <span className="st-muted">{p.shotlistApproval === "approved" ? "Shotlist approved" : p.brief ? "Brief written" : "Just created"}</span>
-                </Link>
-              );
-            })}
-          </div>
+          <>
+            {groups(projects).map((g) => (
+              <div key={g.key} className="st-stack" style={{ marginTop: g.key === "shared" && projects.some((p) => p.visibility === "private") ? 22 : 0 }}>
+                {g.title && <div className="st-section-title"><span>{g.title}</span></div>}
+                <div className="st-grid">
+                  {g.items.map((p) => <ProjectCard key={p.id} p={p} />)}
+                </div>
+              </div>
+            ))}
+          </>
         )}
       </div>
 
@@ -114,5 +117,39 @@ export function ProjectsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function groups(projects: ListedProject[]): Array<{ key: string; title?: string; items: ListedProject[] }> {
+  const mine = projects.filter((p) => p.visibility === "private");
+  const shared = projects.filter((p) => p.visibility !== "private");
+  if (!mine.length) return [{ key: "shared", items: shared }];
+  return [
+    { key: "private", title: "Private · only you", items: mine },
+    ...(shared.length ? [{ key: "shared", title: "Shared", items: shared }] : []),
+  ];
+}
+
+function ProjectCard({ p }: { p: ListedProject }) {
+  const steps = [Boolean(p.brief), p.shotlistApproval === "approved", p.spentUsd > 0];
+  return (
+    <Link href={`/p/${p.id}/board`} className="st-project">
+      <span className="st-row st-row--between" style={{ alignItems: "flex-start", gap: 8 }}>
+        <span className="st-project-name">{p.name}</span>
+        {p.visibility === "private" ? (
+          <span className="st-chip st-chip--mono" title="Only you see it">Private</span>
+        ) : p.owner && !p.mine ? (
+          <span className="st-chip st-chip--mono" title={`Shared by ${p.owner}`}>{p.owner.split("@")[0]}</span>
+        ) : null}
+      </span>
+      <span className="st-project-meta">
+        <span>{when(p.updatedAt)}</span>
+        <span className="st-num">{usd(p.spentUsd)} / {usd(p.budgetCapUsd)}</span>
+      </span>
+      <span className="st-project-steps" aria-label="progress">
+        {steps.map((done, i) => <span key={i} data-done={done ? "true" : "false"} />)}
+      </span>
+      <span className="st-muted">{p.shotlistApproval === "approved" ? "Shotlist approved" : p.brief ? "Brief written" : "Just created"}</span>
+    </Link>
   );
 }

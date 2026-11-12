@@ -1,10 +1,11 @@
 import { body, route } from "@/api/http";
-import * as repo from "@/studio/repo";
 import { ProjectInput } from "@/studio/schemas";
+import { createProjectAs, listProjectsFor } from "@/studio/sharing";
 
-export const GET = route(["web", "mcp"], async () => ({ projects: await repo.listProjects() }));
+/* Every shared project and the caller's own private ones. */
+export const GET = route(["web", "mcp"], async (_req, { actor }) => ({ projects: await listProjectsFor(actor) }));
 
-export const POST = route(["web", "mcp"], async (req) => {
+export const POST = route(["web", "mcp"], async (req, { actor }) => {
   const input = await body(req, ProjectInput);
-  return { project: await repo.createProject(input) };
+  return { project: await createProjectAs(actor, input) };
 });

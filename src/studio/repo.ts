@@ -2,11 +2,11 @@ import type { z } from "zod";
 import { getDb, type Db, type SqlValue } from "@/db";
 
 import { newId } from "./ids";
-import { notFound } from "./errors";
+import { StudioError, notFound } from "./errors";
 import { DEFAULT_LOOK, LookSettings, MAX_DETAILS, MAX_ELEMENT_REFS, ShotInput, TimelineInput, VoiceCardInput, VoiceState } from "./schemas";
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
-  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
+  Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, ProjectVisibility, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, Voicing,
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette } from "./schemas";
@@ -49,14 +49,190 @@ function mapProject(r: Row): Project {
     autopilot: json<Autopilot | undefined>(r.autopilot_json, undefined),
     delegation: json<Delegation | undefined>(r.delegation_json, undefined),
     imaging: json<Imaging | undefined>(r.imaging_json, undefined),
+    owner: opt(r.owner, str) || undefined,
+    visibility: r.visibility === "private" ? "private" : "shared",
     createdAt: num(r.created_at),
     updatedAt: num(r.updated_at),
   };
 }
 
-export async function listProjects(): Promise<Project[]> {
-  const rows = await (await db()).all("SELECT * FROM projects ORDER BY updated_at DESC");
+/* Migration 0020 adds owner and visibility; they are also added on first use,
+   so a deploy works before it has been applied on D1 (a column that exists
+   already answers "duplicate column", which is fine). */
+let projectColumnsReady = false;
+async function projectsDb(): Promise<Db> {
+  const d = await db();
+  if (!projectColumnsReady) {
+    for (const sql of ["ALTER TABLE projects ADD COLUMN owner TEXT", "ALTER TABLE projects ADD COLUMN visibility TEXT NOT NULL DEFAULT 'shared'"]) {
+      try {
+        await d.run(sql);
+      } catch (caught) {
+        if (!/duplicate column/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
+      }
+    }
+    projectColumnsReady = true;
+  }
+  return d;
+}
+
+/**
+ * The projects a user sees: every shared one and their own private ones,
+ * newest first. `null` is the Studio itself (the sweep, hooks): everything.
+ */
+export async function listProjects(viewer: string | null): Promise<Project[]> {
+  const d = await projectsDb();
+  const rows = viewer === null
+    ? await d.all("SELECT * FROM projects ORDER BY updated_at DESC")
+    : await d.all("SELECT * FROM projects WHERE visibility <> 'private' OR owner = ? ORDER BY updated_at DESC", [viewer]);
   return rows.map(mapProject);
+}
+
+/** Owner and visibility of these projects (missing ids are left out). */
+export async function projectAccessRows(ids: string[]): Promise<Map<string, { owner?: string; visibility: ProjectVisibility }>> {
+  const out = new Map<string, { owner?: string; visibility: ProjectVisibility }>();
+  const d = await projectsDb();
+  for (const part of chunks([...new Set(ids)], 90)) {
+    const rows = await d.all(`SELECT id, owner, visibility FROM projects WHERE id IN (${part.map(() => "?").join(",")})`, part);
+    for (const r of rows) out.set(str(r.id), { owner: opt(r.owner, str) || undefined, visibility: r.visibility === "private" ? "private" : "shared" });
+  }
+  return out;
+}
+
+/** Tables whose rows belong to a project, by the prefix of their ids (ids.ts). */
+export const PROJECT_TABLE_OF_PREFIX = {
+  scr: "scripts", ast: "assets", ele: "elements", scn: "scenes", sht: "shots", tke: "takes", exp: "export_jobs",
+  job: "jobs", vc: "voice_cards", rev: "reviews", req: "director_notes", dec: "director_notes", vot: "eval_votes",
+} as const;
+
+/** The project of each of these rows (null: a library row, in no project); unknown ids are left out. */
+export async function projectIdsOf(table: (typeof PROJECT_TABLE_OF_PREFIX)[keyof typeof PROJECT_TABLE_OF_PREFIX], ids: string[]): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  const d = await db();
+  for (const part of chunks([...new Set(ids)], 90)) {
+    let rows: Row[];
+    try {
+      rows = await d.all(`SELECT id, project_id FROM ${table} WHERE id IN (${part.map(() => "?").join(",")})`, part);
+    } catch (caught) {
+      /* a table created on first use (voice_cards) that no one has used yet holds no rows */
+      if (/no such table/i.test(caught instanceof Error ? caught.message : String(caught))) continue;
+      throw caught;
+    }
+    for (const r of rows) out.set(str(r.id), r.project_id === null || r.project_id === undefined || r.project_id === "" ? null : str(r.project_id));
+  }
+  return out;
+}
+
+function chunks<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/* What is in a private project stays in it. A row of another scope (the
+   library, another project) may not point at its pictures, audio or voice
+   cards: the others who see that scope would see them, and could not open
+   them (auth/scope.ts answers not_found). copyElement copies them instead. */
+
+/** These rows that sit in a private project other than `scope` (null: the library). */
+async function inOtherPrivateProject(table: "assets" | "voice_cards", ids: Array<string | null | undefined>, scope: string | null): Promise<Array<{ id: string; projectId: string }>> {
+  const list = ids.filter((x): x is string => !!x);
+  if (!list.length) return [];
+  const projectOf = await projectIdsOf(table, list);
+  const elsewhere = [...projectOf].filter((e): e is [string, string] => !!e[1] && e[1] !== scope);
+  if (!elsewhere.length) return [];
+  const access = await projectAccessRows(elsewhere.map(([, p]) => p));
+  return elsewhere.filter(([, p]) => access.get(p)?.visibility === "private").map(([id, projectId]) => ({ id, projectId }));
+}
+
+async function assertStaysPrivate(scope: string | null, refs: { assets?: Array<string | null | undefined>; voiceCards?: Array<string | null | undefined> }): Promise<void> {
+  const where = scope ? "this project" : "the library";
+  const asset = (await inOtherPrivateProject("assets", refs.assets ?? [], scope))[0];
+  if (asset) throw new StudioError("validation", `${asset.id} is in a private project and stays there: import a copy into ${where} first (import_image with its URL)`);
+  const card = (await inOtherPrivateProject("voice_cards", refs.voiceCards ?? [], scope))[0];
+  if (card) throw new StudioError("validation", `voice card ${card.id} is in a private project and stays there: make a card in ${where} instead`);
+}
+
+/** Copies (new rows in `scope`, same files) of these assets, old id → new id. */
+async function copyAssets(ids: Iterable<string>, scope: string | null): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const id of new Set(ids)) {
+    const a = await getAsset(id);
+    const copy = await createAsset({ projectId: scope, url: a.url, kind: a.kind, source: a.source, width: a.width, height: a.height, durationS: a.durationS, meta: { ...a.meta, copiedFrom: a.id }, name: a.name });
+    out.set(id, copy.id);
+  }
+  return out;
+}
+
+/** Copies of the pictures and audio among `ids` that sit in a private project other than `scope`. */
+async function copyPrivateAssets(ids: string[], scope: string | null): Promise<Map<string, string>> {
+  return copyAssets((await inOtherPrivateProject("assets", ids, scope)).map((x) => x.id), scope);
+}
+
+const rekeyed = <V>(m: Record<string, V> | undefined, map: Map<string, string>) => (m ? Object.fromEntries(Object.entries(m).map(([k, v]) => [map.get(k) ?? k, v])) : m);
+
+/**
+ * Before a project turns private: what other scopes (the library, other
+ * projects) took from it while it was shared — pictures and audio an
+ * element, a shot or a voice card points at, a voice card an element uses —
+ * gets copies of its own there, so it goes on working for everyone else and
+ * nothing outside points into the private project. Returns how many rows
+ * were given copies.
+ */
+export async function detachFromProject(projectId: string): Promise<number> {
+  const d = await voiceCardsDb();
+  const elsewhere = "(x.project_id IS NULL OR x.project_id <> ?)";
+  const ids = (rows: Row[]) => [...new Set(rows.map((r) => str(r.id)))];
+  const inProject = async (list: Array<string | null | undefined>) =>
+    [...(await projectIdsOf("assets", list.filter((x): x is string => !!x)))].filter(([, p]) => p === projectId).map(([id]) => id);
+  let n = 0;
+
+  /* elements elsewhere that use one of its voice cards: a card of their own */
+  for (const id of ids(await d.all(`SELECT x.id AS id FROM elements x JOIN voice_cards v ON v.id = json_extract(x.meta_json, '$.voiceCardId') WHERE v.project_id = ? AND ${elsewhere}`, [projectId, projectId]))) {
+    const el = await getElement(id);
+    const card = await getVoiceCard(el.voiceCardId!);
+    const audio = await copyAssets(await inProject(card.states.flatMap((st) => st.refAssetIds)), el.projectId);
+    const states = card.states.map((st) => ({ ...st, refAssetIds: st.refAssetIds.map((a) => audio.get(a) ?? a) }));
+    const copy = await createVoiceCard(el.projectId, { name: card.name, status: card.status, defaultState: card.defaultState, states, source: card.source, notes: card.notes });
+    await updateElement(el.id, { voiceCardId: copy.id });
+    n++;
+  }
+  /* elements elsewhere with its pictures among their references (or its audio as their voice) */
+  const elementRows = [
+    ...(await d.all(`SELECT DISTINCT x.id AS id FROM elements x, json_each(x.ref_asset_ids_json) j JOIN assets a ON a.id = j.value WHERE a.project_id = ? AND ${elsewhere}`, [projectId, projectId])),
+    ...(await d.all(`SELECT x.id AS id FROM elements x JOIN assets a ON a.id = x.voice_asset_id WHERE a.project_id = ? AND ${elsewhere}`, [projectId, projectId])),
+  ];
+  for (const id of ids(elementRows)) {
+    const el = await getElement(id);
+    const map = await copyAssets(await inProject([...el.refAssetIds, el.voiceAssetId]), el.projectId);
+    await updateElement(el.id, {
+      refAssetIds: el.refAssetIds.map((a) => map.get(a) ?? a), refViews: rekeyed(el.refViews, map), refFeatures: rekeyed(el.refFeatures, map),
+      ...(el.voiceAssetId && map.has(el.voiceAssetId) ? { voiceAssetId: map.get(el.voiceAssetId)! } : {}),
+    });
+    n++;
+  }
+  /* shots elsewhere framed on its pictures */
+  for (const id of ids(await d.all("SELECT x.id AS id FROM shots x JOIN assets a ON a.id = x.hero_asset_id OR a.id = x.end_asset_id WHERE a.project_id = ? AND x.project_id <> ?", [projectId, projectId]))) {
+    const shot = await getShot(id);
+    const map = await copyAssets(await inProject([shot.heroAssetId, shot.endAssetId]), shot.projectId);
+    await updateShot(id, {
+      ...(shot.heroAssetId && map.has(shot.heroAssetId) ? { heroAssetId: map.get(shot.heroAssetId)! } : {}),
+      ...(shot.endAssetId && map.has(shot.endAssetId) ? { endAssetId: map.get(shot.endAssetId)! } : {}),
+    });
+    n++;
+  }
+  /* voice cards elsewhere with its audio as a reference */
+  for (const id of ids(await d.all(`SELECT DISTINCT x.id AS id FROM voice_cards x, json_tree(x.data_json) j JOIN assets a ON j.type = 'text' AND a.id = j.atom WHERE a.project_id = ? AND ${elsewhere}`, [projectId, projectId]))) {
+    const card = await getVoiceCard(id);
+    const map = await copyAssets(await inProject(card.states.flatMap((st) => st.refAssetIds)), card.projectId);
+    await updateVoiceCard(id, { states: card.states.map((st) => ({ ...st, refAssetIds: st.refAssetIds.map((a) => map.get(a) ?? a) })) });
+    n++;
+  }
+  return n;
+}
+
+/** Whether another asset row still uses this file (its picture or its preview). */
+export async function assetFileInUse(url: string): Promise<boolean> {
+  return !!(await (await db()).get("SELECT 1 AS used FROM assets WHERE url = ? OR instr(meta_json, ?) > 0 LIMIT 1", [url, JSON.stringify(url)]));
 }
 
 export async function getProject(id: string): Promise<Project> {
@@ -65,17 +241,24 @@ export async function getProject(id: string): Promise<Project> {
   return mapProject(row);
 }
 
-export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number; brief?: string; targetSeconds?: number }): Promise<Project> {
+export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number; brief?: string; targetSeconds?: number; owner?: string; visibility?: ProjectVisibility }): Promise<Project> {
   const now = Date.now();
   const id = newId("prj");
   /* A new project renders with every speed LoRA in the library unless the
      caller chose its own set; the compiler scopes them per workflow. */
   const speed = input.look?.loras === undefined ? (await listLoras()).filter((l) => l.kind === "speed").map((l) => ({ id: l.id })) : undefined;
   const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}), ...(speed ? { loras: speed } : {}) });
-  await (await db()).run(
-    "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, brief, target_seconds, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?)",
-    [id, input.name, JSON.stringify(look), input.budgetCapUsd ?? 50, input.brief ?? "", input.targetSeconds ?? null, now, now],
+  if (input.visibility === "private" && !input.owner) throw new Error("a private project needs an owner");
+  await (await projectsDb()).run(
+    "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, brief, target_seconds, owner, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?)",
+    [id, input.name, JSON.stringify(look), input.budgetCapUsd ?? 50, input.brief ?? "", input.targetSeconds ?? null, input.owner ?? null, input.visibility ?? "shared", now, now],
   );
+  return getProject(id);
+}
+
+/** Shared or private, and who owns it (set when an ownerless project is claimed). Policy lives in auth/scope.ts. */
+export async function setProjectVisibility(id: string, visibility: ProjectVisibility, owner: string): Promise<Project> {
+  await (await projectsDb()).run("UPDATE projects SET visibility = ?, owner = ?, updated_at = ? WHERE id = ?", [visibility, owner, Date.now(), id]);
   return getProject(id);
 }
 
@@ -355,6 +538,7 @@ export async function getElements(ids: string[]): Promise<Map<string, Element>> 
 
 export async function createElement(projectId: string | null, input: { kind: ElementKind; name: string; description: string; refAssetIds?: string[]; fixedFeatures?: FixedFeature[]; refViews?: Record<string, RefView>; refFeatures?: Record<string, string>; voiceCardId?: string; voiceState?: string }): Promise<Element> {
   if (input.voiceCardId) await getVoiceCard(input.voiceCardId);
+  await assertStaysPrivate(projectId, { assets: input.refAssetIds, voiceCards: [input.voiceCardId] });
   const id = newId("ele");
   const now = Date.now();
   await (await db()).run(
@@ -368,6 +552,7 @@ export async function createElement(projectId: string | null, input: { kind: Ele
 export async function updateElement(id: string, patch: Partial<{ kind: ElementKind; name: string; description: string; refAssetIds: string[]; voiceAssetId: string | null; fixedFeatures: FixedFeature[]; refViews: Record<string, RefView>; refFeatures: Record<string, string>; voiceCardId: string | null; voiceState: string | null }>): Promise<Element> {
   const current = await getElement(id);
   if (patch.voiceCardId) await getVoiceCard(patch.voiceCardId);
+  await assertStaysPrivate(current.projectId, { assets: [...(patch.refAssetIds ?? []), patch.voiceAssetId], voiceCards: [patch.voiceCardId] });
   const refAssetIds = patch.refAssetIds ?? current.refAssetIds;
   /* Views follow the refs: a view for an asset that is no longer a ref is dropped. */
   const views = { ...(current.refViews ?? {}), ...(patch.refViews ?? {}) };
@@ -397,7 +582,18 @@ export async function deleteElement(id: string): Promise<void> {
 /** Copy an element (and its refs) into another scope: library (null) or a project. */
 export async function copyElement(id: string, targetProjectId: string | null): Promise<Element> {
   const source = await getElement(id);
-  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds, fixedFeatures: source.fixedFeatures, refViews: source.refViews, refFeatures: source.refFeatures, voiceCardId: source.voiceCardId, voiceState: source.voiceState });
+  /* out of a private project the copy gets pictures (and a voice card) of its own, in the new scope */
+  const copied = await copyPrivateAssets(source.refAssetIds, targetProjectId);
+  const re = (a: string) => copied.get(a) ?? a;
+  const rekey = <V>(m?: Record<string, V>) => rekeyed(m, copied);
+  let voiceCardId = source.voiceCardId;
+  if (voiceCardId && (await inOtherPrivateProject("voice_cards", [voiceCardId], targetProjectId)).length) {
+    const card = await getVoiceCard(voiceCardId);
+    const audio = await copyPrivateAssets(card.states.flatMap((st) => st.refAssetIds), targetProjectId);
+    const states = card.states.map((st) => ({ ...st, refAssetIds: st.refAssetIds.map((a) => audio.get(a) ?? a) }));
+    voiceCardId = (await createVoiceCard(targetProjectId, { name: card.name, status: card.status, defaultState: card.defaultState, states, source: card.source, notes: card.notes })).id;
+  }
+  return createElement(targetProjectId, { kind: source.kind, name: source.name, description: source.description, refAssetIds: source.refAssetIds.map(re), fixedFeatures: source.fixedFeatures, refViews: rekey(source.refViews), refFeatures: rekey(source.refFeatures), voiceCardId, voiceState: source.voiceState });
 }
 
 /**
@@ -470,6 +666,7 @@ function checkStates(c: { defaultState?: string; states: VoiceCard["states"] }):
 export async function createVoiceCard(projectId: string | null, raw: z.input<typeof VoiceCardInput>): Promise<VoiceCard> {
   const input = VoiceCardInput.parse(raw);
   checkStates(input);
+  await assertStaysPrivate(projectId, { assets: input.states.flatMap((st) => st.refAssetIds) });
   const id = newId("vc");
   const now = Date.now();
   await (await voiceCardsDb()).run(
@@ -512,9 +709,14 @@ export async function updateVoiceCard(id: string, patch: Partial<z.input<typeof 
     source: patch.source ?? current.source, notes: patch.notes ?? current.notes,
   };
   checkStates(next);
+  const scope = patch.projectId === undefined ? current.projectId : patch.projectId;
+  if (scope !== current.projectId && (await inOtherPrivateProject("voice_cards", [id], scope)).length) {
+    throw new StudioError("validation", "this voice card is in a private project and stays there: make a card in the library or the other project instead");
+  }
+  await assertStaysPrivate(scope, { assets: next.states.flatMap((st) => st.refAssetIds) });
   await (await voiceCardsDb()).run(
     "UPDATE voice_cards SET project_id = ?, name = ?, status = ?, data_json = ?, updated_at = ? WHERE id = ?",
-    [patch.projectId === undefined ? current.projectId : patch.projectId, patch.name ?? current.name, patch.status ?? current.status, voiceCardData(next), Date.now(), id],
+    [scope, patch.name ?? current.name, patch.status ?? current.status, voiceCardData(next), Date.now(), id],
   );
   return getVoiceCard(id);
 }
@@ -634,6 +836,7 @@ export async function updateShot(id: string, patch: Partial<{
   spec: ShotInput; heroAssetId: string | null; endAssetId: string | null; selectedTakeId: string | null; promptOverride: string | null;
 }>): Promise<Shot> {
   const current = await getShot(id);
+  await assertStaysPrivate(current.projectId, { assets: [patch.heroAssetId, patch.endAssetId] });
   const pick = <T>(next: T | null | undefined, cur: T | undefined): T | null => (next === undefined ? (cur ?? null) : next);
   await (await db()).run(
     "UPDATE shots SET spec_json = ?, hero_asset_id = ?, end_asset_id = ?, selected_take_id = ?, prompt_override = ?, updated_at = ? WHERE id = ?",

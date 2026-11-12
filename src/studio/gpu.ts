@@ -299,9 +299,39 @@ export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState
   return getGpuState();
 }
 
-export async function stopGpu(): Promise<GpuState> {
+/**
+ * What the shared pod is doing for someone other than `user`: takes, upscales
+ * and exports in flight, and pictures only the pod draws, in projects `user`
+ * does not own (other users', and projects from before private projects).
+ * Counts only: what they are stays in their projects.
+ */
+export async function othersInFlight(user: string): Promise<{ takes: number; exports: number; pictures: number }> {
+  const takes = [...(await repo.listActiveTakes()), ...(await repo.listActiveUpscales())];
+  const exports = await repo.listActiveExports();
+  const { isPodBackend } = await import("./painter");
+  const pictures = (await repo.listActiveJobs()).filter((j) => j.kind === "image" && isPodBackend(j));
+  const all = [...takes, ...exports, ...pictures];
+  if (!all.length) return { takes: 0, exports: 0, pictures: 0 };
+  const access = await repo.projectAccessRows(all.map((x) => x.projectId));
+  const notMine = (projectId: string) => access.get(projectId)?.owner !== user;
+  return {
+    takes: new Set(takes.filter((t) => notMine(t.projectId)).map((t) => t.id)).size,
+    exports: exports.filter((e) => notMine(e.projectId)).length,
+    pictures: pictures.filter((j) => notMine(j.projectId)).length,
+  };
+}
+
+/** Stop the pod. A user asks first when it is working for someone else (the pod is shared); the sweep's idle stop does not. */
+export async function stopGpu(asker?: { actor: Actor; confirm: boolean }): Promise<GpuState> {
   const pod = await repo.currentGpuPod();
   if (!pod || pod.id.startsWith(UNAVAILABLE_PREFIX) || pod.status === "stopped" || pod.status === "terminated") return getGpuState();
+  if (asker && !asker.confirm) {
+    const o = await othersInFlight(asker.actor.user);
+    const parts = [o.takes && `${o.takes} take(s)`, o.exports && `${o.exports} export(s)`, o.pictures && `${o.pictures} picture(s)`].filter(Boolean);
+    if (parts.length) {
+      throw new StudioError("needs_confirm", `The GPU pod is shared: ${parts.join(", ")} of other projects are queued or rendering on it. Stopping interrupts what is rendering and holds the rest until the pod is started again. Confirm to stop anyway.`, { othersInFlight: o });
+    }
+  }
   await repo.updateGpuPod(pod.id, { status: "stopping", message: "stopping" });
   try {
     await pods().stopPod(pod.id);

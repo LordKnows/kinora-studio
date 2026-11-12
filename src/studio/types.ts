@@ -19,9 +19,15 @@ export type Project = {
   delegation?: Delegation;
   /** GPT Image on this project: off unless switched on in Settings (web only). */
   imaging?: Imaging;
+  /** Who created it (the signed-in email); projects from before private projects have none. */
+  owner?: string;
+  /** shared: every signed-in user sees it (the default, as before); private: only its owner. */
+  visibility: ProjectVisibility;
   createdAt: number;
   updatedAt: number;
 };
+
+export type ProjectVisibility = "shared" | "private";
 
 export type Autopilot = {
   envelopeUsd: number;
