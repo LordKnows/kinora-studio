@@ -1,6 +1,7 @@
 import { effectiveSeconds } from "@director/catalog";
 
 import type { ProjectView, SceneView, ShotView } from "@/studio/orchestrator";
+import type { TimelineInput } from "@/studio/schemas";
 import type { Take } from "@/studio/types";
 
 /* The film as one line of time. Every surface that lays things out by the
@@ -92,4 +93,35 @@ export function shotSpend(shot: ShotView): number {
 export function cutAfter(shots: FilmShot[], i: number): boolean {
   const next = shots[i + 1];
   return !next || next.linkIn !== "continuous";
+}
+
+type Clip = TimelineInput["clips"][number];
+
+/** How long a clip runs on the film: its trim, retimed, repeated, plus a held last frame. */
+export function clipSeconds(c: Clip): number {
+  return (Math.max(0, c.outS - c.inS) / (c.speed || 1)) * (c.repeat || 1) + (c.freezeS ?? 0);
+}
+
+/** A continuous join that jumps: the cut leaves the anchor before its take's last frame,
+    which is the frame the next shot starts on (orchestrator.checkSeams, seam.trim). */
+export type SeamTrim = { clipIndex: number; anchorSlate: string; slate: string; atS: number; cutAtS: number; takeEndS: number; gapS: number };
+
+export function seamTrims(shots: FilmShot[], timeline: TimelineInput): SeamTrim[] {
+  const out: SeamTrim[] = [];
+  shots.forEach((s, k) => {
+    if (s.linkIn !== "continuous") return;
+    const link = s.shot.spec.link;
+    const anchor = link?.anchorShotId ? shots.find((x) => x.shot.id === link.anchorShotId) : shots[k + (link?.anchor ?? -1)];
+    if (!anchor) return;
+    const pick = anchor.picked ?? anchor.shot.takes.find((t) => t.status === "completed");
+    const clipIndex = timeline.clips.findIndex((c) => c.shotId === anchor.shot.id);
+    const clip = timeline.clips[clipIndex];
+    if (!pick || !clip) return;
+    const takeEndS = pick.outputSeconds ?? anchor.durationS;
+    const gapS = takeEndS - clip.outS;
+    if (gapS <= 0.15) return;
+    const atS = timeline.clips.slice(0, clipIndex + 1).reduce((n, c) => n + clipSeconds(c), 0);
+    out.push({ clipIndex, anchorSlate: anchor.slate, slate: s.slate, atS, cutAtS: clip.outS, takeEndS, gapS });
+  });
+  return out;
 }

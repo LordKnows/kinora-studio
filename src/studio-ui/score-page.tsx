@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useMemo } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 
-import { get, usd } from "./api";
+import { usd } from "./api";
 import { cutAfter, filmSeconds, filmShots, pipState, rendersSeconds, shotPicture, shotSpend, takesInOrder, tc, type FilmShot } from "./film";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
 import { useProjectContext } from "./shell";
+import { useLint } from "./use-lint";
 
 /* The Score: a project's home. One time axis, and on it every layer of the
    film as a stave — scenes, the board's frames, the takes, the sound, the
@@ -23,19 +24,6 @@ export function ScorePage() {
       <Score />
     </Suspense>
   );
-}
-
-function useLint(projectId: string, view: ProjectView | null): LintReport | null {
-  const [lint, setLint] = useState<LintReport | null>(null);
-  /* what the lint depends on, so a take's progress tick does not refetch it */
-  const sig = view ? [view.project.shotlistApproval, view.script?.version, view.scenes.map((s) => s.shots.map((x) => `${x.id}:${x.updatedAt}:${x.selectedTakeId ?? ""}`).join(",")).join("|"), JSON.stringify(view.timeline.clips.map((c) => [c.shotId, c.inS, c.outS]))].join("#") : "";
-  useEffect(() => {
-    if (!sig) return;
-    let alive = true;
-    get<LintReport>(`/api/projects/${projectId}/lint`).then((r) => alive && setLint(r)).catch(() => alive && setLint(null));
-    return () => { alive = false; };
-  }, [projectId, sig]);
-  return lint;
 }
 
 function Score() {
