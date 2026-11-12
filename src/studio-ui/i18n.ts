@@ -99,6 +99,11 @@ const ZH: Record<string, string> = {
   "Screen them in order": "按顺序看", "starts at {s}": "从 {s} 开始",
   "picture awaits review": "张图片待审", "pictures await review": "张图片待审", "{range}: pass each one or have it redrawn.": "{range}：逐张通过或重画。", "Pass each one or have it redrawn.": "逐张通过或重画。", "Review them": "去审",
   "treatment with the script": "份处理稿", "No logline, arc or sound design is written down, so nothing holds the cut to them.": "没有写下一句话梗概、弧线或声音设计，剪辑就没有可对照的东西。", "Open the script": "打开剧本",
+  "script line on no shot": "句剧本没有镜头拍", "script lines on no shot": "句剧本没有镜头拍",
+  "quote the script no longer has": "处引文剧本里已经没有", "quotes the script no longer has": "处引文剧本里已经没有",
+  "“{first}”{more}: add a shot, line it to the shot that shows it, or cut it.": "“{first}”{more}：加一个镜头、贯到拍它的镜头上，或者从剧本里删掉。", " and {n} more": " 等 {n} 句",
+  "{list} quote lines that were changed in the script.": "{list} 引用的句子在剧本里改过了。", "Line the script": "去贯线",
+  "{c} of {n} lines on a shot": "{c}/{n} 句有镜头", "no shot names its lines": "镜头都没标剧本句", "1 line": "1 句", "{n} lines": "{n} 句", "no line": "无",
   "budget cap passed": "预算超了上限", "No new take will render until the cap is raised.": "上限提高之前不会再拍新镜次。",
 
   /* Screening */

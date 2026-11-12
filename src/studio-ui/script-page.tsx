@@ -1,19 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 
 import type { StoredTreatment, TreatmentWarning } from "@/studio/treatment";
 import type { Script } from "@/studio/types";
 
-import { get, post, when } from "./api";
+import { get, patch, post, when } from "./api";
 import { Button, Empty, ErrorBanner, Lamp, Section, useAction } from "./common";
 import { filmShots, shotPicture, tc } from "./film";
 import { Markdown } from "./markdown";
+import { coverage, normalize } from "@/studio/coverage";
+
 import { diffSentences, scriptSections } from "./script-text";
 import { useProjectContext } from "./shell";
 
 export function ScriptPage() {
+  return (
+    <Suspense fallback={null}>
+      <ScriptPageInner />
+    </Suspense>
+  );
+}
+
+function ScriptPageInner() {
   const { projectId, view, reload } = useProjectContext();
   const [scripts, setScripts] = useState<Script[] | null>(null);
   const [treatment, setTreatment] = useState<StoredTreatment | null>(null);
@@ -21,7 +32,8 @@ export function ScriptPage() {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<"read" | "board" | "changes">("read");
+  const params = useSearchParams();
+  const [mode, setMode] = useState<"read" | "board" | "changes">(params.get("view") === "lined" ? "board" : "read");
 
   const load = useCallback(async () => {
     const { scripts, treatment, treatmentWarnings } = await get<{ scripts: Script[]; treatment?: StoredTreatment | null; treatmentWarnings?: TreatmentWarning[] }>(`/api/projects/${projectId}/scripts`);
@@ -142,13 +154,13 @@ export function ScriptPage() {
               {current && (
                 <div className="st-seg" role="group" aria-label="How to show the script">
                   <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>Read</button>
-                  <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>Beside the board</button>
+                  <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>Lined</button>
                   <button type="button" aria-pressed={mode === "changes"} disabled={!scripts?.some((x) => x.version < current.version)} onClick={() => setMode("changes")}>Changes</button>
                 </div>
               )}
             </div>
             {!current ? <span className="st-muted">Select a version to read it.</span>
-              : mode === "board" ? <BesideTheBoard text={current.text} />
+              : mode === "board" ? <BesideTheBoard text={current.text} latest={current.id === latest?.id} version={current.version} />
               : mode === "changes" ? <Changes before={scripts?.find((x) => x.version < current.version)} after={current} />
               : <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div>}
           </div>
@@ -242,49 +254,133 @@ function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | 
   );
 }
 
-/* The script laid beside the board: each section next to the scene it pairs
-   with (by order, when the counts match), with the time its heading states
-   against the seconds the board gives that scene. */
-function BesideTheBoard({ text }: { text: string }) {
-  const { projectId, view } = useProjectContext();
+/* The lined script: every sentence of the scenes beside the shots that show
+   it. A shot names the lines it shows (spec.scriptLines, quoted from the
+   script); each is drawn as a line in the margin, as a script supervisor
+   lines a shooting script, and a sentence no shot shows is marked open. A
+   sentence can be lined to a shot here, and a line taken off one. Sections
+   pair with scenes by order when there are as many of each, for the board's
+   seconds against the time a heading states. */
+function BesideTheBoard({ text, latest, version }: { text: string; latest: boolean; version: number }) {
+  const { projectId, view, reload } = useProjectContext();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   if (!view) return null;
   const { preamble, sections } = scriptSections(text);
   const shots = filmShots(view);
+  const cov = coverage(text, shots.map((s) => ({ id: s.shot.id, slate: s.slate, scriptLines: s.shot.spec.scriptLines })));
+  const bySlate = new Map(shots.map((s) => [s.shot.id, s]));
   const paired = sections.length > 0 && sections.length === view.scenes.length;
   const base = `/p/${projectId}`;
-  if (sections.length === 0) return <p className="st-muted">No scene headings were found in this version (a line like “INT. KITCHEN – NIGHT”, “序列一 · …” or a time range such as 0:00–0:18), so there is nothing to pair with the board.</p>;
+  const open = cov.lines.filter((l) => l.open).length;
+  const quoted = new Set(cov.lines.flatMap((l) => l.shots));
+  const silent = shots.filter((s) => !quoted.has(s.shot.id) && !(s.shot.spec.scriptLines ?? []).length);
+
+  const write = async (shotId: string, next: string[]) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await patch(`/api/shots/${shotId}`, { scriptLines: next });
+      await reload();
+    } catch (caught) {
+      setError(caught);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const lineTo = (shotId: string, sentence: string) => {
+    const cur = bySlate.get(shotId)?.shot.spec.scriptLines ?? [];
+    return write(shotId, [...cur, sentence.trim()]);
+  };
+  const unline = (shotId: string, sentence: string) => {
+    const key = normalize(sentence);
+    const cur = bySlate.get(shotId)?.shot.spec.scriptLines ?? [];
+    return write(shotId, cur.filter((q) => { const k = normalize(q); return !(key.includes(k) || k.includes(key)); }));
+  };
+
+  if (sections.length === 0 && cov.lines.length === 0) return <p className="st-muted">No scene headings or sentences were found in this version, so there is nothing to line.</p>;
+  /* lanes: the shots that line something in a section, in film order; a lane draws a shot's line down the margin */
   return (
     <div className="scr-lined">
-      {!paired && <div className="st-alert st-alert--info"><span>{sections.length} {sections.length === 1 ? "section" : "sections"} in the script, {view.scenes.length} {view.scenes.length === 1 ? "scene" : "scenes"} on the board: they are shown side by side in order, not paired.</span></div>}
-      {preamble && <p className="sc-song scr-lined-pre">{preamble}</p>}
-      {sections.map((sec, i) => {
-        const scene = paired ? view.scenes[i] : undefined;
+      <div className="scr-lined-sum st-num">
+        {cov.lines.length - open} of {cov.lines.length} lines on a shot{open ? ` · ${open} open` : ""}{silent.length ? ` · ${silent.length} ${silent.length === 1 ? "shot names" : "shots name"} no line` : ""}
+      </div>
+      {!latest && <div className="st-alert st-alert--info"><span>Shots quote the latest version; lining is done there. This is v{version}.</span></div>}
+      {!paired && sections.length > 0 && <div className="st-alert st-alert--info"><span>{sections.length} {sections.length === 1 ? "section" : "sections"} in the script, {view.scenes.length} {view.scenes.length === 1 ? "scene" : "scenes"} on the board: the timings are not compared.</span></div>}
+      {cov.stale.map((x, i) => (
+        <div key={i} className="st-alert">
+          <span>{x.slate} quotes “{x.quote}”, which this version does not have.</span>
+          {latest && <Button size="sm" busy={busy} onClick={() => void write(x.shotId, (bySlate.get(x.shotId)?.shot.spec.scriptLines ?? []).filter((q) => q !== x.quote))}>Drop the quote</Button>}
+        </div>
+      ))}
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {preamble && sections.length > 0 && <p className="sc-song scr-lined-pre">{preamble}</p>}
+      {(sections.length ? sections : [{ heading: "", body: preamble }]).map((sec, si) => {
+        const scene = paired ? view.scenes[si] : undefined;
         const mine = scene ? shots.filter((s) => s.scene.id === scene.id) : [];
         const boardS = mine.reduce((n, s) => n + s.durationS, 0);
-        const scriptS = sec.fromS !== undefined && sec.toS !== undefined ? sec.toS - sec.fromS : undefined;
+        const scriptS = "fromS" in sec && sec.fromS !== undefined && sec.toS !== undefined ? sec.toS - sec.fromS : undefined;
+        const lines = cov.lines.filter((l) => l.section === si);
+        const lanes = shots.filter((s) => lines.some((l) => l.shots.includes(s.shot.id)));
+        const choices = [...mine, ...shots.filter((s) => !mine.includes(s))];
         return (
-          <section key={i} className="scr-lined-sec">
-            <div className="scr-lined-head">
-              <span className="sc-slate">{i + 1}</span>
-              <strong className="sc-song">{sec.heading}</strong>
-              {scene && <span className="st-num">script {scriptS !== undefined ? `${scriptS} s` : "no time"} · board {boardS} s{scriptS !== undefined && scriptS !== boardS ? ` · ${boardS > scriptS ? "+" : "−"}${Math.abs(boardS - scriptS)} s` : ""}</span>}
+          <section key={si} className="scr-lined-sec">
+            {sec.heading && (
+              <div className="scr-lined-head">
+                <span className="sc-slate">{si + 1}</span>
+                <strong className="sc-song">{sec.heading}</strong>
+                {scene && <span className="st-num">script {scriptS !== undefined ? `${scriptS} s` : "no time"} · board {boardS} s{scriptS !== undefined && scriptS !== boardS ? ` · ${boardS > scriptS ? "+" : "−"}${Math.abs(boardS - scriptS)} s` : ""}</span>}
+              </div>
+            )}
+            <div className="lsr-rows" style={{ ["--lanes" as string]: Math.max(1, lanes.length) }}>
+              {lines.map((l, li) => {
+                const prev = lines[li - 1];
+                return (
+                  <div key={li} className="lsr-row" data-open={l.shots.length === 0 ? "true" : undefined}>
+                    <div className="lsr-tram" aria-hidden="true">
+                      {l.shots.length === 0 ? <span className="lsr-open-tram" /> : lanes.map((s) => (
+                        <span key={s.shot.id} className="lsr-lane">
+                          {l.shots.includes(s.shot.id) && <i />}
+                          {l.shots.includes(s.shot.id) && !prev?.shots.includes(s.shot.id) && <b className="st-num">{s.slate}</b>}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="sc-song lsr-text">{l.parts.map((part, pi) => (part.shots.length === 0 && l.shots.length > 0 ? <span key={pi} className="lsr-open" title="No shot shows this part">{part.text}</span> : <span key={pi}>{part.text}</span>))}</p>
+                    <div className="lsr-act">
+                      {l.shots.map((id) => {
+                        const s = bySlate.get(id)!;
+                        return (
+                          <span key={id} className="lsr-shot">
+                            <Link href={`${base}/board?shot=${id}`} className="st-num">{s.slate}</Link>
+                            {latest && <button type="button" aria-label={`Take this line off ${s.slate}`} title={`Take this line off ${s.slate}`} disabled={busy} onClick={() => void unline(id, l.text)}>×</button>}
+                          </span>
+                        );
+                      })}
+                      {latest && (
+                        <select className="st-select st-input--sm lsr-to" aria-label="Line this sentence to a shot" value="" disabled={busy} onChange={(e) => { if (e.target.value) void lineTo(e.target.value, l.text); }}>
+                          <option value="">{l.shots.length ? "+ shot" : "Line it to…"}</option>
+                          {choices.filter((s) => !l.shots.includes(s.shot.id)).map((s) => <option key={s.shot.id} value={s.shot.id}>{s.slate} · {s.shot.spec.intent.slice(0, 48)}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-            <div className="scr-lined-row">
-              <p className="sc-song scr-lined-text">{sec.body}</p>
-              {scene && (
-                <div className="scr-lined-shots">
-                  {mine.map((s) => {
-                    const pic = shotPicture(s.shot);
-                    return (
-                      <Link key={s.shot.id} href={`${base}/board?shot=${s.shot.id}`} className="scr-lined-shot" title={s.shot.spec.intent}>
-                        {pic ? <img src={pic} alt="" loading="lazy" /> : <span className="sc-frame-empty" />}
-                        <span className="st-num"><b>{s.slate}</b> {s.durationS} s · {tc(s.startS)}<br />{String(s.shot.spec.cinematography?.size ?? "").toUpperCase()} {String(s.shot.spec.camera?.move ?? "").replace(/_/g, " ")}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+            {scene && mine.length > 0 && (
+              <div className="scr-lined-shots">
+                {mine.map((s) => {
+                  const pic = shotPicture(s.shot);
+                  const n = cov.lines.filter((x) => x.shots.includes(s.shot.id)).length;
+                  return (
+                    <Link key={s.shot.id} href={`${base}/board?shot=${s.shot.id}`} className="scr-lined-shot" title={s.shot.spec.intent} data-silent={n === 0 ? "true" : undefined}>
+                      {pic ? <img src={pic} alt="" loading="lazy" /> : <span className="sc-frame-empty" />}
+                      <span className="st-num"><b>{s.slate}</b> {s.durationS} s · {tc(s.startS)}<br />{n ? `${n} ${n === 1 ? "line" : "lines"}` : "no line named"}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </section>
         );
       })}

@@ -62,6 +62,7 @@ Elements first: every character, location and prop with a concrete description w
 
 The storyboard decides the film more than the plot does. Every shot says, in screen terms:
 
+- **which lines of the script it shows** (`scriptLines`, quoted exactly: a sentence or a clause). Every line of the script is on some shot or is cut from the script; `lint_project` checks it (`script.uncovered`, `script.quote.stale`) and the Script page draws it as a lined script.
 - **size, angle, move, and who goes where** (`blocking`: enters from frame left, exits frame right). Keep a character's screen direction across the cut; someone who leaves frame right comes in frame left.
 - **what moves** (`motion`). At least one of: the camera, the subject, focus, light, something crossing the lens, a passer-by, weather, a prop. If nothing moves the frame is a photograph. A locked camera needs someone walking in it, far to near.
 - **why the camera moves**: to follow something (a letter flying, the camera goes with it), to push in for a close-up, to pull out from a detail. Move where it means something, hold still where it does not.

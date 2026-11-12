@@ -296,6 +296,7 @@ export const ShotBase = z.object({
     composition: Composition.optional().describe("Where the subject sits; compiles to a composition line"),
     frames: FramePlan.optional().describe("First / last frame descriptions, written and reviewed before any frame is drawn"),
     screenS: z.number().min(1).max(15).optional().describe("Planned time on screen; durationS should be ≥ screenS + 0.5 so the edit has handles"),
+    scriptLines: z.array(z.string().trim().min(2).max(400)).max(12).optional().describe("The script lines this shot puts on screen, each quoted exactly from the current script: a sentence, or a clause of one. Planning only, never in the prompt. The Script page draws them as tramlines beside the text; lint_project flags lines of the script no shot shows (script.uncovered) and a quote the current script no longer has (script.quote.stale)."),
 });
 
 export const ShotInput = ShotBase.superRefine((shot, ctx) => {

@@ -76,11 +76,21 @@ describe("a shot", () => {
     await expect(trash.restore(trashId)).rejects.toThrow(/put back already/);
   });
 
-  it("the delete returns the shotlist to draft, as before", async () => {
+  it("the delete returns the shotlist to draft, and Undo approves it again if nothing changed since", async () => {
     await repo.setShotlistApproval(projectId, "approved");
     const { trashId } = await removeShot(shots[0]!);
     expect((await repo.getProject(projectId)).shotlistApproval).toBe("draft");
     await trash.restore(trashId);
+    expect((await repo.getProject(projectId)).shotlistApproval).toBe("approved");
+  });
+
+  it("but not when a shot was changed in between: then the approval is the user's again", async () => {
+    await repo.setShotlistApproval(projectId, "approved");
+    const { trashId } = await removeShot(shots[0]!);
+    await new Promise((r) => setTimeout(r, 5));
+    await repo.updateShot(shots[1]!, { spec: { ...(await repo.getShot(shots[1]!)).spec, intent: "shot two, changed" } });
+    await trash.restore(trashId);
+    expect((await repo.getProject(projectId)).shotlistApproval).toBe("draft");
   });
 });
 

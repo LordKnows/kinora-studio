@@ -11,6 +11,7 @@ import { StudioError } from "./errors";
 import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
 import * as trash from "./trash";
+import { coverage, openText } from "./coverage";
 import * as styles from "./styles";
 import * as treatments from "./treatment";
 import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
@@ -176,7 +177,8 @@ export async function removeShot(shotId: string, by?: string): Promise<{ trashId
   const shot = await repo.getShot(shotId);
   const scenes = await repo.listScenes(shot.projectId);
   const sceneNo = scenes.findIndex((s) => s.id === shot.sceneId) + 1;
-  const trashId = await trash.put({ projectId: shot.projectId, kind: "shot", label: `shot ${sceneNo}·${shot.index + 1} · ${shot.spec.intent || "untitled"}`, by }, await trash.snapshot("shot", shotId));
+  const project = await repo.getProject(shot.projectId);
+  const trashId = await trash.put({ projectId: shot.projectId, kind: "shot", label: `shot ${sceneNo}·${shot.index + 1} · ${shot.spec.intent || "untitled"}`, by }, { ...(await trash.snapshot("shot", shotId)), approval: { approval: project.shotlistApproval, approvedAt: project.shotlistApprovedAt } });
   await repo.deleteShot(shotId);
   await repo.setShotlistApproval(shot.projectId, "draft");
   return { trashId };
@@ -185,7 +187,8 @@ export async function removeShot(shotId: string, by?: string): Promise<{ trashId
 export async function removeScene(sceneId: string, by?: string): Promise<{ trashId: string }> {
   const scene = await repo.getScene(sceneId);
   const shots = (await repo.listSceneShots(sceneId)).length;
-  const trashId = await trash.put({ projectId: scene.projectId, kind: "scene", label: `scene ${scene.index + 1} · ${scene.slug}${shots ? ` and its ${shots} ${shots === 1 ? "shot" : "shots"}` : ""}`, by }, await trash.snapshot("scene", sceneId));
+  const project = await repo.getProject(scene.projectId);
+  const trashId = await trash.put({ projectId: scene.projectId, kind: "scene", label: `scene ${scene.index + 1} · ${scene.slug}${shots ? ` and its ${shots} ${shots === 1 ? "shot" : "shots"}` : ""}`, by }, { ...(await trash.snapshot("scene", sceneId)), approval: { approval: project.shotlistApproval, approvedAt: project.shotlistApprovedAt } });
   await repo.deleteScene(sceneId);
   await repo.setShotlistApproval(scene.projectId, "draft");
   return { trashId };
@@ -961,6 +964,25 @@ export type LintWarning = { code: string; message: string; scene?: string; shot?
 
 /** Rhythm and craft lint over the saved shotlist, plus the Tier 2 / Tier 3
     completeness the MCP save path reports. */
+/* The script against the board: a line written and shot by nobody, a quote
+   the current script no longer has (coverage.ts). Asked for only once some
+   shot names its lines; until then one note says how. */
+function coverageLint(view: ProjectView): LintWarning[] {
+  if (!view.script) return [];
+  const shots = view.scenes.flatMap((sc, si) => sc.shots.map((sh, i) => ({ id: sh.id, slate: `${si + 1}·${i + 1}`, scriptLines: sh.spec.scriptLines, scene: sc.slug, shot: i + 1 })));
+  if (!shots.length) return [];
+  const c = coverage(view.script.text, shots);
+  if (!c.inUse) return [{ code: "script.lines.missing", severity: "info", message: "no shot says which script lines it shows (scriptLines, quoted from the script): without them nothing checks that every line of the script is shot" }];
+  const out: LintWarning[] = [];
+  for (const s of c.stale) {
+    const at = shots.find((x) => x.id === s.shotId)!;
+    out.push({ code: "script.quote.stale", severity: "warn", scene: at.scene, shot: at.shot, message: `quotes "${s.quote.slice(0, 80)}", which script v${view.script.version} no longer has: quote it as it reads now, or drop it` });
+  }
+  const open = c.lines.filter((l) => l.open);
+  if (open.length) out.push({ code: "script.uncovered", severity: "warn", message: `${open.length} ${open.length === 1 ? "line" : "lines"} of the script ${open.length === 1 ? "is" : "are"} on no shot, in whole or in part: ${open.slice(0, 3).map((l) => `"${openText(l).slice(0, 60)}"`).join(", ")}${open.length > 3 ? " …" : ""}. Add a shot, quote the line on the shot that shows it, or cut it from the script` });
+  return out;
+}
+
 export async function lintProject(projectId: string, opts?: { totalSeconds?: number }): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number } }> {
   const { view, shotlist } = await shotlistOf(projectId);
   /* the Look's constraints are checked with or without a shotlist: they ride in every prompt */
@@ -992,6 +1014,7 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
   /* The plan the film is held to: the treatment, the sound design table, and the timeline against both. */
   const treatment = await treatments.currentTreatment(projectId);
   warnings.push(...treatments.treatmentLint(treatment, view.script?.version));
+  warnings.push(...coverageLint(view));
   const unplanned = view.scenes.filter((s) => !s.sound);
   if (unplanned.length) warnings.push({ code: "sound.table", severity: "info", message: `${unplanned.length} scene(s) have no row in the sound design table (${unplanned.slice(0, 4).map((s) => s.slug).join(", ")}): set the ambience, the foley and the state of the music with set_scene_sound or save_shotlist` });
   for (const finding of treatments.soundPlanFindings(view.scenes, view.timeline, treatment)) warnings.push({ code: "sound.plan", severity: "warn", message: finding });

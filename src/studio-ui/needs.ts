@@ -1,5 +1,7 @@
 import type { ProjectView } from "@/studio/orchestrator";
 
+import { coverage, openText } from "@/studio/coverage";
+
 import { filmShots } from "./film";
 import { plural, translate, type T } from "./i18n";
 
@@ -81,6 +83,19 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
       detail: handles.length ? t("{range}: pass each one or have it redrawn.", { range: `IMG-${handles[0]}${handles.length > 1 ? `–IMG-${handles[handles.length - 1]}` : ""}` }) : t("Pass each one or have it redrawn."),
       action: { label: t("Review them"), href: `${base}/pictures?show=review` },
     });
+  }
+
+  if (view.script && shots.length) {
+    const cov = coverage(view.script.text, shots.map((s) => ({ id: s.shot.id, slate: s.slate, scriptLines: s.shot.spec.scriptLines })));
+    const open = cov.lines.filter((l) => l.open);
+    if (cov.inUse && (open.length || cov.stale.length)) {
+      out.push({
+        key: "lines", count: open.length || cov.stale.length,
+        title: open.length ? plural(t, open.length, "script line on no shot", "script lines on no shot") : plural(t, cov.stale.length, "quote the script no longer has", "quotes the script no longer has"),
+        detail: open.length ? t("“{first}”{more}: add a shot, line it to the shot that shows it, or cut it.", { first: openText(open[0]!).slice(0, 40), more: open.length > 1 ? t(" and {n} more", { n: open.length - 1 }) : "" }) : t("{list} quote lines that were changed in the script.", { list: cov.stale.map((x) => x.slate).join(", ") }),
+        action: { label: t("Line the script"), href: `${base}/script?view=lined` },
+      });
+    }
   }
 
   if (view.script && warnings.some((w) => w.code === "treatment.missing")) {

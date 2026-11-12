@@ -29,7 +29,11 @@ export type Reattach =
   | { kind: "element_ref"; elementId: string; assetId: string; view?: unknown; index: number }
   | { kind: "style_frame"; projectId: string; assetId: string };
 
-type Payload = { rows: Array<{ table: string; row: Record<string, SqlValue> }>; reattach?: Reattach[]; files?: string[]; owner?: string; visibility?: string };
+type Payload = {
+  rows: Array<{ table: string; row: Record<string, SqlValue> }>; reattach?: Reattach[]; files?: string[]; owner?: string; visibility?: string;
+  /** the shotlist's approval before a shot or scene delete sent it back to draft, with when it was approved */
+  approval?: { approval: string; approvedAt?: number };
+};
 
 export type TrashEntry = {
   id: string; projectId: string | null; kind: TrashKind; label: string;
@@ -162,6 +166,7 @@ export async function restore(id: string): Promise<TrashEntry> {
   }
   for (const r of entry.payload.reattach ?? []) await reattach(r);
   await renumber(d, entry);
+  await reapprove(d, entry);
   await d.run("UPDATE trash SET restored_at = ? WHERE id = ?", [Date.now(), id]);
   return { ...entry, restoredAt: Date.now() };
 }
@@ -186,6 +191,18 @@ async function reattach(r: Reattach): Promise<void> {
   } catch {
     /* the shot or element went in the meantime: nothing to put it on */
   }
+}
+
+/* Undo puts the approval back too, when the delete is the only thing that
+   took it away: the shotlist is in draft, and no shot was written since. */
+async function reapprove(d: Db, entry: TrashEntry & { payload: Payload }): Promise<void> {
+  const before = entry.payload.approval;
+  if (!before || before.approval !== "approved" || !entry.projectId) return;
+  const project = await d.get<{ shotlist_approval: string }>("SELECT shotlist_approval FROM projects WHERE id = ?", [entry.projectId]);
+  if (project?.shotlist_approval !== "draft") return;
+  const touched = await d.get<{ n: number }>("SELECT COUNT(*) n FROM shots WHERE project_id = ? AND (updated_at > ? OR created_at > ?)", [entry.projectId, entry.createdAt, entry.createdAt]);
+  if ((touched?.n ?? 0) > 0) return;
+  await d.run("UPDATE projects SET shotlist_approval = 'approved', shotlist_approved_at = ? WHERE id = ?", [before.approvedAt ?? Date.now(), entry.projectId]);
 }
 
 /* a restored shot or scene takes back its place; the ones after it move down one */

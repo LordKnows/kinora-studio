@@ -8,6 +8,8 @@ import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
 import { cutAfter, filmSeconds, filmShots, pipState, rendersSeconds, shotPicture, shotSpend, takesInOrder, tc, type FilmShot } from "./film";
+import { coverage } from "@/studio/coverage";
+
 import { plural, useT } from "./i18n";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
 import { useProjectContext } from "./shell";
@@ -131,6 +133,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
   const maxSpend = Math.max(0.0001, ...shots.map((s) => shotSpend(s.shot)));
   const takeCount = shots.reduce((n, s) => n + s.shot.takes.length, 0);
   const t = useT();
+  const cov = view.script ? coverage(view.script.text, shots.map((s) => ({ id: s.shot.id, slate: s.slate, scriptLines: s.shot.spec.scriptLines }))) : null;
   let cutAt = 0;
 
   return (
@@ -165,11 +168,20 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
           </div>
         </Stave>
 
-        <Stave label={t("Script")} sub={view.script ? t("v{v} · {a}", { v: view.script.version, a: t(view.script.approval) }) : t("none")} href={`${base}/script`}>
+        <Stave label={t("Script")} sub={view.script ? t("v{v} · {a}", { v: view.script.version, a: t(view.script.approval) }) : t("none")} href={view.script ? `${base}/script?view=lined` : `${base}/script`}>
           <div className="sc-band">
             {view.script ? <span className="sc-song">{firstLines(view.script.text)}</span> : <span>{t("No script yet.")}</span>}
+            {cov && <span className="st-num sc-cov-sum">{cov.inUse ? t("{c} of {n} lines on a shot", { c: cov.lines.filter((l) => !l.open).length, n: cov.lines.length }) : t("no shot names its lines")}</span>}
             {(lint?.warnings ?? []).some((w) => w.code === "treatment.missing") && <span className="sc-bang-text"><i className="sc-bang">!</i>{t("no treatment")}</span>}
           </div>
+          {cov?.inUse && (
+            <div className="sc-row sc-cov st-num">
+              {shots.map((s) => {
+                const n = cov.lines.filter((l) => l.shots.includes(s.shot.id)).length;
+                return <div key={s.shot.id} style={{ flexGrow: s.durationS }} data-none={n === 0 ? "true" : undefined}>{n ? plural(t, n, "1 line", "{n} lines") : t("no line")}</div>;
+              })}
+            </div>
+          )}
         </Stave>
 
         <Stave label={t("Board")} sub={plural(t, shots.length, "1 shot", "{n} shots")} href={`${base}/board`}>
