@@ -2060,11 +2060,11 @@ button.st-pill {
 
 .studio .st-seg {
   display: inline-flex;
-  padding: 3px;
-  gap: 3px;
+  padding: 0;
+  gap: 0;
   border-radius: 0;
-  border: 1px solid var(--line-2);
-  background: var(--s2);
+  border: 1px solid var(--line-3);
+  background: transparent;
 }
 .studio .st-seg button {
   border: 0;
@@ -2083,9 +2083,8 @@ button.st-pill {
   opacity: 0.7;
 }
 .studio .st-seg button[aria-pressed="true"] {
-  background: var(--s1);
-  color: var(--tx);
-  box-shadow: 0 0 0 1px var(--tx);
+  background: var(--tx);
+  color: var(--bg);
 }
 .studio .st-frame-slots {
   display: grid;
@@ -3478,4 +3477,325 @@ button.st-pill {
 .studio .sc-bang-text {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* ---------- Screening: lights down ---------- */
+
+.studio .sc-pip--lg {
+  min-width: 30px;
+  height: 30px;
+  font-size: 14px;
+  border-width: 2px !important;
+  cursor: default;
+}
+.studio button.sc-pip--lg {
+  cursor: pointer;
+}
+.studio button.sc-pip--lg[aria-pressed="true"] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.studio .scr-page {
+  max-width: 1560px;
+  padding-top: 20px;
+  padding-bottom: 28px;
+}
+.studio .scr-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 18px;
+  padding-bottom: 14px;
+}
+.studio .scr-facts,
+.studio .scr-count {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tx2);
+}
+.studio .scr-spacer {
+  flex: 1 1 0;
+}
+.studio .scr-lights::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--tx);
+}
+.studio .scr-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px 36px;
+  align-items: flex-start;
+}
+.studio .scr-stage {
+  flex: 999 1 600px;
+  min-width: 0;
+}
+.studio .scr-takes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+.studio .scr-takes[data-two="true"] {
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+}
+.studio .scr-take {
+  margin: 0;
+  min-width: 0;
+}
+.studio .scr-take figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  min-height: 38px;
+  padding-bottom: 8px;
+}
+.studio .scr-letter {
+  font-size: 30px;
+  line-height: 30px;
+}
+.studio .scr-take-facts {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .scr-take video,
+.studio .scr-take .st-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  object-fit: contain;
+}
+/* one take alone is not shown wider than the room is tall */
+.studio .scr-takes:not([data-two="true"]) .scr-take video {
+  max-height: min(62dvh, 720px);
+}
+.studio .scr-takes[data-two="true"] .scr-take[data-focus="true"] video {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.studio .scr-transport {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-top: 14px;
+}
+.studio .scr-play {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  display: inline-grid;
+  place-items: center;
+}
+.studio .scr-pause {
+  width: 14px;
+  height: 16px;
+  border-left: 5px solid var(--accent-ink);
+  border-right: 5px solid var(--accent-ink);
+}
+.studio .scr-scrub {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.studio .scr-scrub input {
+  display: block;
+  width: 100%;
+  height: 20px;
+  accent-color: var(--accent);
+}
+.studio .scr-scrub-read {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--tx2);
+}
+.studio .scr-scrub-read span:first-child {
+  color: var(--accent);
+}
+.studio .scr-beat {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--tx2);
+  max-width: 96ch;
+}
+.studio .scr-beat .st-num {
+  color: var(--tx);
+  margin-right: 6px;
+}
+.studio .scr-others {
+  margin-top: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.studio .scr-hint {
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+.studio .scr-review {
+  flex: 1 1 280px;
+  min-width: 0;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 2px solid var(--tx);
+  padding-top: 10px;
+}
+.studio .scr-review-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.studio .scr-review-head h2 {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 700;
+}
+.studio .scr-review-head .st-num,
+.studio .scr-basis {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .scr-scores {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.studio .scr-scores button {
+  height: 44px;
+  border: 1px solid var(--line-2);
+  font-size: 16px;
+  color: var(--tx);
+}
+.studio .scr-scores button:hover {
+  border-color: var(--tx);
+}
+.studio .scr-scores button[aria-pressed="true"] {
+  background: var(--tx);
+  border-color: var(--tx);
+  color: var(--bg);
+}
+.studio .scr-label {
+  display: block;
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .scr-label .st-textarea {
+  margin-top: 4px;
+  min-height: 56px;
+}
+.studio .scr-faults-cap {
+  margin-top: 4px;
+}
+.studio .scr-mute {
+  min-height: 36px;
+  color: var(--tx);
+}
+.studio .scr-save {
+  flex-direction: column;
+  gap: 0;
+  height: auto;
+  min-height: 52px;
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: normal;
+}
+.studio .scr-save small {
+  font-size: 11px;
+  font-weight: 400;
+}
+.studio .scr-keys {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+.studio .scr-keys div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio .scr-keys dt {
+  padding: 0 5px;
+  border: 1px solid var(--line-2);
+  color: var(--tx);
+  white-space: nowrap;
+}
+.studio .scr-line {
+  padding-top: 24px;
+}
+.studio .scr-line-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 6px;
+}
+.studio .scr-here-range {
+  font-size: 12px;
+  color: var(--accent);
+}
+.studio .scr-strip-scroll {
+  overflow-x: auto;
+}
+.studio .scr-strip {
+  display: flex;
+  min-width: 760px;
+}
+.studio .scr-fr {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  display: block;
+  height: 56px;
+  border-left: 3px solid var(--bg);
+  border-top: 3px solid transparent;
+  overflow: hidden;
+}
+.studio .scr-fr:first-child,
+.studio .scr-fr[data-join="true"] {
+  border-left: 0;
+}
+.studio .scr-fr img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0.5;
+}
+.studio .scr-fr:hover img,
+.studio .scr-fr[aria-current="true"] img {
+  opacity: 1;
+}
+.studio .scr-fr[aria-current="true"] {
+  border-top-color: var(--accent);
+}
+.studio .scr-fr[data-off="true"] {
+  cursor: default;
+}
+.studio .scr-fr .st-thumb-tag {
+  left: 4px;
+  bottom: 3px;
+  padding: 0 4px;
+}
+.studio .scr-fr .scr-score-tag {
+  left: auto;
+  right: 4px;
+  top: 3px;
+  bottom: auto;
+  font-style: normal;
 }
