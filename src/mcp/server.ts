@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { assertVisible } from "@/auth/scope";
 import * as director from "@/director";
+import * as styles from "@/studio/styles";
+import * as treatments from "@/studio/treatment";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
 import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
@@ -30,7 +32,7 @@ import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import * as sharing from "@/studio/sharing";
 import {
-  ElementInput, ElementPatch, ExportRequest, VoiceCardInput, VoiceCardPatch, LookPatch, LoraInput, LoraPatch, PresignRequest, ProjectInput, PromptExperiments, MAX_ELEMENT_REFS, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
+  ElementInput, ElementPatch, ExportRequest, VoiceCardInput, VoiceCardPatch, LookPatch, LoraInput, LoraPatch, PresignRequest, ProjectInput, PromptExperiments, MAX_ELEMENT_REFS, REF_VIEWS, ReviewInput, ScenePalette, SceneSound, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -119,15 +121,27 @@ export function createStudioServer(actor: Actor): McpServer {
     hits: z.array(z.object({ id: z.string(), section: z.string(), bar: z.number(), beat: z.number(), what: z.string() })).default([]),
     silences: z.array(z.object({ t: z.number(), durationS: z.number(), why: z.string() })).optional(),
   });
-  tool("list_styles", "Every style preset: slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
-    director.loadStyles().map(({ style: s, origin }) => ({ slug: s.slug, en: s.en, cn: s.cn, category: s.category, uses: s.uses, line: s.line, line_cn: s.line_cn, origin })));
-  tool("suggest_styles", "Two or three styles that fit a topic, with why. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
-    director.suggestStyles(topic, n).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
-  tool("get_style", "One style preset in full: JSON (engine fields, camera grammar, native moves, pitfalls, variation space) or STYLE.md.", z.object({ style: z.string().min(1).describe("slug, English or Chinese name"), format: z.enum(["json", "markdown"]).default("markdown") }), async ({ style, format }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`, { available: director.loadStyles().map((x) => x.style.slug) });
+  tool("list_styles", "Every style: your user's own first (origin mine), then other users' (origin shared), then the library; a user's style says which style it is based on. Slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
+    (await styles.allStyles(actor.user)).map((x) => styles.summary(x, actor.user)));
+  tool("suggest_styles", "Two or three styles that fit a topic, with why; the users' own styles are in the pool. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
+    director.suggestStyles(topic, n, await styles.allStyles()).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
+  tool("get_style", "One style in full: JSON (engine fields, camera grammar, native moves, pitfalls, variation space) or STYLE.md. For a style of the user's own, format changes gives what differs from its base.", z.object({ style: z.string().min(1).describe("slug, English or Chinese name"), format: z.enum(["json", "markdown", "changes"]).default("markdown") }), async ({ style, format }) => {
+    const s = await styles.mustResolveStyle(style);
+    if (format === "changes") return (await styles.styleChanges(s.style.slug)) ?? { changes: [], note: `${s.style.slug} is a library style` };
     return format === "json" ? s.style : director.styleToMarkdown(s.style);
   });
+  tool("fork_style", "Start a style of the user's own from an existing one: a copy under a new slug and name, with the base's sections sorted into three groups — safe to change (palette, type, motion, sound, native moves), changes its character (materials, colour logic, camera grammar, the engine fields), cannot change (the essence: that is a different style). Nothing is stored. Use it when the user wants a style changed and kept (brand colours, a slower pace, their own sound), or a style from a blank page on the closest style's technique. Plan the changes with them, edit the returned style, then save_style.", z.object({
+    base: z.string().min(1).describe("slug, English or Chinese name of the style to start from"),
+    slug: z.string().min(2).max(49).describe("lowercase letters, digits and hyphens; not a library slug"),
+    en: z.string().min(1).max(80), cn: z.string().min(1).max(80),
+    line: z.string().max(300).optional(), line_cn: z.string().max(300).optional(),
+  }), async (input) => styles.forkDraft(input));
+  tool("save_style", "Keep a style of the user's own (the whole style object, as get_style format json gives it and fork_style returns it). With basedOn, the answer lists the sections that differ from the base, each with its group, and warns when the essence changed (a different style), when more than five sections changed in one round, when more than one native move went, when a new palette never reached engine.look (the model reads the Look), or when a constraint in engine.negative is written as a ban or a negative-prompt word (H3 has no negative prompt: say what the picture shows). Show the user the changes and warnings. Overwrites the user's own style of the same slug; never a library style or someone else's.", z.object({
+    style: z.any().describe("The full style object"),
+    basedOn: z.string().optional().describe("The style it was changed from; leave out for a style written from a blank page"),
+    why: z.record(z.string(), z.string()).optional().describe("The user's reason per changed section, keyed by section name (\"§3 palette\": \"the brand's green\")"),
+  }), async (input) => styles.saveStyle(actor, input));
+  tool("delete_style", "Delete a style of the user's own (only whoever made it can). Projects whose Look names it keep their Look fields, but lose its defaults for new shots.", z.object({ slug: z.string().min(1) }), async ({ slug }) => styles.deleteStyle(actor, slug));
   tool("compile_look", "Style → the look object for start_film / update_look (genre, palette, camera, lens, lighting, constraints, LoRAs), plus the style's beat suffix, cinematography defaults, allowed camera moves, transitions and duration guide.", z.object({
     style: z.string().min(1),
     aspectRatio: z.enum(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
@@ -136,13 +150,11 @@ export function createStudioServer(actor: Actor): McpServer {
     genreSuffix: z.string().max(80).optional(),
     paletteSuffix: z.string().max(80).optional(),
   }), async ({ style, ...o }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`);
-    return { look: director.compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations };
+    const s = await styles.mustResolveStyle(style);
+    return { look: director.compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(s.style.engine.loraSuggestions.length ? { loraSuggestions: { note: "Not in the look: no take has been rendered with them on this style. Offer them to the user; if they agree, render one probe shot with and one without (revise_shot loras) and keep it only if the picture is better.", loras: s.style.engine.loraSuggestions } } : {}) };
   });
   tool("apply_style", "Fill every shot's cinematography with the style defaults (explicit values win), append the beat suffix, default ambience/music, and warn about camera moves and links outside the style's grammar. Returns the shotlist to pass to save_shotlist.", z.object({ style: z.string().min(1), shotlist: ShotlistShape, beatSuffix: z.boolean().default(true), musicForShotsWithScore: z.boolean().default(true) }), async ({ style, shotlist, beatSuffix, musicForShotsWithScore }) => {
-    const s = director.findStyle(style);
-    if (!s) throw new StudioError("not_found", `no style matches "${style}"`);
+    const s = await styles.mustResolveStyle(style);
     return director.applyStyle(s.style, shotlist as never, { beatSuffix, musicForShotsWithScore });
   });
   tool("lint_project", "Lint the project's saved shotlist (rhythm, variety, breath, link/mode sanity, render-order switches) plus Tier 2 / Tier 3 completeness per shot. Fix the errors and warnings with revise_shot before asking for approval.", z.object({ projectId: id }), async ({ projectId }) => orch.lintProject(projectId));
@@ -156,7 +168,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly, elements });
   });
   tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {
-    const s = style ? director.findStyle(style) : undefined;
+    const s = style ? await styles.resolveStyle(style) : undefined;
     const r = director.validateTreatment(treatment, s?.style.nativeMoves.map((m) => m.name));
     return { ...r, markdown: r.ok ? director.treatmentToMarkdown(treatment) : undefined };
   });
@@ -172,7 +184,7 @@ export function createStudioServer(actor: Actor): McpServer {
     shots: z.array(z.object({ shotId: z.string(), index: z.number().int(), durationS: z.number(), mode: z.enum(["text", "keyframe", "reference", "edit"]), link: z.object({ type: z.string(), anchor: z.number().optional(), anchorShotId: z.string().optional() }).optional(), hasTake: z.boolean().optional(), estimateUsd: z.number().optional() })),
     capUsd: z.number(), spentUsd: z.number().default(0), perSecondUsd: z.number().optional(), takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true),
   }), async ({ shots, capUsd, spentUsd, perSecondUsd, takesPerShot, onlyMissing }) => director.planBatch(shots as director.BatchShot[], { capUsd, spentUsd }, { perSecondUsd, takesPerShot, onlyMissing }));
-  tool("check_timeline", "Validate an extended timeline (clips with J/L cuts, transitions, freezes; titles; narration; music; silences) and return the Studio-shaped timeline for save_timeline plus what only a local ffmpeg assembly would render.", z.object({ timeline: z.any() }), async ({ timeline }) =>
+  tool("check_timeline", "Validate a timeline in the director's own shape (clips with J/L cuts, transitions, freezes; titles; narration; music; silences): too-short cards, a J-cut the take has no footage for, too few sound bridges or silences. Returns the timeline as save_timeline takes it, and what could not go along.", z.object({ timeline: z.any() }), async ({ timeline }) =>
     ({ warnings: director.checkTimeline(timeline as director.ExtTimeline), ...director.toStudioTimeline(timeline as director.ExtTimeline) }));
   tool("start_film", "Tier 1 entry point: give the user's brief and target running time. Creates the project (brief, target, Look draft), and returns the duration plan, the three-tier instructions, the editing grammar and the cinematography vocabulary so the director skills are active from the first call.", z.object({
     name: z.string().min(1).max(120),
@@ -220,8 +232,25 @@ export function createStudioServer(actor: Actor): McpServer {
     return { capUsd: p.budgetCapUsd, spentUsd: p.spentUsd, remainingUsd: Math.max(0, p.budgetCapUsd - p.spentUsd) };
   });
 
-  tool("save_script", "Save a new script version (returns to draft; the user approves on the Script page).", z.object({ projectId: id, text: z.string().min(1).max(200_000) }), async ({ projectId, text }) => ({ script: await repo.createScript(projectId, text) }));
-  tool("get_script", "Latest script and its approval state.", z.object({ projectId: id }), async ({ projectId }) => ({ script: await repo.latestScript(projectId) ?? null }));
+  tool("save_script", "Save a new script version (returns to draft; the user approves on the Script page). Send the treatment with it: the structured object validate_treatment checks (logline, arc, three candidate structures and the chosen one, benchmark, hook, signature shot, native move, sequences with paces, sound design, silences, sound bridges). It is checked and kept beside this version; the lint, the story review, the export and the Script page read it. Without one the answer warns, and so does lint_project until one is sent.", z.object({
+    projectId: id, text: z.string().min(1).max(200_000),
+    treatment: z.any().optional().describe("The treatment object, as validate_treatment takes it"),
+    style: z.string().optional().describe("Style slug or name, to check the treatment's native move against; default: the project's style"),
+  }), async ({ projectId, text, treatment, style }) => {
+    const project = await repo.getProject(projectId);
+    const script = await repo.createScript(projectId, text);
+    if (treatment === undefined || treatment === null) {
+      const kept = await treatments.currentTreatment(projectId);
+      return { script, treatment: kept ? { kept: false, note: `no treatment sent; the one written for script v${kept.scriptVersion} still stands. Send it again if the film's shape changed` } : { kept: false }, warnings: kept ? [] : [treatments.missingTreatmentWarning()] };
+    }
+    const saved = await treatments.saveTreatment(projectId, script.version, treatment, style ?? project.look.style);
+    return { script, treatment: { kept: saved.kept, ...(saved.kept ? {} : { note: "the treatment has errors and was not kept; the script was saved. Fix them and send the treatment again with the same text" }) }, warnings: saved.warnings };
+  });
+  tool("get_script", "Latest script and its approval state, with the treatment kept for the project (which script version it was written for, its own warnings).", z.object({ projectId: id }), async ({ projectId }) => {
+    const script = (await repo.latestScript(projectId)) ?? null;
+    const treatment = await treatments.currentTreatment(projectId);
+    return { script, treatment: treatment ?? null, warnings: treatments.treatmentLint(treatment, script?.version) };
+  });
 
   tool("list_elements", "Characters, locations and props of the project (and the global library when includeLibrary).", z.object({ projectId: id, includeLibrary: z.boolean().default(false) }), async ({ projectId, includeLibrary }) => {
     const elements = await repo.listElements(projectId, includeLibrary);
@@ -270,6 +299,7 @@ export function createStudioServer(actor: Actor): McpServer {
     const featuresById = await byId(features);
     return { element: await repo.updateElement(elementId, { refAssetIds: ids, ...(viewsById ? { refViews: viewsById } : {}), ...(featuresById ? { refFeatures: featuresById } : {}) }) };
   });
+  tool("set_scene_sound", "Set a scene's row of the sound design table: the ambience bed under the whole scene, its main foley, the state of the music (none, enters at the turn, cut dead) and where it goes silent. A shot with no ambience of its own takes the scene's; the music and the silence are held against the timeline at export (a score with no music asset, a planned silence that is not on the timeline). Also settable per scene in save_shotlist (sound). null clears it.", z.object({ sceneId: id, sound: SceneSound.nullable() }), async ({ sceneId, sound }) => ({ scene: await repo.updateScene(sceneId, { sound }) }));
   tool("set_scene_palette", "Set a scene's colour script (2–6 hex colours, darkest first, one accent at most, and a note). It compiles into every shot of the scene; lint_project flags palettes whose subject and background merge in black and white. null clears it.", z.object({ sceneId: id, palette: ScenePalette.nullable() }), async ({ sceneId, palette }) => ({ scene: await repo.updateScene(sceneId, { palette }) }));
 
   tool("save_shotlist", "Merge the whole shotlist: scenes match by slug, shots by position, so existing takes and hero frames are kept. Refuses to drop shots that already have takes. Resets the shotlist approval; the user approves on the Board. Every shot should carry its Tier 2 link and Tier 3 cinematography (size, angle, lens, lighting, grade at least); the answer's warnings name the shots that do not.", z.object({ projectId: id }).extend(ShotlistInput.shape), async ({ projectId, scenes }) => {
@@ -299,6 +329,14 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("select_end_frame", "Choose an end frame (asset id or handle like IMG-12) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: await shotPicture(shotId, assetId) }) }));
 
   tool("generate_take", "Render takes for a shot on the H3 worker (costs money; confirm). Requires approved script and shotlist, and a passing shot review of this exact prompt and these frames (review_packet stage shot → record_review); skipReview with a reason renders without one, on the record.", z.object({ shotId: id }).extend(TakeRequest.shape), async ({ shotId, ...req }) => orch.createTakes(shotId, req, actor));
+  tool("generate_takes", "Render a batch of shots on ONE confirmation (costs money). Without confirm it spends nothing and answers needs_confirm with one total for the shots that can render now, in the plan's order (R2VA first), plus the ones that cannot yet and why: tell the user that single figure, then call again with confirm: true. Default: every shot without a take that does not wait for an anchor. A shot renders only with a passing shot review of its exact prompt and frames, as with generate_take; the others are named and left. Linked shots come in the next call, once their anchors' takes are picked. Use plan_project_batch first to see the passes and the probe.", z.object({
+    projectId: id,
+    shotIds: z.array(id).max(60).optional().describe("Leave out for every shot that can render now; give ids to re-take or to render a subset (e.g. the probe)"),
+    n: z.number().int().min(1).max(4).default(1),
+    steps: z.number().int().min(4).max(50).optional(),
+    confirm: z.boolean().default(false).describe("Must be true to spend budget"),
+    skipReview: z.string().min(8).max(300).optional().describe("Render the shots without a passing shot review too, on the record; give the reason (the user's words when they asked for it)"),
+  }), async ({ projectId, ...req }) => orch.createTakeBatch(projectId, req, actor));
   tool("get_take", "One take in full: status, video url, last frame, thumbnails, cost, review, the compiled prompt and the worker input.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.refreshTake(takeId) }));
   tool("list_takes", "All takes of a shot, one summary each (status, steps, LoRAs, cost, urls, review); get_take has the prompt, input and thumbnails of one.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: (await repo.listShotTakes(shotId)).map(compactTake) }));
   tool("cancel_take", "Cancel a queued or running take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));
@@ -308,9 +346,9 @@ export function createStudioServer(actor: Actor): McpServer {
 
   tool("auto_timeline", "Build the timeline from the selected (or latest completed) take of every shot. Every join is a hard cut (continuous shots start on their anchor's last frame; a dissolve would double the picture); frame-driven takes drop their first 2 frames (the input image, a duplicate and a sharpness pop); shots with screenS keep the rest as handles; takes whose audio failed review are muted. tailTrimS trims FL2VA tails where the model snaps onto the end frame (check a take first).", z.object({ projectId: id, tailTrimS: z.number().min(0).max(1).optional(), headFrames: z.number().int().min(0).max(6).optional() }), async ({ projectId, tailTrimS, headFrames }) => ({ timeline: await orch.autoTimeline(projectId, { tailTrimS, headFrames }), seams: await orch.checkSeams(projectId) }));
   tool("get_timeline", "The project's timeline.", z.object({ projectId: id }), async ({ projectId }) => ({ timeline: await repo.getTimeline(projectId) }));
-  tool("save_timeline", "Replace the timeline (clips with in/out and transitions, music asset, mix).", z.object({ projectId: id, timeline: TimelineInput }), async ({ projectId, timeline }) => ({ timeline: await repo.setTimeline(projectId, timeline) }));
+  tool("save_timeline", "Replace the timeline: clips with in/out, speed, repeat, a transition in (cut, dissolve, fade_black, fade_white, iris, wipe), J/L cuts (audioLeadS, audioTrailS) and a freeze; titles (cards, overlays, captions: the only text in the film); narration lines; silences; fades in and out; the music asset, the mix and the loudness target. The assembler draws and mixes all of it. Send the whole timeline: what you leave out is removed.", z.object({ projectId: id, timeline: TimelineInput }), async ({ projectId, timeline }) => ({ timeline: await repo.setTimeline(projectId, timeline) }));
   tool("export_project", "Assemble the timeline into a file (costs money; confirm).", z.object({ projectId: id }).extend(ExportRequest.shape), async ({ projectId, ...req }) => orch.createExportJob(projectId, req, actor));
-  tool("get_export", "Status and url of an export.", z.object({ exportId: id }), async ({ exportId }) => ({ export: await orch.refreshExport(exportId) }));
+  tool("get_export", "Status and url of an export. Once it is finished: what the assembler measured on the file (`checks`: loudness in LUFS, true peak, black picture, silent stretches) and `findings`, the ones nothing on the timeline explains (black that is not a fade or a card, missing sound that is not a silence, a J/L cut the take had no footage for). Fix the findings on the timeline and export again before the film review.", z.object({ exportId: id }), async ({ exportId }) => orch.exportReport(exportId));
 
   /* ---- the cold reader, requirements, decisions, the envelope ---- */
   const Stage = z.enum(["story", "shot", "film", "frame"]);

@@ -45,7 +45,7 @@ export function styleToMarkdown(s: Style): string {
   for (const r of s.motion.rules) p(`- ${r}`);
   p(`- Stepping: on ${s.motion.stepping}${s.motion.stepping === "twos" ? " (ask for stepped motion in the beats; the camera stays smooth)" : ""}.`);
   if (s.motion.neverMoves?.length) p(`- Never moves: ${s.motion.neverMoves.join(", ")}.`);
-  p(`- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) ${s.engine.durations.action} s, at most ${s.engine.durations.maxAction} s, chained with \`continuous\` for longer action; static one-beat holds ${s.engine.durations.hold} s; periodic motion as a \`loop\` of one period.`);
+  p(`- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) ${s.engine.durations.action} s, at most ${s.engine.durations.maxAction} s, chained with \`continuous\` for longer action; static one-beat holds ${s.engine.durations.hold} s; periodic motion as a \`loop\` of one period. A default from cost, not a measured limit.`);
   p("");
   p("## 6. Camera grammar");
   p("");
@@ -85,6 +85,12 @@ export function styleToMarkdown(s: Style): string {
   p(JSON.stringify({ look: s.engine.look, negative: s.engine.negative, cinematography: s.engine.cinematography, bySize: s.engine.bySize ?? {}, loras: s.engine.loras, beatSuffix: s.engine.beatSuffix ?? "" }, null, 2));
   p("```");
   p("");
+  if (s.engine.loraSuggestions.length) {
+    p("Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):");
+    p("");
+    for (const l of s.engine.loraSuggestions) p(`- \`${l.id}\` at ${l.strength}: ${l.when}`);
+    p("");
+  }
   p("Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).");
   p("");
   p("## 11. Variation space");

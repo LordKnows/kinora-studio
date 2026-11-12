@@ -48,7 +48,7 @@
 - A tape tear is the only cut: same framing after, something changed.
 - Stepping: on ones.
 - Never moves: the OSD.
-- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period. A default from cost, not a measured limit.
 
 ## 6. Camera grammar
 

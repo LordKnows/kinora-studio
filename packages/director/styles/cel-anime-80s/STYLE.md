@@ -48,7 +48,7 @@
 - Cut on bars; a white flash is the loudest transition.
 - Stepping: on twos (ask for stepped motion in the beats; the camera stays smooth).
 - Never moves: the painted background's brushwork.
-- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period. A default from cost, not a measured limit.
 
 ## 6. Camera grammar
 
@@ -137,6 +137,10 @@ A menu: use the ones your story needs.
   "beatSuffix": "Flat 1980s cel animation on twos over a painted background, coloured outlines, hard shadow shapes, VHS playback."
 }
 ```
+
+Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+
+- `lora_prithiv_anime_motion` at 0.8: keyframe shots (I2VA / FL2VA) that animate a drawn hero frame: genre-typical anime movement. The compiler leaves it off reference and text shots.
 
 Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).
 

@@ -13,3 +13,4 @@ export { buildCommand, assemble, type AssembleOptions } from "./timeline/assembl
 export * from "./narration/srt.js";
 export { synthesize, probeDurationS, type TtsOptions, type TtsResult } from "./narration/tts.js";
 export { planBatch, type BatchShot, type BatchPlan } from "./batch.js";
+export { forkGuide, forkStyle, diffStyle, checkFork, changesToMarkdown, GROUP_ADVICE, type ChangeGroup, type StyleChange } from "./styles/fork.js";

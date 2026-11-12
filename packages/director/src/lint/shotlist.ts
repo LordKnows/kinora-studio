@@ -68,12 +68,13 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
     }
     if (shot.camera.move !== "static" && (c.pace === "still")) W.push({ code: "pace.still", severity: "info", ...where, message: "pace still with a moving camera; consider static" });
 
-    // Length vs. complexity: H3 is most reliable around 5 s; long generations drift and cost more per second.
+    // Length vs. complexity: a default from cost (a short shot is cheaper to retake, and a second of
+    // video cost about 1.4× the GPU time in takes over 7 s), not a measured quality rule. Hence a hint.
     const complex = shot.beats.length > 1 || c.pace === "brisk" || c.pace === "frantic" || (shot.characters?.length ?? 0) > 0 || (shot.dialogue?.length ?? 0) > 0;
     if (shot.durationS > MAX_ACTION_S && complex && shot.link?.type !== "loop") {
-      W.push({ code: "duration.complex", severity: "warn", ...where, message: `${shot.durationS}s with ${shot.beats.length > 1 ? `${shot.beats.length} beats` : "action, characters or dialogue"}: H3 is most reliable around 5 s; split into 5 s shots chained with continuous, keep ≤ ${MAX_ACTION_S} s, or make it a static one-beat hold` });
+      W.push({ code: "duration.complex", severity: "info", ...where, message: `${shot.durationS}s with ${shot.beats.length > 1 ? `${shot.beats.length} beats` : "action, characters or dialogue"}: the default is 5 s per action and at most ${MAX_ACTION_S} s (cheaper to retake); split into 5 s shots chained with continuous, or keep it if the action needs the time` });
     }
-    if (shot.durationS >= 15 && shot.link?.type !== "loop") W.push({ code: "duration.15", severity: "info", ...where, message: "15 s is the most expensive and least stable length; prefer 10 s or a continuous chain" });
+    if (shot.durationS >= 15 && shot.link?.type !== "loop") W.push({ code: "duration.15", severity: "info", ...where, message: "15 s is the most expensive take to redo; prefer 10 s or a continuous chain unless the frame only holds" });
   }
 
   // Film-level rhythm
@@ -112,7 +113,7 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   return opts.errorsAndWarningsOnly ? W.filter((w) => w.severity !== "info") : W;
 }
 
-/** H3 holds one action well up to about this length; longer shots are for static holds and loops. */
+/** The default ceiling for a shot that carries an action; longer shots are for held frames and loops. A default from cost, not a measured limit. */
 export const MAX_ACTION_S = 8;
 
 function isCalm(sh: Shot): boolean {

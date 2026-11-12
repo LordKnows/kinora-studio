@@ -93,6 +93,7 @@
     "cinematography": { "grade": "mono", "texture": "8mm", "lens": "normal", "dof": "deep", "lighting": ["highkey"], "pace": "brisk" },
     "bySize": { "cu": { "pace": "slow" }, "els": { "lens": "wide" } },
     "loras": [],
+    "loraSuggestions": [{ "id": "lora_fal_realism_people", "strength": 0.6, "when": "full and medium shots of the performers, so faces and hands read as photographed people under the print damage. Lower than its card's 0.8 because it stacks on the turbo LoRA." }],
     "beatSuffix": "A flickering 1920s silent-film print, exaggerated silent acting, slightly fast motion."
   },
   "variation": {

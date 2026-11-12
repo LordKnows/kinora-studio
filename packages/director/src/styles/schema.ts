@@ -126,6 +126,17 @@ export const StyleSchema = z.object({
     bySize: z.partialRecord(z.enum(SIZE), Cinematography).optional(),
     /** The LoRA ids a style wants beyond the speed LoRA (none exist yet in the library). */
     loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).default([]),
+    /**
+     * Style LoRAs from the Studio's library that may suit this style. Not
+     * applied by `compile_look`: none has been rendered with the preset yet.
+     * The director offers them, and a probe take with and without tells.
+     */
+    loraSuggestions: z.array(z.object({
+      id: z.string(),
+      strength: z.number().min(0).max(2),
+      /** Which shots it is for, and what it should add. */
+      when: z.string().min(5).max(300),
+    })).max(4).default([]),
     /** Words appended to every beat so the medium reads in the prompt. */
     beatSuffix: z.string().max(200).optional(),
     /**

@@ -5,6 +5,7 @@ import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
+import * as treatments from "./treatment";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
 /*
@@ -115,6 +116,7 @@ async function storyPacket(projectId: string): Promise<ReviewPacket> {
   const script = await repo.latestScript(projectId);
   if (!script) throw new StudioError("validation", "no script yet; save_script first");
   const subjectHash = hashOf(script.text);
+  const stored = await treatments.currentTreatment(projectId);
   const reviewerPrompt = [
     "You are reading a short film's script for the first time. You only find faults; you change nothing.",
     project.targetSeconds ? `Running time: ${project.targetSeconds} s.` : "",
@@ -125,14 +127,18 @@ async function storyPacket(projectId: string): Promise<ReviewPacket> {
     "4. Does the opening hook in the first three seconds? Is the most striking picture near the start?",
     "5. Do the other people react like real people — one after another, not in unison, with bodies that flinch back when startled?",
     `6. Which moments will an AI video model get wrong? (${FRAGILE_LIST})`,
+    stored
+      ? "7. The director's treatment is below. Read it only after you have written your own three sentences. Does the script deliver its logline, its turn and its ending? Does the hook it names open the film? Is the chosen structure the one on the page, or one of the two it set aside? Where the script and the treatment disagree, that is a finding."
+      : "7. There is no treatment with this script: nobody wrote down what the film is for or which structure was chosen over which. Say so as a finding.",
     "",
     "For each finding write: where (scene / line), the problem, a suggested fix. Mark uncertain findings as 'maybe'.",
     "End with exactly one word on its own line: PASS or FAIL.",
     "",
     "--- SCRIPT ---",
     script.text,
+    ...(stored ? ["", `--- TREATMENT (written for script v${stored.scriptVersion}) ---`, director.treatmentToMarkdown(stored.treatment)] : []),
   ].filter((l) => l !== undefined).join("\n");
-  return { stage: "story", subjectHash, current: (await reviewState(projectId, "story", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { scriptVersion: script.version, targetSeconds: project.targetSeconds } };
+  return { stage: "story", subjectHash, current: (await reviewState(projectId, "story", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { scriptVersion: script.version, targetSeconds: project.targetSeconds, treatment: stored ? { scriptVersion: stored.scriptVersion, warnings: stored.warnings.filter((w) => w.severity !== "info") } : null } };
 }
 
 /* ---- shot: everything that is about to be sent to the GPU ---- */
@@ -214,13 +220,18 @@ async function filmPacket(projectId: string): Promise<ReviewPacket> {
   if (!latest) throw new StudioError("validation", "no finished export yet; export_project first");
   let t = 0;
   const cuts = view.timeline.clips.map((c, k) => {
-    const len = ((c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1);
+    const len = ((c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1) + (c.freezeS ?? 0);
     const row = { clip: k + 1, shotId: c.shotId, startS: Math.round(t * 100) / 100, endS: Math.round((t + len) * 100) / 100 };
     t += len;
     return row;
   });
   const subjectHash = hashOf({ export: latest.id, url: latest.resultUrl });
   const sheet = view.assets.find((a) => a.meta.exportId === latest.id && a.meta.role === "cut-sheet")?.url;
+  /* What the assembler measured on the file. The reviewer sees stills and hears nothing, so this is its only word on the sound. */
+  const file = view.assets.find((a) => a.source === "export" && a.kind === "video" && a.meta.exportId === latest.id);
+  const measured = file?.meta.checks as { lufs?: number | null; true_peak_db?: number | null } | undefined;
+  const findings = Array.isArray(file?.meta.findings) ? (file!.meta.findings as string[]) : [];
+  const titles = (view.timeline.titles ?? []).map((x) => ({ atS: x.atS, durationS: x.durationS, kind: x.kind, text: x.text }));
   const reviewerPrompt = [
     `This is a finished short film: ${latest.resultUrl}. You are seeing it for the first time; nobody tells you what it means.`,
     "1. Decode all of it. Take several full-resolution frames from every shot, and 3 frames on each side of every cut (cut times below).",
@@ -230,9 +241,15 @@ async function filmPacket(projectId: string): Promise<ReviewPacket> {
     "4. Say plainly what you could not check (motion feel, sound) — do not guess about it.",
     "For each finding write: time, frame number, problem; and sort them into 'blocker' and 'minor'.",
     "End with exactly one word on its own line: PASS or FAIL.",
+    titles.length ? "5. Read every title, card and caption below against the frames at its time: is it there, whole, readable, held long enough to read, and clear of the faces?" : "",
+    measured || findings.length ? "6. The file was measured after it was assembled (below). Every line under FOUND ON THE FILE is a finding unless you can say why it is meant." : "",
     "",
     "--- CUTS ---",
     JSON.stringify(cuts, null, 2),
+    titles.length ? "\n--- TITLES ---" : "",
+    titles.length ? JSON.stringify(titles, null, 2) : "",
+    measured ? `\n--- MEASURED ON THE FILE ---\nloudness ${measured.lufs ?? "?"} LUFS (web platforms play at about -14), true peak ${measured.true_peak_db ?? "?"} dBFS` : "",
+    findings.length ? `\n--- FOUND ON THE FILE ---\n${findings.map((f) => `- ${f}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
   return { stage: "film", subjectHash, current: (await reviewState(projectId, "film", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { exportId: latest.id, url: latest.resultUrl, preset: latest.preset, cutSheet: sheet, cuts, totalS: Math.round(t * 100) / 100 } };
 }

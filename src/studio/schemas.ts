@@ -333,11 +333,22 @@ export const ScenePalette = z.object({
 });
 export type ScenePalette = z.infer<typeof ScenePalette>;
 
+/* The sound design table: one row a scene. What the audience hears under the
+   whole sequence, decided before any shot is written. */
+export const SceneSound = z.object({
+  ambience: z.string().max(200).default("").describe("The bed under the whole scene: room tone, wind, rain, a city at night. A shot with no ambience of its own takes this one"),
+  foley: z.string().max(200).default("").describe("The scene's main physical sounds, by material: oars on water, chalk on slate"),
+  music: z.string().max(200).default("").describe("The state of the score in this scene: 'none', 'enters at the turn', 'full, then cut dead'. The model is not asked for score; the timeline's music carries it"),
+  silence: z.string().max(200).optional().describe("Where the scene goes quiet, if it does: 'before the door opens'. Becomes a silence on the timeline"),
+});
+export type SceneSound = z.infer<typeof SceneSound>;
+
 export const SceneInput = z.object({
   slug: z.string().min(1).max(60).describe("Short handle, e.g. 'alley-chase'"),
   summary: z.string().max(400).default(""),
   location: z.string().optional().describe("Element id"),
   palette: ScenePalette.optional().describe("This scene's colour script, set before any frame is drawn; compiles into every shot of the scene"),
+  sound: SceneSound.optional().describe("This scene's row of the sound design table: ambience, foley, the state of the music. Left out, the row already set is kept"),
   shots: z.array(ShotInput).min(1),
 });
 
@@ -412,21 +423,51 @@ export const ReviewInput = z.object({
 });
 export type ReviewInput = z.infer<typeof ReviewInput>;
 
+/* What joins two clips. Everything but a cut overlaps the two pictures for
+   transitionS; the assembler draws it, the model is never asked for one. */
+export const TRANSITIONS = ["cut", "dissolve", "fade_black", "fade_white", "iris", "wipe"] as const;
+export const TITLE_KINDS = ["card", "overlay", "caption"] as const;
+export const TITLE_POSITIONS = ["center", "top", "bottom", "top_left", "top_right", "bottom_left", "bottom_right"] as const;
+const TitleColor = z.string().regex(/^[A-Za-z0-9#@.]{1,32}$/, "a colour name or #RRGGBB, with an optional @opacity (white, #ff3030, black@0.5)");
+
 export const TimelineClip = z.object({
   shotId: z.string(),
   takeId: z.string(),
   inS: z.number().min(0).default(0),
   outS: z.number().max(15),
-  transition: z.enum(["cut", "dissolve"]).default("cut"),
+  transition: z.enum(TRANSITIONS).default("cut").describe("cut, or one the assembler draws: dissolve, fade_black (through black), fade_white (through white, a flash at 0.2 s), iris, wipe"),
   transitionS: z.number().min(0.2).max(1).optional(),
+  audioLeadS: z.number().min(0).max(2).optional().describe("J-cut: this clip's sound starts this long before its picture. Taken from the take before inS, so inS must leave that much"),
+  audioTrailS: z.number().min(0).max(2).optional().describe("L-cut: this clip's sound runs this long after its picture. Taken from the take after outS, so outS must leave that much"),
+  freezeS: z.number().min(0).max(10).optional().describe("Hold the clip's last frame this long, in silence (a beat for a title card, a held ending)"),
   repeat: z.number().int().min(1).max(120).default(1).describe("Play the clip this many times back to back (loops)"),
   speed: z.number().min(0.5).max(2).default(1).describe("Retime the clip (0.8–1.25 is invisible) so an action lands on a beat instead of re-rendering"),
   muteOwnAudio: z.boolean().default(false).describe("Drop the take's own audio (a take whose sound failed review)"),
+});
+export const TimelineTitle = z.object({
+  text: z.string().min(1).max(500).describe("The words, as they should read; line breaks are kept. H3 draws only text a prompt quotes and the Studio quotes none: every title, caption, sign and on-screen display is one of these"),
+  atS: z.number().min(0).describe("Start, in seconds on the assembled film"),
+  durationS: z.number().min(0.2).max(600).describe("A card needs 3 s or more (4 s for a main title); a caption its reading time"),
+  kind: z.enum(TITLE_KINDS).default("overlay").describe("card: covers the picture (an intertitle, a title; freeze the clip before it to make room). overlay: text on the picture. caption: small, at the bottom"),
+  position: z.enum(TITLE_POSITIONS).optional().describe("Default: centre for a card or an overlay, bottom for a caption"),
+  color: TitleColor.optional(),
+  background: TitleColor.optional().describe("A card's ground (default black), or a box behind an overlay or caption"),
+  size: z.number().int().min(8).max(400).optional().describe("Font size in pixels of the output frame; default follows the kind"),
 });
 export const TimelineInput = z.object({
   clips: z.array(TimelineClip).default([]),
   music: z.string().optional().describe("Asset id of a music track"),
   mix: z.object({ dialogueDb: z.number().default(0), sfxDb: z.number().default(-3), musicDb: z.number().default(-12) }).prefault({}),
+  fadeInS: z.number().min(0).max(5).optional().describe("Fade the film in from black, picture and sound"),
+  fadeOutS: z.number().min(0).max(5).optional().describe("Fade the film out to black, picture and sound"),
+  titles: z.array(TimelineTitle).max(40).optional(),
+  narration: z.array(z.object({
+    assetId: z.string().describe("An audio asset: a line from speak, a recording the user uploaded"),
+    atS: z.number().min(0),
+    gainDb: z.number().min(-60).max(24).optional(),
+  })).max(60).optional().describe("Off-screen and inner lines, a narrator: laid on the film at their times; the music ducks under them"),
+  silences: z.array(z.object({ atS: z.number().min(0), durationS: z.number().min(0.05).max(60) })).max(20).optional().describe("The whole mix out (clips, narration, music) for a stretch: the breath before a turn"),
+  loudnessLufs: z.number().min(-30).max(-8).nullable().optional().describe("Integrated loudness the export lands on. Default -14 (what the web platforms play at); null leaves the mix as it is"),
 });
 export type TimelineInput = z.infer<typeof TimelineInput>;
 

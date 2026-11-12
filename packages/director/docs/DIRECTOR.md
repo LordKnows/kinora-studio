@@ -50,6 +50,8 @@ Before writing anything, pick one or two reference works that set the bar for th
 7. at least two silences and two audio bridges (J-cut, L-cut) for films over 30 s;
 8. the turns: problem, solution, reaction, and why it can happen; and the structure (episodic or continuous).
 
+Send it with the script: `save_script(text, treatment)`. The Studio keeps it beside that script version and holds the film to it. The story reviewer reads it after the script and says where the two disagree; `lint_project` warns while there is none; the export names every planned silence and sound bridge that is not on the timeline; the user reads it on the Script page.
+
 The script the user approves is this treatment plus the dialogue.
 
 ## 5. Prove the look
@@ -71,19 +73,33 @@ With a reference film, study it frame by frame for camera positions and how much
 
 Then the frames: write what the first and last frame show (`frames`), get it reviewed, and only then draw — with GPT Image when the user has switched it on (`plan_frames` picks the cheapest source for each frame: reuse the anchor's last frame, crop, edit a related frame, or draw new), otherwise by upload or import. Every generated picture gets a cold-reader review (stage frame) before a take is built on it. Everything the action uses is already in the first frame; whoever reacts is already there, facing the camera; people never share one pose; leave room where things land and above heads; wind blows one way. Draw the richer frame first and derive the other from it; a push-in's end frame is a crop of the first.
 
+### A style of the user's own
+
+Everyone wants something different: brand colours, a character, the tone of a channel. A library style can be changed and kept, or a new one written on the closest style's technique.
+
+- `fork_style(base, slug, en, cn)` copies the base and sorts its sections into three groups. **Safe to change**: the palette inside the colour logic, type, motion and shot lengths, the sound palette, native moves (swap at most one: they are the signature), pitfalls, the variation space. **Changes its character**: materials, the colour logic itself, the camera grammar, the engine fields that reach the model on every shot; say what the style loses with each. **Cannot change**: the essence and what the style is not. With another essence it is a different style: say so, and keep the base only as the technique.
+- Plan it with the user one question at a time, your recommendation first with the reason: what the films are for and where they play, then what to change, then section by section. Do not ask what the base style or their files already answer. When they say "you decide", take your recommendations and list them.
+- Turn vague wishes into options, never silent edits: "more premium" is fewer colours, stronger contrast, slower motion, more empty space; "livelier" is a brighter accent, cuts on the beat, more percussion; "like our brand" is the brand colour as the accent, not the ground.
+- Changes travel together: faster motion wants denser sound; a new material brings its own pitfalls; a new palette must reach `engine.look`, because the model reads the Look and not the notes.
+- The style's constraints (`engine.negative`) are statements of what the picture shows ("only the clay and felt figures are in frame"), as in the library presets. H3 has no negative prompt, so a ban is drawn as the thing it bans; `save_style` names any entry written as one.
+- At most five changes a round. `save_style(style, basedOn, why)` keeps it and answers with the changed sections, their groups and the warnings. Show the user that summary, then prove the look with a style frame before a film depends on it.
+- Story, structure, cast, pacing and voice are free in every film. If that is all they want changed, they do not need a style of their own.
+- A kept style is usable by every user of the Studio, since a project's Look names it by slug. `list_styles` marks it `mine` for whoever made it and `shared` for everyone else; nobody's email is shown, and only its maker can change or delete it.
+
 ## 6. Sound is half the film
 
 - **Every visible action has a sound, and no sound without a visible cause**: fill `sfx` per shot from the style's foley list; match the material.
-- **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The Studio mixes the model's own audio; narration and score are added by the local assembler (`assemble_local`) with ducking.
+- **The sound design table.** One row a scene, set with the shotlist (`sound` on the scene, or `set_scene_sound`): the ambience bed, the main foley by material, the state of the music, where the scene goes silent. A shot with no ambience of its own takes its scene's row, so the bed holds across cuts. The music and the silence are promises to the timeline: at export the Studio names a scene that was given a score while the timeline has no music, and a planned silence that is not there.
+- **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The model renders the first two with the picture; the Studio's assembler adds the music (ducked under the clips and the narration), the narration lines and the silences, and lands the mix on −14 LUFS.
 - **At least two real silences** before the turn or the peak; the first sound after a silence is one of the most important in the film.
-- **Use sound as a transition** at least twice: a J-cut (next clip's audio leads) or an L-cut (this clip's audio trails) on the extended timeline.
+- **Use sound as a transition** at least twice: a J-cut (`audioLeadS`: the next clip's sound leads its picture) or an L-cut (`audioTrailS`: this clip's sound runs on) on the timeline. The sound is the take's own outside the clip's in and out points, so trim the picture to leave it there.
 - **Score in the style's instruments**; "piano and strings" is a warning.
 
 ## 7. Rhythm: the music grid comes first
 
 - Build the cue map (`check_cue_map`): tempo sections, hit points as bar and beat, silences. `cut_on_beats` turns it into clip boundaries.
 - **Vary the pace**: alternate fast and slow, include one clear acceleration or deceleration, give the audience one breath: a static one-beat hold of 10 s at pace still or slow, or a continuous chain of calm shots adding up to 10 s. `lint_shotlist` warns when every shot has the same pace, length, size or move.
-- **Sequences before shots**: 3–6 sequences with a share of the running time, then shots inside each. Never start from N × 5 s, but do start from 5 s for every shot that carries an action: H3 holds one action well for about 5 s and drifts, repeats or averages the turn in longer generations, and the cost per second roughly quadruples above 10 s. Chain 5 s shots with `continuous` for longer action; reserve 10 s for static one-beat holds (mist, an empty frame, a locked page) and render periodic motion as a `loop` of one period. 15 s is the least stable and most expensive length. `lint_shotlist` warns on long action shots (`duration.complex`); the style's `durations` guide sets the numbers.
+- **Sequences before shots**: 3–6 sequences with a share of the running time, then shots inside each. Never start from N × 5 s as arithmetic; do give each shot one action and the length that action needs: 5 s for a shot that carries an action (people, dialogue, more than one beat, a brisk pace), 8 s at most; 10 s for a held one-beat frame (mist, an empty frame, a locked page); a `continuous` chain for longer action; a `loop` of one period for periodic motion. A short shot is cheaper to retake, and on the takes so far a second of video cost about 1.4 times as much GPU time in takes over 7 s as in takes under 6 s (small samples). Whether H3 holds an action better at 5 s than at 10 s has not been measured: faults turned up in 5 s takes too. `lint_shotlist` hints at long action shots (`duration.complex`); the style's `durations` guide sets the numbers. Both are defaults until the length A/B is run.
 - **Pace for the viewer**: hold every subtitle ≥ 1.8 s and ≥ speech + 0.6 s; a 10 s shot holds about two lines; a title card ≥ 4 s. `check_subtitles` checks this.
 
 ## 8. Camera: every shot needs a reason
@@ -116,6 +132,6 @@ Then the frames: write what the first and last frame show (`frames`), get it rev
 
 ## 11. Assemble and deliver
 
-- `auto_timeline`, then the extended timeline (`check_timeline`): J/L cuts, fades, title cards, narration, music with ducking, silences, subtitles. `to_studio_timeline` keeps the Studio project valid; `assemble_local` renders the full version from the exported takes.
+- `auto_timeline`, then finish the timeline: transitions, J/L cuts, freezes, title cards and captions (the only text in the film), narration, music, silences, fades. `check_timeline` checks it in the director's shape and hands back what `save_timeline` takes; the Studio's assembler renders all of it. After `export_project`, `get_export` lists what was measured on the file and the findings nothing on the timeline explains; fix them before the film review. `assemble_local` renders the same timeline from take files on disk, for work away from the Studio.
 - Before delivery a stranger watches it (`review_packet` stage film): the story it understood, what it did not, then shot by shot — repeated actions, prop counts, continuity, jumps and colour breaks at cuts (the export's cut sheet shows 3 frames each side), faces and hands — and what it could not check.
 - Deliver: the film, the `.srt` when there is narration, `TREATMENT.md` in the script, `get_retro` (what went wrong, which wording fixed it, which fragile pictures to avoid next time), and one line to the user on what was left for a second round.

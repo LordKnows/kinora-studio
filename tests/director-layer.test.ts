@@ -73,3 +73,113 @@ describe("director layer on a saved project", () => {
     expect(plan.totalEstimateUsd).toBeGreaterThan(0);
   });
 });
+
+describe("a style of the user's own", () => {
+  it("forks a library style, keeps it, resolves it everywhere and guards it", async () => {
+    const Database = (await import("better-sqlite3")).default;
+    const { setDb } = await import("@/db");
+    type Db = import("@/db").Db;
+    const { migrate } = await import("@/db/migrate");
+    const sqlite = new Database(":memory:");
+    sqlite.pragma("foreign_keys = ON");
+    const db: Db = {
+      async all<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).all(...(params as never[])) as T[]; },
+      async get<T>(sql: string, params: unknown[] = []) { return sqlite.prepare(sql).get(...(params as never[])) as T | undefined; },
+      async run(sql: string, params: unknown[] = []) { return { changes: Number(sqlite.prepare(sql).run(...(params as never[])).changes) }; },
+      async exec(sql: string) { sqlite.exec(sql); },
+    };
+    await migrate(db);
+    setDb(db);
+    const styles = await import("@/studio/styles");
+    const repo = await import("@/studio/repo");
+    const orch = await import("@/studio/orchestrator");
+    const imaging = await import("@/studio/imaging");
+    const { ShotlistInput } = await import("@/studio/schemas");
+    const mia = { user: "mia@example.com", via: "mcp" as const };
+    const joe = { user: "joe@example.com", via: "mcp" as const };
+
+    // a draft: nothing stored, the three groups laid out
+    const draft = await styles.forkDraft({ base: "中国水墨", slug: "night-ink", en: "Night Ink", cn: "夜墨" });
+    expect(draft.basedOn).toBe("ink-wash");
+    expect(draft.groups.map((g) => g.group)).toEqual(["safe", "character", "essence"]);
+    expect((await styles.allStyles()).some((s) => s.style.slug === "night-ink")).toBe(false);
+
+    // the user's change: a night palette, carried into the Look
+    const style = draft.style;
+    style.line = "Pale ink on blue-black paper, one vermilion seal.";
+    style.colour.examplePalette = "paper #101418, ink #e8e2d2, vermilion #d8402c";
+    style.engine.look.palette = "pale ink on blue-black paper, one vermilion seal red, no other colour";
+    const saved = await styles.saveStyle(mia, { style, basedOn: "ink-wash", why: { "§3 palette": "the brand film plays at night" } });
+    expect(saved.style).toMatchObject({ slug: "night-ink", origin: "mine", basedOn: "ink-wash" });
+    // who made it stays inside the Studio: no listing, and nothing save_style answers, carries an email
+    expect(JSON.stringify(saved)).not.toContain("mia@example.com");
+    expect(saved.changes.map((c) => c.section)).toEqual(["§3 palette"]);
+    expect(saved.changes[0]).toMatchObject({ group: "safe", why: "the brand film plays at night" });
+    expect(saved.warnings.filter((w) => w.severity !== "info")).toEqual([]);
+    expect(saved.changesMarkdown).toContain("| §3 palette | safe |");
+
+    // listed first, found by any of its names, suggested with the library
+    const all = await styles.allStyles();
+    expect(all[0]!.style.slug).toBe("night-ink");
+    // to its maker it is "mine"; to anyone else it is "shared", and usable all the same
+    const forMia = (await styles.allStyles(mia.user)).map((x) => styles.summary(x, mia.user));
+    const forJoe = (await styles.allStyles(joe.user)).map((x) => styles.summary(x, joe.user));
+    expect(forMia[0]).toMatchObject({ slug: "night-ink", origin: "mine" });
+    expect(forJoe.find((x) => x.slug === "night-ink")).toMatchObject({ origin: "shared", basedOn: "ink-wash" });
+    expect(JSON.stringify(forJoe)).not.toContain("mia@example.com");
+    expect(JSON.stringify(forMia)).not.toContain("@example.com");
+    expect(forJoe.filter((x) => x.origin === "library")).toHaveLength(16);
+    expect(all.filter((s) => s.origin === "library")).toHaveLength(16);
+    expect((await styles.resolveStyle("夜墨"))?.style.slug).toBe("night-ink");
+    expect((await styles.resolveStyle("Night Ink"))?.origin).toBe("mine");
+    // a second user's own style comes first in their listing, ahead of mia's
+    const joes = structuredClone(style); joes.slug = "joes-ink"; joes.en = "Joe's Ink"; joes.cn = "乔墨";
+    await styles.saveStyle(joe, { style: joes, basedOn: "ink-wash" });
+    expect((await styles.allStyles(joe.user)).slice(0, 2).map((x) => styles.summary(x, joe.user)).map((x) => [x.slug, x.origin])).toEqual([["joes-ink", "mine"], ["night-ink", "shared"]]);
+    expect((await styles.allStyles(mia.user)).slice(0, 2).map((x) => styles.summary(x, mia.user)).map((x) => [x.slug, x.origin])).toEqual([["night-ink", "mine"], ["joes-ink", "shared"]]);
+    await styles.deleteStyle(joe, "joes-ink");
+    expect((await styles.styleChanges("night-ink"))?.basedOn).toBe("ink-wash");
+
+    // a project uses it like any style
+    const project = await repo.createProject({ name: "Night", budgetCapUsd: 20 });
+    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [{ durationS: 5, mode: "text", intent: "the river at night", beats: [{ from: 0, to: 5, action: "Mist drifts" }], camera: { move: "static" }, link: { type: "cut" } }] }] }));
+    const applied = await orch.applyStyleToProject(project.id, "night-ink");
+    expect(applied.view.scenes[0]!.shots[0]!.spec.cinematography?.animation).toBe("inkwash");
+    const after = await repo.getProject(project.id);
+    expect(after.look.style).toBe("night-ink");
+    // and its line reaches the picture prompts
+    await styles.warm(after.look.style);
+    expect(imaging.stylePrompt(after)).toContain("Night Ink: Pale ink on blue-black paper");
+
+    // guards: a library slug, someone else's style, a broken style
+    await expect(styles.saveStyle(mia, { style: { ...style, slug: "watercolor" } })).rejects.toThrow(/library style/);
+    await expect(styles.saveStyle(joe, { style })).rejects.toThrow(/someone else's style/);
+    await expect(styles.saveStyle(mia, { style: { ...style, slug: "broken", essence: [] } })).rejects.toThrow(/essence/);
+    await expect(styles.deleteStyle(joe, "night-ink")).rejects.toThrow(/someone else/);
+    await expect(styles.deleteStyle(mia, "ink-wash")).rejects.toThrow(/library style/);
+
+    // a change of essence is kept, and said for what it is
+    const other = structuredClone(style);
+    other.slug = "gold-lacquer"; other.en = "Gold Lacquer"; other.cn = "金漆";
+    other.essence = ["Gold line on black lacquer", "Light rakes across raised strokes", "No paper anywhere"];
+    const kept = await styles.saveStyle(mia, { style: other, basedOn: "night-ink" });
+    expect(kept.warnings.some((w) => w.code === "style.essence")).toBe(true);
+    expect(kept.style.basedOn).toBe("night-ink");
+
+    // H3 has no negative prompt: a style's constraints are statements, and a ban list is named on the way in
+    const banned = structuredClone(style);
+    banned.slug = "night-ink-bans"; banned.engine.negative = ["blurry", "no extra people"];
+    const named = await styles.saveStyle(mia, { style: banned, basedOn: "ink-wash" });
+    expect(named.warnings.filter((w) => w.code.startsWith("style.constraints")).map((w) => w.code)).toEqual(["style.constraints.bare", "style.constraints.ban"]);
+    expect(saved.warnings.some((w) => w.code.startsWith("style.constraints"))).toBe(false);
+    await styles.deleteStyle(mia, "night-ink-bans");
+
+    // overwrite one's own, then delete
+    style.sound.instruments = ["guqin", "a low synth drone"];
+    const again = await styles.saveStyle(mia, { style, basedOn: "ink-wash" });
+    expect(again.changes.map((c) => c.section)).toEqual(["§3 palette", "§7 sound palette"]);
+    expect((await repo.listUserStyles()).filter((r) => r.slug === "night-ink")).toHaveLength(1);
+    expect(await styles.deleteStyle(mia, "night-ink")).toEqual({ deleted: "night-ink" });
+    expect(await styles.resolveStyle("night-ink")).toBeUndefined();
+  });
+});

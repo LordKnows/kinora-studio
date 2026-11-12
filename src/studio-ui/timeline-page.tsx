@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { TimelineInput } from "@/studio/schemas";
+import { TRANSITIONS, type TimelineInput } from "@/studio/schemas";
 import type { ExportJob } from "@/studio/types";
 
 import { get, post, put, usd, when } from "./api";
@@ -183,12 +183,11 @@ export function TimelinePage() {
                       <input className="st-input st-input--sm" type="number" step={0.1} max={15} value={clip.outS} style={{ width: 80 }} onChange={(e) => set({ ...timeline, clips: timeline.clips.map((c, j) => (j === i ? { ...c, outS: Number(e.target.value) } : c)) })} />
                     </Field>
                     <Field label="Transition in">
-                      <select className="st-select st-input--sm" value={clip.transition} onChange={(e) => set({ ...timeline, clips: timeline.clips.map((c, j) => (j === i ? { ...c, transition: e.target.value as "cut" | "dissolve" } : c)) })}>
-                        <option value="cut">cut</option>
-                        <option value="dissolve">dissolve</option>
+                      <select className="st-select st-input--sm" value={clip.transition} onChange={(e) => set({ ...timeline, clips: timeline.clips.map((c, j) => (j === i ? { ...c, transition: e.target.value as (typeof TRANSITIONS)[number] } : c)) })}>
+                        {TRANSITIONS.map((name) => <option key={name} value={name}>{name.replace("_", " ")}</option>)}
                       </select>
                     </Field>
-                    {clip.transition === "dissolve" && (
+                    {clip.transition !== "cut" && (
                       <Field label="Length (s)">
                         <input className="st-input st-input--sm" type="number" step={0.1} min={0.2} max={1} value={clip.transitionS ?? 0.4} style={{ width: 80 }} onChange={(e) => set({ ...timeline, clips: timeline.clips.map((c, j) => (j === i ? { ...c, transitionS: Number(e.target.value) } : c)) })} />
                       </Field>

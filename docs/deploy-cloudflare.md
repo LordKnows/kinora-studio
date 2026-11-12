@@ -45,6 +45,8 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0018_user_references.sql` | Canvas「我的」：`user_references` 表（用户自己上传的肖像、服装、姿势，所有项目可见）。幂等；不执行也能用——Studio 首次用到时会自己建表 |
 | `migrations/0019_voice_cards.sql` | 声音卡：`voice_cards` 表（`project_id` 为空即全局声音库，所有项目共用）和 `voice_settings` 表（每个项目的语音 API 开关、模型和字数额度）。幂等；不执行也能用——Studio 首次读写声音卡时会自己建表。角色对声音卡的引用存在 `elements.meta_json`，不需要改表 |
 | `migrations/0020_project_owner.sql` | 私有项目：`projects` 表加 `owner`（创建者邮箱）、`visibility`（`shared` / `private`）和一个索引。两条 ALTER 只执行一次；不执行也能用——Studio 首次读写项目时会自己加这两列（之后 Console 里的 ALTER 报 `duplicate column` 就跳过，索引那行照样执行）。已有项目没有 owner，保持共享 |
+| `migrations/0021_user_styles.sql` | 用户自己的风格：`user_styles` 表（从库里的风格派生，或从空白开始；整份风格 JSON 和它相对基础风格的改动）。所有项目按 slug 可见，只有创建者能改和删；列表里对创建者本人标 `mine`，对其他人标 `shared`，不显示创建者邮箱。幂等；不执行也能用——Studio 首次读写风格时会自己建表 |
+| `migrations/0022_scene_sound.sql` | 声音设计表：`scenes` 表加 `sound_json`（每场一行：环境声、主要拟音、音乐状态、静默）。只执行一次；不执行也能用——Studio 首次读写场景时会自己加这一列（之后 Console 里的 ALTER 报 `duplicate column` 就跳过） |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。

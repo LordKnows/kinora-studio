@@ -1,4 +1,3 @@
-import * as director from "@/director";
 
 import type { BackendStatus } from "./backends/types";
 import { renderCinematography } from "./cinematography";
@@ -9,6 +8,7 @@ import * as gpu from "./gpu";
 import { getProjectView, type ProjectView, type ShotView } from "./orchestrator";
 import * as painter from "./painter";
 import * as repo from "./repo";
+import * as styles from "./styles";
 import { FIGURE_VIEWS, MAX_DETAILS, type FixedFeature, type RefView } from "./schemas";
 import { ON_BACK, STAGE_NEXT, detailRefs, detailTargets, missingDetails, sheetStage, type SheetStage, type SheetStep } from "./sheet";
 import { AGENT_IMAGE_MODELS, defaultImageParams, describeParams, editSizeFor, findModel, imageModelOfBackend, namePicturesFor, projectImageModel, resolveParams, type InferenceParams, type ModelEntry } from "./models";
@@ -379,7 +379,7 @@ export const VIEW_TEXT: Record<RefView, string> = {
 };
 
 function styleLine(look: Project["look"]): string {
-  const s = look.style ? director.findStyle(look.style)?.style : undefined;
+  const s = styles.knownStyle(look.style)?.style;
   const parts = [look.genre, look.palette, look.lighting, s ? `${s.en}: ${s.line}` : ""].map((x) => x?.trim()).filter(Boolean);
   return parts.length ? parts.join(". ") + "." : "";
 }
@@ -669,6 +669,7 @@ export async function generateElementView(elementId: string, view: RefView, acto
   const el = await repo.getElement(elementId);
   if (!el.projectId) throw new StudioError("validation", "library elements are drawn inside a project (import it first)");
   const pv = await getProjectView(el.projectId);
+  await styles.warm(pv.project.look.style);
   if ((view === "face" || view === "expression" || view === "detail") && el.kind !== "character") throw new StudioError("validation", `the ${view} view is a character's; ${el.name} is a ${el.kind}`);
   let feature: FixedFeature | undefined;
   if (view === "detail") {
@@ -732,6 +733,7 @@ export async function generateElementSheet(elementId: string, views: RefView[], 
 export async function generateShotFrame(shotId: string, which: "first" | "last", actor: Actor, opts: { method?: FrameMethod; quality?: Imaging["quality"]; startPod?: boolean; zoom?: number; instruction?: string; baseAssetId?: string } = {}): Promise<{ job?: Job; runner?: string; painters?: painter.RunnerSummary; method: FrameMethod; prompt?: string; note?: string }> {
   const shot = await repo.getShot(shotId);
   const pv = await getProjectView(shot.projectId);
+  await styles.warm(pv.project.look.style);
   const flat = pv.scenes.flatMap((s) => s.shots);
   const sh = flat.find((x) => x.id === shotId)!;
   const scene = pv.scenes.find((s) => s.id === sh.sceneId)!;
@@ -845,6 +847,7 @@ export async function extractTakeFrame(takeId: string, frame: number, actor: Act
 /** The frame that sets the film's look; once approved it is a reference for every sheet and frame. */
 export async function generateStyleFrame(projectId: string, actor: Actor, opts: { quality?: Imaging["quality"]; startPod?: boolean } = {}): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary; prompt: string }> {
   const project = await repo.getProject(projectId);
+  await styles.warm(project.look.style);
   const prompt = stylePrompt(project);
   const r = await submitImage(projectId, { op: "paint", purpose: "style_frame", prompt, size: sizeFor(project.look), quality: opts.quality ?? "medium", targetId: projectId, label: "style frame" }, actor, opts);
   return { ...r, prompt };

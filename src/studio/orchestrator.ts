@@ -10,7 +10,9 @@ import { paletteContrastWarnings } from "./sketch";
 import { StudioError } from "./errors";
 import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
-import { buildAssemblerInput } from "./backends/assembler";
+import * as styles from "./styles";
+import * as treatments from "./treatment";
+import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
@@ -701,15 +703,23 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
       throw new StudioError("not_approved", `clip for shot ${clip.shotId} points at a take that is not completed`, { checkpoint: "timeline", takeId: clip.takeId });
     }
   }
-  const total = view.timeline.clips.reduce((n, c) => n + (Math.max(0, c.outS - c.inS) / (c.speed ?? 1)) * (c.repeat ?? 1), 0);
+  const total = view.timeline.clips.reduce((n, c) => n + clipSeconds(c), 0);
   const estimateUsd = estimateExport(total, req.preset === "master-upscaled");
   assertBudget(view.project, estimateUsd);
   if (actor.via === "mcp") assertConfirmed(req.confirm, estimateUsd, `exporting ${req.preset}`);
   const music = view.timeline.music ? view.assets.find((a) => a.id === view.timeline.music) : undefined;
+  const audioUrls = new Map<string, string>();
+  const audioTexts = new Map<string, string>();
+  for (const line of view.timeline.narration ?? []) {
+    const asset = view.assets.find((a) => a.id === line.assetId);
+    if (!asset || asset.kind !== "audio") throw new StudioError("validation", `narration at ${line.atS} s points at ${line.assetId}, which is not an audio asset of this project`, { assetId: line.assetId });
+    audioUrls.set(asset.id, asset.url);
+    if (typeof asset.meta.text === "string" && asset.meta.text.trim()) audioTexts.set(asset.id, asset.meta.text);
+  }
   const exportRow = await repo.createExport(projectId, req.preset, {});
   const input = buildAssemblerInput({
     exportId: exportRow.id, projectId, preset: req.preset, look: view.project.look, timeline: view.timeline, shots, takes,
-    elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, burnIn: req.burnInSubtitles,
+    elementNames: new Map(view.elements.map((e) => [e.id, e.name])), musicUrl: music?.url, audioUrls, audioTexts, burnIn: req.burnInSubtitles,
     videoSize: view.project.look.aspectRatio === "9:16" ? "768x1344" : "1344x768",
   });
   await repo.setExportInput(exportRow.id, input as unknown as Record<string, unknown>);
@@ -731,6 +741,8 @@ export async function createExportJob(projectId: string, req: ExportRequest, act
     const without = view.timeline.clips.filter((c) => { const t = takes.get(c.takeId); return t && !(t.upscale?.status === "completed" && t.upscale.url); });
     if (without.length) warnings.push(`${without.length} clip(s) have no Regenerate 2K pass yet and use the 768p take: ${without.map((c) => c.takeId).join(", ")}`);
   }
+  /* The sound that was planned and never reached the timeline. */
+  warnings.push(...treatments.soundPlanFindings(view.scenes, view.timeline, await treatments.currentTreatment(projectId)));
   /* A cut is where the user's asks are settled: say which ones nobody closed. */
   const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
   if (open.length) warnings.push(`${open.length} requirement(s) from the user are still open: go through them against this cut and set each met or dropped (set_requirement) — ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}`);
@@ -763,7 +775,13 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
       const url = str(status.output.url);
       if (!url) return repo.updateExport(job.id, { status: "failed", error: "assembler completed without a url", finishedAt: Date.now() });
       const updated = await repo.updateExport(job.id, { status: "completed", resultUrl: url, srtUrl: str(status.output.srt_url), finishedAt: Date.now() });
-      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS: Array.isArray(status.output.cuts_s) ? status.output.cuts_s : undefined } });
+      /* What the assembler measured on the file, read against what the timeline asked for. */
+      const cutsS = Array.isArray(status.output.cuts_s) ? (status.output.cuts_s as number[]) : undefined;
+      const checks = status.output.checks && typeof status.output.checks === "object" ? (status.output.checks as ExportChecks) : undefined;
+      const workerWarnings = Array.isArray(status.output.warnings) ? (status.output.warnings as unknown[]).map(String) : [];
+      const subtitles = Array.isArray(status.output.subtitles) ? (status.output.subtitles as Array<{ start_s: number; end_s: number; text: string }>) : undefined;
+      const findings = exportFindings(job.input as unknown as AssemblerInput, { duration_s: num(status.output.duration_s), cuts_s: cutsS, checks, warnings: workerWarnings, subtitles });
+      await repo.createAsset({ projectId: job.projectId, url, kind: "video", source: "export", durationS: num(status.output.duration_s), meta: { exportId: job.id, preset: job.preset, cutsS, ...(checks ? { checks } : {}), findings } });
       /* 3 frames each side of every cut, for the film review. */
       const sheet = str(status.output.cut_sheet_url);
       if (sheet) await repo.createAsset({ projectId: job.projectId, url: sheet, kind: "image", source: "export", meta: { exportId: job.id, role: "cut-sheet" }, name: `cut sheet · ${job.preset}` });
@@ -775,6 +793,16 @@ export async function applyExportStatus(job: ExportJob, status: BackendStatus): 
     case "timeout":
       return repo.updateExport(job.id, { status: "failed", error: status.state, finishedAt: Date.now() });
   }
+}
+
+/** An export with what was measured on its file: loudness, and the black
+    picture and missing sound that nothing on the timeline explains. */
+export async function exportReport(exportId: string): Promise<{ export: ExportJob; checks?: ExportChecks; findings?: string[] }> {
+  const job = await refreshExport(exportId);
+  if (job.status !== "completed") return { export: job };
+  const asset = (await repo.listAssets(job.projectId)).find((a) => a.source === "export" && a.kind === "video" && a.meta.exportId === job.id);
+  if (!asset) return { export: job };
+  return { export: job, ...(asset.meta.checks ? { checks: asset.meta.checks as ExportChecks } : {}), findings: Array.isArray(asset.meta.findings) ? (asset.meta.findings as string[]) : [] };
 }
 
 export async function refreshExport(exportId: string): Promise<ExportJob> {
@@ -892,7 +920,7 @@ function num(v: unknown): number | undefined {
     pass and the batch planner take). */
 export async function shotlistOf(projectId: string): Promise<{ view: ProjectView; shotlist: ShotlistInput }> {
   const view = await getProjectView(projectId);
-  const shotlist = { scenes: view.scenes.map((s) => ({ slug: s.slug, summary: s.summary ?? "", location: s.locationElementId ?? undefined, ...(s.palette ? { palette: s.palette } : {}), shots: s.shots.map((sh) => sh.spec) })) } as ShotlistInput;
+  const shotlist = { scenes: view.scenes.map((s) => ({ slug: s.slug, summary: s.summary ?? "", location: s.locationElementId ?? undefined, ...(s.palette ? { palette: s.palette } : {}), ...(s.sound ? { sound: s.sound } : {}), shots: s.shots.map((sh) => sh.spec) })) } as ShotlistInput;
   return { view, shotlist };
 }
 
@@ -928,6 +956,12 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
   }
   warnings.push(...lookWarnings);
   for (const p of paletteContrastWarnings(view)) warnings.push({ code: "palette.contrast", severity: "warn", scene: p.scene, message: p.message });
+  /* The plan the film is held to: the treatment, the sound design table, and the timeline against both. */
+  const treatment = await treatments.currentTreatment(projectId);
+  warnings.push(...treatments.treatmentLint(treatment, view.script?.version));
+  const unplanned = view.scenes.filter((s) => !s.sound);
+  if (unplanned.length) warnings.push({ code: "sound.table", severity: "info", message: `${unplanned.length} scene(s) have no row in the sound design table (${unplanned.slice(0, 4).map((s) => s.slug).join(", ")}): set the ambience, the foley and the state of the music with set_scene_sound or save_shotlist` });
+  for (const finding of treatments.soundPlanFindings(view.scenes, view.timeline, treatment)) warnings.push({ code: "sound.plan", severity: "warn", message: finding });
   warnings.push(...(await checkSeams(projectId)));
   const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
   if (open.length) warnings.push({ code: "requirements.open", severity: "info", message: `${open.length} requirement(s) from the user still open: ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}` });
@@ -958,8 +992,7 @@ export function frameWarnings(sh: ShotView, videoW: number, videoH: number): Arr
 /** Fill every shot's cinematography with a style's defaults and save the
     merged shotlist (takes are kept). */
 export async function applyStyleToProject(projectId: string, style: string, opts?: { beatSuffix?: boolean; musicForShotsWithScore?: boolean }): Promise<{ warnings: LintWarning[]; view: ProjectView }> {
-  const found = director.findStyle(style);
-  if (!found) throw new StudioError("not_found", `no style matches "${style}"`);
+  const found = await styles.mustResolveStyle(style);
   const { shotlist } = await shotlistOf(projectId);
   if (shotlist.scenes.length === 0) throw new StudioError("validation", "the project has no shotlist yet");
   const result = director.applyStyle(found.style, shotlist as never, { beatSuffix: opts?.beatSuffix ?? true, musicForShotsWithScore: opts?.musicForShotsWithScore ?? true });
@@ -967,6 +1000,99 @@ export async function applyStyleToProject(projectId: string, style: string, opts
   const project = await repo.getProject(projectId);
   await repo.setProjectLook(projectId, { ...project.look, style: found.style.slug });
   return { warnings: result.warnings as LintWarning[], view: saved };
+}
+
+/* ---- one confirmation for a batch of takes ---- */
+
+export type TakeBatchRow = { shotId: string; label: string; estimateUsd: number; review: string };
+export type TakeBatchResult = {
+  queued: Array<{ shotId: string; label: string; takeIds: string[]; estimateUsd: number; warnings: string[] }>;
+  refused: Array<{ shotId: string; label: string; code: string; why: string }>;
+  /** Shots that cannot render yet, and what each waits for. */
+  waiting: Array<{ shotId: string; label: string; why: string }>;
+  estimateUsd: number;
+  next: string;
+};
+
+/** What one shot would cost and whether its review lets it render: the head of createTakes, without spending. */
+async function takeReadiness(shotId: string, n: number, steps?: number): Promise<{ estimateUsd: number; review: string }> {
+  const ctx = await compileContext(shotId, { steps });
+  const compiled = compileShot({ ...ctx, look: ctx.project.look });
+  const estimate = estimateTake(ctx.shot.spec.durationS, compiled.input.steps, n, await gpu.measuredForEstimate());
+  const subject = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
+  return { estimateUsd: estimate.usd, review: (await reviewState(ctx.project.id, "shot", subject, shotId)).state };
+}
+
+/**
+ * Render a batch on one confirmation. Without `confirm` nothing is spent: the
+ * answer is the list with one total, which the director puts to the user
+ * once. With it, every shot that can render now is queued in the plan's
+ * order (R2VA first); a shot waiting for its anchor's take, or with no
+ * passing shot review, is named and left for the next call. The review gate
+ * is the one generate_take has: a confirmation accepts the price, not an
+ * unread shot.
+ */
+export async function createTakeBatch(projectId: string, req: { shotIds?: string[]; n: number; steps?: number; confirm: boolean; skipReview?: string }, actor: Actor): Promise<TakeBatchResult> {
+  /* The two checkpoints first: without them no take renders, whatever its review says. */
+  assertCanGenerate(await repo.getProject(projectId), await repo.latestScript(projectId));
+  const plan = await planProjectBatch(projectId, { takesPerShot: req.n, onlyMissing: !req.shotIds?.length });
+  const label = new Map(plan.shots.map((x) => [x.shotId, x.label]));
+  const now = new Set(plan.passes[0] ?? []);
+  /* Every shot the plan holds, or the ones asked for; those that cannot render now are reported as waiting. */
+  const asked = req.shotIds?.length ? plan.order.filter((id) => req.shotIds!.includes(id)) : [...plan.order, ...plan.deferred.map((d) => d.shotId)];
+  const unknown = (req.shotIds ?? []).filter((id) => !label.has(id));
+  if (unknown.length) throw new StudioError("validation", `not shots of this project: ${unknown.join(", ")}`);
+  if (asked.length === 0) throw new StudioError("validation", "nothing to render: every shot has a take, or the ones without wait for an anchor's take (plan_project_batch shows which)");
+
+  const ready: TakeBatchRow[] = [];
+  const refused: TakeBatchResult["refused"] = [];
+  const waiting: TakeBatchResult["waiting"] = [];
+  for (const shotId of asked) {
+    const name = label.get(shotId) ?? shotId;
+    if (!now.has(shotId)) {
+      const d = plan.deferred.find((x) => x.shotId === shotId);
+      waiting.push({ shotId, label: name, why: `starts from another shot's last frame${d ? ` (${label.get(d.waitingFor) ?? d.waitingFor})` : ""}: render and select that take first` });
+      continue;
+    }
+    try {
+      const r = await takeReadiness(shotId, req.n, req.steps);
+      if (r.review !== "pass" && !req.skipReview) {
+        refused.push({ shotId, label: name, code: "not_reviewed", why: r.review === "none" ? "no shot review" : r.review === "stale" ? "only a review of an earlier prompt or frame" : "a failed shot review" });
+      } else {
+        ready.push({ shotId, label: name, estimateUsd: r.estimateUsd, review: r.review });
+      }
+    } catch (caught) {
+      refused.push({ shotId, label: name, code: caught instanceof StudioError ? caught.code : "error", why: caught instanceof Error ? caught.message : String(caught) });
+    }
+  }
+  const total = Math.round(ready.reduce((a, x) => a + x.estimateUsd, 0) * 1000) / 1000;
+  const view = await getProjectView(projectId);
+  if (ready.length === 0) {
+    return { queued: [], refused, waiting, estimateUsd: 0, next: "No shot can render yet. A shot needs a passing shot review of its exact prompt and frames (review_packet stage shot → fresh reviewer → record_review); a linked shot needs its anchor's take." };
+  }
+  /* The whole batch against the cap before any of it is spent, so it never stops half way for money. */
+  assertBudget(view.project, total + reservedUsd(await repo.listProjectActiveTakes(projectId)));
+  if (!req.confirm) {
+    throw new StudioError("needs_confirm", `${ready.length} shot(s), ${req.n} take(s) each, cost about ${total.toFixed(2)} USD in all. Tell the user that one figure; call again with confirm: true to render them all.`, {
+      estimateUsd: total, remainingUsd: Math.round((view.project.budgetCapUsd - view.project.spentUsd) * 1000) / 1000, shots: ready, refused, waiting,
+    });
+  }
+  const queued: TakeBatchResult["queued"] = [];
+  for (const row of ready) {
+    try {
+      const r = await createTakes(row.shotId, { n: req.n, steps: req.steps, confirm: true, ...(row.review !== "pass" && req.skipReview ? { skipReview: req.skipReview } : {}) }, actor);
+      queued.push({ shotId: row.shotId, label: row.label, takeIds: r.takes.map((t) => t.id), estimateUsd: r.estimate.usd, warnings: r.warnings });
+    } catch (caught) {
+      refused.push({ shotId: row.shotId, label: row.label, code: caught instanceof StudioError ? caught.code : "error", why: caught instanceof Error ? caught.message : String(caught) });
+      /* Out of money or no GPU: the rest would fail the same way. */
+      if (caught instanceof StudioError && (caught.code === "budget_exceeded" || caught.code === "backend_error")) break;
+    }
+  }
+  const left = ready.length - queued.length - refused.filter((x) => ready.some((y) => y.shotId === x.shotId)).length;
+  return {
+    queued, refused, waiting, estimateUsd: Math.round(queued.reduce((a, x) => a + x.estimateUsd, 0) * 1000) / 1000,
+    next: `${queued.length} shot(s) queued${left > 0 ? `, ${left} not started` : ""}. ${waiting.length ? `${waiting.length} wait for an anchor's take: once the user has picked those takes, call this again. ` : ""}${refused.length ? `${refused.length} were refused; each says why. ` : ""}The user reviews and picks takes on the Board.`,
+  };
 }
 
 export type BatchShotView = { shotId: string; label: string; durationS: number; mode: string; link?: string; hasTake: boolean; estimateUsd?: number; fragility: number; fragile: string[]; tier: "turbo" | "careful" };

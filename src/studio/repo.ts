@@ -9,7 +9,7 @@ import type {
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, ProjectVisibility, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, Voicing,
 } from "./types";
-import type { FixedFeature, RefView, ScenePalette } from "./schemas";
+import type { FixedFeature, RefView, ScenePalette, SceneSound } from "./schemas";
 import { isAdultLora, loraParams, type InferenceParams } from "./models";
 import { QWEN_LORA_SEED, QWEN_LORA_SQL } from "@/db/migrations/0017_seed_qwen_loras";
 
@@ -752,8 +752,26 @@ export async function elementsUsingVoiceCard(id: string): Promise<Element[]> {
 function mapScene(r: Row): Scene {
   return {
     id: str(r.id), projectId: str(r.project_id), index: num(r.idx), slug: str(r.slug), summary: str(r.summary),
-    locationElementId: opt(r.location_element_id, str), palette: json<ScenePalette | undefined>(r.palette_json, undefined), createdAt: num(r.created_at),
+    locationElementId: opt(r.location_element_id, str), palette: json<ScenePalette | undefined>(r.palette_json, undefined),
+    ...(r.sound_json ? { sound: json<SceneSound | undefined>(r.sound_json, undefined) } : {}), createdAt: num(r.created_at),
   };
+}
+
+/* Migration 0022 adds scenes.sound_json; it is also added on first use, so a
+   deploy works before it has been applied on D1 (a column that exists already
+   answers "duplicate column"). Per database: tests swap it under one module. */
+const sceneSoundReady = new WeakSet<object>();
+async function scenesDb(): Promise<Db> {
+  const d = await db();
+  if (!sceneSoundReady.has(d)) {
+    try {
+      await d.run("ALTER TABLE scenes ADD COLUMN sound_json TEXT");
+    } catch (caught) {
+      if (!/duplicate column/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
+    }
+    sceneSoundReady.add(d);
+  }
+  return d;
 }
 
 function mapShot(r: Row): Shot {
@@ -777,22 +795,23 @@ export async function getScene(id: string): Promise<Scene> {
   return mapScene(row);
 }
 
-export async function createScene(projectId: string, input: { slug: string; summary?: string; location?: string; index?: number; palette?: ScenePalette }): Promise<Scene> {
-  const d = await db();
+export async function createScene(projectId: string, input: { slug: string; summary?: string; location?: string; index?: number; palette?: ScenePalette; sound?: SceneSound }): Promise<Scene> {
+  const d = await scenesDb();
   const last = await d.get<{ i: number | null }>("SELECT MAX(idx) i FROM scenes WHERE project_id = ?", [projectId]);
   const id = newId("scn");
-  await d.run("INSERT INTO scenes (id, project_id, idx, slug, summary, location_element_id, palette_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [
-    id, projectId, input.index ?? (last?.i ?? -1) + 1, input.slug, input.summary ?? "", input.location ?? null, input.palette ? JSON.stringify(input.palette) : null, Date.now(),
+  await d.run("INSERT INTO scenes (id, project_id, idx, slug, summary, location_element_id, palette_json, sound_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+    id, projectId, input.index ?? (last?.i ?? -1) + 1, input.slug, input.summary ?? "", input.location ?? null, input.palette ? JSON.stringify(input.palette) : null, input.sound ? JSON.stringify(input.sound) : null, Date.now(),
   ]);
   return getScene(id);
 }
 
-export async function updateScene(id: string, patch: Partial<{ slug: string; summary: string; location: string | null; palette: ScenePalette | null }>): Promise<Scene> {
+export async function updateScene(id: string, patch: Partial<{ slug: string; summary: string; location: string | null; palette: ScenePalette | null; sound: SceneSound | null }>): Promise<Scene> {
   const current = await getScene(id);
   const palette = patch.palette === undefined ? current.palette : patch.palette;
-  await (await db()).run("UPDATE scenes SET slug = ?, summary = ?, location_element_id = ?, palette_json = ? WHERE id = ?", [
+  const sound = patch.sound === undefined ? current.sound : patch.sound;
+  await (await scenesDb()).run("UPDATE scenes SET slug = ?, summary = ?, location_element_id = ?, palette_json = ?, sound_json = ? WHERE id = ?", [
     patch.slug ?? current.slug, patch.summary ?? current.summary,
-    patch.location === undefined ? (current.locationElementId ?? null) : patch.location, palette ? JSON.stringify(palette) : null, id,
+    patch.location === undefined ? (current.locationElementId ?? null) : patch.location, palette ? JSON.stringify(palette) : null, sound ? JSON.stringify(sound) : null, id,
   ]);
   return getScene(id);
 }
@@ -870,22 +889,23 @@ export type ShotlistMergeResult = { created: number; updated: number; deleted: n
     rendered for them; otherwise the caller gets the list and refuses. */
 export async function mergeShotlist(
   projectId: string,
-  scenes: Array<{ slug: string; summary: string; location?: string; palette?: ScenePalette; shots: ShotInput[] }>,
+  scenes: Array<{ slug: string; summary: string; location?: string; palette?: ScenePalette; sound?: SceneSound; shots: ShotInput[] }>,
 ): Promise<ShotlistMergeResult> {
   const existingScenes = await listScenes(projectId);
   const bySlug = new Map(existingScenes.map((s) => [s.slug, s]));
   const keepScenes = new Set<string>();
   const result: ShotlistMergeResult = { created: 0, updated: 0, deleted: 0 };
-  const d = await db();
+  const d = await scenesDb();
 
   for (const [si, incoming] of scenes.entries()) {
     let scene = bySlug.get(incoming.slug);
     if (scene) {
-      /* A palette left out keeps the one already set (it is often set on the Board). */
+      /* A palette or a sound row left out keeps the one already set (they are often set on the Board). */
       const palette = incoming.palette ?? scene.palette;
-      await d.run("UPDATE scenes SET idx = ?, summary = ?, location_element_id = ?, palette_json = ? WHERE id = ?", [si, incoming.summary, incoming.location ?? null, palette ? JSON.stringify(palette) : null, scene.id]);
+      const sound = incoming.sound ?? scene.sound;
+      await d.run("UPDATE scenes SET idx = ?, summary = ?, location_element_id = ?, palette_json = ?, sound_json = ? WHERE id = ?", [si, incoming.summary, incoming.location ?? null, palette ? JSON.stringify(palette) : null, sound ? JSON.stringify(sound) : null, scene.id]);
     } else {
-      scene = await createScene(projectId, { slug: incoming.slug, summary: incoming.summary, location: incoming.location, index: si, palette: incoming.palette });
+      scene = await createScene(projectId, { slug: incoming.slug, summary: incoming.summary, location: incoming.location, index: si, palette: incoming.palette, sound: incoming.sound });
     }
     keepScenes.add(scene.id);
     const current = await listSceneShots(scene.id);
@@ -1701,4 +1721,58 @@ export async function updateUserReference(id: string, patch: Partial<Pick<UserRe
 
 export async function deleteUserReference(id: string): Promise<void> {
   await (await userReferencesDb()).run("DELETE FROM user_references WHERE id = ?", [id]);
+}
+
+/* ---------- styles of the users' own ---------- */
+
+export type UserStyleRow = { slug: string; user: string; basedOn?: string; style: unknown; changes: unknown[]; createdAt: number; updatedAt: number };
+
+/* Created on first use as well as by migration 0021 (one statement each: D1's exec splits on newlines). */
+const USER_STYLES_SQL = [
+  "CREATE TABLE IF NOT EXISTS user_styles (slug TEXT PRIMARY KEY, user TEXT NOT NULL, based_on TEXT, style_json TEXT NOT NULL, changes_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS user_styles_user ON user_styles (user, updated_at)",
+];
+/* Per database, not per isolate: tests swap the database under one module. */
+const userStylesReady = new WeakSet<object>();
+
+async function userStylesDb(): Promise<Db> {
+  const d = await db();
+  if (!userStylesReady.has(d)) {
+    for (const sql of USER_STYLES_SQL) await d.run(sql);
+    userStylesReady.add(d);
+  }
+  return d;
+}
+
+function mapUserStyle(r: Record<string, unknown>): UserStyleRow {
+  return {
+    slug: String(r.slug), user: String(r.user), ...(r.based_on ? { basedOn: String(r.based_on) } : {}),
+    style: json<unknown>(r.style_json, {}), changes: json<unknown[]>(r.changes_json, []), createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+  };
+}
+
+export async function listUserStyles(): Promise<UserStyleRow[]> {
+  const rows = await (await userStylesDb()).all<Record<string, unknown>>("SELECT * FROM user_styles ORDER BY updated_at DESC");
+  return rows.map(mapUserStyle);
+}
+
+export async function getUserStyle(slug: string): Promise<UserStyleRow | undefined> {
+  const row = await (await userStylesDb()).get<Record<string, unknown>>("SELECT * FROM user_styles WHERE slug = ?", [slug]);
+  return row ? mapUserStyle(row) : undefined;
+}
+
+export async function putUserStyle(input: { slug: string; user: string; basedOn?: string; style: unknown; changes: unknown[] }): Promise<UserStyleRow> {
+  const d = await userStylesDb();
+  const now = Date.now();
+  const cur = await getUserStyle(input.slug);
+  if (cur) {
+    await d.run("UPDATE user_styles SET based_on = ?, style_json = ?, changes_json = ?, updated_at = ? WHERE slug = ?", [input.basedOn ?? null, JSON.stringify(input.style), JSON.stringify(input.changes), now, input.slug]);
+  } else {
+    await d.run("INSERT INTO user_styles (slug, user, based_on, style_json, changes_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [input.slug, input.user, input.basedOn ?? null, JSON.stringify(input.style), JSON.stringify(input.changes), now, now]);
+  }
+  return (await getUserStyle(input.slug))!;
+}
+
+export async function deleteUserStyle(slug: string): Promise<void> {
+  await (await userStylesDb()).run("DELETE FROM user_styles WHERE slug = ?", [slug]);
 }

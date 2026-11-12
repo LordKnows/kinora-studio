@@ -302,15 +302,16 @@ Judgement helpers that sit beside the Studio's own tools. **They are served
 from the Studio MCP connector** (`list_styles`, `suggest_styles`, `get_style`,
 `compile_look`, `apply_style`, `lint_shotlist`, `validate_treatment`,
 `check_cue_map`, `cut_on_beats`, `check_subtitles`, `plan_batch`,
-`check_timeline`, and `get_director_guide` sections `judgement` / `technique` /
+`check_timeline`, `fork_style` / `save_style` / `delete_style` for a style of
+the user's own, and `get_director_guide` sections `judgement` / `technique` /
 `styles`), so Grok and Claude get them through the same connector; the package
 also runs as a local stdio MCP for the two tools that need a machine
 (`assemble_local` with ffmpeg, `synthesize_narration` with edge-tts). What it
 adds: 16 style presets (eleven-section
 `STYLE.md` convention) compiled into Studio fields, a treatment validator, a
-rhythm lint for shotlists, a cue map that snaps cuts to the beat, an extended
-timeline (J/L cuts, fades, titles, narration, ducking) assembled locally with
-ffmpeg, subtitle reading-time rules and a batch planner. Registered in
+rhythm lint for shotlists, a cue map that snaps cuts to the beat, a timeline
+check (J/L cuts, fades, titles, narration, silences) whose output the Studio's
+assembler renders, subtitle reading-time rules and a batch planner. Registered in
 `.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
 
 ```bash

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import type { StoredTreatment, TreatmentWarning } from "@/studio/treatment";
 import type { Script } from "@/studio/types";
 
 import { get, post, when } from "./api";
@@ -12,13 +13,17 @@ import { useProjectContext } from "./shell";
 export function ScriptPage() {
   const { projectId, view, reload } = useProjectContext();
   const [scripts, setScripts] = useState<Script[] | null>(null);
+  const [treatment, setTreatment] = useState<StoredTreatment | null>(null);
+  const [treatmentWarnings, setTreatmentWarnings] = useState<TreatmentWarning[]>([]);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   const load = useCallback(async () => {
-    const { scripts } = await get<{ scripts: Script[] }>(`/api/projects/${projectId}/scripts`);
+    const { scripts, treatment, treatmentWarnings } = await get<{ scripts: Script[]; treatment?: StoredTreatment | null; treatmentWarnings?: TreatmentWarning[] }>(`/api/projects/${projectId}/scripts`);
     setScripts(scripts);
+    setTreatment(treatment ?? null);
+    setTreatmentWarnings(treatmentWarnings ?? []);
     setOpen((cur) => cur ?? scripts[0]?.id ?? null);
   }, [projectId]);
 
@@ -123,14 +128,100 @@ export function ScriptPage() {
             )}
           </Section>
         </div>
-        <div className="st-card st-stack">
-          <div className="st-row st-row--between">
-            <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : "Preview"}</span>
-            {current && <Lamp state={current.approval} label={current.approval} />}
+        <div className="st-stack">
+          <div className="st-card st-stack">
+            <div className="st-row st-row--between">
+              <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : "Preview"}</span>
+              {current && <Lamp state={current.approval} label={current.approval} />}
+            </div>
+            {current ? <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div> : <span className="st-muted">Select a version to read it.</span>}
           </div>
-          {current ? <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div> : <span className="st-muted">Select a version to read it.</span>}
+          {scripts && scripts.length > 0 && <TreatmentPanel treatment={treatment} warnings={treatmentWarnings} />}
         </div>
       </div>
     </div>
+  );
+}
+
+/* Why the film is shaped the way it is: what the director wrote down before
+   the screenplay, and what the lint says is missing from it. */
+function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | null; warnings: TreatmentWarning[] }) {
+  const t = treatment?.treatment;
+  return (
+    <Section title="Treatment" aside={treatment ? <small>for v{treatment.scriptVersion}</small> : undefined}>
+      <div className="st-stack">
+      {warnings.length > 0 && (
+        <div className="st-card st-stack" style={{ gap: 6 }}>
+          {warnings.map((w, i) => (
+            <div key={i} className="st-row" style={{ alignItems: "baseline", gap: 8 }}>
+              <Lamp state={w.severity === "info" ? "draft" : "failed"} label={w.severity} />
+              <span className="st-muted" style={{ flex: 1 }}>{w.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!t ? (
+        <Empty title="No treatment yet" hint="The director sends it with save_script: logline, arc, the three structures it weighed, the sound design." />
+      ) : (
+        <div className="st-card st-stack">
+          <div>
+            <span className="st-label">Logline</span>
+            <p style={{ margin: 0 }}>{t.logline}</p>
+          </div>
+          <div>
+            <span className="st-label">Arc</span>
+            <p className="st-muted" style={{ margin: 0 }}>{t.arc.setup} → {t.arc.turn} → {t.arc.ending}</p>
+          </div>
+          <div>
+            <span className="st-label">Structure</span>
+            {t.candidates.map((c) => (
+              <p key={c.name} className={c.name === t.chosen ? undefined : "st-muted"} style={{ margin: "0 0 4px" }}>
+                <strong>{c.name}{c.name === t.chosen ? " (chosen)" : ""}.</strong> {c.shape}
+              </p>
+            ))}
+            <p className="st-muted" style={{ margin: 0 }}>{t.whyChosen}</p>
+          </div>
+          <div>
+            <span className="st-label">Hook, signature, ending</span>
+            <p className="st-muted" style={{ margin: 0 }}>{t.hook.atSecond} s: {t.hook.description}. Signature shot: {t.signatureShot}. Native move: {t.nativeMove}. The ending answers the opening: {t.endingEcho}</p>
+          </div>
+          <div>
+            <span className="st-label">Benchmark</span>
+            {t.benchmark.map((b) => (
+              <p key={b.work} className="st-muted" style={{ margin: "0 0 4px" }}><strong>{b.work}.</strong> Learn: {b.learn}. Leave: {b.dontLearn}.</p>
+            ))}
+          </div>
+          <div className="st-card st-card--pad0" style={{ overflowX: "auto" }}>
+            <table className="st-table">
+              <thead>
+                <tr><th>Sequence</th><th>s</th><th>Pace</th><th>Ambience</th><th>Foley</th><th>Music</th></tr>
+              </thead>
+              <tbody>
+                {t.sequences.map((s) => {
+                  const sound = t.soundDesign.find((r) => r.sequence === s.name);
+                  return (
+                    <tr key={s.name}>
+                      <td title={s.purpose}>{s.name}</td>
+                      <td className="st-num">{s.seconds}</td>
+                      <td>{s.pace}</td>
+                      <td>{sound?.ambience ?? "—"}</td>
+                      <td>{sound?.foley ?? "—"}</td>
+                      <td>{sound?.music ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {(t.silences.length > 0 || t.audioBridges.length > 0) && (
+            <p className="st-muted" style={{ margin: 0 }}>
+              {t.silences.length > 0 && <>Silences: {t.silences.map((x) => `${x.atSecond} s (${x.why})`).join("; ")}. </>}
+              {t.audioBridges.length > 0 && <>Sound bridges: {t.audioBridges.map((b) => `${b.atSecond} s ${b.kind === "j_cut" ? "J-cut" : "L-cut"} (${b.what})`).join("; ")}.</>}
+            </p>
+          )}
+        </div>
+      )}
+      </div>
+    </Section>
   );
 }

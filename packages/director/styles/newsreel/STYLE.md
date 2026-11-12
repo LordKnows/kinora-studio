@@ -48,7 +48,7 @@
 - The music drives the pace; the announcer never pauses.
 - Stepping: on ones.
 - Never moves: the title card.
-- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period. A default from cost, not a measured limit.
 
 ## 6. Camera grammar
 
@@ -126,6 +126,10 @@ A menu: use the ones your story needs.
   "beatSuffix": "A flickering 1920s newsreel print, slightly fast crowds, tripod framing."
 }
 ```
+
+Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+
+- `lora_fal_realism_people` at 0.6: medium shots of a demonstrator or a crowd where faces must read as photographed people. Lower than its card's 0.8 because it stacks on the turbo LoRA.
 
 Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).
 

@@ -48,7 +48,7 @@
 - Chaos rises with speed and print damage together.
 - Stepping: on ones.
 - Never moves: the curtain frame, the intertitle card.
-- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period.
+- Shot length: action shots (characters, dialogue, more than one beat, brisk or frantic) 5 s, at most 8 s, chained with `continuous` for longer action; static one-beat holds 10 s; periodic motion as a `loop` of one period. A default from cost, not a measured limit.
 
 ## 6. Camera grammar
 
@@ -130,6 +130,10 @@ A menu: use the ones your story needs.
   "beatSuffix": "A flickering 1920s silent-film print, exaggerated silent acting, slightly fast motion."
 }
 ```
+
+Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+
+- `lora_fal_realism_people` at 0.6: full and medium shots of the performers, so faces and hands read as photographed people under the print damage. Lower than its card's 0.8 because it stacks on the turbo LoRA.
 
 Apply with `compile_look` (→ `start_film` / `update_look`) and `apply_style` (→ `save_shotlist`).
 

@@ -95,6 +95,7 @@
     "cinematography": { "animation": "anime", "grade": "cyberpunk", "texture": "vhs", "lens": "normal", "dof": "medium", "lighting": ["neon", "practicals", "rim"], "pace": "steady" },
     "bySize": { "cu": { "lens": "portrait", "dof": "shallow" }, "els": { "lens": "wide", "dof": "deep" } },
     "loras": [],
+    "loraSuggestions": [{ "id": "lora_prithiv_anime_motion", "strength": 0.8, "when": "keyframe shots (I2VA / FL2VA) that animate a drawn hero frame: genre-typical anime movement. The compiler leaves it off reference and text shots." }],
     "beatSuffix": "Flat 1980s cel animation on twos over a painted background, coloured outlines, hard shadow shapes, VHS playback."
   },
   "variation": {

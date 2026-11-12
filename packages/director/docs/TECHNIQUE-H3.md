@@ -5,8 +5,9 @@ The implementation half of the guide. Nothing here is a directing rule; it is wh
 ## Resolution, frame grid, durations
 
 - 1344×768 at 24 fps is the verified resolution (the turbo LoRAs are 768p models). Other aspect ratios are untested.
-- Durations snap to a frame grid: 5 s → 5.2 s, 10 s → 10.13 s, 12 s → 12.25 s, 15 s → 15.1 s (`compile_prompt` reports the exact `effectiveSeconds`). Stay on 5–15 s per shot; chain with `continuous` or `bridge` for longer action.
-- Length and quality: one action per 5 s generation is the reliable unit; a two-beat 12 s shot asks one generation to carry a turn, which the model tends to average out. Measured cost: a 10 s take ran about 32 GPU-seconds per output second, a 12 s take about 121, so the per-second price roughly quadruples above 10 s. `plan_batch` uses `compile_prompt` estimates when given and this curve otherwise.
+- Durations snap to a frame grid of 17k+5 frames at 24 fps, 124 to 362 frames, nearest: 5 s → 124 frames (5.17 s), 6 → 141 (5.88), 7 → 175 (7.29), 8 → 192 (8.0), 9 → 209 (8.71), 10 → 243 (10.13), 12 → 294 (12.25), 15 → 362 (15.08). `compile_prompt` reports the `effectiveSeconds`. A take can be shorter than the shot asks (6, 9, 11, 13, 14 s), so cut to the take. Stay on 5–15 s per shot; chain with `continuous` or `bridge` for longer action.
+- Cost is GPU time times the pod's price, and the Studio estimates it as linear in length: an average of GPU-seconds per output second for the GPU type, from finished takes (`gpu_stats`). On the takes so far (8 steps): RTX PRO 6000 about 19 GPU-s per output second for takes under 6 s (n=18) and about 27 for takes of 7.3 to 10.1 s (n=5); RTX 5090 about 30 (n=1) and 49 (n=6). So a longer take costs somewhat more per second, about 1.4 times, on small samples that mix workflows and orientations. A 20-step take (no speed LoRA) costs 2 to 2.5 times an 8-step one. `plan_batch` uses the compiler's estimate when it has one and the per-second average otherwise.
+- Length and quality: not measured. The default (5 s for an action, at most 8 s, 10 s for a hold) rests on cost and on a prior from similar video models, not on H3 takes: identity drift and mistimed actions turned up in 5 s takes too. Run the length A/B (one beat as 12 s against 6 + 6 `continuous`) before treating it as a rule.
 - One shot is one generation. Beats are time-stamped sub-descriptions inside that single prompt (`0–6s: … 6–12s: …`); a beat with `cut: true` asks the model for a hard cut inside the same clip (at most 3). Separate generations come only from separate shots and their links.
 - Native stereo audio is generated with the picture from the sound fields (`sfx`, `ambience`, `music`).
 
@@ -38,7 +39,7 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - Cinematography keys (size, angle, lens, dof, lighting, grade, texture, vfx, animation, pace) compile to prose; the project Look is injected into every shot's prompt, so the style's Look fields carry most of the style.
 - `apply_style` appends the style's beat suffix to every beat so the medium is restated per shot; H3 forgets the Look in long beats otherwise.
 - Dialogue: on-screen lines compile to the H3 guide's `(S1) says: <d>[Chinese] …</d>` with the speaker's voice-card description; off-screen and inner lines stay out of the prompt and are voiced separately. Mandarin accuracy and lip-sync are not yet measured here: keep lines short, one beat each. `experiments.voiceRefs` (R2VA `<Audio j>` voice references) and `experiments.audioFirst` (an I2VA take anchored on a prepared line) are under test.
-- On-screen text: never ask the model; the local assembler adds titles, captions and OSD.
+- On-screen text: never ask the model (H3 draws only text a prompt quotes, so quote none); the assembler adds titles, captions and on-screen displays from the timeline's `titles`.
 - No negative prompt: H3's guider runs at cfg 1 with no negative branch, so every word of the Look is drawn. The Look's constraints (`look.negative`) are statements of what the picture shows: "exactly two people in the room", "the street is empty", "sharp focus, crisp detail". A bare negative-prompt word ("blurry", "cartoon") and a ban on text ("no logos", "no subtitles": H3 draws only text a prompt quotes) are left out of the prompt; any other "no X" goes in as written and can add X. `lint_project` and `update_look` name each one with its positive form (`look.constraints.*`). To keep something from a reference, use the shot's references and fixed features, not a ban. The compiler's own speech rule is a statement too: a shot with lines says "The lines above are the only words spoken"; one with only off-screen or inner lines says "Mia stays silent, lips closed"; one with no lines says "Mia stays silent" unless the action or the sound gives the cast a voice (a laugh, a purr), and says nothing when no character is in the shot. The style presets' constraints are written the same way.
 
 ## Staging fields and what they compile to
@@ -76,23 +77,25 @@ Do not describe what the anchor frame already shows; describe what happens next.
 - Length: 17n+5 frames between 90 and 345 (a 5.17 s take = 124, 10.13 s = 243, a 15.1 s take is cut to 345). Output 1280×736 (short edge 736) or 832×480; the assembler scales it to the export.
 - Known failures (Viggle): a non-humanoid character in one long take, small artefacts in fine detail, drift in a multi-shot clip without pins. It does not fix motion, direction or timing.
 
-## What the Studio assembler does today
+## What the Studio assembler does
 
-- Cuts and dissolves between clips, `repeat` for loops, per-clip `speed` (0.5–2; 0.8–1.25 reads as natural) and `muteOwnAudio` (also set by a review with `audioOk: false`), a music asset and three mix sliders.
+Everything below is on the timeline `save_timeline` takes; `export_project` renders it.
+
+- Joins: a cut, or a transition the assembler draws on the clip that comes in: `dissolve`, `fade_black`, `fade_white` (a flash at 0.2 s), `iris`, `wipe`, each 0.2–1 s. `repeat` for loops, per-clip `speed` (0.5–2; 0.8–1.25 reads as natural), `freezeS` to hold a last frame in silence, `muteOwnAudio` (also set by a review with `audioOk: false`).
+- J-cut and L-cut: `audioLeadS` / `audioTrailS`, up to 2 s. The sound is the take's own before `inS` and after `outS`, so a clip that starts on its take's first frame has nothing to lead with; the export says how much the take really had.
+- Titles: `card` (covers the picture: an intertitle, a main title), `overlay` (on the picture), `caption` (small, at the bottom), each with a time, a length, an optional position, colour, background and size. Drawn with a CJK font; lines are centred one by one.
+- Sound: narration lines (audio assets at their times), a music asset looped under the cut and ducked under clips and narration, three mix sliders, `silences` (the whole mix out), `fadeInS` / `fadeOutS` (picture and sound), and a two-pass loudness target, −14 LUFS by default (`loudnessLufs: null` leaves the mix alone; a silent film is left alone too).
+- Subtitles: an SRT, burned in on request. On-screen lines are captioned inside their shot: at their own `startS` / `endS` when the line has them (shifted by the clip's trim and speed), otherwise spread evenly. Narration lines made with `speak` keep their text, and each gets a cue as long as its audio measures. A line that is both in a shot's dialogue (off-screen, inner) and on the narration track is captioned once. The cues as written are checked for reading time (`get_export` findings). Not yet: timing an on-screen line from the take's own sound; the speech recognition the Studio calls returns text without timestamps.
+- Sound design: a shot with no ambience of its own compiles with its scene's row of the sound design table.
 - Colour: every source is read with its tagged matrix, an untagged one as BT.601 (PyAV's default RGB → YUV; `ASSEMBLER_UNTAGGED_MATRIX=bt709` overrides), converted to BT.709 and tagged. Untagged BT.601 shown as BT.709 shifts reds (measured: 200,49,50 displayed as 213,64,48).
+- Checks on the finished file: integrated loudness and true peak, black picture, silent stretches. The Studio reads them against the timeline and `get_export` lists the findings: black that no fade, card or through-black transition explains, missing sound that is not a silence, a missed loudness target, a J/L cut the take could not give. A card with little text measures as black; that is expected and explained.
 - A cut sheet with each export: 3 frames before and after every cut, one row per cut, for the film review.
 - No whole-clip frame interpolation: it smears motion on AI video. `master-upscaled` uses each take's Open-H3-Regenerate file.
-- Not yet: J/L cuts, fades, titles, narration, ducking, silences, burned subtitles.
+- Not yet: separate dialogue and effects stems (`mix.sfxDb` is accepted and unused), a title's free position or font.
 
-## What the local assembler adds (`assemble_local`)
+## The local assembler (`assemble_local`)
 
-- Transitions: dissolve, fade to black, fade to white, white flash, iris, wipe (ffmpeg `xfade`).
-- Per-clip `speed` and `sourceMatrix` (default `bt601`); output tagged BT.709.
-- J-cut (`audioLeadS`) and L-cut (`audioTrailS`) per clip; `freezeS` to hold a last frame; `muteOwnAudio`.
-- Title cards (full-frame) and overlays/captions (`drawtext`); OSD for found-footage styles.
-- A narration track (files from `synthesize_narration` or the user's recording) and a music file with ducking under narration, fades, and silences (whole bus out).
-- Burned subtitles from an SRT (`check_subtitles` writes it) and a loudnorm to −14 LUFS.
-- Inputs are the take files: download each selected take's URL (`resultUrl` in `get_project` / `list_takes`, or `get_take`) next to the project and set `file` on the clip.
+The director package renders the same timeline with ffmpeg from take files on disk: for work away from the Studio, or to try a cut before spending an export. It also takes a clip's own gain, a title's free x/y and font, and narration from a file. Inputs are the take files: download each selected take's URL (`resultUrl` in `get_project` / `list_takes`, or `get_take`) next to the project and set `file` on the clip.
 
 ## LoRAs and GPUs
 

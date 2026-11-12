@@ -70,7 +70,7 @@ server.registerTool("compile_look", {
 }, async ({ style, ...o }) => {
   const s = findStyle(style);
   if (!s) return text({ error: `no style matches "${style}"` });
-  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations });
+  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(s.style.engine.loraSuggestions.length ? { loraSuggestions: { note: "Not in the look: no take has been rendered with them on this style. Offer them to the user; if they agree, render one probe shot with and one without (revise_shot loras) and keep it only if the picture is better.", loras: s.style.engine.loraSuggestions } } : {}) });
 });
 
 const ShotlistSchema = z.object({ scenes: z.array(z.object({ slug: z.string(), summary: z.string().optional(), location: z.string().optional(), shots: z.array(z.any()) })) });
@@ -130,7 +130,7 @@ server.registerTool("synthesize_narration", {
 });
 
 server.registerTool("plan_batch", {
-  description: "Order takes to render: R2VA shots first, then the fl2va family; linked shots after their anchors (passes); one total estimate against the budget cap so a single confirmation covers the batch. Pass each shot's estimateUsd from compile_prompt; without it the estimate is a rough fallback (cost per second roughly quadruples above 10 s) and the plan says so.",
+  description: "Order takes to render: R2VA shots first, then the fl2va family; linked shots after their anchors (passes); one total estimate against the budget cap so a single confirmation covers the batch. Pass each shot's estimateUsd from compile_prompt; without it the estimate is the per-second average times the shot's rendered length, and the plan says which shots that is.",
   inputSchema: {
     shots: z.array(z.object({ shotId: z.string(), index: z.number().int(), durationS: z.number(), mode: z.enum(["text", "keyframe", "reference", "edit"]), link: z.object({ type: z.string(), anchor: z.number().optional(), anchorShotId: z.string().optional() }).optional(), hasTake: z.boolean().optional(), estimateUsd: z.number().optional() })),
     capUsd: z.number(), spentUsd: z.number().default(0), perSecondUsd: z.number().optional(), takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true),
@@ -140,7 +140,7 @@ server.registerTool("plan_batch", {
 const ExtTimelineSchema = z.any();
 
 server.registerTool("check_timeline", {
-  description: "Validate an extended timeline (clips with J/L cuts, transitions, freezes; titles; narration; music; silences) and return the Studio-shaped timeline for save_timeline plus what only the local assembler will render.",
+  description: "Validate a timeline in the director's own shape (clips with J/L cuts, transitions, freezes; titles; narration; music; silences): too-short cards, a J-cut the take has no footage for, too few sound bridges or silences. Returns the timeline as the Studio's save_timeline takes it (it draws and mixes nearly all of this now) and what could not go along.",
   inputSchema: { timeline: ExtTimelineSchema },
 }, async ({ timeline }) => text({ warnings: checkTimeline(timeline as ExtTimeline), ...toStudioTimeline(timeline as ExtTimeline) }));
 

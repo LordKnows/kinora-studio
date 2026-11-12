@@ -93,6 +93,7 @@
     "cinematography": { "grade": "mono", "texture": "16mm", "lens": "normal", "dof": "deep", "lighting": ["harshsun"], "pace": "brisk" },
     "bySize": { "els": { "lens": "wide" } },
     "loras": [],
+    "loraSuggestions": [{ "id": "lora_fal_realism_people", "strength": 0.6, "when": "medium shots of a demonstrator or a crowd where faces must read as photographed people. Lower than its card's 0.8 because it stacks on the turbo LoRA." }],
     "beatSuffix": "A flickering 1920s newsreel print, slightly fast crowds, tripod framing."
   },
   "variation": {
