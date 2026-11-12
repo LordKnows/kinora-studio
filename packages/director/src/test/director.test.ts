@@ -351,3 +351,18 @@ test("style LoRA suggestions are offered, never applied", () => {
   assert.match(styleToMarkdown(cel), /not applied by default/);
   assert.deepEqual(findStyle("ink-wash")!.style.engine.loraSuggestions, []);
 });
+
+test("a style of the user's own is held to constraints as statements, like the presets", () => {
+  const base = findStyle("ink-wash")!.style;
+  const taken = { library: ["ink-wash"], others: [] };
+  // the library base carries none of these findings, so a plain fork does not either
+  const mine = forkStyle(base, { slug: "night-ink", en: "Night Ink", cn: "夜墨" });
+  assert.deepEqual(checkFork(base, mine, taken).warnings.filter((w) => w.code.startsWith("style.constraints")), []);
+  // a ban list brought in from an image model is named for what H3 will do with it
+  mine.engine.negative = ["blurry", "no on-screen text", "no extra people", "the river fills the lower third"];
+  const w = checkFork(base, mine, taken).warnings;
+  assert.deepEqual(w.filter((x) => x.code.startsWith("style.constraints")).map((x) => [x.code, x.severity]), [["style.constraints.bare", "warn"], ["style.constraints.text", "info"], ["style.constraints.ban", "info"]]);
+  assert.match(w.find((x) => x.code === "style.constraints.bare")!.message, /^The style's constraints \(engine\.negative\)/);
+  // and a style from a blank page is checked the same way
+  assert.ok(checkFork(undefined, mine, taken).warnings.some((x) => x.code === "style.constraints.bare"));
+});

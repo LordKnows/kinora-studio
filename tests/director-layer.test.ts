@@ -150,6 +150,14 @@ describe("a style of the user's own", () => {
     expect(kept.warnings.some((w) => w.code === "style.essence")).toBe(true);
     expect(kept.style.basedOn).toBe("night-ink");
 
+    // H3 has no negative prompt: a style's constraints are statements, and a ban list is named on the way in
+    const banned = structuredClone(style);
+    banned.slug = "night-ink-bans"; banned.engine.negative = ["blurry", "no extra people"];
+    const named = await styles.saveStyle(mia, { style: banned, basedOn: "ink-wash" });
+    expect(named.warnings.filter((w) => w.code.startsWith("style.constraints")).map((w) => w.code)).toEqual(["style.constraints.bare", "style.constraints.ban"]);
+    expect(saved.warnings.some((w) => w.code.startsWith("style.constraints"))).toBe(false);
+    await styles.deleteStyle(mia, "night-ink-bans");
+
     // overwrite one's own, then delete
     style.sound.instruments = ["guqin", "a low synth drone"];
     const again = await styles.saveStyle(mia, { style, basedOn: "ink-wash" });

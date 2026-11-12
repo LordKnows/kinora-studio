@@ -74,7 +74,7 @@ TITLE_POSITIONS: dict[str, tuple[str, float | str]] = {
 }
 TITLE_X = {"l": "w*0.05", "c": "(w-text_w)/2", "r": "w*0.95-text_w"}
 COLOR_RE = re.compile(r"^[A-Za-z0-9#@.]{1,32}$")
-# The model draws no text, so titles are drawn here. The first font that
+# The Studio never asks H3 for text (it draws only what a prompt quotes), so titles are drawn here. The first font that
 # exists wins; a CJK one comes first because the films are mostly Chinese.
 FONT_CANDIDATES = [
     "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",

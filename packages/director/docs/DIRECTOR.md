@@ -81,6 +81,7 @@ Everyone wants something different: brand colours, a character, the tone of a ch
 - Plan it with the user one question at a time, your recommendation first with the reason: what the films are for and where they play, then what to change, then section by section. Do not ask what the base style or their files already answer. When they say "you decide", take your recommendations and list them.
 - Turn vague wishes into options, never silent edits: "more premium" is fewer colours, stronger contrast, slower motion, more empty space; "livelier" is a brighter accent, cuts on the beat, more percussion; "like our brand" is the brand colour as the accent, not the ground.
 - Changes travel together: faster motion wants denser sound; a new material brings its own pitfalls; a new palette must reach `engine.look`, because the model reads the Look and not the notes.
+- The style's constraints (`engine.negative`) are statements of what the picture shows ("only the clay and felt figures are in frame"), as in the library presets. H3 has no negative prompt, so a ban is drawn as the thing it bans; `save_style` names any entry written as one.
 - At most five changes a round. `save_style(style, basedOn, why)` keeps it and answers with the changed sections, their groups and the warnings. Show the user that summary, then prove the look with a style frame before a film depends on it.
 - Story, structure, cast, pacing and voice are free in every film. If that is all they want changed, they do not need a style of their own.
 

@@ -445,7 +445,7 @@ export const TimelineClip = z.object({
   muteOwnAudio: z.boolean().default(false).describe("Drop the take's own audio (a take whose sound failed review)"),
 });
 export const TimelineTitle = z.object({
-  text: z.string().min(1).max(500).describe("The words, as they should read; line breaks are kept. The model draws no text: every title, caption, sign and on-screen display is one of these"),
+  text: z.string().min(1).max(500).describe("The words, as they should read; line breaks are kept. H3 draws only text a prompt quotes and the Studio quotes none: every title, caption, sign and on-screen display is one of these"),
   atS: z.number().min(0).describe("Start, in seconds on the assembled film"),
   durationS: z.number().min(0.2).max(600).describe("A card needs 3 s or more (4 s for a main title); a caption its reading time"),
   kind: z.enum(TITLE_KINDS).default("overlay").describe("card: covers the picture (an intertitle, a title; freeze the clip before it to make room). overlay: text on the picture. caption: small, at the bottom"),

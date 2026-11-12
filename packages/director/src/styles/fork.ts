@@ -1,4 +1,5 @@
 import type { Style } from "./schema.js";
+import { lintConstraints } from "../lint/constraints.js";
 import type { Warning } from "../types.js";
 
 /**
@@ -34,7 +35,7 @@ const SECTIONS: Section[] = [
   { section: "§7 sound palette", group: "safe", about: "instruments, foley, ambience, silence, voice", read: (s) => s.sound },
   { section: "§8 native moves", group: "safe", about: "the moments only this medium can do (swap at most one: they are the signature)", read: (s) => s.nativeMoves },
   { section: "§9 pitfalls", group: "safe", about: "what the model gets wrong in this style, and the fix", read: (s) => s.pitfalls },
-  { section: "§10 engine", group: "character", about: "what reaches the model on every shot: genre, camera, lens, lighting, negatives, cinematography defaults, LoRAs, the beat suffix", read: (s) => ({ ...s.engine, look: { ...s.engine.look, palette: undefined }, durations: undefined }) },
+  { section: "§10 engine", group: "character", about: "what reaches the model on every shot: genre, camera, lens, lighting, the constraints (statements of what the picture shows), cinematography defaults, LoRAs, the beat suffix", read: (s) => ({ ...s.engine, look: { ...s.engine.look, palette: undefined }, durations: undefined }) },
   { section: "§11 variation space", group: "safe", about: "the structures, openings and endings the style suggests", read: (s) => s.variation },
 ];
 
@@ -91,6 +92,11 @@ export function checkFork(base: Style | undefined, next: Style, taken: { library
   if (!SLUG.test(next.slug)) W.push({ code: "style.slug", severity: "error", message: `slug "${next.slug}" must be lowercase letters, digits and hyphens, 2 to 49 characters` });
   if (taken.library.includes(next.slug)) W.push({ code: "style.slug.library", severity: "error", message: `"${next.slug}" is a library style; a style of your own needs its own slug` });
   if (taken.others.includes(next.slug)) W.push({ code: "style.slug.taken", severity: "error", message: `"${next.slug}" is someone else's style; choose another slug` });
+  /* H3 has no negative prompt: a constraint is a statement of what the picture shows.
+     The sixteen presets are held to that; so is a style of the user's own. */
+  for (const w of lintConstraints(next.engine.negative)) {
+    W.push({ ...w, code: w.code.replace("look.constraints", "style.constraints"), message: w.message.replace(/^Look constraints/, "The style's constraints (engine.negative)") });
+  }
   if (!base) return { changes: [], warnings: W };
 
   const changes = diffStyle(base, next);
