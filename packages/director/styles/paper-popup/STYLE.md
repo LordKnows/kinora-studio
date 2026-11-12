@@ -3,7 +3,7 @@
 > A pop-up book opening page by page: layered card, fold lines, paper cities rising under a lamp.
 > 一页页打开的立体书：层叠卡纸、折痕、台灯下升起的纸城。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Materials & 3D · 材质与 3D  
 **Uses:** Children's stories · Brand origin stories · Game and fantasy trailers · Places and travel

@@ -1,4 +1,4 @@
-/* Stave — the one stylesheet. "Score": one line, two lights, one red.
+/* Kinora Studio — the one stylesheet. "Score": one line, two lights, one red.
 
    Tokens live on .studio (the document root for every studio surface).
    Lights up (the default) is a neutral grey card with ink on it, for
@@ -238,29 +238,67 @@
   background: var(--bg);
   border-bottom: 1px solid var(--line-3);
 }
+/* The brand (src/brand.ts, docs/brand.md): the K of three cards, then
+   "kinora" in bold with the i's dot as the red card, "Studio" in regular,
+   影匣 in Songti. In the dark room the plate goes and the cards stand alone,
+   and the word loses a little weight, since light type on dark reads heavier. */
 .studio .st-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  font-weight: 800;
-  font-stretch: 125%;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  gap: 9px;
+  font-size: 16px;
+  line-height: 1.2;
   color: var(--tx);
   text-decoration: none;
   white-space: nowrap;
 }
 .studio .st-brand-mark {
   flex: none;
-  margin-right: 2px;
+  margin-right: 1px;
 }
-/* 镜谱 beside STAVE: the brand's Chinese name, in the script's Songti */
+.studio .st-brand-mark--bare,
+.studio .st-lightsdown .st-brand-mark--plate {
+  display: none;
+}
+.studio .st-lightsdown .st-brand-mark--bare {
+  display: block;
+}
+.studio .st-brand-word {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+.studio .st-lightsdown .st-brand-word {
+  font-weight: 760;
+  letter-spacing: -0.022em;
+}
+/* the dotless ı carries the red card where its dot would be */
+.studio .st-brand-i {
+  position: relative;
+  display: inline-block;
+  letter-spacing: 0;
+  margin-right: -0.03em;
+}
+.studio .st-brand-i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0.12em;
+  width: 0.12em;
+  height: 0.19em;
+  transform: translateX(-50%);
+  border-radius: 0.025em;
+  background: var(--accent);
+}
+.studio .st-brand-suffix {
+  margin-left: 0.28em;
+  font-weight: 400;
+  color: var(--tx2);
+}
+/* 影匣 beside the wordmark: the brand's Chinese name, in the script's Songti */
 .studio .st-brand-zh {
   font-family: var(--font-song);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 700;
-  font-stretch: normal;
   letter-spacing: 0.04em;
   color: var(--tx2);
 }

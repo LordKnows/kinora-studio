@@ -1,10 +1,10 @@
 {
-  "name": "stave",
+  "name": "kinora-studio",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm --filter @stave/director build && node scripts/emit-guide.mjs && node scripts/emit-director.mjs && node scripts/emit-pod-bundle.mjs && next dev --port 3000",
-    "build": "pnpm --filter @stave/director build && node scripts/emit-guide.mjs && node scripts/emit-director.mjs && node scripts/emit-pod-bundle.mjs && next build",
+    "dev": "pnpm --filter @kinora/director build && node scripts/emit-guide.mjs && node scripts/emit-director.mjs && node scripts/emit-pod-bundle.mjs && next dev --port 3000",
+    "build": "pnpm --filter @kinora/director build && node scripts/emit-guide.mjs && node scripts/emit-director.mjs && node scripts/emit-pod-bundle.mjs && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",

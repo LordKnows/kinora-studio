@@ -3,7 +3,7 @@
 > Flat shapes, limited palette, a confident narrator: the 1950s instructional cartoon.
 > 扁平色块、有限配色、沉稳旁白：50 年代的教学动画。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Cartoon & Anime · 卡通与动画  
 **Uses:** How-to and set-up guides · Help centres · Product onboarding · Public information

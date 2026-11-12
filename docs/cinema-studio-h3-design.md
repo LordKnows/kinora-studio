@@ -1,6 +1,6 @@
 # Cinema Studio 复刻方案（MiniMax H3 导向，RunPod 自托管）
 
-> 项目现在叫 Stave（镜谱，见 [brand.md](brand.md)）。本文是最初复刻 Higgsfield Cinema Studio 的设计稿，保留原文。
+> 项目现在叫 Kinora Studio（影匣，见 [brand.md](brand.md)）。本文是最初复刻 Higgsfield Cinema Studio 的设计稿，保留原文。
 
 > 目标：在本仓库基础上，复刻 Higgsfield Cinema Studio 的完整结构
 > （Project → Scene → Shot、项目级 Look、Hero Frame First、Cast / Elements、

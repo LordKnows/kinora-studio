@@ -3,7 +3,7 @@
 > A cinema newsreel: brisk monochrome actuality, title cards with a date, a brass band and a confident announcer.
 > 影院新闻片：明快的黑白实况、带日期的字幕卡、铜管乐队和自信的播音员。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Edit & Documentary · 剪辑与纪实  
 **Uses:** History stories · Fads and eras · Anniversaries · Tongue-in-cheek announcements

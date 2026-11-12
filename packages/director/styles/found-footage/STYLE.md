@@ -3,7 +3,7 @@
 > One camcorder tape, first person, an empty familiar interior where the camera's own failures carry the plot.
 > 一盘摄像机录像带，第一人称，空荡熟悉的室内，摄像机自身的故障推动剧情。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Cinema & Eras · 电影与时代  
 **Uses:** Horror and mystery · ARG and game teasers · Liminal spaces · Unsettling brand drops

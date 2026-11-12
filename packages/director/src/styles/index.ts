@@ -3,7 +3,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StyleSchema, type Style } from "./schema.js";
 
-/** Library root: `<package>/styles`. User styles: `$DIRECTOR_MY_STYLES` or `~/.stave/my-styles` (`~/.openhiggsfield/my-styles`, the name before Stave, while only it exists). */
+/** Library root: `<package>/styles`. User styles: `$DIRECTOR_MY_STYLES` or `~/.kinora/my-styles` (`~/.openhiggsfield/my-styles`, the earlier name, while only it exists). */
 export function libraryDir(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   // dist/styles/index.js → ../../styles ; src/styles/index.ts → ../../styles
@@ -14,7 +14,7 @@ export function myStylesDir(): string {
   const env = process.env.DIRECTOR_MY_STYLES;
   if (env) return env;
   const home = process.env.HOME || process.env.USERPROFILE || ".";
-  const dir = join(home, ".stave", "my-styles");
+  const dir = join(home, ".kinora", "my-styles");
   const before = join(home, ".openhiggsfield", "my-styles");
   return !existsSync(dir) && existsSync(before) ? before : dir;
 }

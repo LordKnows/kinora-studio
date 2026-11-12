@@ -12,7 +12,7 @@ export function styleToMarkdown(s: Style): string {
     p(`> References (grammar only): ${s.references.map((r) => `${r.work} (learn: ${r.learn}; don't: ${r.dontLearn})`).join("; ")}.`);
   }
   p("");
-  p(`<!-- generated from style.json by @stave/director; edit the JSON. ${s.lineage ?? ""} -->`);
+  p(`<!-- generated from style.json by @kinora/director; edit the JSON. ${s.lineage ?? ""} -->`);
   p("");
   p(`**Category:** ${s.category} · ${s.category_cn}  `);
   p(`**Uses:** ${s.uses.join(" · ")}`);

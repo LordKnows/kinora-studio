@@ -1,4 +1,4 @@
-# 用 Cloudflare 网页端部署 Stave（镜谱）
+# 用 Cloudflare 网页端部署 Kinora Studio（影匣）
 
 > 产品原名 Cinema Studio。改名只改了看得见的名字；Cloudflare 和 RunPod 里的资源名没有改：
 > Worker 仍叫 `cinema-studio` 和 `cinema-studio-cron`，D1 和 R2 仍叫 `studio`，
@@ -144,7 +144,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 
 **Zero Trust（左侧菜单）→ Access → Applications → Add an application → Self-hosted**
 
-- Application name：`Stave`
+- Application name：`Kinora Studio`
 - Application domain：`studio.zyhu.dev`
 - Policy：Action **Allow**，Include → **Emails** → 填你的邮箱。保存。
   多人使用时把其他人的邮箱也加进来（或用 **Emails ending in** 填一个域名、或一个
@@ -157,7 +157,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 
 再加一个 **Bypass** 应用，让机器调用的路径绕过登录（它们各自有自己的鉴权）：
 
-- Add an application → Self-hosted，名称 `Stave machine paths`，
+- Add an application → Self-hosted，名称 `Kinora Studio machine paths`，
   在 Application domain 里逐条添加（同一个应用可以加多条域名 + 路径）：
   - `studio.example.com/mcp`
   - `studio.example.com/.well-known/*`

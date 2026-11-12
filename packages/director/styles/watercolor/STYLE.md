@@ -3,7 +3,7 @@
 > A field journal that paints itself: translucent washes, dry-brush edges, hand-written notes beside what is painted.
 > 一本自己画自己的手账：透明晕染、干笔飞白，画旁有手写注记。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Hand-drawn & Painting · 手绘与绘画  
 **Uses:** Nature and travel · Science explainers · Food and craft · Gentle brand stories

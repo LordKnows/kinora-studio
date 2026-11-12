@@ -3,44 +3,76 @@
    Node loads as TypeScript) all read the same thing. docs/brand.md says why
    it looks like this.
 
-   Stave: the set of lines music is written on. The Studio's first page lays a
-   film out the same way, a stave for time, the script, the board, the takes,
-   the sound and the cut, read top to bottom at any moment. 镜谱: a score of
-   shots. */
+   The Kinora (Lumière, 1896) was a home viewer: a reel of 640 curved photo
+   cards on a brass core, turned by a crank, and a small metal stop that held
+   each card flat in front of the lens for an instant. That instant is a frame.
+   影匣: a box of moving pictures. */
 
 export const BRAND = {
-  name: "Stave",
-  zh: "镜谱",
-  /** What it is, after the name: "Stave — AI film studio". */
+  /** The name in text: titles, the manifest, the MCP server's instructions. */
+  name: "Kinora Studio",
+  /** The wordmark: the word in bold with the i's dot as the red card, the suffix in regular. */
+  word: "kinora",
+  suffix: "Studio",
+  zh: "影匣",
+  /** What it is, after the name: "Kinora Studio — AI film studio". */
   descriptor: "AI film studio",
   descriptorZh: "AI 电影工作室",
-  tagline: "The whole film on one score: every shot, take and cut in its place.",
-  taglineZh: "把整部片子写成一页总谱：每个镜头、每条镜次、每一刀都在它的位置上。",
+  tagline: "Every shot a reel; the red card is the frame in front of the lens now.",
+  taglineZh: "每个镜头是一卷片轮；红色的那张，是此刻停在镜头前的那一帧。",
 } as const;
 
-/** The three colours of the interface; the red means only "here", "rolling" and "the next step". */
+/** The colours. The red means only "now": the card at the stop, a take rolling, the next step. */
 export const BRAND_COLORS = {
   ink: "#121212",
   card: "#E6E6E4",
+  paper: "#F7F7F5",
   tally: "#FF4B1F",
+  /** On dark grounds: the light (never pure white) and the plate one step above the ground, with its edge. */
+  night: "#EDEDEA",
+  nightPlate: "#1F1F1E",
+  nightEdge: "#3A3A38",
 } as const;
 
-/* The mark on a 32-unit field: three staves cut into shots of different
-   lengths, and the red line that marks where the film is now. Strokes are two
-   units on odd centres with even ends, so the lines fall on whole pixels at 16
-   and 32 px. */
+/* The mark on a 64-unit field: three rounded cards make a K. The upright one
+   is the spindle, the lower one leans on it, and the red one is the card
+   flicking past the stop. */
 export const MARK = {
-  viewBox: "0 0 32 32",
-  staves: "M6 9H12M14 9H26M6 15H18M20 15H26M6 21H10M12 21H22M24 21H26",
-  here: "M19 4V26",
-  stroke: 2,
-  /** Corner radius of the plate the app icons sit on. */
-  plateRadius: 7,
+  viewBox: "0 0 64 64",
+  /** The cards alone, cropped to them: the mark without its plate, beside the wordmark on a dark ground. */
+  bareViewBox: "11 8 43 48",
+  plateRadius: 14,
+  cardRadius: 3.5,
+  cards: [
+    { x: 13, y: 10, w: 11, h: 44, rotate: "", red: false },
+    { x: 27, y: 5, w: 11, h: 27, rotate: "36 27 32", red: true },
+    { x: 27, y: 32, w: 11, h: 25, rotate: "-36 27 32", red: false },
+  ],
 } as const;
 
-/** The mark as SVG markup: on its ink plate (`plate`), or bare in ink on a light ground. */
-export function markSvg({ size = 32, plate = true, rounded = true, title = BRAND.name }: { size?: number; plate?: boolean; rounded?: boolean; title?: string } = {}): string {
-  const line = plate ? BRAND_COLORS.card : BRAND_COLORS.ink;
-  const ground = plate ? `<rect width="32" height="32"${rounded ? ` rx="${MARK.plateRadius}"` : ""} fill="${BRAND_COLORS.ink}"/>` : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.viewBox}" width="${size}" height="${size}"><title>${title}</title>${ground}<g shape-rendering="crispEdges" fill="none" stroke-width="${MARK.stroke}"><path d="${MARK.staves}" stroke="${line}"/><path d="${MARK.here}" stroke="${BRAND_COLORS.tally}"/></g></svg>`;
+export type MarkGround = "ink" | "paper" | "night" | "none";
+
+const cardsSvg = (fg: string, cls = false) =>
+  MARK.cards
+    .map((c) => `<rect${cls ? ` class="${c.red ? "red" : "card"}"` : ""} x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="${MARK.cardRadius}" fill="${c.red ? BRAND_COLORS.tally : fg}"${c.rotate ? ` transform="rotate(${c.rotate})"` : ""}/>`)
+    .join("");
+
+/** The mark as SVG markup. `ink`: on its ink plate (the app icon); `paper`: ink cards on a light plate; `night`: on the raised dark plate; `none`: the cards alone. */
+export function markSvg({ size = 64, ground = "ink", title = BRAND.name, rounded = true }: { size?: number; ground?: MarkGround; title?: string; rounded?: boolean } = {}): string {
+  const rx = rounded ? ` rx="${MARK.plateRadius}"` : "";
+  if (ground === "none") {
+    const [, , w, h] = MARK.bareViewBox.split(" ").map(Number);
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.bareViewBox}" width="${((size * w!) / h!).toFixed(1)}" height="${size}"><title>${title}</title>${cardsSvg(BRAND_COLORS.ink)}</svg>`;
+  }
+  const plate =
+    ground === "night"
+      ? `<rect x=".5" y=".5" width="63" height="63"${rx} fill="${BRAND_COLORS.nightPlate}" stroke="${BRAND_COLORS.nightEdge}"/>`
+      : `<rect width="64" height="64"${rx} fill="${ground === "paper" ? BRAND_COLORS.paper : BRAND_COLORS.ink}"/>`;
+  const fg = ground === "ink" ? BRAND_COLORS.card : ground === "night" ? BRAND_COLORS.night : BRAND_COLORS.ink;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.viewBox}" width="${size}" height="${size}"><title>${title}</title>${plate}${cardsSvg(fg)}</svg>`;
+}
+
+/** The favicon: the ink plate, and in a dark browser the raised dark plate with its edge, so it does not sink into the tab. */
+export function faviconSvg(): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.viewBox}" width="32" height="32"><title>${BRAND.name}</title><style>.plate{fill:${BRAND_COLORS.ink}}.card{fill:${BRAND_COLORS.card}}@media (prefers-color-scheme: dark){.plate{fill:${BRAND_COLORS.nightPlate};stroke:#4A4A47;stroke-width:2}.card{fill:${BRAND_COLORS.night}}}</style><rect class="plate" x="1" y="1" width="62" height="62" rx="${MARK.plateRadius}"/>${cardsSvg(BRAND_COLORS.card, true)}</svg>`;
 }

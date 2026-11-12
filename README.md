@@ -1,11 +1,13 @@
 <img src="public/icon-192.png" alt="" width="64" height="64">
 
-# Stave 镜谱 — an AI film studio on self-hosted MiniMax H3
+# Kinora Studio 影匣 — an AI film studio on self-hosted MiniMax H3
 
-A stave is the set of lines music is written on; Stave lays a film out the
-same way, on one score: every shot, take and cut in its place, read top to
-bottom at any moment. 镜谱 is its Chinese name, a score of shots. The name,
-the mark and how to use them: [docs/brand.md](docs/brand.md).
+The Kinora (Lumière, 1896) was the first home cinema: a reel of 640 photo
+cards on a brass core, turned by a crank, with a small stop that held each
+card flat in front of the lens for an instant. Here every shot is a reel, and
+the red card is the frame on screen now. 影匣 is its Chinese name, a box of
+moving pictures. The name, the mark and how to use them:
+[docs/brand.md](docs/brand.md).
 
 A film-crew workflow in the browser: **script → elements → shotlist → hero
 frames → takes → timeline → export**. The director is your own subscription
@@ -361,8 +363,8 @@ assembler renders, subtitle reading-time rules and a batch planner. Registered i
 `.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
 
 ```bash
-pnpm --filter @stave/director build
-pnpm --filter @stave/director test
+pnpm --filter @kinora/director build
+pnpm --filter @kinora/director test
 ```
 
 ## Voices: voice cards and dialogue

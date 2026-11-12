@@ -3,7 +3,7 @@
 > A woodblock print in motion: flat colour fields, keyblock lines, Prussian-blue water and a gradient sky.
 > 会动的浮世绘版画：平涂色块、墨线轮廓、普鲁士蓝的水和渐变的天。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** East Asian Traditions · 东方传统  
 **Uses:** Travel and places · Japanese culture · Poetry and seasons · Craft brands

@@ -1,4 +1,4 @@
-"""Stave helper nodes for ComfyUI (installed into custom_nodes/ at boot).
+"""Kinora Studio helper nodes for ComfyUI (installed into custom_nodes/ at boot).
 
 StudioH3VideoLatent: the MiniMax H3 audio+video latent that the
 Open-H3-Regenerate nodes build is a NestedTensor (video, audio). ComfyUI
@@ -34,7 +34,7 @@ class StudioH3VideoLatent:
     RETURN_TYPES = ("LATENT",)
     RETURN_NAMES = ("samples",)
     FUNCTION = "split"
-    CATEGORY = "MiniMax H3/Stave"
+    CATEGORY = "MiniMax H3/Kinora Studio"
 
     def split(self, samples: dict[str, Any]) -> tuple[dict[str, Any]]:
         out = dict(samples)
@@ -43,4 +43,4 @@ class StudioH3VideoLatent:
 
 
 NODE_CLASS_MAPPINGS = {"StudioH3VideoLatent": StudioH3VideoLatent}
-NODE_DISPLAY_NAME_MAPPINGS = {"StudioH3VideoLatent": "Stave · H3 video latent (drop audio)"}
+NODE_DISPLAY_NAME_MAPPINGS = {"StudioH3VideoLatent": "Kinora Studio · H3 video latent (drop audio)"}

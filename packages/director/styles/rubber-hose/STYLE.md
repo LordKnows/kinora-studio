@@ -3,7 +3,7 @@
 > Black-and-white cartoon on film: noodle limbs, pie-cut eyes, everything bounces to the beat.
 > 黑白胶片卡通：面条四肢、派切眼睛，万物随节拍弹跳。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Cartoon & Anime · 卡通与动画  
 **Uses:** Food and drink · Retro brands · Kids · Musical gags

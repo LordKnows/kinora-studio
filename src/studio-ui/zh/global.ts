@@ -24,7 +24,7 @@ export const global: Record<string, string> = {
   "CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.": "CharaDB 的服装不能用在上传的照片上：作者禁止用来描绘真人。请改用参考库的人像，或换一个服装来源。",
   "The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.": "配方里有一张现在被隐藏的 18+ 参考图：打开 18+ 显示，或者换掉它。",
   "With {what}, R18 pictures are drawn only from pictures tagged 模拟 (the library, uploads whose face check found a 3D render, an illustration or no face, Studio pictures drawn only from those). An upload tagged 真实 — a photograph or anything photorealistic — is refused for R18 and fine for everything else.":
-    "使用 {what} 时，R18 图片只用标为 模拟 的图来画（参考库的图、人脸检查结果为 3D 渲染、插画或无人脸的上传图，以及只用这些画出的镜谱图片）。标为 真实 的上传图——照片或任何照片级写实的图——不能用于 R18，其他用途都可以。",
+    "使用 {what} 时，R18 图片只用标为 模拟 的图来画（参考库的图、人脸检查结果为 3D 渲染、插画或无人脸的上传图，以及只用这些画出的影匣图片）。标为 真实 的上传图——照片或任何照片级写实的图——不能用于 R18，其他用途都可以。",
   "18+ references": "18+ 参考图",
   /* why Generate is off */
   "Pick a project": "选一个项目", "Pictures are off for this project (its Director page)": "这个项目没有开启图片生成（在它的导演台页打开）",
@@ -64,7 +64,7 @@ export const global: Record<string, string> = {
   /* 18+ */
   "Show 18+ references": "显示 18+ 参考图",
   "The library holds adult reference material: two pose systems (全身单人・性感系, 双人缠绵 — grey mannequins) and lingerie and sensual outfits (内衣・睡衣, 性感穿搭). It stays hidden — for you and for the director connected to this Studio — until you confirm you are an adult.":
-    "参考库里有成人参考素材：两套姿势（全身单人・性感系、双人缠绵——灰色白模）以及内衣和性感服装（内衣・睡衣、性感穿搭）。在你确认自己已成年之前，这些内容一直隐藏——对你和连接到这个镜谱的导演都一样。",
+    "参考库里有成人参考素材：两套姿势（全身单人・性感系、双人缠绵——灰色白模）以及内衣和性感服装（内衣・睡衣、性感穿搭）。在你确认自己已成年之前，这些内容一直隐藏——对你和连接到这个影匣的导演都一样。",
   "This is your own confirmation, not an age check. It is stored for your account; switch it off any time. Image models keep their own rules: GPT Image refuses sexual content, and repeated refusals can put the account it runs on at risk. CharaDB pictures are never used for minors or real people.":
     "这只是你本人的确认，不是年龄验证。它保存在你的账号里，随时可以关掉。图像模型有各自的规则：GPT Image 拒绝色情内容，反复被拒可能让它所用的账号面临风险。CharaDB 的图片绝不用于未成年人或真人。",
   "I am 18 or older and want to see 18+ reference material": "我已年满 18 岁，想查看 18+ 参考素材", "Cancel": "取消",
@@ -104,8 +104,8 @@ export const global: Record<string, string> = {
 
   /* Library: styles */
   "Style presets the director compiles into a Look, the LoRAs a project can switch on, and the models the Studio runs with the settings they recommend. Shared across projects.":
-    "导演编译成 Look 的风格预设、项目可以开启的 LoRA，以及镜谱运行的模型及其推荐设置。所有项目共用。",
-  "Styles": "风格", "Models": "模型", "No styles": "没有风格", "The director package ships 16 presets; the build generates them into the studio.": "导演包自带 16 个预设；构建时会把它们生成到镜谱里。",
+    "导演编译成 Look 的风格预设、项目可以开启的 LoRA，以及影匣运行的模型及其推荐设置。所有项目共用。",
+  "Styles": "风格", "Models": "模型", "No styles": "没有风格", "The director package ships 16 presets; the build generates them into the studio.": "导演包自带 16 个预设；构建时会把它们生成到影匣里。",
   "Close": "关闭", "Could not load this style.": "无法加载这个风格。", "Loading…": "加载中…",
 
   /* Library: LoRAs */
@@ -146,15 +146,15 @@ export const global: Record<string, string> = {
   "Loading stats…": "正在加载统计…", "No completed takes yet.": "还没有拍完的镜次。", "GPU type": "GPU 型号", "Generation": "生成用时", "Video s": "视频秒数", "GPU-s / video-s": "GPU 秒 / 视频秒", "USD / video-s": "USD / 视频秒",
   " · estimate basis": " · 估算依据", "Sorted by USD per second of video. Set RUNPOD_GPU_PRIORITY=cost to order the allow-list by this column when a pod is created.": "按每秒视频的美元花费排序。设置 RUNPOD_GPU_PRIORITY=cost 后，创建 GPU 机器时允许列表就按这一列排序。",
   "Terminate the pod? Its container disk is deleted; models on the network volume stay.": "销毁 GPU 机器？它的容器磁盘会被删除；网络存储卷上的模型会保留。",
-  "Apply the studio's boot command and env to this pod and restart it?": "把镜谱的启动命令和环境变量应用到这台 GPU 机器上并重启？",
+  "Apply the studio's boot command and env to this pod and restart it?": "把影匣的启动命令和环境变量应用到这台 GPU 机器上并重启？",
   "Mode": "模式", "RunPod pod (Secure Cloud)": "RunPod GPU 机器（Secure Cloud）", "RunPod serverless (TODO)": "RunPod serverless（待做）", "Status": "状态", "Pod": "机器",
   " · adopted (created by hand; never replaced)": " · 已接管（手动创建；不会被替换）", "Cost": "费用", "this session {usd} ({time}) · lifetime {total}": "本次 {usd}（{time}）· 累计 {total}",
   "Allowed GPUs": "允许的 GPU", "RUNPOD_GPU_TYPES is empty": "RUNPOD_GPU_TYPES 为空", "Idle stop": "空闲自动停机", "after {n} min without work": "无任务 {n} 分钟后", "Queue": "队列",
-  "Retry on allowed GPUs": "在允许的 GPU 上重试", "Set the studio's start command and env on the pod, then restart it": "在 GPU 机器上设置镜谱的启动命令和环境变量，然后重启", "Apply boot & restart": "应用启动配置并重启",
+  "Retry on allowed GPUs": "在允许的 GPU 上重试", "Set the studio's start command and env on the pod, then restart it": "在 GPU 机器上设置影匣的启动命令和环境变量，然后重启", "Apply boot & restart": "应用启动配置并重启",
   "Terminate": "销毁", "GPU types": "GPU 型号", "Generation stats by GPU": "各 GPU 型号的生成统计", "VRAM": "显存", "Secure $/h": "Secure 价格 $/h", "Allowed": "允许", "yes": "是",
   "Adopt a pod created by hand": "接管手动创建的 GPU 机器",
   "If the studio cannot create the pod itself (for example the model volume is not attachable through the API), create it in the RunPod console and paste its id here. The studio then starts, stops and runs jobs on it, but never terminates or replaces it.":
-    "如果镜谱自己创建不了 GPU 机器（例如模型存储卷无法通过 API 挂载），就在 RunPod 控制台里创建，再把它的 id 粘贴到这里。之后镜谱会启动、停止它并在上面运行任务，但绝不会销毁或替换它。",
+    "如果影匣自己创建不了 GPU 机器（例如模型存储卷无法通过 API 挂载），就在 RunPod 控制台里创建，再把它的 id 粘贴到这里。之后影匣会启动、停止它并在上面运行任务，但绝不会销毁或替换它。",
   "RunPod pod id": "RunPod 机器 id", "Adopt": "接管", "Hide recipe": "隐藏配方", "Show what to paste into RunPod": "显示要粘贴到 RunPod 的内容",
   "The env block contains the worker token and R2 keys. Paste it only into the pod's environment variables.": "环境变量块里有 worker 令牌和 R2 密钥。只能粘贴到这台 GPU 机器的环境变量里。",
   /* RunPod's console is in English: its field names stay beside the Chinese */
@@ -166,7 +166,7 @@ export const global: Record<string, string> = {
   "Painters": "绘图机", "— draw sheets, frames, edits, crops and frame extracts before the GPU pod starts": "——在 GPU 机器启动之前画设定图和画面，做编辑、裁剪和抽帧",
   "Hide setup": "隐藏设置方法", "Add a painter": "添加绘图机", "Refresh": "刷新",
   "No painter is online{except}: picture jobs wait in the queue{orPod}. With a painter pod below, the Studio starts it by itself when pictures are queued; otherwise start a painter on any small machine — see “Add a painter”.":
-    "{except}没有绘图机在线：图片任务在队列里等待{orPod}。下面配了 CPU 绘图机的话，有图片排队时镜谱会自己启动它；否则请在任意一台小机器上启动一个绘图机——见「添加绘图机」。",
+    "{except}没有绘图机在线：图片任务在队列里等待{orPod}。下面配了 CPU 绘图机的话，有图片排队时影匣会自己启动它；否则请在任意一台小机器上启动一个绘图机——见「添加绘图机」。",
   " except the GPU pod": "除了 GPU 机器，", " (or until the GPU pod runs, which also draws)": "（或等 GPU 机器运行，它也能画）",
   "On any Linux machine with Python 3 (a RunPod CPU pod, a VPS): the painter only calls out, so it needs no open port.": "在任何装有 Python 3 的 Linux 机器上（RunPod CPU 机器、VPS）：绘图机只向外连接，不需要开放端口。",
   "Or with Docker: {build}, then {run}. The token is the Worker secret {token}{unset}. Add {painterPath} and {podPath} to the Cloudflare Access bypass application. On a RunPod CPU pod, attach a volume at /workspace so the Codex login survives a restart.":
@@ -183,7 +183,7 @@ export const global: Record<string, string> = {
   "Created by itself when pictures are queued and no painter can draw them, terminated after {n} idle minutes — a new pod each time ({flavors}, {vcpu} vCPU, {image}) in {dc}, with volume {volume} at /workspace keeping the Codex login.":
     "有图片排队且没有绘图机能画时自动创建，空闲 {n} 分钟后销毁——每次都是一台新机器（{flavors}，{vcpu} vCPU，{image}），位于 {dc}，存储卷 {volume} 挂在 /workspace，保存 Codex 登录。",
   "Not set up: {why}. Set PAINTER_POD_VOLUME_ID and PAINTER_POD_DATACENTER (Worker variables, wrangler.jsonc) and the Studio creates a CPU pod only while pictures wait.":
-    "未配置：{why}。设置 PAINTER_POD_VOLUME_ID 和 PAINTER_POD_DATACENTER（Worker 变量，wrangler.jsonc）后，镜谱只在有图片等待时才创建 CPU 机器。",
+    "未配置：{why}。设置 PAINTER_POD_VOLUME_ID 和 PAINTER_POD_DATACENTER（Worker 变量，wrangler.jsonc）后，影匣只在有图片等待时才创建 CPU 机器。",
   "up {time} ({usd}) · ": "已运行 {time}（{usd}）· ", "{usd} so far": "累计 {usd}",
   /* Viggle Remake on the pod */
   "Download the Viggle Remake {modes} model onto the volume (about {gb} GB)?": "把 Viggle Remake 的 {modes} 模型下载到存储卷上（约 {gb} GB）？",
@@ -192,7 +192,7 @@ export const global: Record<string, string> = {
   "edit ready": "edit 已就绪", "edit not downloaded": "edit 未下载", "swap ready": "swap 已就绪", "swap not downloaded": "swap 未下载", "Downloading…": "下载中…", "Download models": "下载模型",
 
   /* Connect */
-  "Connect a director": "连接导演", "Your subscription Claude or Grok works through the Studio MCP: script, elements, shotlist, batch plan, renders. Every paid action still asks you to confirm.": "你订阅的 Claude 或 Grok 通过镜谱的 MCP 工作：剧本、元素、分镜、批量计划、拍摄。每个要花钱的操作仍会先请你确认。",
+  "Connect a director": "连接导演", "Your subscription Claude or Grok works through the Studio MCP: script, elements, shotlist, batch plan, renders. Every paid action still asks you to confirm.": "你订阅的 Claude 或 Grok 通过影匣的 MCP 工作：剧本、元素、分镜、批量计划、拍摄。每个要花钱的操作仍会先请你确认。",
   "MCP endpoint": "MCP 端点", "OAuth metadata": "OAuth 元数据",
   "Settings → Connectors → Add custom connector → paste the endpoint → sign in on the consent page.": "设置（Settings）→ 连接器（Connectors）→ 添加自定义连接器（Add custom connector）→ 粘贴端点 → 在授权页登录。",
   "grok.com → Connectors → New Connector → Custom → paste the same endpoint → sign in.": "grok.com → Connectors → New Connector → Custom → 粘贴同一个端点 → 登录。",

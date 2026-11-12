@@ -1,8 +1,8 @@
 /* Builds every brand asset from the one mark in src/brand.ts.
 
    The favicon (src/app/icon.svg) is written as SVG; Apple, the web app
-   manifest and Open Graph need rasters, so this script draws the same 32-unit
-   field in a headless Chromium and screenshots it at each size.
+   manifest and Open Graph need rasters, so this script draws the same
+   64-unit field in a headless Chromium and screenshots it at each size.
 
      node scripts/build-brand-assets.mjs
 
@@ -16,19 +16,21 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { BRAND, BRAND_COLORS, MARK, markSvg } from "../src/brand.ts";
+import { BRAND, BRAND_COLORS, MARK, faviconSvg, markSvg } from "../src/brand.ts";
 
 const { ink: INK, card: CARD, tally: TALLY } = BRAND_COLORS;
 
 /* ---------- the mark ---------- */
 
-/** The mark on a full-bleed square, scaled inside it: Apple and the maskable spec cut their own shape. */
+const cards = (fg) =>
+  MARK.cards
+    .map((c) => `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="${MARK.cardRadius}" fill="${c.red ? TALLY : fg}"${c.rotate ? ` transform="rotate(${c.rotate})"` : ""}/>`)
+    .join("");
+
+/** The mark on a full-bleed ink square, scaled inside it: Apple and the maskable spec cut their own shape. */
 const bleed = (size, scale) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.viewBox}" width="${size}" height="${size}">
-  <rect width="32" height="32" fill="${INK}"/>
-  <g transform="translate(16 16) scale(${scale}) translate(-16 -16)" shape-rendering="crispEdges">
-    <path d="${MARK.staves}" stroke="${CARD}" stroke-width="${MARK.stroke}" fill="none"/>
-    <path d="${MARK.here}" stroke="${TALLY}" stroke-width="${MARK.stroke}" fill="none"/>
-  </g>
+  <rect width="64" height="64" fill="${INK}"/>
+  <g transform="translate(32 32) scale(${scale}) translate(-32 -32)">${cards(CARD)}</g>
 </svg>`;
 
 /* ---------- renderer ---------- */
@@ -53,7 +55,7 @@ function findChrome() {
 
 const CHROME = findChrome();
 const ROOT = resolve(import.meta.dirname, "..");
-const WORK = mkdtempSync(join(tmpdir(), "stave-brand-"));
+const WORK = mkdtempSync(join(tmpdir(), "kinora-brand-"));
 
 function shoot(out, html, width, height, { transparent = false } = {}) {
   const page = join(WORK, `${width}x${height}-${Math.abs(hash(out))}.html`);
@@ -95,7 +97,7 @@ const shell = (body, bg = "transparent") =>
 /* ---------- favicon ---------- */
 
 console.log("favicon");
-writeFileSync(join(ROOT, "src/app/icon.svg"), `${markSvg({ size: 32, plate: true })}\n`);
+writeFileSync(join(ROOT, "src/app/icon.svg"), `${faviconSvg()}\n`);
 console.log("  src/app/icon.svg");
 
 /* ---------- app icons ---------- */
@@ -104,56 +106,51 @@ console.log("app icons");
 shoot(join(ROOT, "public/icon-512.png"), shell(markSvg({ size: 512 })), 512, 512, { transparent: true });
 shoot(join(ROOT, "public/icon-192.png"), shell(markSvg({ size: 192 })), 192, 192, { transparent: true });
 // Maskable keeps the mark inside the 80%-diameter safe circle.
-shoot(join(ROOT, "public/icon-maskable-512.png"), shell(bleed(512, 0.78)), 512, 512);
-shoot(join(ROOT, "src/app/apple-icon.png"), shell(bleed(180, 0.9)), 180, 180);
+shoot(join(ROOT, "public/icon-maskable-512.png"), shell(bleed(512, 0.74)), 512, 512);
+shoot(join(ROOT, "src/app/apple-icon.png"), shell(bleed(180, 0.86)), 180, 180);
 
 /* ---------- open graph card ----------
-   The card is a page of the score: the name and what it is, above four
-   staves of shots crossed by the red line that marks now. No stand-in
-   pictures of work we do not have. */
+   The name and what it is, above a row of cards flicking past the stop: the
+   Kinora's reel laid flat, the red card standing upright where the lens is.
+   No stand-in pictures of work we do not have. */
 
-const staves = [
-  { label: "SCRIPT", cuts: [0, 0.16, 0.41, 0.58, 0.83, 1] },
-  { label: "BOARD", cuts: [0, 0.09, 0.27, 0.36, 0.52, 0.71, 0.79, 1] },
-  { label: "TAKES", cuts: [0, 0.14, 0.33, 0.47, 0.62, 0.9, 1] },
-  { label: "CUT", cuts: [0, 0.22, 0.31, 0.55, 0.68, 1] },
-];
-const HERE = 0.62;
-const staveRows = staves
-  .map(
-    (s) => `<div class="stave"><span class="lab">${s.label}</span><div class="line">${s.cuts
-      .slice(0, -1)
-      .map((a, i) => `<i style="left:calc(${a * 100}% + 3px);width:calc(${(s.cuts[i + 1] - a) * 100}% - 6px)"></i>`)
-      .join("")}</div></div>`,
-  )
-  .join("");
+const reel = Array.from({ length: 23 }, (_, i) => {
+  const here = 14;
+  const lean = Math.max(-38, Math.min(38, (i - here) * -7));
+  const red = i === here;
+  const fade = red ? 1 : Math.max(0.14, 0.9 - Math.abs(i - here) * 0.06);
+  return `<i style="transform:rotate(${lean}deg);background:${red ? TALLY : INK};opacity:${fade.toFixed(2)}"></i>`;
+}).join("");
+
+const word = (() => {
+  const at = BRAND.word.indexOf("i");
+  return `${BRAND.word.slice(0, at)}<span class="i">ı</span>${BRAND.word.slice(at + 1)}`;
+})();
 
 const og = `<!doctype html><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@600;700&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@700&display=block" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:1200px;height:630px;overflow:hidden}
-  body{background:${CARD};color:${INK};font-family:Archivo,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:64px 72px 56px;display:flex;flex-direction:column}
-  .head{display:flex;align-items:center;gap:28px}
-  .name{font-size:112px;font-weight:800;font-stretch:125%;letter-spacing:.06em;line-height:1;text-transform:uppercase}
-  .zh{font-family:"Noto Serif SC",serif;font-size:92px;font-weight:700;line-height:1;color:#4a4a47;margin-left:6px}
-  .what{margin-top:26px;font-family:"IBM Plex Mono",monospace;font-size:17px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:#5b5b58}
+  body{background:${BRAND_COLORS.paper};color:${INK};font-family:Archivo,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:72px 80px 0;display:flex;flex-direction:column}
+  .head{display:flex;align-items:center;gap:30px}
+  .word{font-size:118px;font-weight:800;letter-spacing:-.03em;line-height:1.2;white-space:nowrap}
+  .word .i{position:relative;display:inline-block;letter-spacing:0;margin-right:-.03em}
+  .word .i::after{content:"";position:absolute;left:50%;top:.12em;width:.12em;height:.19em;transform:translateX(-50%);border-radius:.025em;background:${TALLY}}
+  .suffix{font-weight:400;color:#5b5b58;margin-left:.22em}
+  .zh{font-family:"Noto Serif SC",serif;font-size:64px;font-weight:700;color:#4a4a47;margin-left:14px}
+  .what{margin-top:20px;font-family:"IBM Plex Mono",monospace;font-size:18px;font-weight:500;letter-spacing:.2em;text-transform:uppercase;color:#5b5b58}
   .what b{color:${INK};font-weight:500}
-  .tag{margin-top:14px;font-size:26px;line-height:1.35;letter-spacing:-.005em;color:#2b2b29;max-width:900px}
-  .score{position:relative;margin-top:auto;border-top:1px solid ${INK}}
-  .stave{display:flex;align-items:center;height:30px;border-bottom:1px solid rgba(18,18,18,.18)}
-  .lab{width:92px;flex:none;font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.16em;color:#6b6b68}
-  .line{position:relative;flex:1;height:100%}
-  .line i{position:absolute;top:13px;height:4px;background:${INK}}
-  .here{position:absolute;top:-14px;bottom:-6px;left:calc(92px + (100% - 92px) * ${HERE});width:3px;background:${TALLY}}
-  .tc{position:absolute;top:-36px;left:calc(92px + (100% - 92px) * ${HERE} + 10px);font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;color:${TALLY}}
+  .tag{margin-top:12px;font-size:26px;line-height:1.4;color:#2b2b29;max-width:940px}
+  .reel{margin-top:auto;height:150px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 6px}
+  .reel i{display:block;width:22px;height:96px;border-radius:5px;transform-origin:50% 100%;margin-bottom:-14px}
 </style>
-<div class="head">${markSvg({ size: 96 })}<span class="name">${BRAND.name}</span><span class="zh">${BRAND.zh}</span></div>
+<div class="head">${markSvg({ size: 132 })}<span class="word">${word}<span class="suffix">${BRAND.suffix}</span></span><span class="zh">${BRAND.zh}</span></div>
 <div class="what"><b>${BRAND.descriptor}</b> · ${BRAND.descriptorZh}</div>
 <div class="tag">${BRAND.tagline}</div>
-<div class="score">${staveRows}<span class="here"></span><span class="tc">0:31.5</span></div>`;
+<div class="reel">${reel}</div>`;
 
 console.log("open graph");
 // public/, not app/opengraph-image.png — see the OG_IMAGE note in src/site.ts.

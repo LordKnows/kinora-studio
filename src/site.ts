@@ -38,7 +38,7 @@ export const OG_IMAGE = {
   width: 1200,
   height: 630,
   type: "image/png",
-  alt: "The Stave mark, three staves cut into shots with a red line marking now, beside the words Stave 镜谱 and AI film studio, on a light grey card crossed by the hairline staves of a film score.",
+  alt: "The Kinora Studio mark, a K made of three rounded cards with the upper one red, beside the wordmark kinora Studio 影匣 and the words AI film studio, above a row of cards flicking past with one red card standing upright.",
 };
 
 /* Next replaces the whole `openGraph` (and `twitter`) object when a route

@@ -3,7 +3,7 @@
 > Thick oil paint that moves: knife-ridged strokes catching raking light, a painting alive on the canvas.
 > 会动的厚涂油画：刮刀堆起的颜料在侧光下起伏，画布上的画活了。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Hand-drawn & Painting · 手绘与绘画  
 **Uses:** Music videos · Art and culture · Emotional brand films · Memory and biography

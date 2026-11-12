@@ -18,13 +18,13 @@ import { synthesize } from "./narration/tts.js";
 import { planBatch, type BatchShot } from "./batch.js";
 
 /**
- * The director MCP: judgement helpers that sit beside the Stave MCP.
+ * The director MCP: judgement helpers that sit beside the Kinora Studio MCP.
  * Nothing here spends money or talks to the Studio; every output is a payload
  * for a Studio tool (`start_film`, `update_look`, `save_shotlist`, `save_script`,
  * `save_timeline`, `generate_take`) or a local file.
  */
 const server = new McpServer({ name: "director", version: "0.1.0" }, {
-  instructions: "Director layer for Stave. Read get_guide('director') first. Flow: suggest_styles/get_style → compile_look (→ start_film) → validate_treatment (→ save_script with its markdown) → apply_style + lint_shotlist (→ save_shotlist) → build_cue_map/check_cue_map → plan_batch (→ generate_take) → check_timeline/to_studio_timeline (→ save_timeline) → assemble_local for J/L cuts, titles, narration.",
+  instructions: "Director layer for Kinora Studio. Read get_guide('director') first. Flow: suggest_styles/get_style → compile_look (→ start_film) → validate_treatment (→ save_script with its markdown) → apply_style + lint_shotlist (→ save_shotlist) → build_cue_map/check_cue_map → plan_batch (→ generate_take) → check_timeline/to_studio_timeline (→ save_timeline) → assemble_local for J/L cuts, titles, narration.",
 });
 
 const text = (x: unknown) => ({ content: [{ type: "text" as const, text: typeof x === "string" ? x : JSON.stringify(x, null, 2) }] });

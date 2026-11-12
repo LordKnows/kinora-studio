@@ -8,7 +8,7 @@ import { BRAND } from "@/brand";
 import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
-import { BrandMark } from "./brand-mark";
+import { BrandMark, BrandWord } from "./brand-mark";
 import { Lamp, Skeleton, usePopover } from "./common";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
@@ -79,10 +79,12 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
   const t = useT();
   return (
     <header className="st-topbar">
-      <Link className="st-brand" href="/">
-        <BrandMark className="st-brand-mark" plate size={22} />
-        <span className="st-brand-name">{BRAND.name}</span>
-        <span className="st-brand-zh" lang="zh-Hans">{BRAND.zh}</span>
+      <Link className="st-brand" href="/" aria-label={`${BRAND.name} ${BRAND.zh}`}>
+        {/* the ink plate on the grey card; the cards alone in the dark room (.st-lightsdown) */}
+        <BrandMark className="st-brand-mark st-brand-mark--plate" size={22} />
+        <BrandMark className="st-brand-mark st-brand-mark--bare" size={19} bare />
+        <BrandWord className="st-brand-name" />
+        <span className="st-brand-zh" lang="zh-Hans" aria-hidden="true">{BRAND.zh}</span>
       </Link>
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />

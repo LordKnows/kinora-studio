@@ -4,7 +4,7 @@
 > 五色墨在宣纸上生长，唯一的朱红是印章，画面大半留白。
 > References (grammar only): Song-dynasty landscape handscrolls (learn: the far-to-near value order and how emptiness reads as water or air; don't: any specific composition or inscription); 1960s Shanghai ink-animation shorts (learn: how a figure moves while staying a brushstroke; don't: their characters, melodies or stories).
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Hand-drawn & Painting · 手绘与绘画  
 **Uses:** Wuxia and legends · Cultural brands · Poetry and tea · Calligraphy and craft

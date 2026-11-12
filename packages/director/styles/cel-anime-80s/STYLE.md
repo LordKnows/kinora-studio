@@ -3,7 +3,7 @@
 > Painted backgrounds, flat hard-shadow cels, light glowing through the frame, played back from tape.
 > 手绘背景、硬阴影赛璐璐、透过画面的光，从录像带回放。
 
-<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @kinora/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Cartoon & Anime · 卡通与动画  
 **Uses:** Music videos · Game and tech trailers · Nostalgia · City-at-night stories
