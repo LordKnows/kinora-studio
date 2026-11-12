@@ -97,7 +97,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
           if (group.length === 0) return null;
           return (
             <Section key={kind} title={`${LORA_KIND_LABEL[kind]} LoRAs`}>
-              <table className="st-table">
+              <div className="st-table-scroll"><table className="st-table">
                 <thead>
                   <tr>
                     <th>Name</th>
@@ -141,7 +141,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </Section>
           );
         })
