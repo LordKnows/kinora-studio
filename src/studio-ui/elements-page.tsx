@@ -362,7 +362,7 @@ function ElementEditor({
   );
 }
 
-/* The project's image model (Settings → Director): the element's reference sheet, one picture per view, tagged. */
+/* The project's image model (the Director page): the element's reference sheet, one picture per view, tagged. */
 function SheetTools({ element }: { element: ElementRow }) {
   const t = useT();
   const imaging = useImagingOn();

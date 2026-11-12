@@ -57,7 +57,7 @@ type Recipe = {
   /** MiniMax H3 Image: the picture delivered at the model's own resolution (4, 9 or 16 MP) in the shape of size; unset = the Studio size. */
   resolution?: CanvasResolution;
   quality?: "low" | "medium" | "high";
-  /** The image model (models.ts); unset = the project's (Settings → Director). */
+  /** The image model (models.ts); unset = the project's (its Director page). */
   model?: string;
   /** Pod models: LoRAs from the library, trained for the model's family. */
   loras?: LoraRef[];
@@ -450,7 +450,7 @@ export function CanvasPage() {
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
   const uploadedFaceAdult = uploadedFace && (nsfwInRecipe || !!adultLora);
-  const imagingWhy = !project ? tr("Pick a project") : !imaging?.enabled ? tr("Pictures are off for this project (Settings → Director)") : imaging.stoppedReason ? tr("Image generation stopped: {reason}", { reason: imaging.stoppedReason }) : imaging.usedImages >= imaging.maxImages ? tr("Image quota used ({used}/{max})", { used: imaging.usedImages, max: imaging.maxImages }) : "";
+  const imagingWhy = !project ? tr("Pick a project") : !imaging?.enabled ? tr("Pictures are off for this project (its Director page)") : imaging.stoppedReason ? tr("Image generation stopped: {reason}", { reason: imaging.stoppedReason }) : imaging.usedImages >= imaging.maxImages ? tr("Image quota used ({used}/{max})", { used: imaging.usedImages, max: imaging.maxImages }) : "";
   const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? tr("Person A: pick a portrait, a costume or a character") : !personB ? tr("Person B: pick a portrait, a costume or a character") : "";
   const textWhy = !textMode ? "" : !recipe.text?.trim() && !recipe.prompt?.trim() ? tr("Describe the picture") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "";
   const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? tr("Pick at least one reference") : twoWhy ? twoWhy : count > maxRefs ? tr("{model} takes at most {n} pictures", { model: model.label, n: maxRefs }) : hiddenInRecipe ? tr("The recipe holds an 18+ reference; show 18+ or replace it") : charadbOnUpload ? tr("CharaDB outfits cannot go on an uploaded photo") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "");
@@ -551,7 +551,7 @@ export function CanvasPage() {
                     <span className="st-muted st-num">{tr("{model} · {used}/{max} used · {quality}", { model: projectImageModel(imaging).label, used: imaging.usedImages, max: imaging.maxImages, quality: tr(`${imaging.quality}||quality`) })}{imaging.stoppedReason ? tr(" · stopped: {reason}", { reason: imaging.stoppedReason }) : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
-                      <span>{tr("Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are in Project settings → Director).", { model: projectImageModel(imaging).label })}</span>
+                      <span>{tr("Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are on the project's Director page).", { model: projectImageModel(imaging).label })}</span>
                       <Button size="sm" onClick={async () => {
                         try {
                           await put(`/api/projects/${projectId}/imaging`, { enabled: true });
@@ -761,7 +761,7 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
         </select>
       </Field>
       {loras}
-      <span className="st-muted st-num">{describeParams(resolved.params) || tr("settings by the service")}{resolved.sources.length > 1 ? tr(" (from {list})", { list: resolved.sources.slice(1).join(", ") }) : ""} · {tr("up to {n} pictures", { n: model.maxRefs ?? CANVAS_MAX_REFS })} · {tr(model.moderation === "openai" ? "OpenAI moderation" : model.moderation === "alibaba" ? "Alibaba Cloud moderation" : "no content filter")}</span>
+      <span className="st-muted st-num">{describeParams(resolved.params) || tr("settings by the service")}{resolved.sources.length > 1 ? tr(" (from {list})", { list: resolved.sources.slice(1).map((x) => tr(x)).join(tr(", ||list")) }) : ""} · {tr("up to {n} pictures", { n: model.maxRefs ?? CANVAS_MAX_REFS })} · {tr(model.moderation === "openai" ? "OpenAI moderation" : model.moderation === "alibaba" ? "Alibaba Cloud moderation" : "no content filter")}</span>
       {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
       {status?.painters && (ready ? <Lamp state="ok" label={tr("can draw now · {drawers}", { drawers: status.painters.drawers.join(", ") })} /> : (
         <div className="st-alert st-alert--warn">

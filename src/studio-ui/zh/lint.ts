@@ -7,6 +7,17 @@ export const LINT_ZH: Record<string, string> = {
   "beats.gap": "动作节拍之间有空档或重叠，要首尾相接。",
   "beats.tile": "动作节拍没有铺满整个镜头的时长。",
   "blocking.missing": "没写走位：谁从画面哪一边进、穿过、离开。",
+  "blocking.axis": "人物在上一镜和这一镜的走向相反，剪辑越轴了：保持方向，或者把转身拍出来。",
+  "blocking.exit": "人物从画面一侧出去，又从同一侧进来：从画右出，就要从画左进。",
+  "camera.unknown": "这个运镜不是工作室支持的运镜。",
+  "camera.offstyle": "运镜超出了这个风格的镜头语法。",
+  "link.offstyle": "衔接方式不在这个风格偏好的衔接里。",
+  "duration.style": "动作镜头比这个风格建议的长：这是默认值不是规则，可以拆成连续衔接的短镜头，动作确实需要这么长就保留。",
+  "motion.stepping": "这个风格是一拍二的动画：在节拍里写上“stepped motion”，模型才会这样渲染。",
+  "identity.open": "有角色的段落要用参考模式（R2VA）开场，让角色设定图定下长相。",
+  "palette.contrast": "场次色板里明暗对比太弱，黑白下主体会和背景糊在一起：用明暗区分，而不是只靠色相。",
+  "style.lora": "这个风格建议用一个 LoRA，但它还不在风格设置里：先问用户，同意后用和不用各渲染一个试镜，画面更好才保留。",
+  "empty": "分镜表里还没有镜头。",
   "cinematography.missing": "摄影参数没填全（景别、角度、镜头、光线、调色至少要有）。",
   "tier3.missing": "摄影参数没填全（景别、角度、镜头、光线、调色至少要有）。",
   "link.missing": "没写衔接方式，默认按硬切处理。",
@@ -91,6 +102,28 @@ export const LINT_ZH: Record<string, string> = {
   "wording.direction": "方向没说画面：写“朝画面左侧”，不要写“向左”，否则模型会让人走反。",
   "wording.negation": "否定句（“没有”“不要”）常常起反作用，改成说发生了什么。",
 };
+
+/* What the model draws badly, found in a shot's text (fragile.*) or already in
+   the story (treatment.fragile.*, where it is cheapest to fix). */
+const FRAGILE_ZH: Record<string, string> = {
+  asymmetric: "角色有只在一侧的特征，容易翻转或消失：首帧和尾帧里都要画出来。",
+  cartoon: "非角色的东西写了“卡通”“可爱”，会长出眼睛和嘴：描述它的材质，只写它怎么动。",
+  chain: "一个人在一次生成里连做三件事，模型会把动作平均掉：拆到几个镜头里。",
+  crossing: "两个人在运动中交叠：把他们放在不同纵深，或者在两人之间切镜。",
+  crowd: "人太多，群演会成倍出错：只留两三个看得清的人，其余虚在背景里。",
+  dialogue: "模型说台词的效果还没验证过。",
+  light_change: "一个镜头只能有一种光：在变化处切镜，或者写成“云里一道白闪”，剪辑时再裁。",
+  mirror: "镜子和倒影很少和本体对得上：避免，或者只拍倒影。",
+  small_object: "手和小道具容易变形：动作前后都给出这个东西，或者别让它参与动作。",
+  text: "模型写不对字：文字在剪辑里加（标题或叠加），画面里不要出现文字。",
+  topdown: "俯拍角色时脸会消失，长相会漂移。",
+};
+/* these three are found from the shot's fields, so never in the story's text */
+const SHOT_ONLY = new Set(["asymmetric", "dialogue", "topdown"]);
+for (const [code, zh] of Object.entries(FRAGILE_ZH)) {
+  LINT_ZH[`fragile.${code}`] = zh;
+  if (!SHOT_ONLY.has(code)) LINT_ZH[`treatment.fragile.${code}`] = `${zh}现在在故事里改最省钱。`;
+}
 
 /** A lint finding as the interface shows it: in Chinese, the explanation of its code first and the server's own message after. */
 export function lintLine(lang: "en" | "zh", w: { code: string; message: string }): { text: string; detail?: string } {

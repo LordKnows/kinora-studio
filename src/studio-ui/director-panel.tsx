@@ -6,8 +6,8 @@ import { AGENT_IMAGE_MODELS, findModel } from "@/studio/models";
 import type { LoraRef } from "@/studio/schemas";
 import type { DirectorNote, StageReview } from "@/studio/types";
 
-import { del, get, patch, post, put, when } from "./api";
-import { Button, ErrorBanner, Field, useAction } from "./common";
+import { del, get, patch, post, put } from "./api";
+import { Button, ErrorBanner, Field, useAction, whenT } from "./common";
 import { useT } from "./i18n";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { useProjectContext } from "./shell";
@@ -322,7 +322,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
         {notes?.decisions.slice().reverse().slice(0, 30).map((d) => (
           <div key={d.id} className="st-row st-row--between" style={{ alignItems: "flex-start" }}>
             <span style={{ textDecoration: d.status === "overturned" ? "line-through" : undefined }}>
-              <span className="st-muted st-num">{when(d.createdAt)} · {String(d.body.by ?? "")}{d.body.confidence ? ` · ${String(d.body.confidence)}` : ""}</span>
+              <span className="st-muted st-num">{whenT(t, d.createdAt)} · {d.body.by === "agent" ? t("agent||reviewer") : String(d.body.by ?? "")}{d.body.confidence ? ` · ${t(`${String(d.body.confidence)}||confidence`)}` : ""}</span>
               <br />
               {String(d.body.decision)}
               {d.body.why ? <span className="st-muted"> — {String(d.body.why)}</span> : null}
@@ -338,7 +338,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
         {notes?.reviews.slice(0, 20).map((r) => (
           <details key={r.id}>
             <summary>
-              <span className="st-num">{t(`${r.stage}||review stage`)}{r.shotId ? ` ${r.shotId.slice(-6)}` : ""}</span> · <strong>{t(`${r.verdict.toUpperCase()}||verdict`)}</strong> · {t(`${r.reviewer.replace("_", " ")}||reviewer`)} · {t("{n} finding(s)", { n: r.findings.length })} · <span className="st-muted">{when(r.createdAt)}</span>
+              <span className="st-num">{t(`${r.stage}||review stage`)}{r.shotId ? ` ${r.shotId.slice(-6)}` : ""}</span> · <strong>{t(`${r.verdict.toUpperCase()}||verdict`)}</strong> · {t(`${r.reviewer.replace("_", " ")}||reviewer`)} · {t("{n} finding(s)", { n: r.findings.length })} · <span className="st-muted">{whenT(t, r.createdAt)}</span>
             </summary>
             <div className="st-muted">{t("Basis: {basis}", { basis: r.basis })}</div>
             <ul>

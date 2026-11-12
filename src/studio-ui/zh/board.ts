@@ -243,7 +243,7 @@ export const board: Record<string, string> = {
   "The picture the take starts from (I2VA).": "镜次从这张图开始（I2VA）。", "Linked: starts on the anchor take's last frame unless you set one.": "已衔接：除非你另设一张，否则从锚定镜次的尾帧开始。",
   "Where the shot starts (FL2VA).": "镜头从这里开始（FL2VA）。", "Where the shot must arrive (FL2VA): same camera, scale and background as the first.": "镜头必须到达这里（FL2VA）：机位、大小和背景都要和首帧一样。",
   "Open full size": "看原图", "No {what} yet": "还没有{what}", "choose a picture, upload one, or generate it below": "选一张图、上传一张，或在下面生成",
-  "Replace…": "替换…", "Choose…": "选择…", "Upload": "上传", "Upload from this device": "从这台设备上传", "Choose the {what}": "选择{what}",
+  "Replace…": "替换…", "Choose…": "选择…", "Upload": "上传", "Upload from this device": "从本机上传", "Choose the {what}": "选择{what}",
   "this shot's end frame": "本镜尾帧", "this shot's first frame": "本镜首帧", "the earlier shot's frame (same place and angle)": "前面镜头的画面（同一地点和角度）",
   "Generate a frame": "生成画面", "drawn with {who}": "用 {who}画", "Which frame": "哪一帧", "Suggested for this shot: {method}": "这个镜头建议：{method}",
   "nothing to draw (text mode)": "不用画（文生模式）", "the element sheets": "元素设定图", "the anchor take's last frame (nothing to draw)": "锚定镜次的尾帧（不用画）", "edit the anchor take's last frame": "改锚定镜次的尾帧",
@@ -281,7 +281,7 @@ export const board: Record<string, string> = {
 
   /* image tools */
   "{model}, on the GPU pod while it runs": "{model}（在开着的 GPU 机器上）", "{model}, by a painter": "{model}（绘图机）",
-  "image generation is off for this project: switch it on in Settings → Director": "这个项目没开出图：到 设置 → 导演台 打开",
+  "image generation is off for this project: switch it on from the project's Director page": "这个项目没开出图：到项目的导演台页打开",
   "image generation stopped: {reason}": "出图停了：{reason}", "image quota used ({used}/{max}); raise it in Settings": "出图额度用完了（{used}/{max}）；到设置里调高",
   "starting…": "启动中…", "done||picture drawn": "画好了", "nothing to draw": "没有要画的", "no picture": "没有图片", "waiting for a painter": "等绘图机",
   "failed: {error}": "失败：{error}", "drawing… {n}": "正在画… {n}", "queued — {why}": "排队中 —— {why}",

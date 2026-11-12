@@ -143,15 +143,58 @@ describe("the script's text", () => {
   });
 });
 
+describe("the Chinese dictionaries", () => {
+  const load = async () => {
+    const [{ core }, { board }, { pages }, { cut }, { global }] = await Promise.all([import("@/studio-ui/zh/core"), import("@/studio-ui/zh/board"), import("@/studio-ui/zh/pages"), import("@/studio-ui/zh/cut"), import("@/studio-ui/zh/global")]);
+    return { core, board, pages, cut, global };
+  };
+
+  it("give a key one translation, whichever dictionary has it", async () => {
+    const seen = new Map<string, Set<string>>();
+    for (const d of Object.values(await load())) for (const [k, v] of Object.entries(d)) seen.set(k, new Set([...(seen.get(k) ?? []), v]));
+    const twice = [...seen].filter(([, v]) => v.size > 1).map(([k, v]) => `${k} → ${[...v].join(" / ")}`);
+    expect(twice).toEqual([]);
+  });
+
+  it("keep every {hole} of the English and invent none", async () => {
+    const holes = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(",");
+    const wrong: string[] = [];
+    for (const d of Object.values(await load())) {
+      for (const [k, v] of Object.entries(d)) {
+        const en = k.includes("||") ? k.slice(0, k.indexOf("||")) : k;
+        if (holes(en) !== holes(v)) wrong.push(`${k} → ${v}`);
+      }
+    }
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe("the Chinese explanations of lint codes", () => {
-  it("name only codes the lint really writes", async () => {
+  /* the codes the lint writes: literal ones, and fragile.<pattern> / treatment.fragile.<pattern> */
+  const writtenCodes = async (skip: RegExp = /$^/) => {
     const { readFileSync, readdirSync } = await import("node:fs");
     const { join } = await import("node:path");
-    const { LINT_ZH } = await import("@/studio-ui/zh/lint");
-    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : []));
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? (e.name === "test" ? [] : files(join(dir, e.name))) : e.name.endsWith(".ts") && !skip.test(join(dir, e.name)) ? [join(dir, e.name)] : []));
     const src = [...files("packages/director/src"), ...files("src/studio")].map((f) => readFileSync(f, "utf8")).join("\n");
-    const written = new Set([...src.matchAll(/code: "([a-z0-9_.]+)"/g)].map((m) => m[1]!));
+    const literal = [...src.matchAll(/code: "([a-z0-9_.]+)"/g)].map((m) => m[1]!);
+    /* a pattern (code, label) is looked for in shots and in the story; a reason (code, message) only in shots */
+    const pattern = (c: string) => new RegExp(`code: "${c}", label`).test(src);
+    const fragile = literal.filter((c) => !c.includes(".") && c !== "empty" && (pattern(c) || new RegExp(`code: "${c}", message`).test(src)));
+    return new Set([...literal.filter((c) => !fragile.includes(c)), ...fragile.flatMap((c) => [`fragile.${c}`, ...(pattern(c) ? [`treatment.fragile.${c}`] : [])])]);
+  };
+
+  it("name only codes the lint really writes", async () => {
+    const { LINT_ZH } = await import("@/studio-ui/zh/lint");
+    const written = await writtenCodes();
     for (const code of Object.keys(LINT_ZH)) expect(written.has(code), `${code} is not a lint code`).toBe(true);
+  });
+
+  it("explain every code the project's lint writes", async () => {
+    const { LINT_ZH } = await import("@/studio-ui/zh/lint");
+    /* not the project lint: the cue map's check, fork_style's, and the review gate's refusals */
+    const written = await writtenCodes(/sound\/cuemap\.ts$|styles\/fork\.ts$/);
+    const other = new Set(["custom", "not_reviewed"]);
+    expect([...written].filter((c) => !LINT_ZH[c] && !other.has(c))).toEqual([]);
   });
 
   it("show the explanation in Chinese and the server's message beside it", async () => {

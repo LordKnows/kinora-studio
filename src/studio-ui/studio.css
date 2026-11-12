@@ -4128,6 +4128,13 @@ button.st-pill {
 .studio .dir-warn .st-link {
   white-space: nowrap;
 }
+/* in Chinese, the server's own English message under the explanation */
+.studio .dir-detail {
+  display: block;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--tx2);
+}
 .studio .dir-notes-cap {
   margin-top: 18px;
 }

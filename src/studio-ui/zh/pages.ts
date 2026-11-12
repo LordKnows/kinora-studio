@@ -17,7 +17,7 @@ export const pages: Record<string, string> = {
   /* Script */
   "Checkpoint 1. Every new version returns to draft; nothing renders until the latest version is approved.": "第一道关。每个新版本都会回到草稿；最新版本批准之前什么都不会拍。",
   "Copy prompt pack": "复制提示词包",
-  "Approved under delegated approval; overturn it in Settings → Director → Decisions": "按代为批准通过的；可在 设置 → 导演台 → 决定 里推翻",
+  "Approved under delegated approval; overturn it on the Director page, under Decisions": "按代为批准通过的；可在导演台页的“决定”里推翻",
   "Approved by the director": "导演已批准", "Approve v{v}": "批准 v{v}",
   "New version": "新版本", "Paste the screenplay here, or let the director agent call save_script.": "把剧本粘贴到这里，或者让导演调用 save_script。",
   "{n} chars": "{n} 字符", "Save as v{v}": "存为 v{v}", "Versions": "版本",
@@ -83,7 +83,7 @@ export const pages: Record<string, string> = {
   "Name for {what}": "{what} 的名称", "this picture": "这张图片",
   "All": "全部", "Sheets": "设定图", "Frames": "画面", "Style": "风格", "Edits & keyframes": "编辑与关键帧", "From takes": "来自镜次",
   "Uploads & imports": "上传与导入", "Awaiting review": "待审", "Unused": "未使用", "Flagged": "有问题",
-  "self-check: fail": "自检：不通过", "check: fail": "检查：不通过", "1 warning": "1 条警告", "{n} warnings": "{n} 条警告", "self-check ✓": "自检 ✓",
+  "self-check: fail": "自检：不通过", "check: fail": "检查：不通过", "1 warning": "1 个警告", "{n} warnings": "{n} 个警告", "self-check ✓": "自检 ✓",
   "reviewed ✓": "已审 ✓", "review failed": "未通过评审", "not reviewed": "未审",
   "The same file under more than one handle": "同一个文件有不止一个编号", "Listed twice {n}": "重复列出 {n}",
   "No pictures here": "这里没有图片", "Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.": "上传的图、生成的设定图和画面、编辑结果、从镜次截的画面，都会出现在这里。",

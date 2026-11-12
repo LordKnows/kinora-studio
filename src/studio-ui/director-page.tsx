@@ -3,15 +3,16 @@
 import Link from "next/link";
 import { useMemo } from "react";
 
-import { when } from "./api";
+import { whenT } from "./common";
 import { DirectorPanel } from "./director-panel";
 import { RecentlyDeleted } from "./recently-deleted";
 import { filmShots } from "./film";
 import { needsOf, type LintWarning } from "./needs";
 import { NeedsYou } from "./score-page";
 import { useProjectContext } from "./shell";
-import { plural, useT, type T } from "./i18n";
+import { plural, useLang, useT, type T } from "./i18n";
 import { useLint } from "./use-lint";
+import { lintLine } from "./zh/lint";
 
 /* The director's desk: who decides what. On the left what waits for the
    person; in the middle every check in one list (the Board's lint, the
@@ -23,8 +24,16 @@ export function DirectorPage() {
   const { projectId, view, reload } = useProjectContext();
   const lint = useLint(projectId, view);
   const t = useT();
+  const lang = useLang();
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
   if (!view) return null;
+  /* a group of findings as the page shows it: in Chinese, what the code means,
+     with the server's own message beneath */
+  const say = (items: LintWarning[]) => {
+    const line = lintLine(lang, items[0]!);
+    const message = items.length > 1 ? sameMessage(items, t) : items[0]!.message;
+    return line.detail ? { text: line.text, detail: message } : { text: message };
+  };
   const base = `/p/${projectId}`;
   const needs = needsOf(view, lint, base, t);
   const rolling = shots.flatMap((s) => s.shot.takes).filter((t) => t.status === "queued" || t.status === "running");
@@ -48,7 +57,7 @@ export function DirectorPage() {
         <div className="dir-status">
           {rolling.length > 0
             ? <span className="st-lamp" data-state="running">{plural(t, rolling.length, "1 take is rolling", "{n} takes are rolling")}</span>
-            : <span className="st-lamp" data-state="draft">{t("Nothing is rolling · last change {when}", { when: when(view.project.updatedAt) })}</span>}
+            : <span className="st-lamp" data-state="draft">{t("Nothing is rolling · last change {when}", { when: whenT(t, view.project.updatedAt) })}</span>}
         </div>
       </div>
 
@@ -67,12 +76,14 @@ export function DirectorPage() {
           {loudGroups.map((g) => {
             const first = g.items[0]!;
             const places = g.items.map(slateOf).filter((x): x is { label: string; href: string } => Boolean(x));
+            const said = say(g.items);
             const open = first.code.startsWith("seam.") ? { label: t("Open in Cut"), href: `${base}/timeline#seams` } : first.code.startsWith("treatment") ? { label: t("Open Script"), href: `${base}/script` } : first.code.startsWith("look.") ? { label: t("Open Brief & style"), href: `${base}/look` } : places[0] ? { label: t("Open {s}", { s: places[0].label }), href: places[0].href } : undefined;
             return (
               <div key={g.key} className="dir-warn" data-severity={first.severity}>
                 <i className="sc-bang">{first.severity === "error" ? "×" : "!"}</i>
                 <div>
-                  <strong>{g.items.length > 1 ? sameMessage(g.items, t) : first.message}</strong>
+                  <strong>{said.text}</strong>
+                  {said.detail && <span className="dir-detail">{said.detail}</span>}
                   <span className="st-num">{first.code}{g.items.length > 1 ? ` × ${g.items.length}` : ""}{places.length ? ` · ${places.map((p) => p.label).join(", ")}` : first.scene ? ` · ${first.scene}` : t(" · film")}</span>
                 </div>
                 {open && <Link className="st-link" href={open.href}>{open.label}</Link>}
@@ -94,7 +105,10 @@ export function DirectorPage() {
                           <td className="st-num">{g.items.length}</td>
                           <td>
                             {places.length > 0 && <span className="st-num dir-places">{places.map((p, i) => <span key={p.href}>{i > 0 ? ", " : ""}<Link href={p.href}>{p.label}</Link></span>)}. </span>}
-                            {g.items[0]!.message}
+                            {(() => {
+                              const line = lintLine(lang, g.items[0]!);
+                              return <>{line.text}{line.detail && <span className="dir-detail">{line.detail}</span>}</>;
+                            })()}
                           </td>
                         </tr>
                       );

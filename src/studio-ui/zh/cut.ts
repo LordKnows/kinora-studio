@@ -6,7 +6,7 @@ export const cut: Record<string, string> = {
   ". Drag a clip to move it, an edge to trim it.": "。拖动片段可以移动，拖动边缘可以修剪。", " Not saved yet.": "还没保存。",
   "Undo the last change (Ctrl/⌘+Z)": "撤销上一步（Ctrl/⌘+Z）", "Undo": "撤销",
   "Rebuild from the circled take of every shot, from 0 s at full length": "用每个镜头的圈选镜次重建，从 0 秒起、用全长", "Reset": "重置",
-  "Save the cut": "保存剪辑", "Dismiss": "知道了",
+  "Save the cut": "保存剪辑", "Dismiss": "关闭",
   "Nothing in the cut yet": "剪辑里还什么都没有", "Reset joins the circled take of every shot in board order.": "“重置”会把每个镜头的圈选镜次按分镜顺序接起来。",
   "No shot has a circled take yet: circle one per shot in Screening and it joins the cut.": "还没有哪个镜头圈选了镜次：在放映里给每个镜头圈选一条，它就会进剪辑。",
   "Build the cut": "生成剪辑", "Removed {slate} take {n} from the cut": "已从剪辑中移除 {slate} 镜次 {n}", "Removed the clip from the cut": "已从剪辑中移除这个片段",
@@ -29,7 +29,7 @@ export const cut: Record<string, string> = {
   "A continuous shot starts on its anchor's last frame. A shot renders on H3's frame grid, so a 5 s shot is 5.17 s long; trimming the anchor to 5.00 s makes the picture jump at the join.": "连续镜头从锚镜头的最后一帧开始。镜头按 H3 的帧网格渲染，所以 5 秒的镜头实际长 5.17 秒；把锚镜头剪到 5.00 秒，接点处画面就会跳。",
 
   /* mix, beat grid, subtitles */
-  "Mix": "混音", "Music track": "音乐轨", "Upload music": "上传音乐", "Upload from this device": "从这台设备上传", "None": "无",
+  "Mix": "混音", "Music track": "音乐轨", "Upload music": "上传音乐", "Upload from this device": "从本机上传", "None": "无",
   "Dialogue": "对白", "Effects": "音效", "Music": "音乐", "Fade in (s)": "淡入（秒）", "Fade out (s)": "淡出（秒）",
   "Beat grid": "节拍网格", "Snap every cut to the music: each clip ends on a beat, bar or half beat within what its take can give.": "让每个剪点卡在音乐上：每个片段在它的镜次长度允许的范围内结束在拍、小节或半拍上。",
   "Beats per bar": "每小节拍数", "Cut on": "剪在", "beat||grid": "拍", "bar||grid": "小节", "half beat||grid": "半拍",
@@ -98,7 +98,7 @@ export const cut: Record<string, string> = {
   "Why overturn this decision? The director reads it.": "为什么推翻这个决定？导演会读到。",
   "What the director may do, and what it has decided": "导演可以做什么，以及它做了哪些决定",
   "Image generation": "图片生成",
-  "Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.": "默认关闭。打开后，角色设定图、首帧和尾帧、局部修改、风格图和重做（Remake）的关键帧都可以画——由元素、分镜、镜次和风格页面上的按钮画，也由导演（Claude、Grok…）画——用这里选的模型，和画布用的是同一批模型。GPT Image 和 Qwen-Image 3.0 Pro 由 GPU 之外的绘图机画（机器页 → 绘图机）：Codex 用你的 ChatGPT 套餐，API 模型按张付费。MiniMax H3 Image 在 GPU 机器上画，只在机器运行时可用。",
+  "Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.": "默认关闭。打开后，角色设定图、首帧和尾帧、局部修改、风格图和 Remake 的关键帧都可以画——由元素、分镜、镜次和简报与风格页面上的按钮画，也由导演（Claude、Grok…）画——用这里选的模型，和画布用的是同一批模型。GPT Image 和 Qwen-Image 3.0 Pro 由 GPU 之外的绘图机画（机器页 → 绘图机）：Codex 用你的 ChatGPT 套餐，API 模型按张付费。MiniMax H3 Image 在 GPU 机器上画，只在机器运行时可用。",
   "Allow image generation by agent": "允许导演生成图片", "Model": "模型", " · GPU pod": " · GPU 机器", " · not ready": " · 未就绪",
   "Quality": "画质", "low (drafts)": "低（草稿）", "medium||quality": "中", "high||quality": "高", "Image limit": "图片上限", "{used} used · {left} left": "已用 {used} · 剩 {left}",
   "LoRAs": "LoRA", "Trained for this model; picking one applies its card's settings to every picture the director draws": "为这个模型训练的；选一个，它卡片上的设置会用在导演画的每张图上",
@@ -135,6 +135,6 @@ export const cut: Record<string, string> = {
   "Decisions": "决定", "None logged yet.": "还没有记录。", "Overturn": "推翻",
   "Reviews": "评审", "No cold-reader reviews yet (review_packet → a fresh agent → record_review).": "还没有冷读评审（review_packet → 一个全新的智能体 → record_review）。",
   "story||review stage": "故事", "shot||review stage": "镜头", "film||review stage": "成片", "frame||review stage": "画面",
-  "PASS||verdict": "通过", "FAIL||verdict": "不通过", "fresh agent||reviewer": "全新评审", "self||reviewer": "自审", "human||reviewer": "人工",
+  "PASS||verdict": "通过", "FAIL||verdict": "不通过", "fresh agent||reviewer": "全新评审", "user||confidence": "用户决定", "low||confidence": "把握低", "medium||confidence": "把握中", "high||confidence": "把握高", "self||reviewer": "自审", "human||reviewer": "人工",
   "{n} finding(s)": "{n} 条意见", "Basis: {basis}": "依据：{basis}", " (maybe)": "（不确定）", "Retro (Markdown)": "复盘（Markdown）",
 };

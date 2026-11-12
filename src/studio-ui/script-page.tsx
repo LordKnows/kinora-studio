@@ -13,9 +13,10 @@ import { filmShots, shotPicture, tc } from "./film";
 import { Markdown } from "./markdown";
 import { coverage, normalize } from "@/studio/coverage";
 
-import { plural, useT } from "./i18n";
+import { plural, useLang, useT } from "./i18n";
 import { diffSentences, scriptSections } from "./script-text";
 import { useProjectContext } from "./shell";
+import { lintLine } from "./zh/lint";
 
 export function ScriptPage() {
   return (
@@ -94,7 +95,7 @@ function ScriptPageInner() {
             {copied ? t("Copied") : t("Copy prompt pack")}
           </Button>
           {latest && latest.approval === "approved" && view?.delegated?.script && (
-            <span className="st-chip" title={t("Approved under delegated approval; overturn it in Settings → Director → Decisions")}>{t("Approved by the director")}</span>
+            <span className="st-chip" title={t("Approved under delegated approval; overturn it on the Director page, under Decisions")}>{t("Approved by the director")}</span>
           )}
           {latest && latest.approval !== "approved" && (
             <Button kind="primary" busy={approve.busy} onClick={() => void approve.fire(latest.id)}>
@@ -177,6 +178,7 @@ function ScriptPageInner() {
    the screenplay, and what the lint says is missing from it. */
 function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | null; warnings: TreatmentWarning[] }) {
   const tr = useT();
+  const lang = useLang();
   const t = treatment?.treatment;
   const sep = tr("; ||list");
   return (
@@ -187,7 +189,11 @@ function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | 
           {warnings.map((w, i) => (
             <div key={i} className="st-row" style={{ alignItems: "baseline", gap: 8 }}>
               <Lamp state={w.severity === "info" ? "draft" : "failed"} label={tr(`${w.severity}||severity`)} />
-              <span className="st-muted" style={{ flex: 1 }}>{w.message}</span>
+              {(() => {
+                /* in Chinese: what the code means, and the server's own message beneath */
+                const line = lintLine(lang, w);
+                return <span className="st-muted" style={{ flex: 1 }}>{line.text}{line.detail && <span style={{ display: "block", fontSize: 12 }}>{line.detail}</span>}</span>;
+              })()}
             </div>
           ))}
         </div>

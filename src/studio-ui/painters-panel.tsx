@@ -4,8 +4,8 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 
 import type { Painter, PainterPod } from "@/studio/types";
 
-import { del, get, post, usd, when } from "./api";
-import { Button, ErrorBanner, Lamp, useAction } from "./common";
+import { del, get, post, usd } from "./api";
+import { Button, ErrorBanner, Lamp, useAction, whenT } from "./common";
 import { plural, useT } from "./i18n";
 
 type Listed = Painter & { online: boolean };
@@ -117,7 +117,7 @@ export function PaintersPanel() {
             <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
               <span className="st-row" style={{ gap: 8, flexWrap: "wrap" }}>
                 <strong>{p.info.onPod ? t("GPU pod (fallback)") : p.name}</strong>
-                <Lamp state={p.online ? "ok" : "draft"} label={p.online ? t("online · {busy}/{slots} drawing", { busy: (p.info.running ?? []).length, slots: p.info.slots ?? 1 }) : t("offline · last seen {when}", { when: when(p.lastSeenAt) })} />
+                <Lamp state={p.online ? "ok" : "draft"} label={p.online ? t("online · {busy}/{slots} drawing", { busy: (p.info.running ?? []).length, slots: p.info.slots ?? 1 }) : t("offline · last seen {when}", { when: whenT(t, p.lastSeenAt) })} />
                 <Lamp state={codex?.logged_in ? "ok" : codex?.installed ? "warn" : "draft"} label={codex?.logged_in ? t("Codex logged in") : codex?.installed ? t("Codex not logged in") : t("Codex not installed")} />
                 {codex?.installed && codex.code_mode_host === false && <Lamp state="warn" label={t("code-mode helper missing")} />}
                 {(p.info.backends ?? []).includes("api") && <Lamp state="ok" label={t("images API")} />}

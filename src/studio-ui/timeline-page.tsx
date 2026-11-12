@@ -6,14 +6,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { TITLE_KINDS, TRANSITIONS, type TimelineInput } from "@/studio/schemas";
 import type { ExportJob, Take } from "@/studio/types";
 
-import { get, post, put, usd, when } from "./api";
-import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton } from "./common";
+import { get, post, put, usd } from "./api";
+import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton, whenT } from "./common";
 import { clipSeconds, filmShots, seamTrims, takePicture, tc, type FilmShot } from "./film";
 import { RoughCut } from "./rough-cut";
-import { plural, useT } from "./i18n";
+import { plural, useLang, useT } from "./i18n";
 import { useNotify } from "./notices";
 import { useProjectContext } from "./shell";
 import { useLint } from "./use-lint";
+import { lintLine } from "./zh/lint";
 
 /* The Cut: the film as tracks on one time axis — titles, the picture, the
    takes' own sound, narration, music, silences — with the selected clip's
@@ -54,6 +55,7 @@ export function TimelinePage() {
   const lint = useLint(projectId, view);
   const notify = useNotify();
   const tr = useT();
+  const lang = useLang();
 
   useEffect(() => {
     if (view && !timeline) setTimeline(view.timeline);
@@ -308,7 +310,10 @@ export function TimelinePage() {
                       </table>
                     </div>
                   )}
-                  {otherSeams.map((w, i) => <p key={i} className="cut-seam-other"><i className="sc-bang">!</i>{w.scene} #{w.shot}: {w.message}</p>)}
+                  {otherSeams.map((w, i) => {
+                    const line = lintLine(lang, w);
+                    return <p key={i} className="cut-seam-other" title={line.detail}><i className="sc-bang">!</i>{w.scene} #{w.shot}: {line.text}</p>;
+                  })}
                   <p className="st-muted">{tr("A continuous shot starts on its anchor's last frame. A shot renders on H3's frame grid, so a 5 s shot is 5.17 s long; trimming the anchor to 5.00 s makes the picture jump at the join.")}</p>
                 </>
               )}
@@ -393,7 +398,7 @@ export function TimelinePage() {
                   <tr key={e.id}>
                     <td className="st-num">{e.preset}</td>
                     <td><Lamp state={e.status} label={tr(`${e.status}||status`)} />{e.error && <span className="st-muted"> · {e.error}</span>}</td>
-                    <td>{when(e.createdAt)}</td>
+                    <td>{whenT(tr, e.createdAt)}</td>
                     <td style={{ textAlign: "right" }}>
                       {e.resultUrl && <a className="st-link" href={e.resultUrl} target="_blank" rel="noreferrer">{tr("Download")}</a>}
                       {e.srtUrl && <>{" · "}<a className="st-link" href={e.srtUrl} target="_blank" rel="noreferrer">SRT</a></>}
