@@ -1,5 +1,15 @@
 # 前端重设计调研（2026-11）
 
+> 状态（2026-11-12 再更新）：项目栏从 8 页改成 5 页加 2 层，旧地址都跳转到新位置。
+>
+> - **Reel**（`/p/:id`，原总谱，地址不变）：总览；"等你决定"和完整的问题列表（`#problems`）也在这里。
+> - **Story**（`/story`）：brief 和目标时长（原 Brief & style 的前半）加剧本（原 Script，`?view=lined` 等模式照旧）。
+> - **Design**（`/design`）三个标签：Look（`?tab=look`：风格、画幅、LoRA、风格帧，原 Brief & style 的后半）、Elements（`?tab=elements`）、Pictures（`?tab=pictures`，`show=` / `pic=` 照旧）。
+> - **Board** 不变；**Cut** 改到 `/cut`（原 `/timeline`，`#seams` 等照旧）；放映（`/screening`）是全屏模式。
+> - 导演台（`/director`）不再是页面：要求、决定（推翻）、评审在 **Director 面板**（项目栏的 Director 按钮，`/p/:id?panel=director`）；图片生成、声音生成、花费额度、代为批准和"最近删除"在项目的 **Settings** 页（`/settings`）。
+>
+> 下面一段是这之前的状态。
+
 > 状态（2026-11-12 更新）：外观和信息架构已换成 **Score（总谱）**，取代下文第 2 节推荐的"后期机房"深色方案。
 >
 > - 外观：浅灰卡底加墨色（场灯亮），放映页为暗场（场灯暗）；直角；Archivo（可变宽度）+ IBM Plex Mono，自带字体文件；只保留一个信号红，只表示"你在这里""正在拍（花钱）""下一步"。成功、警告、失败都用墨色记号区分形状，不再用颜色。

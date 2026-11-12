@@ -18,7 +18,7 @@ import type { Actor, Asset, VoiceCard, Voicing } from "./types";
    - POST /v1/audio/transcriptions turns speech back into text (the
      pronunciation check). Billed per hour of audio.
 
-   A project switches it on on the project's Director page (web only) with a model and a
+   A project switches it on on the project's Settings page (web only) with a model and a
    character budget, as it does image generation. */
 
 export type VoiceApiModel = { id: string; label: string; modes: Array<"clone" | "design">; systemVoice: boolean; note: string };
@@ -84,11 +84,11 @@ export async function setVoicing(projectId: string, input: { enabled: boolean; m
 
 async function requireVoicing(projectId: string, chars = 0): Promise<{ v: Voicing; api: { base: string; key: string } }> {
   const v = await repo.getVoicing(projectId);
-  if (!v?.enabled) throw new StudioError("forbidden", "voice generation is off for this project: the user switches it on on the project's Director page (web only)");
+  if (!v?.enabled) throw new StudioError("forbidden", "voice generation is off for this project: the user switches it on on the project's Settings page (web only)");
   const api = voiceApi();
   if (!api) throw new StudioError("validation", "the voice API needs TOKENSAIL_API_KEY as a Worker secret (Cloudflare → Workers → the Studio → Settings → Variables and secrets)");
   if (chars && v.usedChars + chars > v.maxChars) {
-    throw new StudioError("validation", `this needs ${chars} characters and ${Math.max(0, v.maxChars - v.usedChars)} of the project's ${v.maxChars} are left; the user raises the budget on the project's Director page`);
+    throw new StudioError("validation", `this needs ${chars} characters and ${Math.max(0, v.maxChars - v.usedChars)} of the project's ${v.maxChars} are left; the user raises the budget on the project's Settings page`);
   }
   return { v, api };
 }

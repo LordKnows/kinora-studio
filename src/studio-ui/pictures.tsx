@@ -45,10 +45,10 @@ export function tagTitle(t: T, title: string): string {
   if (i < 0 || !title.endsWith(")")) return t(title);
   const head = title.slice(0, i);
   const why = title.slice(i + 2, -1);
-  const again = /^(.*); Check again on the Pictures page$/.exec(why);
+  const again = /^(.*); Check again on the Design page \(Pictures tab\)$/.exec(why);
   const notRun = again && /^the face check did not run: (.*)$/.exec(again[1]!);
   const detail = why.startsWith("face check: ") ? t("face check: {what}", { what: verdictWords(t, why.slice("face check: ".length)) })
-    : again ? t("{what}; Check again on the Pictures page", { what: notRun ? t("the face check did not run: {why}", { why: notRun[1]! }) : t(again[1]!) })
+    : again ? t("{what}; Check again on the Design page (Pictures tab)", { what: notRun ? t("the face check did not run: {why}", { why: notRun[1]! }) : t(again[1]!) })
     : t(why);
   return t("{head} ({detail})", { head: t(head), detail });
 }

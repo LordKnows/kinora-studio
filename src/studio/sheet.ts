@@ -9,7 +9,7 @@ import type { Element } from "./types";
      3. front       the whole figure, from the portrait and the details
      4. side, back  from the portrait, the front and the details
    Pure functions over an element, shared by the server (imaging.ts) and the
-   Elements page, so both show the same next step. */
+   Design page (Elements tab), so both show the same next step. */
 
 export const ON_HEAD = /\b(face|cheeks?|eyes?|eyelids?|brows?|eyebrows?|forehead|nose|mouth|lips?|chin|jaw|ears?|hair|head|temples?)\b|脸|面部|眼|眉|额|鼻|嘴|唇|下巴|耳|头|发/i;
 export const ON_BACK = /\b(back|behind|nape|rear)\b|背|后/i;

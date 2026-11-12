@@ -13,7 +13,7 @@ export const POST = route(["web"], async (req, { params }) => {
   const input = await body(req, Verdict);
   const assetId = await repo.resolveAssetRef(params.id!, decodeURIComponent(params.ref!));
   return recordReview(params.id!, {
-    stage: "frame", shotId: assetId, verdict: input.verdict, reviewer: "human", basis: "looked at the picture on the Pictures page",
+    stage: "frame", shotId: assetId, verdict: input.verdict, reviewer: "human", basis: "looked at the picture on the Design page (Pictures tab)",
     findings: input.problem ? [{ where: "picture", problem: input.problem, sure: true, severity: input.verdict === "fail" ? "blocker" : "minor" }] : [],
   });
 });

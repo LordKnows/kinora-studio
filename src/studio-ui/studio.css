@@ -2763,6 +2763,148 @@ button.st-pill {
 .studio .sc-stages a .st-lamp {
   gap: 0;
 }
+
+/* The project bar's icons (nav-icons.tsx): ink lines on the ground, one
+   accent card that turns red on the current page. */
+.studio .ni {
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.studio .ni-g,
+.studio .ni-a {
+  fill: var(--bg);
+}
+.studio .ni-d,
+.studio .ni-p {
+  fill: currentColor;
+  stroke: none;
+}
+.studio .ni--on .ni-a {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+.studio .ni--on .ni-p {
+  fill: var(--bg);
+}
+.studio .sc-stages a {
+  gap: 8px;
+}
+.studio .sc-bar-end {
+  display: flex;
+  align-items: center;
+  gap: 8px 18px;
+  flex-wrap: wrap;
+}
+/* the three tools beside the pages: Screening, the Director panel, Settings */
+.studio .sc-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.studio .sc-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--line-3);
+  background: none;
+  color: var(--tx2);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.studio .sc-tool:hover,
+.studio .sc-tool[aria-current="page"],
+.studio .sc-tool[aria-expanded="true"] {
+  color: var(--tx);
+  border-color: var(--tx);
+}
+
+/* The Director panel: beside any page, under the top bar. */
+.studio .dir-drawer {
+  position: fixed;
+  z-index: 60;
+  top: var(--topbar);
+  right: 0;
+  bottom: 0;
+  width: min(440px, 100vw);
+  overflow-y: auto;
+  background: var(--bg);
+  border-left: 1px solid var(--tx);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.1);
+  padding: 0 22px 32px;
+}
+.studio .dir-drawer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0 12px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .dir-drawer-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+.studio .dir-drawer-close {
+  margin-left: auto;
+  font-size: 20px;
+  line-height: 1;
+}
+.studio .dir-drawer-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 0 16px;
+  font-size: 13px;
+}
+
+/* the Design page's tabs: Look, Elements, Pictures */
+.studio .dz-tabs-row {
+  padding: 24px 36px 0;
+  max-width: 1480px;
+}
+.studio .dz-tabs {
+  display: flex;
+  gap: 0 24px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .dz-tab {
+  display: inline-flex;
+  align-items: center;
+  height: 38px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tx2);
+  text-decoration: none;
+}
+.studio .dz-tab:hover {
+  color: var(--tx);
+}
+.studio .dz-tab[aria-current="page"] {
+  color: var(--tx);
+  font-weight: 700;
+  box-shadow: inset 0 -3px 0 var(--tx);
+}
+.studio .dz-tabs-row + .st-page {
+  padding-top: 20px;
+}
+.studio .dir-problems {
+  margin-top: 36px;
+}
 .studio .sc-meter {
   display: flex;
   align-items: center;
@@ -2855,8 +2997,11 @@ button.st-pill {
   .studio .sc-bar-row {
     padding: 0 14px;
   }
-  .studio .sc-bar-row > .sc-meter {
+  .studio .sc-bar-end > .sc-meter {
     display: none;
+  }
+  .studio .dz-tabs-row {
+    padding: 18px 14px 0;
   }
   .studio .sc-line {
     padding: 0 14px 8px;
@@ -4588,4 +4733,58 @@ button.st-pill {
   text-decoration-color: var(--accent);
   text-decoration-thickness: 2px;
   text-underline-offset: 5px;
+}
+
+/* Phones: the five pages move to a bar at the bottom, icon over word; the
+   three tools stay up top as icons alone; the Director panel takes the screen. */
+@media (max-width: 640px) {
+  .studio .sc-stages {
+    position: fixed;
+    z-index: 40;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    overflow: visible;
+    background: var(--bg);
+    border-top: 1px solid var(--line-3);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .studio .sc-stages a {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    height: 58px;
+    font-size: 11px;
+    box-shadow: none;
+  }
+  .studio .sc-stages a[aria-current="page"] {
+    box-shadow: inset 0 2px 0 var(--tx);
+  }
+  .studio .sc-stages .ni {
+    width: 24px;
+    height: 24px;
+  }
+  .studio .sc-stages a .st-lamp,
+  .studio .sc-tool-label {
+    display: none;
+  }
+  .studio .sc-bar-row {
+    justify-content: flex-end;
+    min-height: 44px;
+  }
+  .studio .sc-tool {
+    height: 34px;
+    padding: 0 8px;
+  }
+  .studio .st-main--project {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+  .studio .dir-drawer {
+    top: 0;
+    width: 100vw;
+    border-left: 0;
+  }
 }

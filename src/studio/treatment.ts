@@ -9,7 +9,7 @@ import type { Scene } from "./types";
    candidate structures and the one chosen, the benchmark, the hook, the
    sequences and their paces, the sound design, where it goes silent). It is
    kept beside the script version it was written for, so the lint, the story
-   review, the export and the Script page can all hold the film to it. */
+   review, the export and the Story page can all hold the film to it. */
 
 export type TreatmentWarning = { code: string; message: string; severity: "error" | "warn" | "info" };
 

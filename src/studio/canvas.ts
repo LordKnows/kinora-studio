@@ -52,7 +52,7 @@ export const CanvasCompose = z.object({
     picture: z.enum(POSE_PICTURES).default("photo").describe("An uploaded pose (assetId): what the picture is — photo (a person: only the pose and framing are taken), mannequin (白模 / line art), depth (a grey depth map)"),
     mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)"),
   }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod minimax-h3-image (MiniMax's open weights, text to image and up to 10 pictures). Omit for the project's model (the project's Director page)."),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod minimax-h3-image (MiniMax's open weights, text to image and up to 10 pictures). Omit for the project's model (the project's Settings page)."),
   promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
   negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
@@ -124,7 +124,7 @@ async function characterOf(projectId: string, elementId: string): Promise<Resolv
   return { element, asset, url: asset.url, thumb: (asset.meta.previewUrl as string | undefined) ?? asset.url, label: element.name };
 }
 
-/** The image model a Canvas picture is drawn with: the one asked for, else the project's (the project's Director page). */
+/** The image model a Canvas picture is drawn with: the one asked for, else the project's (the project's Settings page). */
 export function canvasModel(id: string | undefined, imaging?: { model?: string; backend?: string } | null): ModelEntry {
   const model = id ? findModel(id) : projectImageModel(imaging);
   if (!model || model.kind !== "image") throw new StudioError("validation", `${id} is not an image model (list_models)`);
@@ -253,18 +253,18 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
 
 /**
  * compose_character for the director (MCP): only with Agent use Canvas on for the project (the project's
- * Director page, web only), and with the project's model and its LoRAs — the user's choice, not the agent's.
+ * Settings page, web only), and with the project's model and its LoRAs — the user's choice, not the agent's.
  */
 export async function agentComposeCharacter(projectId: string, input: Omit<CanvasCompose, "loras">, actor: Actor): ReturnType<typeof composeCharacter> {
   const imaging = (await repo.getProject(projectId)).imaging;
   if (!imaging?.agentCanvas) {
-    throw new StudioError("forbidden", "Agent use Canvas is off for this project: the user switches it on on the project's Director page (web only). Draw the character with generate_element_sheet instead.", { agentCanvas: false });
+    throw new StudioError("forbidden", "Agent use Canvas is off for this project: the user switches it on on the project's Settings page (web only). Draw the character with generate_element_sheet instead.", { agentCanvas: false });
   }
   const own = projectImageModel(imaging);
   const picked = input.model ? findModel(input.model) : own;
   if (!picked || picked.kind !== "image") throw new StudioError("validation", `${input.model} is not an image model (list_models)`);
   if (picked.id !== own.id) {
-    throw new StudioError("forbidden", `this project's pictures are drawn with ${own.label} (the project's Director page, the user's choice): leave model out`);
+    throw new StudioError("forbidden", `this project's pictures are drawn with ${own.label} (the project's Settings page, the user's choice): leave model out`);
   }
   return composeCharacter(projectId, { ...input, model: picked.id, loras: imaging.loras ?? [] }, actor);
 }

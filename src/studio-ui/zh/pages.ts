@@ -111,7 +111,7 @@ export const pages: Record<string, string> = {
   "模拟: AI-generated, a 3D render, an illustration or no face — the reference of any picture, R18 included": "模拟：AI 生成、3D 渲染、插画或没有人脸——可作任何图片的参考，含 R18",
   "真实: it may show a real person — not for R18 pictures; every other picture is fine": "真实：可能是真人——不能用于 R18 图片；其他图片都可以",
   "one of your own costumes or poses": "你自己的服装或姿势", "face check: {what}": "人脸检查：{what}",
-  "{what}; Check again on the Pictures page": "{what}；可在图片页重新检查", "the face check did not run: {why}": "人脸检查没有运行：{why}",
+  "{what}; Check again on the Design page (Pictures tab)": "{what}；可在美术页的图片里重新检查", "the face check did not run: {why}": "人脸检查没有运行：{why}",
   "a photograph": "照片", "photorealistic": "写实", "a 3D render": "3D 渲染", "an illustration": "插画", "no human face": "没有人脸",
   "an adult": "成年人", "a minor": "未成年人", "age unclear": "年龄不明", "a real person's likeness": "像某个真人", "unsure ({p}%)": "不确定（{p}%）",
 
@@ -176,7 +176,7 @@ export const pages: Record<string, string> = {
   "A private project is hidden from everyone else, on the web and through their director connectors. The GPU pod, the painters and the libraries stay shared: other users see that the pod is busy, not with what. Picture links (/media/…) work for whoever has them.": "私有项目对其他所有人隐藏，网页上和他们的导演连接器里都看不到。GPU 机器、绘图机和素材库仍然共用：其他用户能看到机器在忙，但看不到在忙什么。图片链接（/media/…）谁拿到都能打开。",
 
   /* Projects */
-  "One project per film. Brief and style, script, elements, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Score: the whole film on one line of time, and what waits for you.": "一部片子一个项目。简报与风格、剧本、元素、分镜、镜次、剪辑——按这个顺序，中间有两次批准。项目打开时是它的总谱：整部片子排在一条时间线上，还有等你决定的事。",
+  "One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.": "一部片子一个项目。故事、美术、分镜、镜次、剪辑——按这个顺序，中间有两次批准。项目打开时是它的全片：整部片子排在一条时间线上，还有等你决定的事。",
   "New project": "新项目", "Neon rain chase": "霓虹雨夜追逐",
   "Every signed-in user of this studio": "这个工作室里每个已登录的用户", "Only you, on the web and through your director connector": "只有你，网页上和你的导演连接器里",
   "No projects yet": "还没有项目", "Create one above, or let your director agent call start_film over MCP.": "在上面建一个，或者让你的导演通过 MCP 调用 start_film。",

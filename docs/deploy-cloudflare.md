@@ -322,7 +322,7 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   "measured"）。把 `RUNPOD_GPU_PRIORITY` 设为 `cost`，起 Pod 时白名单会按"每秒视频
   美元"从低到高排序。agent 用 `gpu_stats` 读同一份数据。
 - **LoRA**：`/loras` 页面是全局库，每条记录文件名、HuggingFace 链接、类型（speed /
-  style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Look 页选默认 LoRA
+  style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Design 页（Look 标签）选默认 LoRA
   （加速 LoRA 放这里），镜头编辑器可覆盖或关闭。编译时把 LoRA 写进 worker 输入，触发词
   进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。**不用加速 LoRA 时**（项目和镜头都没选 speed
   LoRA），编译器自动切到交接文档 §3 的原版采样链：`res_multistep`，调度 `simple`（R2VA 用 `beta`），
@@ -400,7 +400,7 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    没放进 Access bypass，或 `STUDIO_WORKER_TOKEN` 没设）。
 3. running 之后，RunPod 控制台 → 该 Pod → Connect → HTTP 8000 端口，访问 `/health`（需要
    `X-Studio-Token` 头，用浏览器看会是 401，正常）。
-4. Studio 里：建项目 → Script 批准 → 一个 5 秒 `text` 镜头的分镜表并批准 → Board 里对它点
+4. Studio 里：建项目 → 在 Story 页批准剧本 → 一个 5 秒 `text` 镜头的分镜表并批准 → Board 里对它点
    Generate take。侧栏显示 take 在排队，首个任务要加载 21 GB 底模和文本编码器，交接实测冷跑
    约 3–6 分钟，热跑 5 秒片段约 3 分钟（A100）。
 5. take 完成后卡片出现缩略图，Settings 的 GPU 统计表出现第一行；预估开始用实测速度。
@@ -447,7 +447,7 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    收到命令，验证码几秒后出现）。登录凭证存在机器的 `PAINTER_STATE_DIR`，令牌刷新会写回。
    GPU Pod 兜底画图时用的是网络卷上自己的登录（`/workspace/codex/home`），需要的话同样在
    Painters 里给 "GPU pod" 登录一次。
-5. **按项目开启**：项目的 Director 页（导演台）→ *Allow image generation by agent*，打开开关、选模型
+5. **按项目开启**：项目的 Settings 页（项目设置）→ *Allow image generation by agent*，打开开关、选模型
    （GPT Image 选后端 Codex / API）、设图片上限。GPU Pod 模型里，**MiniMax H3 Image** 是 MiniMax 2026-11-10 开放权重的图片模型，直接部署在 GPU Pod 的 ComfyUI 里，不走 API（6 步、无 CFG，按 4 MP 画完再缩到所需尺寸；许可证不覆盖欧盟、英国、韩国、美国，见 README）。GPU Pod 模型（MiniMax H3 Image）下面还能选 **LoRAs**
    （只列为该模型训练的；勾选后按 LoRA 卡片的推荐设置画）。18+ 的 LoRA
    要先在 Canvas 打开 18+，而且只用 Studio 自己画的图和参考库的图，上传或导入的图（可能是真人）会被拒绝。
@@ -474,7 +474,7 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
      唯一会调用模型的地方。用同一个 `TOKENSAIL_API_KEY`（或 `DASHSCOPE_API_KEY`），TokenSail
      `qwen3.8-max-0902`，DashScope `qwen-vl-max-latest`，可用 `FACE_CHECK_MODEL` 改。3D 渲染或插画、
      成年、不是名人，或没有人脸（含远景、背影的游戏场景）→ 模拟；照片、看起来像照片、名人肖像、
-     未成年或看不出年龄、模型没把握、没检查成 → 真实（Pictures 页写明原因，可点 **Check again**）。
+     未成年或看不出年龄、模型没把握、没检查成 → 真实（Design 页的 Pictures 标签写明原因，可点 **Check again**）。
    - **图库**：全部是模拟。**我的**（Canvas 图库的 Mine 分类，用户自己上传的人像、服装、姿势）：人像在上传时
      检查一次，按结果打模拟或真实；服装和姿势不检查，按模拟处理。它们存在 `user_references` 表（应用第一次用
      时自动建表；也可以跑 `npx wrangler d1 migrations apply studio --remote` 应用 0018）。
@@ -484,5 +484,5 @@ VAE 解码器 6.5 GB、3D latent 上采样器 0.7 GB）。`/health` 的 `regen.r
    **Remake models → Download models** 下载到网络卷（edit、swap 各约 21 GB）。
 8. **新代码上机器**：Pod 和画图机器都在启动时从 Studio 拉代码包，部署新版本后重启它们一次。
 9. **图片的名字**：每张图有项目内编号（`IMG-12`，删了也不复用）和可改的名字。和导演说
-   “重画 IMG-12” 就能精确指代。项目里新增的 **Pictures** 页列出所有图、用在哪里、检查结果；
+   “重画 IMG-12” 就能精确指代。项目 Design 页的 **Pictures** 标签列出所有图、用在哪里、检查结果；
    各图片网格的 **Select** 可以批量删除，正在使用的图会先确认，再从镜头、元素、风格帧上撤下。

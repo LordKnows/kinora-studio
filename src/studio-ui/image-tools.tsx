@@ -28,7 +28,7 @@ export function useImagingOn(): ImagingOn {
   const model = projectImageModel(i);
   const pod = model.runtime === "pod";
   const base = { label: model.label, runtime: model.runtime, backend: model.backend ?? "", drawnBy: pod ? tr("{model}, on the GPU pod while it runs", { model: model.label }) : tr("{model}, by a painter", { model: model.label }) };
-  if (!i?.enabled) return { ...base, on: false, why: tr("image generation is off for this project: switch it on from the project's Director page") };
+  if (!i?.enabled) return { ...base, on: false, why: tr("image generation is off for this project: switch it on from the project's Settings page") };
   if (i.stoppedReason) return { ...base, on: false, why: tr("image generation stopped: {reason}", { reason: i.stoppedReason }) };
   if (i.usedImages >= i.maxImages) return { ...base, on: false, why: tr("image quota used ({used}/{max}); raise it in Settings", { used: i.usedImages, max: i.maxImages }) };
   return { ...base, on: true };

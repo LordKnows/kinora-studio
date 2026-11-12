@@ -7,10 +7,14 @@ import { useEffect, useState } from "react";
 import { del, get, patch, put } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 import { useT } from "./i18n";
+import { DirectorPanel } from "./director-panel";
+import { RecentlyDeleted } from "./recently-deleted";
 import { useProjectContext } from "./shell";
 
-/* Project settings: what belongs to this film only. The pod, the library
-   and the MCP connection are global pages. */
+/* Project settings: what belongs to this film only — its name and budget,
+   who sees it, what the director may do without asking (image and voice
+   generation, the spend envelope, delegated approval), and what was deleted
+   lately. The pod, the library and the MCP connection are global pages. */
 export function SettingsPage() {
   const t = useT();
   const { projectId, view, reload } = useProjectContext();
@@ -37,7 +41,7 @@ export function SettingsPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Project settings")}</h1>
-          <p className="st-subtitle">{t("Name, budget and who sees the film. What the director may do is on the Director page; the GPU, the library and the connection live under Machine, Library and Connect.")}</p>
+          <p className="st-subtitle">{t("Name, budget, who sees the film and what the director may do without asking. What it was asked and what it decided are in the Director panel; the GPU, the library and the connection live under Machine, Library and Connect.")}</p>
         </div>
       </div>
       <ErrorBanner error={save.error ?? remove.error} onDismiss={() => { save.dismiss(); remove.dismiss(); }} />
@@ -56,10 +60,15 @@ export function SettingsPage() {
         </div>
       </div>
       <SharingCard />
+      <div style={{ marginTop: 20 }}>
+        <DirectorPanel projectId={projectId} part="settings" />
+      </div>
+      <div className="st-card st-stack" style={{ marginTop: 20 }}>
+        <RecentlyDeleted projectId={projectId} onRestored={reload} />
+      </div>
       <div className="st-card st-stack" style={{ marginTop: 20 }}>
         <span className="st-h2">{t("Elsewhere")}</span>
         <div className="st-row">
-          <Link className="st-btn" href={`/p/${projectId}/director`}>{t("Director")}</Link>
           <Link className="st-btn" href="/machine">{t("Machine")}</Link>
           <Link className="st-btn" href="/library">{t("Library")}</Link>
           <Link className="st-btn" href="/connect">{t("Connect")}</Link>

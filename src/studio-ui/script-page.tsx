@@ -15,18 +15,22 @@ import { coverage, normalize } from "@/studio/coverage";
 
 import { plural, useLang, useT } from "./i18n";
 import { diffSentences, scriptSections } from "./script-text";
+import { BriefCard } from "./look-page";
 import { useProjectContext } from "./shell";
 import { lintLine } from "./zh/lint";
 
-export function ScriptPage() {
+/* The Story page: the brief and running time the director reads first, then
+   the script — its versions, the lined script beside the Board, the changes
+   between versions — and the treatment that explains its shape. */
+export function StoryPage() {
   return (
     <Suspense fallback={null}>
-      <ScriptPageInner />
+      <StoryPageInner />
     </Suspense>
   );
 }
 
-function ScriptPageInner() {
+function StoryPageInner() {
   const t = useT();
   const { projectId, view, reload } = useProjectContext();
   const [scripts, setScripts] = useState<Script[] | null>(null);
@@ -73,7 +77,7 @@ function ScriptPageInner() {
       `You are the director of a short film project called "${view?.project.name ?? "Untitled"}".`,
       look ? `Look: ${[look.genre, look.palette, look.camera, look.lens, look.lighting].filter(Boolean).join("; ")}. Aspect ratio ${look.aspectRatio}.` : "",
       "Write a screenplay for it: scene headings, action, dialogue. Shots will be 5–15 seconds each and rendered by MiniMax H3 (768p, native audio), so keep every moment visual and concrete.",
-      "Return only the screenplay text. I will paste it into the Script page.",
+      "Return only the screenplay text. I will paste it into the Story page.",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -87,15 +91,15 @@ function ScriptPageInner() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">{t("Script")}</h1>
-          <p className="st-subtitle">{t("Checkpoint 1. Every new version returns to draft; nothing renders until the latest version is approved.")}</p>
+          <h1 className="st-title">{t("Story")}</h1>
+          <p className="st-subtitle">{t("The brief, the script and its treatment. The script is checkpoint 1: every new version returns to draft; nothing renders until the latest version is approved.")}</p>
         </div>
         <div className="st-actions">
           <Button kind="quiet" onClick={promptPack}>
             {copied ? t("Copied") : t("Copy prompt pack")}
           </Button>
           {latest && latest.approval === "approved" && view?.delegated?.script && (
-            <span className="st-chip" title={t("Approved under delegated approval; overturn it on the Director page, under Decisions")}>{t("Approved by the director")}</span>
+            <span className="st-chip" title={t("Approved under delegated approval; overturn it in the Director panel, under Decisions")}>{t("Approved by the director")}</span>
           )}
           {latest && latest.approval !== "approved" && (
             <Button kind="primary" busy={approve.busy} onClick={() => void approve.fire(latest.id)}>
@@ -105,6 +109,10 @@ function ScriptPageInner() {
         </div>
       </div>
       <ErrorBanner error={save.error ?? approve.error} onDismiss={() => { save.dismiss(); approve.dismiss(); }} />
+
+      <div style={{ marginBottom: 20 }}>
+        <BriefCard />
+      </div>
 
       <div className="st-split st-split--wide-right">
         <div className="st-stack">

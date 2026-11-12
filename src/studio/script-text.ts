@@ -1,4 +1,4 @@
-/* Reading a screenplay's text (the Script page, the coverage lint): its
+/* Reading a screenplay's text (the Story page, the coverage lint): its
    sections (one per scene heading, with the time range a heading states, if
    any), and what changed between two versions, sentence by sentence. Which
    shot shows which line is coverage.ts, from the shots' scriptLines. */

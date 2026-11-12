@@ -3,7 +3,7 @@
 export const core: Record<string, string> = {
   /* the shell */
   "Projects": "项目", "Canvas": "画布", "Library": "素材库", "Machine": "机器", "Connect": "连接",
-  "Score": "总谱", "Brief & style": "简报与风格", "Script": "剧本", "Elements": "元素", "Board": "分镜", "Pictures": "图片", "Cut": "剪辑", "Director": "导演台",
+  "Score": "总谱", "Brief & style": "简报与风格", "Script": "剧本", "Elements": "元素", "Board": "分镜", "Pictures": "图片", "Cut": "剪辑", "Director": "导演",
   "Settings": "设置", "Project settings": "项目设置", "Ready to render": "可以开拍",
   "board {b} s · target {t} s": "分镜 {b} 秒 · 目标 {t} 秒", "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
   "Language": "语言", "Studio pages": "工作室页面", "Project and studio pages": "项目与工作室页面", "Project": "项目", "Film": "影片",
@@ -77,4 +77,18 @@ export const core: Record<string, string> = {
   "text": "文生", "keyframe": "关键帧", "reference": "参考图", "edit": "编辑",
   "static": "固定", "push in": "推", "pull out": "拉", "pan": "摇", "tilt": "俯仰", "truck": "横移", "pedestal": "升降", "arc": "环绕", "tracking": "跟拍", "handheld": "手持", "pov": "主观", "roll": "滚转", "zoom": "变焦",
   "first frame pop": "首帧跳变", "text artifact": "出现文字", "audio music leak": "混进了音乐", "audio bad": "声音坏了", "other": "其他",
+  /* the project bar after the reorganisation: Reel, Story, Design, Board, Cut, and the three tools */
+  "Reel": "全片", "Story": "故事", "Design": "美术", "Look||design tab": "风格", "Screen": "放映", "Fewer": "收起",
+  "Screening: watch the takes and the cut full screen": "放映：全屏看镜次和整片",
+  "What you asked the director for, what it decided, the reviews": "你对导演提的要求、它做的决定、评审记录",
+  "The director is at work: 1 take is rolling": "导演在工作：1 条镜次在拍", "The director is at work: {n} takes are rolling": "导演在工作：{n} 条镜次在拍",
+  "What it may do": "它能做什么", "What the director may do": "导演能做什么",
+  "Open Story": "打开故事", "Open the Look": "打开风格",
+  "Look": "风格",
+  "What the film is and how long; the treatment and the screenplay. You approve it.": "片子讲什么、多长；处理稿和剧本。由你批准。",
+  "One of the 16 looks; characters, places and props with reference images.": "16 种风格选一种；角色、场景和道具，配参考图。",
+  "Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from the brief and the style. Each card saves on its own.": "第一层。每个镜头都继承的风格（预设编译成各字段）、画幅比例和 LoRA，以及据简报和风格画出的风格图。每张卡片单独保存。",
+  "The brief, the script and its treatment. The script is checkpoint 1: every new version returns to draft; nothing renders until the latest version is approved.": "简报、剧本和处理稿。剧本是第一个检查点：每个新版本都回到草稿；最新版本批准之前，什么都不会渲染。",
+  "Approved under delegated approval; overturn it in the Director panel, under Decisions": "按代为批准通过的；可在导演面板的“决定”里推翻",
+  "Name, budget, who sees the film and what the director may do without asking. What it was asked and what it decided are in the Director panel; the GPU, the library and the connection live under Machine, Library and Connect.": "名称、预算、谁能看到这部片子，以及导演不用问就能做什么。对它提的要求和它做的决定在导演面板里；GPU、素材库和连接分别在机器、素材库和连接页。",
 };

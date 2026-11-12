@@ -64,7 +64,7 @@ Do not describe what the anchor frame already shows; describe what happens next.
 
 ## Pictures on the pod (GPT Image)
 
-- Off per project until the user switches it on (the project's Director page, web only), with an image limit; a quota error from Codex or the API stops painting until the user resumes it.
+- Off per project until the user switches it on (the project's Settings page, web only), with an image limit; a quota error from Codex or the API stops painting until the user resumes it.
 - Image jobs are drawn by painters away from the GPU (`workers/painter`: a small always-on machine, the GPU pod only as a fallback), so every picture is ready before the pod starts. `codex`: one `codex exec` per picture with the image tool, the login in the painter's state dir (device-code login from the Machine page, once), the pictures attached in order (`-i`, at most five), the aspect said as a standard ratio (16:9, 3:4: the tool has no size argument) and redrawn once only when far off; every result carries pixel checks and, with the project's self-check on, a fresh Codex session's rubric (a blocker is redrawn once with its findings). `api`: an OpenAI-compatible images API (`OPENAI_API_KEY`, `IMAGE_MODEL`, default gpt-image-2), exact size, per call. Every picture has a handle (`IMG-12`) and a name. See `docs/picture-quality.md`.
 - Edits with a `region` paste back only that box (soft edge inside it); every pixel outside is the base's. Each edit uploads a preview and a difference image (black = unchanged) for the review.
 - `crop` (push-in / pull-out frames) and `extract` (one exact frame of a take, 24 per second) are not painting: no quota.
@@ -107,4 +107,4 @@ The director package renders the same timeline with ffmpeg from take files on di
 - Every tool that spends money answers `needs_confirm` with an estimate first. `plan_batch` sums the batch so one confirmation covers it; keep inside `budgetCapUsd`.
 - Previz at the LoRA's step count, one take per shot; `master-upscaled` only at the end.
 - `plan_project_batch` gives each shot a fragility score (the `fragile.*` findings), suggests the careful tier (two takes, or the base chain) at 3 or more — unmeasured on H3, so treat it as a hint — and names a probe of the most fragile shots to render first.
-- A spend envelope (granted on the web, on the project's Director page) lets a reviewed shot render without a confirmation, inside the envelope, with a decision-log entry.
+- A spend envelope (granted on the web, on the project's Settings page) lets a reviewed shot render without a confirmation, inside the envelope, with a decision-log entry.

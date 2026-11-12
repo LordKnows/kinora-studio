@@ -17,7 +17,7 @@ export type Project = {
   autopilot?: Autopilot;
   /** Checkpoints the user lets the director pass (granted on the web only). */
   delegation?: Delegation;
-  /** GPT Image on this project: off unless switched on on the project's Director page (web only). */
+  /** GPT Image on this project: off unless switched on on the project's Settings page (web only). */
   imaging?: Imaging;
   /** Who created it (the signed-in email); projects from before private projects have none. */
   owner?: string;

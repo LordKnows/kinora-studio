@@ -130,7 +130,7 @@ export function ErrorBanner({
   if (!error) return null;
   const api = error instanceof ApiError ? error : null;
   const checkpointHref = api?.checkpoint && projectId
-    ? api.checkpoint === "script" ? `/p/${projectId}/script` : api.checkpoint === "shotlist" ? `/p/${projectId}/board` : `/p/${projectId}/timeline`
+    ? api.checkpoint === "script" ? `/p/${projectId}/story` : api.checkpoint === "shotlist" ? `/p/${projectId}/board` : `/p/${projectId}/cut`
     : null;
   const cls = api?.code === "needs_confirm" ? "st-alert st-alert--accent" : "st-alert";
   return (

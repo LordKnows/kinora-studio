@@ -55,7 +55,7 @@
 ## 4. 还没验证、可以接着做的
 
 1. **`-i` 在实机上的表现**：要确认 Codex 当前版本会把附件交给画图工具当输入图。可以用同一个角色、同一张参考图，分别用 `-i` 和旧的路径方式各画 5 张，对比长相的一致性。如果 `-i` 不行，再试「先让 agent 用 view_image 打开图片，再调用画图工具」。
-2. **自检的成本**：每张图多一次 `codex exec`，大约 30–90 秒。可以在 Pictures 页按 Flagged 筛选，统计 `autoReview` 的失败率，以及它和审稿 agent 结论的一致程度。如果一致率很高，审稿 agent 可以只看被标记的图。
+2. **自检的成本**：每张图多一次 `codex exec`，大约 30–90 秒。可以在 Design 页的 Pictures 标签按 Flagged 筛选，统计 `autoReview` 的失败率，以及它和审稿 agent 结论的一致程度。如果一致率很高，审稿 agent 可以只看被标记的图。
 3. **API 后端**：`gpt-image-2` 的 API 能指定精确尺寸（16 的倍数），`quality` 也有效。对画幅要求严格的首尾帧，可以在项目里切到 API 后端，按张付费。
 4. **没有采用的方案**：用 Codex 登录的 token 直接调 `chatgpt.com/backend-api/codex/images/*`（例如 codex-imagegen-cli），能指定尺寸和质量，也不需要 CLI。但这是 OpenAI 没有公开的接口，随时可能失效，也有违反服务条款的风险，所以没有用。
 

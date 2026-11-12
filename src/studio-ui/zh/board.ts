@@ -75,7 +75,7 @@ export const board: Record<string, string> = {
   "Or a specific shot": "或指定某个镜头", "— by offset —": "— 按偏移 —", "{label}:": "{label}：", "{when}.": "{when}。", "Workflow: {workflow}.": "工作流：{workflow}。", ".": "。",
   "Cinematography": "摄影", "{label} (max 4)": "{label}（最多 4 个）",
   "Intent": "意图", "One sentence: what this shot is for.": "一句话：这个镜头是干什么的。",
-  "Script lines": "剧本句", "The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Script page lines them, and the lint flags a line no shot shows.": "这个镜头拍的剧本句，按最新版本原文引用。只用于规划，不进提示词：剧本页据此贯线，检查会标出没有镜头拍的句子。",
+  "Script lines": "剧本句", "The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Story page lines them, and the lint flags a line no shot shows.": "这个镜头拍的剧本句，按最新版本原文引用。只用于规划，不进提示词：故事页据此贯线，检查会标出没有镜头拍的句子。",
   "Paste a sentence from the script, then Enter": "从剧本里粘一句，再按回车",
   "Source take": "源镜次", "Choose a completed take…": "选一条拍完的镜次…", "Edit instruction": "修改说明", "Only what changes. Everything else is kept.": "只写要改的，其余保持不变。",
   "Beats": "动作节拍", "Add beat": "加节拍", "From": "起", "To": "止", "Start state → one action → end state": "起始状态 → 一个动作 → 结束状态", "Hard cut opens this beat": "这个节拍以硬切开始", "Remove beat": "删除节拍",
@@ -281,7 +281,7 @@ export const board: Record<string, string> = {
 
   /* image tools */
   "{model}, on the GPU pod while it runs": "{model}（在开着的 GPU 机器上）", "{model}, by a painter": "{model}（绘图机）",
-  "image generation is off for this project: switch it on from the project's Director page": "这个项目没开出图：到项目的导演台页打开",
+  "image generation is off for this project: switch it on from the project's Settings page": "这个项目没开出图：到项目的设置页打开",
   "image generation stopped: {reason}": "出图停了：{reason}", "image quota used ({used}/{max}); raise it in Settings": "出图额度用完了（{used}/{max}）；到设置里调高",
   "starting…": "启动中…", "done||picture drawn": "画好了", "nothing to draw": "没有要画的", "no picture": "没有图片", "waiting for a painter": "等绘图机",
   "failed: {error}": "失败：{error}", "drawing… {n}": "正在画… {n}", "queued — {why}": "排队中 —— {why}",

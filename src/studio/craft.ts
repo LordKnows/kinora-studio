@@ -347,7 +347,7 @@ type ApprovalInput = { why: string; confidence: "low" | "medium" | "high" };
 /** The director passes checkpoint 1 on the user's behalf. */
 export async function agentApproveScript(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ script: Script; decision: DirectorNote }> {
   const project = await repo.getProject(projectId);
-  if (!project.delegation?.script) throw new StudioError("forbidden", "approving the script is the user's: they can let you do it on the project's Director page (delegated approval). Ask them to approve on the Script page.", { checkpoint: "script" });
+  if (!project.delegation?.script) throw new StudioError("forbidden", "approving the script is the user's: they can let you do it on the project's Settings page (delegated approval). Ask them to approve on the Story page.", { checkpoint: "script" });
   if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
   const script = await repo.latestScript(projectId);
   if (!script) throw new StudioError("validation", "no script yet");
@@ -362,7 +362,7 @@ export async function agentApproveScript(projectId: string, input: ApprovalInput
 /** The director passes checkpoint 2 on the user's behalf. */
 export async function agentApproveShotlist(projectId: string, input: ApprovalInput, actor: Actor): Promise<{ project: Project; decision: DirectorNote }> {
   const project = await repo.getProject(projectId);
-  if (!project.delegation?.shotlist) throw new StudioError("forbidden", "approving the shotlist is the user's: they can let you do it on the project's Director page (delegated approval). Ask them to approve on the Board.", { checkpoint: "shotlist" });
+  if (!project.delegation?.shotlist) throw new StudioError("forbidden", "approving the shotlist is the user's: they can let you do it on the project's Settings page (delegated approval). Ask them to approve on the Board.", { checkpoint: "shotlist" });
   if (input.confidence === "low") throw new StudioError("validation", "low confidence: leave this approval to the user and say why");
   const script = await repo.latestScript(projectId);
   if (!script || script.approval !== "approved") throw new StudioError("not_approved", "approve the script first", { checkpoint: "script" });

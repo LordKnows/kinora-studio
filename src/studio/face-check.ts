@@ -134,7 +134,7 @@ const ARRIVAL_TIMEOUT_MS = 25_000;
 /**
  * The face check of a picture as it arrives (an upload, an import): run now so the picture carries its label
  * (模拟 / 真实) from the start — the only time a model looks at a picture. A check that takes too long or fails
- * leaves it 真实 until Check again on the Pictures page. Library pictures (meta.reference) need none.
+ * leaves it 真实 until Check again on the Design page (Pictures tab). Library pictures (meta.reference) need none.
  */
 export async function checkOnArrival(asset: Asset): Promise<Asset> {
   if (asset.kind !== "image" || asset.meta.reference || asset.meta.faceCheck || !route()) return asset;

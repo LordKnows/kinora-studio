@@ -7,7 +7,7 @@ import type { Project, Script } from "./types";
 
 export function assertCanGenerate(project: Project, script: Script | undefined): void {
   if (!script || script.approval !== "approved") {
-    throw new StudioError("not_approved", "The latest script is not approved yet. Approve it in the Script page.", { checkpoint: "script" });
+    throw new StudioError("not_approved", "The latest script is not approved yet. Approve it on the Story page.", { checkpoint: "script" });
   }
   if (project.shotlistApproval !== "approved") {
     throw new StudioError("not_approved", "The shotlist is not approved yet. Approve it on the Board.", { checkpoint: "shotlist" });

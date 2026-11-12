@@ -58,7 +58,7 @@ export function ProjectsPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Projects")}</h1>
-          <p className="st-subtitle">{t("One project per film. Brief and style, script, elements, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Score: the whole film on one line of time, and what waits for you.")}</p>
+          <p className="st-subtitle">{t("One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.")}</p>
         </div>
       </div>
 
@@ -115,12 +115,11 @@ export function ProjectsPage() {
       <div className="st-section">
         <div className="st-section-title"><span>{t("How a film moves through the studio")}</span></div>
         <div className="st-steps">
-          <div className="st-stepcard"><span className="st-step">01</span><strong>{t("Brief & style")}</strong><span>{t("What the film is, how long, which of the 16 looks.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">02</span><strong>{t("Script")}</strong><span>{t("Treatment and screenplay; you approve it.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">03</span><strong>{t("Elements")}</strong><span>{t("Characters, places, props with reference images.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">04</span><strong>{t("Board")}</strong><span>{t("Shots with links and cinematography; you approve, then render.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">05</span><strong>{t("Screening")}</strong><span>{t("Takes side by side; score them, circle one per shot.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">06</span><strong>{t("Cut")}</strong><span>{t("Order, trim, titles, sound; every pick at 2K; export.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">01</span><strong>{t("Story")}</strong><span>{t("What the film is and how long; the treatment and the screenplay. You approve it.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">02</span><strong>{t("Design")}</strong><span>{t("One of the 16 looks; characters, places and props with reference images.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">03</span><strong>{t("Board")}</strong><span>{t("Shots with links and cinematography; you approve, then render.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">04</span><strong>{t("Screening")}</strong><span>{t("Takes side by side; score them, circle one per shot.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">05</span><strong>{t("Cut")}</strong><span>{t("Order, trim, titles, sound; every pick at 2K; export.")}</span></div>
         </div>
       </div>
     </div>

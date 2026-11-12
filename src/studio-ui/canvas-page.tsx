@@ -450,7 +450,7 @@ export function CanvasPage() {
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
   const uploadedFaceAdult = uploadedFace && (nsfwInRecipe || !!adultLora);
-  const imagingWhy = !project ? tr("Pick a project") : !imaging?.enabled ? tr("Pictures are off for this project (its Director page)") : imaging.stoppedReason ? tr("Image generation stopped: {reason}", { reason: imaging.stoppedReason }) : imaging.usedImages >= imaging.maxImages ? tr("Image quota used ({used}/{max})", { used: imaging.usedImages, max: imaging.maxImages }) : "";
+  const imagingWhy = !project ? tr("Pick a project") : !imaging?.enabled ? tr("Pictures are off for this project (its Settings page)") : imaging.stoppedReason ? tr("Image generation stopped: {reason}", { reason: imaging.stoppedReason }) : imaging.usedImages >= imaging.maxImages ? tr("Image quota used ({used}/{max})", { used: imaging.usedImages, max: imaging.maxImages }) : "";
   const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? tr("Person A: pick a portrait, a costume or a character") : !personB ? tr("Person B: pick a portrait, a costume or a character") : "";
   const textWhy = !textMode ? "" : !recipe.text?.trim() && !recipe.prompt?.trim() ? tr("Describe the picture") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "";
   const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? tr("Pick at least one reference") : twoWhy ? twoWhy : count > maxRefs ? tr("{model} takes at most {n} pictures", { model: model.label, n: maxRefs }) : hiddenInRecipe ? tr("The recipe holds an 18+ reference; show 18+ or replace it") : charadbOnUpload ? tr("CharaDB outfits cannot go on an uploaded photo") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "");
@@ -551,7 +551,7 @@ export function CanvasPage() {
                     <span className="st-muted st-num">{tr("{model} · {used}/{max} used · {quality}", { model: projectImageModel(imaging).label, used: imaging.usedImages, max: imaging.maxImages, quality: tr(`${imaging.quality}||quality`) })}{imaging.stoppedReason ? tr(" · stopped: {reason}", { reason: imaging.stoppedReason }) : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
-                      <span>{tr("Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are on the project's Director page).", { model: projectImageModel(imaging).label })}</span>
+                      <span>{tr("Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are on the project's Settings page).", { model: projectImageModel(imaging).label })}</span>
                       <Button size="sm" onClick={async () => {
                         try {
                           await put(`/api/projects/${projectId}/imaging`, { enabled: true });
@@ -719,7 +719,7 @@ export function CanvasPage() {
             </div>
           </Section>
 
-          <Section title={`${tr("Results")}${results.length ? ` (${results.length})` : ""}`} aside={projectId ? <Link className="st-link" href={`/p/${projectId}/pictures`}>{tr("All pictures")}</Link> : undefined}>
+          <Section title={`${tr("Results")}${results.length ? ` (${results.length})` : ""}`} aside={projectId ? <Link className="st-link" href={`/p/${projectId}/design?tab=pictures`}>{tr("All pictures")}</Link> : undefined}>
             {pending.map(([id, j]) => <div key={id} className="st-alert st-alert--info"><span className="st-lamp" data-state="running">{tr("Drawing…")}</span><span className="st-muted">{j.runner ?? (j.status === "queued" ? tr("queued for a painter") : tr("a painter is drawing it"))}</span></div>)}
             {failed.map(([id, j]) => <div key={id} className="st-alert"><span>{tr("Failed: {error}", { error: j.error ?? tr("no picture||failed job") })}</span><button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Dismiss")} onClick={() => setJobs((m) => { const n = { ...m }; delete n[id]; return n; })}><CloseIcon size={12} /></button></div>)}
             {results.length === 0 && !pending.length ? <p className="st-muted">{tr("Generated characters appear here, and in the project's Pictures.")}</p> : (
@@ -933,7 +933,7 @@ function ResultModal({ asset, projectId, onClose, onRestore }: { asset: Asset; p
           <div className="st-row">
             <Button kind="primary" onClick={onRestore}>{tr("Use this recipe again")}</Button>
             <a className="st-btn" href={asset.url} target="_blank" rel="noopener noreferrer" download>{tr("Download")}</a>
-            <Link className="st-btn st-btn--quiet" href={`/p/${projectId}/pictures`}>{tr("Open in Pictures")}</Link>
+            <Link className="st-btn st-btn--quiet" href={`/p/${projectId}/design?tab=pictures`}>{tr("Open in Pictures")}</Link>
           </div>
           <Button size="sm" kind="quiet" onClick={() => setShowPrompt((s) => !s)}>{showPrompt ? tr("Hide the prompt") : tr("Show the prompt")}</Button>
           {showPrompt && <pre className="st-pre st-canvas-prompt">{String(asset.meta.prompt ?? "")}</pre>}

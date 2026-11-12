@@ -8,7 +8,7 @@ export const global: Record<string, string> = {
   "Canvas pictures are kept in a project and count against its image limit. Pick the one they belong to.": "画布的图片保存在项目里，并计入该项目的图片上限。选一个它们该归属的项目。",
   "{model} · {used}/{max} used · {quality}": "{model} · 已用 {used}/{max} · {quality}", " · stopped: {reason}": " · 已停止：{reason}",
   "low||quality": "低", "medium||quality": "中", "high||quality": "高",
-  "Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are on the project's Director page).": "这个项目的图片生成是关着的。打开后用 {model} 画图（最多 100 张；模型和上限在项目的导演台页里改）。",
+  "Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are on the project's Settings page).": "这个项目的图片生成是关着的。打开后用 {model} 画图（最多 100 张；模型和上限在项目的设置页里改）。",
   "Turn on": "打开", "Attach to element": "挂到元素上", "Keep in Pictures only": "只保存在图片里", "Put on {name} ({kind})": "挂到 {name}（{kind}）", "As view": "作为哪个视图",
   "character||element kind": "角色", "location||element kind": "场景", "prop||element kind": "道具",
   "face||ref view": "脸部", "front||ref view": "正面", "three quarter||ref view": "四分之三侧", "side||ref view": "侧面", "back||ref view": "背面", "full body||ref view": "全身", "expression||ref view": "表情", "detail||ref view": "细节",
@@ -27,7 +27,7 @@ export const global: Record<string, string> = {
     "使用 {what} 时，R18 图片只用标为 模拟 的图来画（参考库的图、人脸检查结果为 3D 渲染、插画或无人脸的上传图，以及只用这些画出的影匣图片）。标为 真实 的上传图——照片或任何照片级写实的图——不能用于 R18，其他用途都可以。",
   "18+ references": "18+ 参考图",
   /* why Generate is off */
-  "Pick a project": "选一个项目", "Pictures are off for this project (its Director page)": "这个项目没有开启图片生成（在它的导演台页打开）",
+  "Pick a project": "选一个项目", "Pictures are off for this project (its Settings page)": "这个项目没有开启图片生成（在它的设置页打开）",
   "Image generation stopped: {reason}": "图片生成已停止：{reason}", "Image quota used ({used}/{max})": "图片额度已用完（{used}/{max}）",
   "Person A: pick a portrait, a costume or a character": "人物A：选一张人像、一套服装或一个角色", "Person B: pick a portrait, a costume or a character": "人物B：选一张人像、一套服装或一个角色",
   "{name} is 18+: show 18+ first": "{name} 是 18+ 内容：先打开 18+ 显示", "Pick at least one reference": "至少选一张参考图", "{model} takes at most {n} pictures": "{model} 最多接受 {n} 张图片",
@@ -109,8 +109,8 @@ export const global: Record<string, string> = {
   "Close": "关闭", "Could not load this style.": "无法加载这个风格。", "Loading…": "加载中…",
 
   /* Library: LoRAs */
-  "Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on Brief & style; a shot can override.":
-    "加速 LoRA 减少步数；风格和特效 LoRA 塑造画面。每个 LoRA 都带着它模型卡推荐的设置——选中加速 LoRA 会设定步数、采样器、调度和 shift。项目在「简报与风格」里选默认 LoRA；单个镜头可以覆盖。",
+  "Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on the Design page (Look tab); a shot can override.":
+    "加速 LoRA 减少步数；风格和特效 LoRA 塑造画面。每个 LoRA 都带着它模型卡推荐的设置——选中加速 LoRA 会设定步数、采样器、调度和 shift。项目在美术页的「风格」里选默认 LoRA；单个镜头可以覆盖。",
   "Delete {name} from the library? Projects that reference it will simply skip it.": "从素材库删除 {name}？引用它的项目会直接跳过它。",
   "Add LoRA": "添加 LoRA", "No LoRAs yet": "还没有 LoRA", "Add the acceleration LoRA first (e.g. lightx2v 8-step), then any style or effect LoRAs you use.": "先添加加速 LoRA（例如 lightx2v 8-step），再添加你要用的风格或特效 LoRA。",
   "{kind} LoRAs": "{kind} LoRA", "Speed||LoRA kind": "加速", "Style||LoRA kind": "风格", "Effect||LoRA kind": "特效",
@@ -134,7 +134,7 @@ export const global: Record<string, string> = {
   "The RunPod pod that renders every take, the painters that draw the pictures before it starts, what it costs, and the storage behind it.": "拍所有镜次的 RunPod GPU 机器、在它启动之前画图的绘图机、它们的花费，以及背后的存储。",
   "Pictures (painters, off the GPU)": "图片（绘图机，不占 GPU）", "Remake models (on the pod)": "Remake 模型（在 GPU 机器上）", "Backends": "后端",
   "Signed in": "已登录", "dev mode, no auth": "开发模式，无认证", "configured": "已配置", "missing RUNPOD_* secrets": "缺少 RUNPOD_* 密钥", "R2 storage": "R2 存储", "missing R2_* secrets": "缺少 R2_* 密钥",
-  "Image models": "图像模型", "GPT Image and Qwen-Image 3.0 Pro on the painters, MiniMax H3 Image on the GPU pod; each project picks its model on its Director page": "GPT Image 和 Qwen-Image 3.0 Pro 在绘图机上，MiniMax H3 Image 在 GPU 机器上；每个项目在自己的导演台页里选模型",
+  "Image models": "图像模型", "GPT Image and Qwen-Image 3.0 Pro on the painters, MiniMax H3 Image on the GPU pod; each project picks its model on its Settings page": "GPT Image 和 Qwen-Image 3.0 Pro 在绘图机上，MiniMax H3 Image 在 GPU 机器上；每个项目在自己的设置页里选模型",
 
   /* the GPU pod: the top bar's pill and menu, the rail card, the Machine page */
   "GPU pod": "GPU 机器", "GPU (serverless)": "GPU（serverless）", "GPU not set up": "GPU 未配置",

@@ -171,7 +171,8 @@ export async function addShot(sceneId: string, spec: ShotInput): Promise<Shot> {
 }
 
 /* Deletes keep what they remove in the trash first (trash.ts), so the web can
-   offer Undo and the Director page can put a thing back for TRASH_DAYS. */
+   offer Undo and the project's Settings page (Recently deleted) can put a
+   thing back for TRASH_DAYS. */
 
 export async function removeShot(shotId: string, by?: string): Promise<{ trashId: string }> {
   const shot = await repo.getShot(shotId);
@@ -639,7 +640,7 @@ export const HEAD_TRIM_FRAMES = 2;
  * long and keeps the rest as handles; FL2VA takes can lose a tail where the
  * model snaps onto the end frame (tailTrimS, off until measured).
  *
- * The web Timeline's default (and its Reset) is plainer: `selectedOnly` joins
+ * The Cut page's default (and its Reset) is plainer: `selectedOnly` joins
  * only the shots whose take was picked, and `fullLength` plays every clip
  * from 0 s to the end of its take, with no head, tail or screenS trim.
  */

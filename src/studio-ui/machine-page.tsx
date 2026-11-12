@@ -45,7 +45,7 @@ export function MachinePage() {
               <dt>{t("R2 storage")}</dt>
               <dd><Lamp state={me.r2Configured ? "ok" : "warn"} label={me.r2Configured ? t("configured") : t("missing R2_* secrets")} /></dd>
               <dt>{t("Image models")}</dt>
-              <dd><Lamp state="ok" label={t("GPT Image and Qwen-Image 3.0 Pro on the painters, MiniMax H3 Image on the GPU pod; each project picks its model on its Director page")} /></dd>
+              <dd><Lamp state="ok" label={t("GPT Image and Qwen-Image 3.0 Pro on the painters, MiniMax H3 Image on the GPU pod; each project picks its model on its Settings page")} /></dd>
             </dl>
           ) : (
             <span className="st-muted">{t("Loading…")}</span>

@@ -21,12 +21,12 @@ import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types
  * edits, style frames and the painted keyframes Viggle Remake reads. One
  * image job type, queued here and drawn by a painter (painter.ts,
  * workers/painter) with the image model the user chose for the project
- * (the project's Director page, models.ts AGENT_IMAGE_MODELS): GPT Image (Codex's
+ * (the project's Settings page, models.ts AGENT_IMAGE_MODELS): GPT Image (Codex's
  * image_gen on the ChatGPT plan, or the images API) or Qwen-Image 3.0 Pro
  * away from the GPU, or an image model on the GPU pod (MiniMax-H3-Image),
  * which draws while the pod runs.
  *
- * Painting is off per project until switched on on the project's Director page (web only) and
+ * Painting is off per project until switched on on the project's Settings page (web only) and
  * counts against a quota; crop and frame extraction are not painting and are
  * not gated. Every result is an ordinary asset with what was asked in its
  * meta, attached where it was meant to go, and reviewable as a "frame".
@@ -37,7 +37,7 @@ import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types
 export const DEFAULT_IMAGING: Omit<Imaging, "grantedBy" | "grantedAt"> = { enabled: false, model: "gpt-image-codex", backend: "codex", maxImages: 100, usedImages: 0, quality: "low", selfCheck: true, autoRedraws: 1 };
 
 export async function setImaging(projectId: string, input: { enabled: boolean; model?: string; backend?: "codex" | "api"; loras?: Array<{ id: string; strength?: number }>; agentCanvas?: boolean; maxImages?: number; quality?: Imaging["quality"]; selfCheck?: boolean; autoRedraws?: number; clearStop?: boolean }, actor: Actor): Promise<Project> {
-  if (actor.via !== "web") throw new StudioError("forbidden", "image generation is switched on on the project's Director page, on the web only");
+  if (actor.via !== "web") throw new StudioError("forbidden", "image generation is switched on on the project's Settings page, on the web only");
   const project = await repo.getProject(projectId);
   const cur = project.imaging ?? { ...DEFAULT_IMAGING, grantedBy: actor.user, grantedAt: Date.now() };
   /* the model: the one asked for, else the GPT Image backend asked for (older clients), else the current one */
@@ -145,10 +145,10 @@ export function refCap(project: Project, hasBase: boolean): number {
 /** Throws unless the project may paint; answers how many pictures are left after the running ones. */
 async function assertCanPaint(project: Project): Promise<number> {
   const i = project.imaging;
-  if (!i?.enabled) throw new StudioError("forbidden", "image generation is off for this project: the user switches it on on the project's Director page → Allow image generation by agent (web only)", { imaging: false });
-  if (i.stoppedReason) throw new StudioError("forbidden", `image generation stopped: ${i.stoppedReason}. The user clears it on the project's Director page once the quota is back.`, { imaging: "stopped" });
+  if (!i?.enabled) throw new StudioError("forbidden", "image generation is off for this project: the user switches it on on the project's Settings page → Allow image generation by agent (web only)", { imaging: false });
+  if (i.stoppedReason) throw new StudioError("forbidden", `image generation stopped: ${i.stoppedReason}. The user clears it on the project's Settings page once the quota is back.`, { imaging: "stopped" });
   const active = (await repo.listProjectJobs(project.id, 200)).filter((j) => j.kind === "image" && (j.status === "queued" || j.status === "running") && j.input.op === "paint").length;
-  if (i.usedImages + active >= i.maxImages) throw new StudioError("budget_exceeded", `the image quota of this project is used (${i.usedImages} done + ${active} running of ${i.maxImages}); the user raises it on the project's Director page`, { imaging: "quota" });
+  if (i.usedImages + active >= i.maxImages) throw new StudioError("budget_exceeded", `the image quota of this project is used (${i.usedImages} done + ${active} running of ${i.maxImages}); the user raises it on the project's Settings page`, { imaging: "quota" });
   return i.maxImages - i.usedImages - active;
 }
 
@@ -204,7 +204,7 @@ export type PodParams = InferenceParams & {
 
 /** Queue an image job for the painters. Painting is gated by the project
     switch and quota; crop and extract are not. A picture is drawn with the
-    project's image model (the project's Director page) unless the caller names one
+    project's image model (the project's Settings page) unless the caller names one
     (Canvas): its painter backend, its recommended settings, at most its
     number of pictures, and its way of naming them. A model on the GPU pod
     draws while the pod runs (startPod starts it); otherwise, with no painter
@@ -227,11 +227,11 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
     if (adultLora) {
       /* as in Canvas: the user who chose it still has 18+ on, and every picture it is drawn from is 模拟 (provenance.ts) */
       if (!(await adultAllowed({ user: project.imaging?.grantedBy ?? "anonymous", via: "web" }))) {
-        throw new StudioError("forbidden", `${adultLora.name} is 18+ and 18+ is off for ${project.imaging?.grantedBy ?? "the user who chose it"}: show 18+ on the Canvas page, or take the LoRA out on the project's Director page`, { adult: false });
+        throw new StudioError("forbidden", `${adultLora.name} is 18+ and 18+ is off for ${project.imaging?.grantedBy ?? "the user who chose it"}: show 18+ on the Canvas page, or take the LoRA out on the project's Settings page`, { adult: false });
       }
       const upload = await firstRealIn(projectId, inputsOf({ refUrls, baseUrl: req.baseUrl }), { takeId: req.takeId });
       if (upload) {
-        throw new StudioError("validation", `${adultLora.name} is 18+: R18 pictures are drawn only from 模拟 pictures, and ${upload} — it may show a real person. 模拟 are the library's pictures, uploads whose face check found a 3D render, an illustration or no face, and Studio pictures drawn only from those. Leave it out, or take the LoRA out on the project's Director page.`, { upload });
+        throw new StudioError("validation", `${adultLora.name} is 18+: R18 pictures are drawn only from 模拟 pictures, and ${upload} — it may show a real person. 模拟 are the library's pictures, uploads whose face check found a 3D render, an illustration or no face, and Studio pictures drawn only from those. Leave it out, or take the LoRA out on the project's Settings page.`, { upload });
       }
       if (prompt && !/everyone in the picture is an adult/i.test(prompt)) prompt = `${prompt}\n\nEveryone in the picture is an adult.`;
     }

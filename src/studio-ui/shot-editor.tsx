@@ -201,7 +201,7 @@ export function ShotEditor({
         <input className="st-input" value={value.intent} onChange={(e) => set("intent", e.target.value)} />
       </Field>
 
-      <Field label={tr("Script lines")} hint={tr("The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Script page lines them, and the lint flags a line no shot shows.")} group>
+      <Field label={tr("Script lines")} hint={tr("The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Story page lines them, and the lint flags a line no shot shows.")} group>
         <Chips values={value.scriptLines ?? []} placeholder={tr("Paste a sentence from the script, then Enter")}
           onRemove={(i) => set("scriptLines", (value.scriptLines ?? []).filter((_, j) => j !== i))}
           onAdd={(v) => { const t = v.trim(); if (t.length >= 2 && (value.scriptLines ?? []).length < 12) set("scriptLines", [...(value.scriptLines ?? []), t]); }} />

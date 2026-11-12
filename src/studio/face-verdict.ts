@@ -1,6 +1,6 @@
 /*
  * A face check's verdict and what it lets through (face-check.ts asks the
- * model). No server imports: the Pictures page shows it too.
+ * model). No server imports: the Design page (Pictures tab) shows it too.
  */
 
 export const FACE_KINDS = ["real_photo", "photoreal", "render_3d", "illustration", "no_face"] as const;
@@ -31,7 +31,7 @@ const REAL = "真实: it may show a real person — not for R18 pictures; every 
 /** An upload's or an import's tag, from its face check: 模拟 or 真实 (also when it has none). */
 export function faceLabel(v: FaceVerdict | undefined, error?: { why?: string }): { allowed: boolean; label: "模拟" | "真实"; title: string } {
   const allowed = faceAllowed(v);
-  if (!v) return { allowed: false, label: "真实", title: `${REAL} (${error?.why ? `the face check did not run: ${error.why}` : "not checked"}; Check again on the Pictures page)` };
+  if (!v) return { allowed: false, label: "真实", title: `${REAL} (${error?.why ? `the face check did not run: ${error.why}` : "not checked"}; Check again on the Design page (Pictures tab))` };
   return { allowed, label: allowed ? "模拟" : "真实", title: `${allowed ? SIM : REAL} (${describeVerdict(v)})` };
 }
 

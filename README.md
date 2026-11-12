@@ -74,7 +74,7 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   lint flags the pictures AI video gets wrong; the batch renders the most
   fragile shots first; a retro counts what went wrong for the next film.
 - **Pictures before takes, with the model the user picks.** With the
-  per-project switch on (the project's Director page → *Allow image
+  per-project switch on (the project's Settings page → *Allow image
   generation by agent*), character sheets, first and last frames, region edits and style
   frames are drawn with the project's image model — the same models as
   Canvas. GPT Image (Codex on the user's ChatGPT plan, device-code login
@@ -96,8 +96,8 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   (a blocker is redrawn once with the findings), then a fresh reviewer's
   coded rubric decides before a take is built on it.
 - **Pictures have names.** Every picture has a handle (`IMG-12`) and a name,
-  so "redraw IMG-12" means one picture; the Pictures page lists them all with
-  where each is used, and any grid deletes a batch.
+  so "redraw IMG-12" means one picture; the Design page (Pictures tab) lists
+  them all with where each is used, and any grid deletes a batch.
 - **Fix a take without rerolling it (Viggle Remake).** Paint one or two
   frames right, say what changes, and the take is re-shot with its motion,
   camera, timing and sound kept: props, wardrobe, faces, backgrounds.
@@ -286,51 +286,63 @@ installs the node packs and downloads the ~21 GB of weights at boot
 
 Top bar on every surface (project crumb, GPU pill, EN / 中, Projects / Canvas /
 Library / Machine / Connect). Inside a project there is no side rail: under the
-top bar sit the stages as one row of words — **Score**, Brief & style, Script,
-Elements, Board, Pictures, **Cut**, **Director** — the budget, and *the line*:
-the whole film to scale, one segment a shot (a gap is a cut, a dotted join is
-continuous, red is where you are), each linking to that shot.
+top bar sits the project bar — five pages, **Reel**, **Story**, **Design**,
+**Board** and **Cut**, two layers over them, Screening and the Director panel,
+the budget and Settings — and *the line*: the whole film to scale, one segment
+a shot (a gap is a cut, a dotted join is continuous, red is where you are),
+each linking to that shot. The old addresses (`/look`, `/script`, `/elements`,
+`/pictures`, `/timeline`, `/director`) redirect to the new places.
 
-- **Score** (`/p/:id`, the project's home): one time axis with the film's
+- **Reel** (`/p/:id`, the project's home): one time axis with the film's
   layers as staves — scenes, script, the board's frames, every take as a pip
   (circled = in the cut, NG = failed), sound, the cut, what the lint found at
-  the second it is about, and what each shot cost. Above it, *Needs you*: the
-  approvals, reviews and choices that are the person's, and one red button for
-  the next step. Below it, the shot under the playhead.
-- **Brief & style**, **Elements**: as before.
-- **Script**: versions and approval; a version can be read, **lined** or
-  compared with the version before it. Lined is a lined script: each shot names
-  the script lines it shows (`scriptLines`, quoted from the script), drawn as a
-  tramline in the margin with its slate; a clause no shot shows is underlined,
-  and a sentence can be lined to a shot or taken off one in place. Sections sit
-  next to their scenes, with the time each heading states against the board's
-  seconds. `lint_project` flags `script.uncovered` and `script.quote.stale`.
+  the second it is about, and what each shot cost; the shot under the
+  playhead. With it, *Needs you* in full: the approvals, reviews and choices
+  that are the person's, and one red button for the next step; and
+  *Problems* (`#problems`): every check in one list.
+- **Story** (`/p/:id/story`): the brief and the target running time, then the
+  script — versions and approval; a version can be read, **lined**
+  (`?view=lined`) or compared with the version before it. Lined is a lined
+  script: each shot names the script lines it shows (`scriptLines`, quoted
+  from the script), drawn as a tramline in the margin with its slate; a clause
+  no shot shows is underlined, and a sentence can be lined to a shot or taken
+  off one in place. Sections sit next to their scenes, with the time each
+  heading states against the board's seconds. `lint_project` flags
+  `script.uncovered` and `script.quote.stale`.
+- **Design** (`/p/:id/design`), three tabs:
+  - **Look** (`?tab=look`): the style and the Look compiled from it, the
+    aspect ratio, the LoRAs and the style frame.
+  - **Elements** (`?tab=elements`): every character, location and prop, with
+    its sheet and reference pictures.
+  - **Pictures** (`?tab=pictures`): every picture by handle; filters (awaiting
+    review, listed twice, …) and the open picture are in the address
+    (`show=…`, `pic=…`); Pass / Fail with what is wrong is recorded as a frame
+    review.
 - **Board**: shot cards with slates (2·3), cinematography codes, link and lint
   badges; the shot drawer, whose shot and tab are in the address
   (`?shot=…&tab=…`). The buttons that spend show their estimate; takes that
   failed for one reason are one NG row.
-- **Screening** (`/p/:id/screening`, lights down): a shot's takes side by
-  side, played in step; score, faults, save, and on to the next circled take
-  without a review. All by keyboard: 1–5, Ctrl/⌘+Enter, Space, C, ←/→, ↑/↓,
-  Enter, N.
-- **Pictures**: every picture by handle; filters (awaiting review, listed
-  twice, …) and the open picture are in the address; Pass / Fail with what is
-  wrong is recorded as a frame review.
-- **Cut** (`/p/:id/timeline`): tracks on one time axis (titles, picture, the
+- **Cut** (`/p/:id/cut`): tracks on one time axis (titles, picture, the
   takes' sound, narration, music, silences); drag a clip to move it, an edge to
   trim it, Ctrl/⌘+Z to undo; J/L-cut, held frame, speed, repeat, mute per clip;
-  the seams of continuous joins and a one-step fix; export, and the
+  the seams of continuous joins (`#seams`) and a one-step fix; export, and the
   full-resolution pass of every pick (what Finals was).
-- **Director** (`/p/:id/director`): *Needs you* in full, every check in one
-  list, and what the director may do — image and voice permissions, the spend
-  envelope, delegated approval, requirements (the user can add one), decisions,
-  reviews.
-- **Settings**: name, budget cap, sharing, delete.
+- **Screening** (`/p/:id/screening`, a full-screen mode, lights down): a
+  shot's takes side by side, played in step; score, faults, save, and on to
+  the next circled take without a review. All by keyboard: 1–5, Ctrl/⌘+Enter,
+  Space, C, ←/→, ↑/↓, Enter, N.
+- **The Director panel** (the Director button in the project bar,
+  `/p/:id?panel=director`): what was asked of the director and what it did —
+  requirements (the user can add one), decisions (the user overturns one
+  there) and reviews.
+- **Settings** (`/p/:id/settings`): name, budget cap, sharing, delete; what
+  the director may do — image and voice generation, the spend envelope,
+  delegated approval; and *Recently deleted*.
 
 Deleting a shot, a scene, an element, pictures or a project keeps what was
 removed in a trash for 14 days (migration 0024): the web answers with an Undo
-notice, the Director page (and the Projects page, for whole projects) lists
-what can still be put back, and a restore writes the same rows back, re-attaches
+notice, the project's Settings page (and the Projects page, for whole
+projects) lists what can still be put back, and a restore writes the same rows back, re-attaches
 pictures where they were used and, when nothing changed in between, approves
 the shotlist again. Picture files are removed from storage only when the entry
 expires (the sweep).
@@ -405,7 +417,7 @@ Two prompt experiments, off by default and recorded on the take:
   the picture follows a given voice.
 
 **The voice API.** With *Allow voice API use by agent* on (the project's
-Director page, web only) the director makes and uses voices through
+Settings page, web only) the director makes and uses voices through
 TokenSail's audio endpoints, with the Worker's `TOKENSAIL_API_KEY` (the key the
 face check and Qwen-Image already use). The user picks the TTS model there
 (Qwen Audio 3.0 TTS Plus by default; Flash; CosyVoice 3.5 Plus / Flash) and a
@@ -490,7 +502,7 @@ The director gets the same library through `list_references`,
   the Worker's `TOKENSAIL_API_KEY` / `DASHSCOPE_API_KEY`;
   `src/studio/face-check.ts`). A photograph, anything photorealistic, a real
   person's likeness, a minor, an unsure answer or no check is 真实 (Check
-  again on the Pictures page). Library pictures are 模拟. A drawing is
+  again on the Design page, Pictures tab). Library pictures are 模拟. A drawing is
   stamped as it is kept (`src/studio/provenance.ts`): text to image is
   模拟; from references, 真实 as soon as any picture it came from — a
   reference, the picture it edited, a take's pictures — is 真实. The Chinese names and tags are
@@ -548,7 +560,7 @@ picture that will be shown large, printed or cropped, not for a reference.
 A reference picture over 4096 px is scaled to 4096 before it is sent to any
 model, and an edit of a large picture by a model that draws small comes
 back at most 4096 px on its long side (edit it with MiniMax H3 Image to
-keep its pixels). Choose it per project on the Director page
+keep its pixels). Choose it per project on the project's Settings page
 (the director's sheets, frames and edits) or per picture in Canvas.
 The model expects a detailed English description of the whole picture: the
 director's sectioned prompts fit; MiniMax's API expands short prompts first
@@ -589,7 +601,7 @@ Qwen-Image-Edit 2509 (the pose gallery's ComfyUI workflow) ran on the GPU pod
 until 2026-11-12 and are gone: their registry entries, graphs, download lists
 and `QWEN_IMAGE` / `QWEN_IMAGE_BASE` / `QWEN_EDIT_2509` switches. A project
 that had picked one draws with GPT Image · Codex until another model is
-chosen (the project's Director page). Their weights (≈55 GB) are deleted from the
+chosen (the project's Settings page). Their weights (≈55 GB) are deleted from the
 models directory — the network volume — at the pod's next boot, before the
 download chain: `workers/h3-runpod/retired-models.txt` names the files and
 `remove_retired_models.sh` removes them, with whatever a cut-off download

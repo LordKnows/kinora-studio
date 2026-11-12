@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo } from "react";
+import { Suspense, useMemo, useState } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 
@@ -12,6 +12,7 @@ import { coverage } from "@/studio/coverage";
 
 import { plural, useLang, useT } from "./i18n";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
+import { ProblemsList } from "./problems-list";
 import { useProjectContext } from "./shell";
 import { useLint } from "./use-lint";
 import { lintLine } from "./zh/lint";
@@ -22,7 +23,7 @@ import { lintLine } from "./zh/lint";
    person. The shot in the address (?shot=) is where the playhead stands; the
    line in the shell reads the same address. */
 
-export function ScorePage() {
+export function ReelPage() {
   return (
     <Suspense fallback={null}>
       <Score />
@@ -54,7 +55,7 @@ function Score() {
     <div className="st-page sc-page">
       <header className="sc-head">
         <div className="sc-head-name">
-          <span className="sc-cap">{t("Score")}</span>
+          <span className="sc-cap">{t("Reel")}</span>
           <h1 className="sc-film">{view.project.name}</h1>
           <p className="sc-head-facts st-num">
             {tc(total)} · {view.project.look.aspectRatio} · {view.project.look.resolution} · {plural(t, view.scenes.length, "1 scene", "{n} scenes")} · {plural(t, shots.length, "1 shot", "{n} shots")}
@@ -79,19 +80,22 @@ function Score() {
           {here && <UnderTheLine s={here} lint={lint} base={base} />}
         </>
       )}
+
+      <ProblemsList view={view} lint={lint} base={base} />
     </div>
   );
 }
 
-export function NeedsYou({ needs, base, full }: { needs: Need[]; base: string; full?: boolean }) {
+export function NeedsYou({ needs, full }: { needs: Need[]; base: string; full?: boolean }) {
   const t = useT();
-  const shown = full ? needs : needs.slice(0, 4);
+  const [all, setAll] = useState(false);
+  const shown = full || all ? needs : needs.slice(0, 4);
   return (
     <section className="sc-needs" aria-label={t("Needs you")} data-full={full ? "true" : undefined}>
       <div className="sc-needs-head">
         <h2>{t("Needs you")}</h2>
         <span className="st-num">{needs.length}</span>
-        {!full && needs.length > shown.length && <Link className="st-link" href={`${base}/director`}>{t("All {n}", { n: needs.length })}</Link>}
+        {!full && needs.length > 4 && <button type="button" className="st-link" onClick={() => setAll((v) => !v)}>{all ? t("Fewer") : t("All {n}", { n: needs.length })}</button>}
       </div>
       {needs.length === 0 ? (
         <p className="sc-needs-none">{t("Nothing waits for you. The director carries on, and anything it stops to ask lands here.")}</p>
@@ -170,7 +174,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
           </div>
         </Stave>
 
-        <Stave label={t("Script")} sub={view.script ? t("v{v} · {a}", { v: view.script.version, a: t(view.script.approval) }) : t("none")} href={view.script ? `${base}/script?view=lined` : `${base}/script`}>
+        <Stave label={t("Script")} sub={view.script ? t("v{v} · {a}", { v: view.script.version, a: t(view.script.approval) }) : t("none")} href={view.script ? `${base}/story?view=lined` : `${base}/story`}>
           <div className="sc-band">
             {view.script ? <span className="sc-song">{firstLines(view.script.text)}</span> : <span>{t("No script yet.")}</span>}
             {cov && <span className="st-num sc-cov-sum">{cov.inUse ? t("{c} of {n} lines on a shot", { c: cov.lines.filter((l) => !l.open).length, n: cov.lines.length }) : t("no shot names its lines")}</span>}
@@ -223,7 +227,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
           </div>
         </Stave>
 
-        <Stave label={t("Sound")} sub={sceneRows === view.scenes.length ? t("scene rows") : sceneRows === 0 ? t("from the shots") : t("{a} of {b} scene rows", { a: sceneRows, b: view.scenes.length })} href={`${base}/timeline`}>
+        <Stave label={t("Sound")} sub={sceneRows === view.scenes.length ? t("scene rows") : sceneRows === 0 ? t("from the shots") : t("{a} of {b} scene rows", { a: sceneRows, b: view.scenes.length })} href={`${base}/cut`}>
           <div className="sc-row sc-sound">
             {view.scenes.map((sc) => {
               const secs = sc.shots.reduce((n, x) => n + x.spec.durationS, 0);
@@ -234,7 +238,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
           <div className="sc-music" data-none={noMusic ? "true" : undefined}><span className="st-num">{noMusic ? t("no music in any shot, no music track") : view.timeline.music ? t("music track on the timeline") : t("music is asked for in some shots; no music track")}</span></div>
         </Stave>
 
-        <Stave label={t("Cut")} sub={clips.length ? t("{n} clips · {t}", { n: clips.length, t: tc(cutSeconds, true) }) : t("no cut yet")} href={`${base}/timeline`}>
+        <Stave label={t("Cut")} sub={clips.length ? t("{n} clips · {t}", { n: clips.length, t: tc(cutSeconds, true) }) : t("no cut yet")} href={`${base}/cut`}>
           {clips.length === 0 ? (
             <div className="sc-band"><span>{t("Nothing is on the timeline yet.")}</span></div>
           ) : (
@@ -258,7 +262,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
           )}
         </Stave>
 
-        <Stave label={t("Problems")} sub={lint ? `${lint.counts.error ? t("{e} err · ", { e: lint.counts.error }) : ""}${t("{w} warn · {i} notes", { w: lint.counts.warn, i: lint.counts.info })}` : t("checking")} href={`${base}/director#problems`}>
+        <Stave label={t("Problems")} sub={lint ? `${lint.counts.error ? t("{e} err · ", { e: lint.counts.error }) : ""}${t("{w} warn · {i} notes", { w: lint.counts.warn, i: lint.counts.info })}` : t("checking")} href="#problems">
           <div className="sc-row sc-problems st-num">
             {shots.map((s) => {
               const mine = lintOfShot(lint, s.scene.slug, s.shot.index);

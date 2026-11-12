@@ -70,7 +70,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
       <div className="st-page-head" style={embedded ? { marginBottom: 4 } : undefined}>
         <div>
           {!embedded && <h1 className="st-title">{t("LoRAs")}</h1>}
-          <p className="st-subtitle">{t("Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on Brief & style; a shot can override.")}</p>
+          <p className="st-subtitle">{t("Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on the Design page (Look tab); a shot can override.")}</p>
         </div>
         <div className="st-actions">
           <Button kind="primary" onClick={() => setEditing("new")}>

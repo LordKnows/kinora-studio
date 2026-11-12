@@ -21,10 +21,12 @@ type VoicingSummary = { enabled: boolean; model: string; maxChars: number; usedC
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
-/* What the director keeps for you: the spend envelope you grant it, the list
-   of everything you asked for, the decisions it took (overturn any), and the
-   cold-reader reviews of the story, the shots and the cut. */
-export function DirectorPanel({ projectId }: { projectId: string }) {
+/* What the director may do and what it keeps for you, in two parts.
+   `settings` (the project's Settings page): image and voice generation, the
+   spend envelope you grant it, delegated approval. `log` (the Director panel
+   beside every page): everything you asked for, the decisions it took
+   (overturn any), and the cold-reader reviews of the story, the shots and the cut. */
+export function DirectorPanel({ projectId, part }: { projectId: string; part: "settings" | "log" }) {
   const [ap, setAp] = useState<Autopilot | null>(null);
   const [notes, setNotes] = useState<Notes | null>(null);
   const [deleg, setDeleg] = useState<Delegation | null>(null);
@@ -125,15 +127,17 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
   });
   const error = grant.error ?? revoke.error ?? setReq.error ?? addReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
 
+  const settings = part === "settings";
   return (
-    <div className="st-card st-stack">
-      <span className="st-h2">{t("What the director may do, and what it has decided")}</span>
+    <div className={settings ? "st-card st-stack" : "st-stack"}>
+      {settings && <span className="st-h2">{t("What the director may do")}</span>}
       <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />
 
+      {settings && <>
       <div className="st-stack st-stack--tight">
         <strong>{t("Image generation")}</strong>
         <span className="st-muted">
-          {t("Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.")}
+          {t("Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Design page (Look and Elements), the Board and its Takes, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
@@ -296,6 +300,9 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
           <span>{t("Let the director approve the shotlist")}</span>
         </label>
       </div>
+      </>}
+
+      {!settings && <>
 
       <div className="st-stack st-stack--tight">
         <strong>{t("Requirements")} {notes ? t("· {n} open", { n: notes.requirements.filter((r) => r.status === "open").length }) : ""}</strong>
@@ -351,6 +358,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
       <div className="st-row">
         <a className="st-btn" href={`/api/projects/${projectId}/retro`} target="_blank" rel="noreferrer">{t("Retro (Markdown)")}</a>
       </div>
+      </>}
     </div>
   );
 }

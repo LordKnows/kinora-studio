@@ -22,11 +22,12 @@ function clampSeconds(raw: string): number | null {
   return raw.trim() === "" || !Number.isFinite(n) ? null : Math.max(5, Math.min(3600, n));
 }
 
-/* Brief & style — Tier 1. Cards that each save on their own: the brief and
-   running time the director reads first; the style (a preset compiled into
-   the Look's fields and constraints); the aspect ratio; the project LoRAs;
-   and last the style frame, drawn from the saved brief and style, or
-   uploaded. Every shot inherits all of it. */
+/* The Look — Tier 1, the Design page's first tab. Cards that each save on
+   their own: the style (a preset compiled into the Look's fields and
+   constraints); the aspect ratio; the project LoRAs; and last the style
+   frame, drawn from the saved brief and style, or uploaded. Every shot
+   inherits all of it. The brief and running time the director reads first
+   are on the Story page (BriefCard, below). */
 
 const RATIOS: LookSettings["aspectRatio"][] = ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"];
 const STYLE_FRAME_MAX = 3;
@@ -74,11 +75,57 @@ function CardHead({ title, dirty, aside, children }: { title: string; dirty?: bo
   );
 }
 
-export function LookPage() {
+/* The brief and the running time: what the director reads first. The Story
+   page opens with it. */
+export function BriefCard() {
   const t = useT();
   const { projectId, view, reload } = useProjectContext();
   /* the running time is kept as typed (a number input that clamps on every key cannot be typed into) and clamped on blur and save */
   const [brief, setBrief] = useState<{ brief: string; targetSeconds: string } | null>(null);
+  useEffect(() => {
+    if (view && !brief) setBrief({ brief: view.project.brief, targetSeconds: view.project.targetSeconds ? String(view.project.targetSeconds) : "" });
+  }, [view, brief]);
+  const saveBrief = useSave(async () => {
+    if (!brief) return;
+    const seconds = clampSeconds(brief.targetSeconds);
+    setBrief({ ...brief, targetSeconds: seconds === null ? "" : String(seconds) });
+    await patch(`/api/projects/${projectId}`, { brief: brief.brief, targetSeconds: seconds });
+    await reload();
+  });
+  const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
+  const target = brief ? clampSeconds(brief.targetSeconds) ?? undefined : undefined;
+  const plan = target ? planDurations(target) : null;
+  if (!view || !brief) return null;
+  const briefDirty = brief.brief !== view.project.brief || clampSeconds(brief.targetSeconds) !== (view.project.targetSeconds ?? null);
+  return (
+    <div className="st-card st-stack">
+      <ErrorBanner error={saveBrief.error} onDismiss={saveBrief.dismiss} />
+      <CardHead title="Brief" dirty={briefDirty}>
+        <Button size="sm" kind="primary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? t("Saved") : t("Save brief")}</Button>
+      </CardHead>
+      <Field label={t("The film, in your own words")}>
+        <textarea className="st-textarea" rows={6} value={brief.brief} onChange={(e) => setBrief({ ...brief, brief: e.target.value })} placeholder={t("A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…")} />
+      </Field>
+      <div className="st-fields">
+        <Field label={t("Target running time (s)")}>
+          <input className="st-input" type="number" inputMode="numeric" min={5} max={3600} step={1} value={brief.targetSeconds}
+            onChange={(e) => setBrief({ ...brief, targetSeconds: e.target.value })}
+            onBlur={() => { const s = clampSeconds(brief.targetSeconds); setBrief({ ...brief, targetSeconds: s === null ? "" : String(s) }); }} />
+        </Field>
+        <Field label={t("Board vs target")}>
+          <span className="st-row" style={{ minHeight: 36 }}>
+            {target !== undefined ? <Lamp state={boardSeconds === target ? "ok" : "warn"} label={t("{board} s of {target} s on the Board", { board: boardSeconds, target })} /> : <span className="st-muted">{t("set a target to compare")}</span>}
+          </span>
+        </Field>
+      </div>
+      {plan && <span className="st-muted st-num">{t("Plan: {n} shots · {durations} s. {note}", { n: plan.shots, durations: plan.durations.join(" + "), note: planNote(t, plan.note) })}</span>}
+    </div>
+  );
+}
+
+export function LookPage() {
+  const t = useT();
+  const { projectId, view, reload } = useProjectContext();
   const [style, setStyle] = useState<StyleDraft | null>(null);
   const [ratio, setRatio] = useState<LookSettings["aspectRatio"] | null>(null);
   const [loras, setLoras] = useState<LoraRef[] | null>(null);
@@ -87,19 +134,11 @@ export function LookPage() {
 
   useEffect(() => {
     if (!view) return;
-    if (!brief) setBrief({ brief: view.project.brief, targetSeconds: view.project.targetSeconds ? String(view.project.targetSeconds) : "" });
     if (!style) setStyle(styleOf(view.project.look));
     if (!ratio) setRatio(view.project.look.aspectRatio);
     if (!loras) setLoras(view.project.look.loras);
-  }, [view, brief, style, ratio, loras]);
+  }, [view, style, ratio, loras]);
 
-  const saveBrief = useSave(async () => {
-    if (!brief) return;
-    const seconds = clampSeconds(brief.targetSeconds);
-    setBrief({ ...brief, targetSeconds: seconds === null ? "" : String(seconds) });
-    await patch(`/api/projects/${projectId}`, { brief: brief.brief, targetSeconds: seconds });
-    await reload();
-  });
   const saveStyle = useSave(async () => {
     if (!style) return;
     await patch(`/api/projects/${projectId}/look`, style);
@@ -131,13 +170,8 @@ export function LookPage() {
     setStyleNote(t("Style filled from “{slug}”. Review the fields, then Save style.{loras} Apply the style to the Board once the shotlist exists.", { slug, loras: presetLoras ? t(" The preset also set its LoRAs: save them in the LoRAs card.") : "" }));
   });
 
-  const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
-  const target = brief ? clampSeconds(brief.targetSeconds) ?? undefined : undefined;
-  const plan = target ? planDurations(target) : null;
-
-  if (!view || !brief || !style || !ratio || !loras) return null;
+  if (!view || !style || !ratio || !loras) return null;
   const saved = view.project.look;
-  const briefDirty = brief.brief !== view.project.brief || clampSeconds(brief.targetSeconds) !== (view.project.targetSeconds ?? null);
   const styleDirty = !sameStyle(style, styleOf(saved));
   const set = <K extends keyof StyleDraft>(key: K, value: StyleDraft[K]) => setStyle({ ...style, [key]: value });
 
@@ -145,38 +179,16 @@ export function LookPage() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">{t("Brief & style")}</h1>
-          <p className="st-subtitle">{t("Tier 1. The brief and running time the director reads first, the style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from them. Each card saves on its own.")}</p>
+          <h1 className="st-title">{t("Look")}</h1>
+          <p className="st-subtitle">{t("Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from the brief and the style. Each card saves on its own.")}</p>
         </div>
       </div>
       <ErrorBanner
-        error={saveBrief.error ?? saveStyle.error ?? saveRatio.error ?? saveLoras.error ?? compile.error}
-        onDismiss={() => { saveBrief.dismiss(); saveStyle.dismiss(); saveRatio.dismiss(); saveLoras.dismiss(); compile.dismiss(); }}
+        error={saveStyle.error ?? saveRatio.error ?? saveLoras.error ?? compile.error}
+        onDismiss={() => { saveStyle.dismiss(); saveRatio.dismiss(); saveLoras.dismiss(); compile.dismiss(); }}
       />
 
       <div className="st-stack" style={{ gap: 20 }}>
-        <div className="st-card st-stack">
-          <CardHead title="Brief" dirty={briefDirty}>
-            <Button size="sm" kind="primary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? t("Saved") : t("Save brief")}</Button>
-          </CardHead>
-          <Field label={t("The film, in your own words")}>
-            <textarea className="st-textarea" rows={6} value={brief.brief} onChange={(e) => setBrief({ ...brief, brief: e.target.value })} placeholder={t("A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…")} />
-          </Field>
-          <div className="st-fields">
-            <Field label={t("Target running time (s)")}>
-              <input className="st-input" type="number" inputMode="numeric" min={5} max={3600} step={1} value={brief.targetSeconds}
-                onChange={(e) => setBrief({ ...brief, targetSeconds: e.target.value })}
-                onBlur={() => { const s = clampSeconds(brief.targetSeconds); setBrief({ ...brief, targetSeconds: s === null ? "" : String(s) }); }} />
-            </Field>
-            <Field label={t("Board vs target")}>
-              <span className="st-row" style={{ minHeight: 36 }}>
-                {target !== undefined ? <Lamp state={boardSeconds === target ? "ok" : "warn"} label={t("{board} s of {target} s on the Board", { board: boardSeconds, target })} /> : <span className="st-muted">{t("set a target to compare")}</span>}
-              </span>
-            </Field>
-          </div>
-          {plan && <span className="st-muted st-num">{t("Plan: {n} shots · {durations} s. {note}", { n: plan.shots, durations: plan.durations.join(" + "), note: planNote(t, plan.note) })}</span>}
-        </div>
-
         <div className="st-card st-stack">
           <CardHead title="Style" dirty={styleDirty}>
             <Button size="sm" onClick={() => setPickingStyle((v) => !v)}>{pickingStyle ? t("Close presets") : style.style ? t("Change preset") : t("Choose a preset")}</Button>
