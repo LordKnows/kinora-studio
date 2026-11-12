@@ -4169,3 +4169,94 @@ button.st-pill {
   font-size: 15px;
   font-weight: 500;
 }
+
+/* ---------- Script: beside the board, changes ---------- */
+
+.studio .scr-lined {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: 900px;
+  overflow: auto;
+}
+.studio .scr-lined-pre {
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 24px;
+  color: var(--tx2);
+}
+.studio .scr-lined-sec {
+  border-top: 1px solid var(--line-3);
+  padding-top: 10px;
+}
+.studio .scr-lined-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 4px 12px;
+  padding-bottom: 8px;
+}
+.studio .scr-lined-head strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+.studio .scr-lined-head .st-num {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .scr-lined-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+.studio .scr-lined-text {
+  flex: 1.4 1 260px;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 27px;
+  white-space: pre-wrap;
+  text-wrap: pretty;
+}
+.studio .scr-lined-shots {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-left: 2px solid var(--line-3);
+  padding-left: 12px;
+}
+.studio .scr-lined-shot {
+  display: flex;
+  gap: 10px;
+  color: var(--tx);
+  text-decoration: none;
+  font-size: 11px;
+  line-height: 16px;
+}
+.studio .scr-lined-shot:hover b {
+  text-decoration: underline;
+}
+.studio .scr-lined-shot img,
+.studio .scr-lined-shot .sc-frame-empty {
+  flex: none;
+  width: 88px;
+  height: 50px;
+  object-fit: cover;
+}
+.studio .scr-diff {
+  font-size: 15px;
+  line-height: 27px;
+  max-height: 720px;
+  overflow: auto;
+}
+.studio .scr-diff ins {
+  text-decoration: none;
+  background: var(--tx);
+  color: var(--bg);
+}
+.studio .scr-diff del {
+  text-decoration: line-through;
+  background: var(--line);
+  color: var(--tx2);
+}

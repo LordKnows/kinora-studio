@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 import type { StoredTreatment, TreatmentWarning } from "@/studio/treatment";
@@ -7,7 +8,9 @@ import type { Script } from "@/studio/types";
 
 import { get, post, when } from "./api";
 import { Button, Empty, ErrorBanner, Lamp, Section, useAction } from "./common";
+import { filmShots, shotPicture, tc } from "./film";
 import { Markdown } from "./markdown";
+import { diffSentences, scriptSections } from "./script-text";
 import { useProjectContext } from "./shell";
 
 export function ScriptPage() {
@@ -18,6 +21,7 @@ export function ScriptPage() {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [mode, setMode] = useState<"read" | "board" | "changes">("read");
 
   const load = useCallback(async () => {
     const { scripts, treatment, treatmentWarnings } = await get<{ scripts: Script[]; treatment?: StoredTreatment | null; treatmentWarnings?: TreatmentWarning[] }>(`/api/projects/${projectId}/scripts`);
@@ -131,10 +135,22 @@ export function ScriptPage() {
         <div className="st-stack">
           <div className="st-card st-stack">
             <div className="st-row st-row--between">
-              <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : "Preview"}</span>
-              {current && <Lamp state={current.approval} label={current.approval} />}
+              <span className="st-row">
+                <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : "Preview"}</span>
+                {current && <Lamp state={current.approval} label={current.approval} />}
+              </span>
+              {current && (
+                <div className="st-seg" role="group" aria-label="How to show the script">
+                  <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>Read</button>
+                  <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>Beside the board</button>
+                  <button type="button" aria-pressed={mode === "changes"} disabled={!scripts?.some((x) => x.version < current.version)} onClick={() => setMode("changes")}>Changes</button>
+                </div>
+              )}
             </div>
-            {current ? <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div> : <span className="st-muted">Select a version to read it.</span>}
+            {!current ? <span className="st-muted">Select a version to read it.</span>
+              : mode === "board" ? <BesideTheBoard text={current.text} />
+              : mode === "changes" ? <Changes before={scripts?.find((x) => x.version < current.version)} after={current} />
+              : <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div>}
           </div>
           {scripts && scripts.length > 0 && <TreatmentPanel treatment={treatment} warnings={treatmentWarnings} />}
         </div>
@@ -223,5 +239,71 @@ function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | 
       )}
       </div>
     </Section>
+  );
+}
+
+/* The script laid beside the board: each section next to the scene it pairs
+   with (by order, when the counts match), with the time its heading states
+   against the seconds the board gives that scene. */
+function BesideTheBoard({ text }: { text: string }) {
+  const { projectId, view } = useProjectContext();
+  if (!view) return null;
+  const { preamble, sections } = scriptSections(text);
+  const shots = filmShots(view);
+  const paired = sections.length > 0 && sections.length === view.scenes.length;
+  const base = `/p/${projectId}`;
+  if (sections.length === 0) return <p className="st-muted">No scene headings were found in this version (a line like “INT. KITCHEN – NIGHT”, “序列一 · …” or a time range such as 0:00–0:18), so there is nothing to pair with the board.</p>;
+  return (
+    <div className="scr-lined">
+      {!paired && <div className="st-alert st-alert--info"><span>{sections.length} {sections.length === 1 ? "section" : "sections"} in the script, {view.scenes.length} {view.scenes.length === 1 ? "scene" : "scenes"} on the board: they are shown side by side in order, not paired.</span></div>}
+      {preamble && <p className="sc-song scr-lined-pre">{preamble}</p>}
+      {sections.map((sec, i) => {
+        const scene = paired ? view.scenes[i] : undefined;
+        const mine = scene ? shots.filter((s) => s.scene.id === scene.id) : [];
+        const boardS = mine.reduce((n, s) => n + s.durationS, 0);
+        const scriptS = sec.fromS !== undefined && sec.toS !== undefined ? sec.toS - sec.fromS : undefined;
+        return (
+          <section key={i} className="scr-lined-sec">
+            <div className="scr-lined-head">
+              <span className="sc-slate">{i + 1}</span>
+              <strong className="sc-song">{sec.heading}</strong>
+              {scene && <span className="st-num">script {scriptS !== undefined ? `${scriptS} s` : "no time"} · board {boardS} s{scriptS !== undefined && scriptS !== boardS ? ` · ${boardS > scriptS ? "+" : "−"}${Math.abs(boardS - scriptS)} s` : ""}</span>}
+            </div>
+            <div className="scr-lined-row">
+              <p className="sc-song scr-lined-text">{sec.body}</p>
+              {scene && (
+                <div className="scr-lined-shots">
+                  {mine.map((s) => {
+                    const pic = shotPicture(s.shot);
+                    return (
+                      <Link key={s.shot.id} href={`${base}/board?shot=${s.shot.id}`} className="scr-lined-shot" title={s.shot.spec.intent}>
+                        {pic ? <img src={pic} alt="" loading="lazy" /> : <span className="sc-frame-empty" />}
+                        <span className="st-num"><b>{s.slate}</b> {s.durationS} s · {tc(s.startS)}<br />{String(s.shot.spec.cinematography?.size ?? "").toUpperCase()} {String(s.shot.spec.camera?.move ?? "").replace(/_/g, " ")}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/* What this version changed from the one before it, sentence by sentence. */
+function Changes({ before, after }: { before?: Script; after: Script }) {
+  if (!before) return <p className="st-muted">This is the first version; there is nothing to compare it with.</p>;
+  const parts = diffSentences(before.text, after.text);
+  const added = parts.filter((p) => p.kind === "added" && p.text !== "\n").length;
+  const removed = parts.filter((p) => p.kind === "removed" && p.text !== "\n").length;
+  return (
+    <div className="st-stack st-stack--tight">
+      <span className="st-muted st-num">v{after.version} against v{before.version} · {added} {added === 1 ? "passage" : "passages"} added · {removed} removed</span>
+      <div className="sc-song scr-diff">
+        {parts.map((p, i) => (p.text === "\n" ? <br key={i} /> : p.kind === "same" ? <span key={i}>{p.text}</span> : p.kind === "added" ? <ins key={i}>{p.text}</ins> : <del key={i}>{p.text}</del>))}
+      </div>
+    </div>
   );
 }
