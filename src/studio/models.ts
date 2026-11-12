@@ -10,8 +10,8 @@
  * Image via Codex or the images API; Qwen-Image 3.0 Pro through TokenSail
  * or DashScope, on the CPU painter pod). "pod": a ComfyUI workflow on the GPU
  * pod — the same pod as the video models, so it draws only while the pod
- * runs (MiniMax-H3-Image, the open weights of 2026-11-10, and the Qwen-Image
- * models). Pure data and functions: the pages import it too.
+ * runs (MiniMax-H3-Image, the open weights of 2026-11-10). Pure data and
+ * functions: the pages import it too.
  */
 
 export type ModelKind = "image" | "video";
@@ -29,15 +29,14 @@ export type InferenceParams = {
   /** LoRAs: the strength to start at, and the range the author suggests. */
   strength?: number;
   strengthRange?: [number, number];
-  /** Image models: the pixel budget reference pictures are resized to (Qwen-Image 2.1), or the side of
-      the square whose area the model draws at before the picture is resized to the asked size
-      (MiniMax-H3-Image: 2048 = 4 MP, 4096 = 16 MP). */
+  /** Image models: the side of the square whose area the model draws at before the picture is resized
+      to the asked size (MiniMax-H3-Image: 2048 = 4 MP, 4096 = 16 MP). */
   resolution?: number;
 };
 
-/** How a model's prompt names its reference pictures: 图1 / "Picture 1" (GPT Image, the Qwen APIs),
-    <image1> (Qwen-Image 2.1) or <Picture 1> (MiniMax-H3-Image). */
-export type RefStyle = "zh" | "qwen" | "h3";
+/** How a model's prompt names its reference pictures: 图1 / "Picture 1" (GPT Image, the Qwen API)
+    or <Picture 1> (MiniMax-H3-Image). */
+export type RefStyle = "zh" | "h3";
 
 export type ModelFile = { dir: string; file: string; url: string; gb: number };
 
@@ -67,10 +66,6 @@ export type ModelEntry = {
   /** The areas it can deliver a picture at beside the Studio sizes (Canvas → Resolution): a model with a
       working range of its own (MiniMax-H3-Image: about 4–20 MP). Unset: the Studio sizes only. */
   resolutions?: Array<"4mp" | "9mp" | "16mp">;
-  /** Canvas recipes it can draw: a pose plus a portrait and/or a costume, nothing else (Qwen-Image-Edit 2509's fixed slots). */
-  poseRecipe?: boolean;
-  /** The size its pictures come at whatever was picked (2509: the canvas follows the pose picture, 3:4 like every library pose). */
-  canvasSize?: "1008x1344";
   /** API models: the vendor's model name, and the request options Canvas offers (the pose gallery's 百炼 settings). */
   apiModel?: string;
   options?: Array<"prompt_extend" | "negative_prompt">;
@@ -82,9 +77,6 @@ export type ModelEntry = {
   source: string;
   notes: string;
 };
-
-/* Qwen-Image-2.1-Turbo's own 8-step schedule (scheduler_config / the ComfyUI template). */
-export const QWEN21_TURBO_SIGMAS = [1.0, 0.978453, 0.95418, 0.926626, 0.89508, 0.845148, 0.704534, 0.414568, 0];
 
 export const MODELS: ModelEntry[] = [
   {
@@ -121,51 +113,6 @@ export const MODELS: ModelEntry[] = [
     license: "MiniMax-H3-Image Community License Agreement: not for use in the EU, the UK, South Korea or the US; a written authorization from MiniMax is needed above 1M USD of annual revenue or to host it for third parties, and a commercial product names MiniMax-H3-Image in its interface", commercial: "ask", moderation: "none",
     source: "https://huggingface.co/MiniMaxAI/MiniMax-H3-Image",
     notes: "MiniMax's open-weight image model of the H3 family (released 2026-11-10): text to image and multi-reference editing in one checkpoint, a 33B single-stream DiT (H3 without the audio layers) distilled to 6 steps without guidance. Self-hosted on the GPU pod in ComfyUI (v0.45.0 or later: MiniMaxH3ImageConditioning, KSampler 6 steps / CFG 1 / euler / simple; Comfy-Org's templates without their prompt-enhancer branch), not through MiniMax's API. It uses the MiniMax-H3 text encoder unchanged, the file the video graphs already load, so it adds 22 GB on the pod (int8 DiT + image VAE). Pictures are <Picture 1>…<Picture 10> in the prompt (the model takes 16; the Studio sends up to ten). Its working range is about 4–20 MP and it is weak below: a smaller request (a 1344×768 frame) is drawn on a canvas of the same shape at 4 MP and resized to the asked size, as MiniMax's server does. Canvas can also deliver the picture at the model's own resolution (Resolution: 4, 9 or 16 MP — the same shape, e.g. 16:9 at 5376×3072), drawn at that size and not resized; 16 MP is its best quality, several times slower and tens of MB a picture. It expects a detailed English description of the whole picture: the director's sectioned prompts fit, so Canvas composes its recipe in English for it by default (the language can be chosen there); MiniMax's API expands short prompts first, a step not run here. No negative prompt, no content filter of its own.",
-  },
-  {
-    id: "qwen-image-2.1-turbo", kind: "image", runtime: "pod", label: "Qwen-Image 2.1 Turbo", zh: "通义 Qwen-Image 2.1 Turbo（GPU pod）", family: "qwen-image-2.1-turbo",
-    backend: "comfy:qwen-image-2.1-turbo", workflows: ["QWEN21_EDIT"],
-    params: { steps: 8, cfg: 1, sampler: "euler", sigmas: QWEN21_TURBO_SIGMAS, resolution: 1024 },
-    maxRefs: 10, refStyle: "qwen",
-    files: [
-      { dir: "diffusion_models", file: "qwen_image_2.1_turbo_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors", gb: 7.3 },
-      { dir: "text_encoders", file: "qwen3vl_8b_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", gb: 9.4 },
-      { dir: "vae", file: "qwen_image_2.1_vae_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", gb: 0.7 },
-    ],
-    license: "Qwen Research License: non-commercial (research or evaluation) only; a commercial license is requested from Qwen", commercial: false, moderation: "none",
-    source: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1",
-    notes: "Qwen's distilled 8-step edit model, multi-reference (up to 10 pictures, named <image1>…<image10> in the prompt), on the GPU pod in ComfyUI (the official Turbo image-edit template: TextEncodeQwenImage21, QwenImage21Cache, the fixed 8-step sigma schedule, CFG 1, euler). No content filter of its own. LoRAs trained for the base model (Qwen-Image 2.1) are not offered here: use the base model for them. The 'Uncensored' Qwen3-VL text encoder (AtomicChat) is a stable-diffusion.cpp GGUF not run in ComfyUI, and its card measures no change to the pictures; the stock encoder is used.",
-  },
-  {
-    id: "qwen-image-2.1", kind: "image", runtime: "pod", label: "Qwen-Image 2.1", zh: "通义 Qwen-Image 2.1 基础版（GPU pod，可加 LoRA）", family: "qwen-image-2.1",
-    backend: "comfy:qwen-image-2.1", workflows: ["QWEN21_EDIT_BASE"],
-    /* the official pipeline: about 40–50 euler steps at CFG 1 (Comfy-Org's template starts at 25); a LoRA's own card wins */
-    params: { steps: 40, cfg: 1, sampler: "euler", scheduler: "simple", resolution: 1024 },
-    maxRefs: 10, refStyle: "qwen",
-    files: [
-      { dir: "diffusion_models", file: "qwen_image_2.1_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/diffusion_models/qwen_image_2.1_int8_convrot.safetensors", gb: 7.3 },
-      { dir: "text_encoders", file: "qwen3vl_8b_int8_convrot.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors", gb: 9.4 },
-      { dir: "vae", file: "qwen_image_2.1_vae_bf16.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/vae/qwen_image_2.1_vae_bf16.safetensors", gb: 0.7 },
-    ],
-    license: "Qwen Research License: non-commercial (research or evaluation) only; a commercial license is requested from Qwen", commercial: false, moderation: "none",
-    source: "https://huggingface.co/Comfy-Org/Qwen-Image-2.1",
-    notes: "The full (not distilled) Qwen-Image 2.1, for LoRAs trained on it — e.g. ChatR Labs' Omni LoRA (35 steps, CFG 5). Comfy-Org's image-edit template: KSampler, euler/simple, up to ten pictures (<image1>…). Slower than Turbo: about 4–5× the steps, and CFG above 1 runs each step twice. The text encoder and VAE are shared with Turbo; the base adds 7.3 GB on the pod.",
-  },
-  {
-    id: "qwen-image-edit-2509", kind: "image", runtime: "pod", label: "Qwen-Image-Edit 2509", zh: "通义 Qwen-Image-Edit 2509 三图合成（GPU pod，Lightning 4 步）", family: "qwen-image-edit-2509",
-    backend: "comfy:qwen-image-edit-2509", workflows: ["QIE2509_3IMG", "QIE2509_2IMG"],
-    /* the Lightning 4-step LoRA is part of the workflow: 4 steps, CFG 1, euler/simple, shift 3 (anhao/ai-pose-gallery-zh's graph) */
-    params: { steps: 4, cfg: 1, sampler: "euler", scheduler: "simple" },
-    maxRefs: 3, refStyle: "zh", poseRecipe: true, canvasSize: "1008x1344",
-    files: [
-      { dir: "diffusion_models", file: "qwen_image_edit_2509_fp8_e4m3fn.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image-Edit/resolve/main/split_files/diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors", gb: 20.4 },
-      { dir: "text_encoders", file: "qwen_2.5_vl_7b_fp8_scaled.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors", gb: 9.4 },
-      { dir: "vae", file: "qwen_image_vae.safetensors", url: "https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/vae/qwen_image_vae.safetensors", gb: 0.25 },
-      { dir: "loras", file: "Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors", url: "https://huggingface.co/lightx2v/Qwen-Image-Lightning/resolve/main/Qwen-Image-Edit-2509/Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors", gb: 0.85 },
-    ],
-    license: "Apache-2.0 (Qwen-Image-Edit 2509, Comfy-Org's repackage, lightx2v Lightning)", commercial: true, moderation: "none",
-    source: "https://huggingface.co/Qwen/Qwen-Image-Edit-2509",
-    notes: "The ComfyUI workflow the pose gallery recommends (anhao/ai-pose-gallery-zh, qwen_image_edit_2509_3img): 图1 portrait and 图2 costume are pixel references (ReferenceLatent), 图3 pose reaches the model only through the text encoder, so the grey mannequin's look never comes through. Lightning 4-step LoRA, shift 3, CFGNorm, KSampler euler/simple, CFG 1. Needs a pose and a portrait and/or a costume (two pictures: person + pose; three: portrait + costume + pose), no extra pictures. As in the original, the canvas takes the pose picture's aspect (3:4 at about 1 MP; the picture is delivered at 1008×1344): a canvas the costume picture's shape (2:3) makes it redraw the costume picture in place. The pose steers only through the text encoder, so it is followed loosely, more so at 4 Lightning steps. About 31 GB on the pod.",
   },
   {
     id: "minimax-h3", kind: "video", runtime: "pod", label: "MiniMax H3", zh: "MiniMax H3 视频", family: "minimax-h3",
@@ -209,9 +156,8 @@ export function imageModelOfBackend(backend: string): ModelEntry | undefined {
   return IMAGE_MODELS.find((m) => m.backend === backend);
 }
 
-/** Image models the director may draw with (Settings → Director): all of them but a fixed-slot pose
-    recipe (Qwen-Image-Edit 2509 only composes portrait / costume + pose: Canvas). */
-export const AGENT_IMAGE_MODELS = IMAGE_MODELS.filter((m) => !m.poseRecipe);
+/** Image models the director may draw with (Settings → Director): every one Canvas offers. */
+export const AGENT_IMAGE_MODELS = IMAGE_MODELS;
 
 /** The model a project's pictures are drawn with: the one chosen in Settings, else the GPT Image
     backend the project had before models could be chosen (codex / api). */
@@ -221,9 +167,8 @@ export function projectImageModel(imaging?: { model?: string; backend?: string }
 }
 
 /** The Studio's prompts name their pictures "Picture 1", "Picture 2" …; a model that reads them as
-    tokens (Qwen-Image 2.1: <image1> …; MiniMax-H3-Image: <Picture 1> …) gets those instead. */
+    tokens (MiniMax-H3-Image: <Picture 1> …) gets those instead. */
 export function namePicturesFor(model: ModelEntry, prompt: string): string {
-  if (model.refStyle === "qwen") return prompt.replace(/\b[Pp]icture (\d+)\b/g, "<image$1>");
   /* a prompt that already carries the token (<Picture 1>) is left as it is */
   if (model.refStyle === "h3") return prompt.replace(/(?<!<)\b[Pp]icture (\d+)\b(?!>)/g, "<Picture $1>");
   return prompt;
@@ -268,15 +213,11 @@ export const KNOWN_LORA_PARAMS: Record<string, InferenceParams> = {
   lora_prithiv_anime_motion: { strength: 0.8 },
   lora_innerreflections_sketch_loop: { strength: 1, strengthRange: [0.75, 1.25] },
   lora_diffsynth_lineart_anime: { strength: 1 },
-  /* ChatR Labs Omni v0.1 for Qwen-Image 2.1 (migration 0017): its card's evaluation settings */
-  lora_chatr_omni_v01: { steps: 35, cfg: 5, strength: 1 },
 };
 
 /** LoRAs made to draw adult content: hidden until the user has unlocked 18+, and never with an uploaded picture (a real person). */
-export const ADULT_LORA_IDS = new Set(["lora_chatr_omni_v01"]);
-
 export function isAdultLora(l: { id: string; name: string; filename?: string }): boolean {
-  return ADULT_LORA_IDS.has(l.id) || /uncensor|nsfw|18\+|\bnude|\bporn/i.test(`${l.name} ${l.filename ?? ""}`);
+  return /uncensor|nsfw|18\+|\bnude|\bporn/i.test(`${l.name} ${l.filename ?? ""}`);
 }
 
 export type LoraLike = { id: string; name: string; kind: string; stepsHint?: number; defaultStrength?: number; params?: InferenceParams; strength?: number };
@@ -303,7 +244,7 @@ const SAMPLING_KEYS = ["steps", "cfg", "sampler", "scheduler", "sigmas", "shiftV
  * The settings a render uses. The base model's recommendation, its
  * workflow variant, then the speed LoRA (it replaces the sampling chain it
  * was distilled for) — or, without one, the first LoRA whose card names
- * its own steps or CFG (Omni: 35 steps, CFG 5) — then the caller's steps.
+ * its own steps or CFG — then the caller's steps.
  * A model with a fixed sigma schedule takes its steps from the schedule.
  */
 export function resolveParams(model: ModelEntry, opts: { workflow?: string; loras?: LoraLike[]; steps?: number } = {}): Resolved {

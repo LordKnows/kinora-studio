@@ -18,9 +18,8 @@ import type { Actor, Asset, Element, Job } from "./types";
  * a portrait (face, hair), a costume, a pose, more pictures up to what the
  * model takes — drawn by a painter like every other Studio picture: GPT
  * Image (Codex or the API), Qwen-Image 3.0 Pro through an API (TokenSail
- * or DashScope, on the CPU painter pod), or an image model on the GPU pod (Qwen-Image
- * 2.1 Turbo / base, Qwen-Image-Edit 2509 in ComfyUI, models.ts) while the
- * pod runs. The pose can be flipped left to right (the painter mirrors the
+ * or DashScope, on the CPU painter pod), or an image model on the GPU pod
+ * (MiniMax-H3-Image in ComfyUI, models.ts) while the pod runs. The pose can be flipped left to right (the painter mirrors the
  * picture before drawing). The
  * result is a project picture (IMG-n) with its recipe in meta.canvas, and
  * can go straight onto a character as a reference view.
@@ -53,12 +52,12 @@ export const CanvasCompose = z.object({
     picture: z.enum(POSE_PICTURES).default("photo").describe("An uploaded pose (assetId): what the picture is — photo (a person: only the pose and framing are taken), mannequin (白模 / line art), depth (a grey depth map)"),
     mirror: z.boolean().default(false).describe("Flip the pose picture left to right (the pose turned the other way)"),
   }).optional(),
-  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod minimax-h3-image (MiniMax's open weights, text to image and up to 10 pictures), qwen-image-2.1-turbo, qwen-image-2.1, qwen-image-edit-2509 (pose + portrait and/or costume). Omit for the project's model (Settings → Director)."),
+  model: z.enum(IMAGE_MODELS.map((m) => m.id) as [string, ...string[]]).optional().describe("Image model (list_models): gpt-image-codex, gpt-image-api, qwen-image-3.0-pro (API, CPU painter pod, up to 3 pictures), or on the GPU pod minimax-h3-image (MiniMax's open weights, text to image and up to 10 pictures). Omit for the project's model (Settings → Director)."),
   promptExtend: z.boolean().default(false).describe("Qwen-Image 3.0 Pro: let the vendor rewrite the prompt (prompt_extend; off keeps the composed 图1/图2/图3 roles as written)"),
   negativePrompt: z.string().max(500).optional().describe("Qwen-Image 3.0 Pro: what the picture must not show"),
   extras: z.array(z.object({ assetId: z.string().max(80), name: z.string().max(60).default("") })).max(CANVAS_MAX_REFS_ANY).default([]),
   seed: z.number().int().min(0).max(2 ** 48).optional().describe("Pod models: a fixed seed (else random)"),
-  loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings (ChatR Omni on Qwen-Image 2.1: 35 steps, CFG 5)"),
+  loras: z.array(LoraRef).max(4).default([]).describe("Pod models: LoRAs from the library trained for the model's family (list_models); picking one applies its card's settings"),
   style: z.enum(CANVAS_STYLE_IDS).default("realistic"),
   lang: z.enum(CANVAS_LANGS).optional().describe("The language the prompt is composed in: zh (the Chinese template) or en (the same recipe in English). Omit for the model's own: en for minimax-h3-image, zh for the others"),
   text: z.string().max(2000).optional().describe("Text to image: what to draw. With no reference picked it is the whole picture (the style, size, model and LoRAs still apply); beside references it is the scene they go into"),
@@ -185,14 +184,6 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
       throw new StudioError("validation", `CharaDB outfits cannot be put on an uploaded photo (${partner ? who : "the portrait"}): its author forbids depicting real people. Use a library portrait, or another costume source.`);
     }
   }
-  /* Qwen-Image-Edit 2509's graph has fixed slots: portrait, costume, pose (or person + pose) */
-  if (model.poseRecipe) {
-    if (partner) throw new StudioError("validation", `${model.label} draws one person: for two people pick GPT Image or Qwen-Image 2.1`);
-    if (textOnly) throw new StudioError("validation", `${model.label} draws a pose from pictures, not from text alone: pick GPT Image, Qwen-Image 3.0 Pro or Qwen-Image 2.1 for text to image`);
-    if (!pose) throw new StudioError("validation", `${model.label} draws a pose: pick a pose, and a portrait and/or a costume`);
-    if (!portrait && !character && !costume) throw new StudioError("validation", `${model.label} needs a portrait or a costume next to the pose`);
-    if (extras.length) throw new StudioError("validation", `${model.label} takes only a portrait, a costume and a pose; remove the extra pictures`);
-  }
   const maxRefs = model.maxRefs ?? CANVAS_MAX_REFS;
   const count = [portrait ?? character, costume, partner?.portrait ?? partner?.character, partner?.costume, pose].filter(Boolean).length + extras.length;
   if (count > maxRefs) throw new StudioError("validation", `${model.label} takes at most ${maxRefs} pictures per call; this recipe has ${count}${partner ? " (a project character's sheet stands for its face and outfit in one picture)" : ""}`);
@@ -245,8 +236,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
     ...(model.options?.includes("prompt_extend") ? { prompt_extend: input.promptExtend } : {}),
     ...(model.options?.includes("negative_prompt") && input.negativePrompt?.trim() ? { negative_prompt: input.negativePrompt.trim() } : {}),
   } : undefined;
-  /* a model whose canvas follows a picture (2509: the pose) is delivered at that shape, not cropped to the one picked */
-  const shape = model.canvasSize ?? input.size;
+  const shape = input.size;
   /* a model with a working range of its own delivers the shape at 4, 9 or 16 MP when asked */
   if (input.resolution && !model.resolutions?.includes(input.resolution)) {
     throw new StudioError("validation", `${model.label} draws at the Studio's sizes only: leave resolution out, or pick MiniMax H3 Image for a ${CANVAS_RESOLUTION_LABEL[input.resolution]} picture`);
@@ -263,8 +253,7 @@ export async function composeCharacter(projectId: string, input: CanvasCompose, 
 
 /**
  * compose_character for the director (MCP): only with Agent use Canvas on for the project (Settings →
- * Director, web only), and with the project's model and its LoRAs — the user's choice, not the agent's —
- * or, beside a model on the GPU pod, Qwen-Image-Edit 2509 (Canvas's pose recipe, on the same pod).
+ * Director, web only), and with the project's model and its LoRAs — the user's choice, not the agent's.
  */
 export async function agentComposeCharacter(projectId: string, input: Omit<CanvasCompose, "loras">, actor: Actor): ReturnType<typeof composeCharacter> {
   const imaging = (await repo.getProject(projectId)).imaging;
@@ -274,10 +263,10 @@ export async function agentComposeCharacter(projectId: string, input: Omit<Canva
   const own = projectImageModel(imaging);
   const picked = input.model ? findModel(input.model) : own;
   if (!picked || picked.kind !== "image") throw new StudioError("validation", `${input.model} is not an image model (list_models)`);
-  if (picked.id !== own.id && !(picked.poseRecipe && own.runtime === "pod")) {
-    throw new StudioError("forbidden", `this project's pictures are drawn with ${own.label} (Settings → Director, the user's choice): leave model out${own.runtime === "pod" ? ", or pick qwen-image-edit-2509 to compose a pose with a portrait and/or a costume" : ""}`);
+  if (picked.id !== own.id) {
+    throw new StudioError("forbidden", `this project's pictures are drawn with ${own.label} (Settings → Director, the user's choice): leave model out`);
   }
-  return composeCharacter(projectId, { ...input, model: picked.id, loras: picked.id === own.id ? imaging.loras ?? [] : [] }, actor);
+  return composeCharacter(projectId, { ...input, model: picked.id, loras: imaging.loras ?? [] }, actor);
 }
 
 /** Bring one reference picture into the project (a single fetch from its gallery), optionally onto an element. */

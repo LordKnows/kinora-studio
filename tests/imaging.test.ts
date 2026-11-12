@@ -389,25 +389,33 @@ describe("the agent draws with the project's image model", () => {
     const p = await repo.createProject({ name: "Models" });
     projectId = p.id;
     expect(imaging.imagingSummary(p)).toMatchObject({ model: "gpt-image-codex", backend: "codex", runtime: "api" });
-    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
-    /* 2509 only composes a portrait or costume with a pose: Canvas only */
-    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-edit-2509" }, web)).rejects.toMatchObject({ code: "validation" });
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, mcp)).rejects.toMatchObject({ code: "forbidden" });
+    /* a model the Studio no longer runs cannot be chosen */
+    for (const retired of ["qwen-image-2.1-turbo", "qwen-image-2.1", "qwen-image-edit-2509"]) {
+      await expect(imaging.setImaging(projectId, { enabled: true, model: retired }, web)).rejects.toMatchObject({ code: "validation" });
+    }
     /* an older client still sends backend */
     await imaging.setImaging(projectId, { enabled: true, backend: "api" }, web);
     expect(imaging.imagingSummary(await repo.getProject(projectId))).toMatchObject({ model: "gpt-image-api", backend: "api" });
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, web);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, web);
     const summary = imaging.imagingSummary(await repo.getProject(projectId));
-    expect(summary).toMatchObject({ enabled: true, model: "qwen-image-2.1-turbo", runtime: "pod", backend: "comfy:qwen-image-2.1-turbo", maxRefs: 10 });
-    expect(summary.license).toMatch(/non-commercial/);
+    expect(summary).toMatchObject({ enabled: true, model: "minimax-h3-image", runtime: "pod", backend: "comfy:minimax-h3-image", maxRefs: 10 });
+    /* only a non-commercial licence is spelled out in the summary; this one is "ask" (the Models page has its terms) */
+    expect(summary).not.toHaveProperty("license");
     /* a project saved before models could be chosen */
     await repo.setImaging(projectId, { ...(await repo.getProject(projectId)).imaging!, model: undefined, backend: "codex" });
     expect(imaging.imagingSummary(await repo.getProject(projectId)).model).toBe("gpt-image-codex");
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, web);
+    /* a project that had chosen a model the Studio retired (Qwen-Image 2.1 on the pod) draws with GPT Image until another is picked */
+    await repo.setImaging(projectId, { ...(await repo.getProject(projectId)).imaging!, model: "qwen-image-2.1-turbo", backend: "comfy:qwen-image-2.1-turbo", loras: [{ id: "lora_chatr_omni_v01" }] });
+    expect(imaging.imagingSummary(await repo.getProject(projectId))).toMatchObject({ model: "gpt-image-codex", backend: "codex", runtime: "api" });
+    expect(canvasModel(undefined, (await repo.getProject(projectId)).imaging).id).toBe("gpt-image-codex");
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, web);
+    expect((await repo.getProject(projectId)).imaging!.loras).toEqual([]);
     /* Canvas starts from the project's model */
-    expect(canvasModel(undefined, (await repo.getProject(projectId)).imaging).id).toBe("qwen-image-2.1-turbo");
+    expect(canvasModel(undefined, (await repo.getProject(projectId)).imaging).id).toBe("minimax-h3-image");
   });
 
-  it("a GPU model's frame carries its settings, names its pictures <imageN> and gets no Codex review", async () => {
+  it("a GPU model's frame carries its settings, names its pictures <Picture N> and gets no Codex review", async () => {
     const sc = await repo.createScript(projectId, "EXT. MARKET - DAY");
     await repo.approveScript(sc.id);
     const pic = async (n: string) => (await repo.createAsset({ projectId, url: `https://studio.example/media/projects/m/${n}.png`, kind: "image", source: "generated" })).id;
@@ -424,11 +432,11 @@ describe("the agent draws with the project's image model", () => {
     await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "market", shots: [shot({ characters: ids, location: loc.id, intent: "Three keepers argue" })] }] }));
     shotId = (await repo.listShots(projectId))[0]!.id;
     const r = await imaging.generateShotFrame(shotId, "first", mcp, { method: "new" });
-    const input = r.job!.input as { backend: string; model: string; params: { steps: number; sigmas: number[] }; prompt: string; refUrls: string[]; check: { review: boolean } };
-    expect(input).toMatchObject({ backend: "comfy:qwen-image-2.1-turbo", model: "qwen-image-2.1-turbo", params: { steps: 8 } });
+    const input = r.job!.input as { backend: string; model: string; params: { steps: number }; prompt: string; refUrls: string[]; check: { review: boolean } };
+    expect(input).toMatchObject({ backend: "comfy:minimax-h3-image", model: "minimax-h3-image", params: { steps: 6 } });
     expect(input.refUrls).toHaveLength(5);
-    expect(input.prompt).toContain("<image1> is Ana");
-    expect(input.prompt).not.toMatch(/\bPicture \d/);
+    expect(input.prompt).toContain("<Picture 1> is Ana");
+    expect(input.prompt).not.toMatch(/(?<!<)\bPicture \d/);
     expect(input.check.review).toBe(false);
   });
 
@@ -452,7 +460,9 @@ describe("the agent draws with the project's image model", () => {
 });
 
 describe("the director's pictures with the LoRAs chosen for the model", () => {
-  const omni = { id: "lora_chatr_omni_v01", strength: 1 };
+  /* an 18+ LoRA for the pod's image model: marked by its name (models.ts isAdultLora), with its card's settings */
+  const LORA_FILE = "studio-looks-uncensored.safetensors";
+  let lora = { id: "", strength: 1 };
   const owner: Actor = { user: "lora-owner@local", via: "web" };
   let projectId = "";
   let shotId = "";
@@ -461,19 +471,24 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
   it("only for a model on the GPU pod and its family; an 18+ LoRA needs 18+ unlocked; a new model drops what no longer fits", async () => {
     const p = await repo.createProject({ name: "LoRAs" });
     projectId = p.id;
-    await expect(imaging.setImaging(projectId, { enabled: true, model: "gpt-image-codex", loras: [omni] }, owner)).rejects.toMatchObject({ code: "validation" });
-    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo", loras: [omni] }, owner)).rejects.toMatchObject({ code: "validation" });
-    await expect(imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner)).rejects.toMatchObject({ code: "forbidden" });
+    const made = await repo.createLora({ name: "Studio Looks (uncensored)", kind: "effect", filename: LORA_FILE, hfUrl: `https://huggingface.co/studio/looks/resolve/main/${LORA_FILE}`, triggerWords: "", defaultStrength: 1, workflows: [], notes: "", baseModel: "minimax-h3-image", params: { steps: 12, cfg: 3 } });
+    lora = { id: made.id, strength: 1 };
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "gpt-image-codex", loras: [lora] }, owner)).rejects.toMatchObject({ code: "validation" });
+    /* the video model's LoRAs are another family */
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image", loras: [{ id: "lora_fal_realism_people" }] }, owner)).rejects.toThrow(/trained for minimax-h3, not MiniMax H3 Image/);
+    await expect(imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image", loras: [lora] }, owner)).rejects.toMatchObject({ code: "forbidden" });
     await setAdultContent(owner, { enabled: true, confirmAdult: true });
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image", loras: [lora] }, owner);
     const status = await imaging.imagingStatus(await repo.getProject(projectId));
-    expect(status.loras).toEqual([{ id: "lora_chatr_omni_v01", name: "ChatR Omni v0.1 (uncensored)", strength: 1, adult: true }]);
-    expect(status.settings).toBe("35 steps · euler/simple · CFG 5");
-    expect(status.settingsFrom).toEqual(["ChatR Omni v0.1 (uncensored)"]);
-    /* Turbo is another family: switching drops the LoRA, switching back does not bring it back */
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1-turbo" }, owner);
+    expect(status.loras).toEqual([{ id: lora.id, name: "Studio Looks (uncensored)", strength: 1, adult: true }]);
+    expect(status.settings).toBe("12 steps · euler/simple · CFG 3");
+    expect(status.settingsFrom).toEqual(["Studio Looks (uncensored)"]);
+    /* GPT Image takes no LoRAs: switching drops it, switching back does not bring it back */
+    await imaging.setImaging(projectId, { enabled: true, model: "gpt-image-codex" }, owner);
     expect((await repo.getProject(projectId)).imaging!.loras).toEqual([]);
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [omni] }, owner);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, owner);
+    expect((await repo.getProject(projectId)).imaging!.loras).toEqual([]);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image", loras: [lora] }, owner);
   });
 
   it("draws with the LoRA's settings and file and the adult line, from the Studio's and the library's pictures", async () => {
@@ -490,12 +505,12 @@ describe("the director's pictures with the LoRAs chosen for the model", () => {
     shotId = (await repo.listShots(projectId))[0]!.id;
     const r = await imaging.generateShotFrame(shotId, "first", mcp, { method: "new" });
     const input = r.job!.input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string; strength: number; hf_url?: string }> }; prompt: string };
-    expect(input.backend).toBe("comfy:qwen-image-2.1");
-    expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors", strength: 1 }] });
+    expect(input.backend).toBe("comfy:minimax-h3-image");
+    expect(input.params).toMatchObject({ steps: 12, cfg: 3, loras: [{ file: LORA_FILE, strength: 1 }] });
     /* the job says what each reference is, so provenance follows only the faces */
     expect((r.job!.input as { refRoles?: string[] }).refRoles).toEqual(["face"]);
-    expect(input.params.loras[0]!.hf_url).toMatch(/^https:\/\/huggingface\.co\/chatrlabs\//);
-    expect(input.prompt).toMatch(/<image1> is Lin/);
+    expect(input.params.loras[0]!.hf_url).toMatch(/^https:\/\/huggingface\.co\/studio\//);
+    expect(input.prompt).toMatch(/<Picture 1> is Lin/);
     expect(input.prompt.trim().endsWith("Everyone in the picture is an adult.")).toBe(true);
   });
 

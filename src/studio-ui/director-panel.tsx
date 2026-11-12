@@ -121,7 +121,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
       <div className="st-stack st-stack--tight">
         <strong>Image generation</strong>
         <span className="st-muted">
-          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. Qwen-Image 2.1 draws on the GPU pod, only while it runs. Qwen-Image-Edit 2509 only composes a portrait or costume with a pose: it is used on the Canvas page, and by the director with Agent use Canvas below.
+          Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Elements, Board, Takes and Look pages, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
@@ -183,7 +183,7 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
             </label>
             <span className="st-muted">
               {img.agentCanvas
-                ? `The director may compose a character from the Canvas library — a portrait, a costume, a pose — when it decides a look is needed (compose_character), drawn with ${img.modelLabel}${img.loras?.length ? " and the LoRAs above" : ""}${img.runtime === "pod" ? ", or with Qwen-Image-Edit 2509 for a pose on the same GPU pod" : ""}, and put it on the character as its look. It counts against the image limit.`
+                ? `The director may compose a character from the Canvas library — a portrait, a costume, a pose — when it decides a look is needed (compose_character), drawn with ${img.modelLabel}${img.loras?.length ? " and the LoRAs above" : ""}, and put it on the character as its look. It counts against the image limit.`
                 : "Off: the director draws characters with element sheets only; the Canvas page stays yours."}
             </span>
           </div>

@@ -10,7 +10,7 @@ import { join } from "node:path";
 const root = new URL("..", import.meta.url).pathname;
 const stage = mkdtempSync(join(tmpdir(), "pod-bundle-"));
 mkdirSync(join(stage, "h3-runpod"), { recursive: true });
-for (const f of ["handler.py", "server.py", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "models-remake.txt", "models-h3-image.txt", "models-qwen-image.txt", "models-qwen-image-base.txt", "models-qie2509.txt", "download_models.sh"]) {
+for (const f of ["handler.py", "server.py", "start.sh", "requirements.txt", "models.txt", "models-regen.txt", "models-remake.txt", "models-h3-image.txt", "download_models.sh", "retired-models.txt", "remove_retired_models.sh"]) {
   cpSync(join(root, "workers/h3-runpod", f), join(stage, "h3-runpod", f));
 }
 /* the painter (pictures off the GPU) rides along: the pod runs it as the

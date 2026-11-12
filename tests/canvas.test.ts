@@ -20,6 +20,14 @@ const web: Actor = { user: "canvas@local", via: "web" };
 const agent: Actor = { user: "canvas@local", via: "mcp" };
 const other: Actor = { user: "someone@else", via: "web" };
 
+/* an 18+ LoRA for the model on the GPU pod: marked by its name (models.ts isAdultLora), with its card's settings */
+const ADULT_LORA_FILE = "studio-looks-uncensored.safetensors";
+async function adultLora(): Promise<{ id: string }> {
+  const have = (await repo.listLoras()).find((l) => l.filename === ADULT_LORA_FILE);
+  const l = have ?? await repo.createLora({ name: "Studio Looks (uncensored)", kind: "effect", filename: ADULT_LORA_FILE, hfUrl: `https://huggingface.co/studio/looks/resolve/main/${ADULT_LORA_FILE}`, triggerWords: "", defaultStrength: 1, workflows: [], notes: "", baseModel: "minimax-h3-image", params: { steps: 12, cfg: 3 } });
+  return { id: l.id };
+}
+
 async function memoryDb(): Promise<Db> {
   const { default: Database } = await import("better-sqlite3");
   const sqlite = new Database(":memory:");
@@ -181,7 +189,7 @@ describe("the composed prompt in English", () => {
     expect(text).not.toMatch(cjk);
     /* each model's own tokens */
     expect(buildCanvasPrompt({ ...recipe, lang: "en", refStyle: "h3" })).toContain("of the mannequin in <Picture 3>");
-    expect(buildCanvasPrompt({ ...recipe, lang: "en", refStyle: "qwen" })).toContain("wearing the outfit of <image2>");
+    expect(buildCanvasPrompt({ ...recipe, lang: "en", refStyle: "h3" })).toContain("wearing the outfit of <Picture 2>");
     /* zh, or nothing, is the Chinese original */
     expect(buildCanvasPrompt({ ...recipe, lang: "zh" })).toBe(buildCanvasPrompt(recipe));
   });
@@ -356,9 +364,9 @@ describe("Agent use Canvas (Settings → Director)", () => {
     const r = await agentComposeCharacter(projectId, recipe(), director);
     expect(r.model).toBe("gpt-image-codex");
     expect((await repo.getJob(r.job.id)).input.purpose).toBe("canvas");
-    /* the model is the user's: no other one, and 2509 only beside a model on the GPU pod */
-    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-2.1" }, director)).rejects.toMatchObject({ code: "forbidden" });
-    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    /* the model is the user's: no other one */
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "minimax-h3-image" }, director)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "gpt-image-api" }, director)).rejects.toMatchObject({ code: "forbidden" });
     const notes = await repo.listNotes(projectId, "decision");
     expect(notes.map((n) => (n.body as { decision: string }).decision)).toContain("Agent use Canvas on: the director may compose characters from the Canvas library with GPT Image · Codex");
     /* switching the model keeps the switch */
@@ -366,19 +374,18 @@ describe("Agent use Canvas (Settings → Director)", () => {
     expect((await repo.getProject(projectId)).imaging!.agentCanvas).toBe(true);
   });
 
-  it("draws with the project's GPU model and its LoRAs, or 2509 for a pose; an 18+ LoRA never with an upload", async () => {
+  it("draws with the project's GPU model and its LoRAs; an 18+ LoRA never with an upload", async () => {
     const projectId = (await repo.createProject({ name: "Agent canvas pod" })).id;
     await setAdultContent(owner, { enabled: true, confirmAdult: true });
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1", loras: [{ id: "lora_chatr_omni_v01" }], agentCanvas: true }, owner);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image", loras: [await adultLora()], agentCanvas: true }, owner);
     const r = await agentComposeCharacter(projectId, recipe(), director);
     const input = (await repo.getJob(r.job.id)).input as { backend: string; params: { steps: number; cfg: number; loras: Array<{ file: string }> }; prompt: string };
-    expect(input.backend).toBe("comfy:qwen-image-2.1");
-    expect(input.params).toMatchObject({ steps: 35, cfg: 5, loras: [{ file: "chatrlabs-omni-lora-v0.1-bf16.safetensors" }] });
-    expect(input.prompt).toContain("画面中的人物均为成年人。");
-    const pose2509 = await agentComposeCharacter(projectId, { ...recipe(), model: "qwen-image-edit-2509" }, director);
-    const i2509 = (await repo.getJob(pose2509.job.id)).input as { backend: string; params: { loras?: unknown[] } };
-    expect(i2509.backend).toBe("comfy:qwen-image-edit-2509");
-    expect(i2509.params.loras).toBeUndefined();
+    expect(input.backend).toBe("comfy:minimax-h3-image");
+    expect(input.params).toMatchObject({ steps: 12, cfg: 3, loras: [{ file: ADULT_LORA_FILE }] });
+    /* MiniMax H3 Image's recipe is composed in English */
+    expect(input.prompt).toContain("Everyone in the picture is an adult.");
+    /* the model stays the user's on the pod too */
+    await expect(agentComposeCharacter(projectId, { ...recipe(), model: "gpt-image-codex" }, director)).rejects.toMatchObject({ code: "forbidden" });
     /* an uploaded face, or a picture drawn from one, is refused with the 18+ LoRA; a picture drawn from the library is not */
     const upload = await repo.createAsset({ projectId, url: "https://studio.example/media/uploads/u/me.png", kind: "image", source: "upload", meta: {}, name: "me" });
     await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ portrait: { assetId: upload.id }, pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
@@ -387,7 +394,7 @@ describe("Agent use Canvas (Settings → Director)", () => {
     await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: tainted.id }], pose: { id: pose().id } }), director)).rejects.toMatchObject({ code: "validation" });
     const fromLibrary = await repo.createJob({ projectId, kind: "image", targetId: projectId, backend: "painter-codex", input: { op: "paint", refUrls: [(portrait() as RefPortrait).image] } });
     const clean = await repo.createAsset({ projectId, url: "https://studio.example/media/projects/x/c.png", kind: "image", source: "generated", meta: { jobId: fromLibrary.id } });
-    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: clean.id }], pose: { id: pose().id } }), director)).resolves.toMatchObject({ model: "qwen-image-2.1" });
+    await expect(agentComposeCharacter(projectId, CanvasCompose.omit({ loras: true }).parse({ extras: [{ assetId: clean.id }], pose: { id: pose().id } }), director)).resolves.toMatchObject({ model: "minimax-h3-image" });
   });
 });
 
@@ -417,11 +424,11 @@ describe("two people (Canvas)", () => {
     expect(text).toContain("图5中右边的人是Mia，另一个人是人物B");
     expect(text).toContain("Mia穿着图2的服装，人物B穿着图4的服装");
     expect(text).toContain("不要互相混合，也不要画成同一个人");
-    /* a project character stands for the face and the outfit in one picture; Qwen names the pictures <imageN> */
-    const sheet = buildCanvasPrompt({ character: { name: "Lin" }, partner: { portrait: { item: portrait(5) } }, pose: { upload: { name: "duo" }, picture: "depth" }, aIs: "front", refStyle: "qwen" });
-    expect(sheet).toContain("• Lin：<image1>是Lin的角色参考（同一个人），保持其脸型、五官、发型、发色、肤色和服装配饰一致。");
-    expect(sheet).toContain("<image3>中前面（离镜头近）的人是Lin");
-    expect(sheet).toContain("<image3>是灰度深度图");
+    /* a project character stands for the face and the outfit in one picture; MiniMax H3 Image names the pictures <Picture N> */
+    const sheet = buildCanvasPrompt({ character: { name: "Lin" }, partner: { portrait: { item: portrait(5) } }, pose: { upload: { name: "duo" }, picture: "depth" }, aIs: "front", refStyle: "h3" });
+    expect(sheet).toContain("• Lin：<Picture 1>是Lin的角色参考（同一个人），保持其脸型、五官、发型、发色、肤色和服装配饰一致。");
+    expect(sheet).toContain("<Picture 3>中前面（离镜头近）的人是Lin");
+    expect(sheet).toContain("<Picture 3>是灰度深度图");
   });
 
   it("draws a project character with a library face in a two-person pose, in the prompt's order", async () => {
@@ -441,11 +448,10 @@ describe("two people (Canvas)", () => {
     expect(input.canvas).toMatchObject({ people: 2, aIs: "top", nameB: "Kai" });
   });
 
-  it("refuses an empty person B, a model short of pictures, 2509, and attaching a two-person picture to one character", async () => {
+  it("refuses an empty person B, a model short of pictures, and attaching a two-person picture to one character", async () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: {}, pose: { id: couple().id } }), duo)).rejects.toMatchObject({ code: "validation" });
     const full = { portrait: { id: portrait().id }, costume: { id: costume().id }, partner: { portrait: { id: portrait(5).id } }, pose: { id: couple().id } };
     await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, model: "qwen-image-3.0-pro" }), duo)).rejects.toThrow(/at most 3 pictures/);
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, model: "qwen-image-edit-2509" }), duo)).rejects.toThrow(/draws one person/);
     await expect(composeCharacter(projectId, CanvasCompose.parse({ ...full, attach: { elementId: mia } }), duo)).rejects.toThrow(/two people is not one character/);
     await expect(composeCharacter(projectId, CanvasCompose.parse({ character: { elementId: mia }, portrait: { id: portrait().id } }), duo)).rejects.toMatchObject({ code: "validation" });
   });
@@ -463,10 +469,10 @@ describe("two people (Canvas)", () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id } }, pose: { id: couple().id } }), duo)).rejects.toThrow(/only from 模拟 pictures/);
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: coat.id }, pose: { id: couple().id } }), duo)).rejects.toThrow(/only from 模拟 pictures/);
     /* an 18+ LoRA: the same */
-    await imaging.setImaging(projectId, { enabled: true, model: "qwen-image-2.1" }, duo);
-    const omni = [{ id: "lora_chatr_omni_v01" }];
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: simCoat.id }, pose: { assetId: duoPose.id, picture: "depth" }, model: "qwen-image-2.1", loras: omni }), duo)).resolves.toMatchObject({ model: "qwen-image-2.1" });
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, pose: { assetId: duoPose.id }, model: "qwen-image-2.1", loras: omni }), duo)).rejects.toThrow(/only from 模拟 pictures/);
+    await imaging.setImaging(projectId, { enabled: true, model: "minimax-h3-image" }, duo);
+    const loras = [await adultLora()];
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { assetId: simCoat.id }, pose: { assetId: duoPose.id, picture: "depth" }, model: "minimax-h3-image", loras }), duo)).resolves.toMatchObject({ model: "minimax-h3-image" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { assetId: face.id }, pose: { assetId: duoPose.id }, model: "minimax-h3-image", loras }), duo)).rejects.toThrow(/only from 模拟 pictures/);
     /* CharaDB: on a library face yes, on an uploaded one (person B's too) no */
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, costume: { id: charadb().id } }), duo)).resolves.toBeTruthy();
     await expect(composeCharacter(projectId, CanvasCompose.parse({ portrait: { id: portrait().id }, partner: { portrait: { assetId: face.id }, costume: { id: charadb().id } }, pose: { assetId: duoPose.id } }), duo)).rejects.toThrow(/CharaDB/);
@@ -555,9 +561,9 @@ describe("text to image (Canvas)", () => {
     expect((job.input.canvas as { text?: string }).text).toBe("雨后的天台，霓虹倒映在积水里");
   });
 
-  it("needs a description, and not with Qwen-Image-Edit 2509", async () => {
+  it("needs a description, with any model", async () => {
     await expect(composeCharacter(projectId, CanvasCompose.parse({}), writer)).rejects.toThrow(/describe the picture/);
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a street at night", model: "qwen-image-edit-2509" }), writer)).rejects.toThrow(/not from text alone/);
-    await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a street at night", model: "qwen-image-2.1-turbo" }), writer)).resolves.toMatchObject({ model: "qwen-image-2.1-turbo" });
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ model: "minimax-h3-image" }), writer)).rejects.toThrow(/describe the picture/);
+    await expect(composeCharacter(projectId, CanvasCompose.parse({ text: "a street at night", model: "minimax-h3-image" }), writer)).resolves.toMatchObject({ model: "minimax-h3-image" });
   });
 });

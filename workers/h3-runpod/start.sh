@@ -22,14 +22,17 @@ SLIM_DIR="${COMFYUI_SLIM_DIR:-/workspace/runpod-slim/ComfyUI}"
 VOLUME_PATH="${STUDIO_VOLUME_PATH:-/workspace}"
 # Every boot runs one download chain, one list after the other (two lists at
 # once would halve both and starve a render reading the same disk): the H3
-# video models, then the image models for Canvas and the director, then
+# video models, then MiniMax-H3-Image for Canvas and the director, then
 # Open-H3-Regenerate-2K. download_models.sh keeps files whose size is the
 # list's, resumes or refetches the rest and goes on past a failure, so a
 # chain cut short (a stop, a timeout) is finished by the next boot. The
 # optional lists start only when the disk has room for them plus a margin
 # (a full disk would break the renders) or when they are partly there. While
 # the chain runs, /app/downloads/chain.pid says so: the job server's /health
-# reports it and the Studio holds pod work until it is done.
+# reports it and the Studio holds pod work until it is done. Before the
+# chain, the weights of models the Studio no longer runs are deleted from the
+# models directory — the network volume — so their room goes to the lists
+# (retired-models.txt, remove_retired_models.sh).
 room_gb() { df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'; }
 export DOWNLOAD_STATE_DIR="${DOWNLOAD_STATE_DIR:-/app/downloads}"
 fetch_list() { # dir list log label room_gb_needed first_file
@@ -49,11 +52,10 @@ fetch_models() {
   mkdir -p "$DOWNLOAD_STATE_DIR" "$dir"
   rm -f "$DOWNLOAD_STATE_DIR/failed" "$DOWNLOAD_STATE_DIR/skipped" "$DOWNLOAD_STATE_DIR/current"
   echo "$BASHPID" > "$DOWNLOAD_STATE_DIR/chain.pid"
+  bash /app/h3-runpod/remove_retired_models.sh "$dir" > /app/retired_models.log 2>&1 || true
+  echo "[start] $(tail -1 /app/retired_models.log) (see /app/retired_models.log)"
   [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ] && fetch_list "$dir" models.txt /app/download_models.log "H3 models (~68 GB)" 0 ""
   [ "${H3_IMAGE:-1}" = "1" ] && fetch_list "$dir" models-h3-image.txt /app/download_h3_image.log "MiniMax-H3-Image (+22 GB: the text encoder is the video set's)" 30 diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors
-  [ "${QWEN_EDIT_2509:-1}" = "1" ] && fetch_list "$dir" models-qie2509.txt /app/download_qie2509.log "Qwen-Image-Edit 2509 (~31 GB)" 40 diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors
-  [ "${QWEN_IMAGE:-1}" = "1" ] && fetch_list "$dir" models-qwen-image.txt /app/download_qwen_image.log "Qwen-Image 2.1 Turbo (~17 GB)" 30 diffusion_models/qwen_image_2.1_turbo_int8_convrot.safetensors
-  [ "${QWEN_IMAGE_BASE:-1}" = "1" ] && fetch_list "$dir" models-qwen-image-base.txt /app/download_qwen_image_base.log "Qwen-Image 2.1 base (+7.3 GB)" 15 diffusion_models/qwen_image_2.1_int8_convrot.safetensors
   [ "${REGEN_2K:-1}" = "1" ] && fetch_list "$dir" models-regen.txt /app/download_regen.log "Open-H3-Regenerate-2K (~21 GB)" 30 loras/open_h3_regenerate_2k_lora.safetensors
   rm -f "$DOWNLOAD_STATE_DIR/chain.pid" "$DOWNLOAD_STATE_DIR/current"
   echo "[start] model downloads finished$( [ -s "$DOWNLOAD_STATE_DIR/failed" ] && echo "; failed: $(tr '\n' ' ' < "$DOWNLOAD_STATE_DIR/failed")")"
@@ -140,7 +142,7 @@ YAML
     export LORA_DIR="${LORA_DIR:-$MODELS_SRC/loras}"
     # Every model list, onto the volume, in the background: at every boot, so whatever an earlier boot
     # left unfinished (a stop, a timeout, a wrong size) is finished; complete files are only checked.
-    # H3_IMAGE=0 / QWEN_IMAGE=0 / QWEN_IMAGE_BASE=0 / QWEN_EDIT_2509=0 / REGEN_2K=0 skip a list.
+    # H3_IMAGE=0 / REGEN_2K=0 skip a list.
     (fetch_models "$MODELS_SRC") &
     # The image's installer may replace models/ while it copies ComfyUI in;
     # keep re-applying the links. ComfyUI re-reads a folder whose mtime
@@ -204,8 +206,7 @@ fi
 # The ComfyUI release the pod runs. runpod/comfyui bakes one under
 # /opt/comfyui-baked (v0.35.0 in the newest image) and its own start.sh copies
 # it into the workspace, upgrading a workspace whose bundle manifest differs;
-# Qwen-Image 2.1's nodes need v0.37 or later, MiniMax-H3-Image's v0.45.0. The
-# release named here replaces
+# MiniMax-H3-Image's nodes need v0.45.0. The release named here replaces
 # the baked core before that happens (custom nodes, models and user data are
 # not touched) and the manifest says so; the image's start.sh then installs
 # the exact packages that release pins (frontend, comfy-kitchen…) with torch
@@ -234,7 +235,7 @@ if [ -n "$COMFYUI_VERSION" ] && [ -f "$BAKED_COMFYUI/.runpod-bundle-version" ] \
      && sed -i "s/^COMFYUI_VERSION=.*/COMFYUI_VERSION=$COMFYUI_VERSION/" "$BAKED_COMFYUI/.runpod-bundle-version"; then
     echo "[start] ComfyUI $COMFYUI_VERSION in place of the image's ${baked_from:-?}"
   else
-    echo "[start] could not put ComfyUI $COMFYUI_VERSION in place (/app/comfyui_version.log); running the image's ${baked_from:-?} — MiniMax-H3-Image and Qwen-Image 2.1 will report missing nodes"
+    echo "[start] could not put ComfyUI $COMFYUI_VERSION in place (/app/comfyui_version.log); running the image's ${baked_from:-?} — MiniMax-H3-Image will report missing nodes"
   fi
   rm -rf "$(dirname "$src")"
 elif [ -n "$COMFYUI_VERSION" ] && [ ! -d "$BAKED_COMFYUI" ]; then

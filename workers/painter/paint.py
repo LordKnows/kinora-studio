@@ -773,7 +773,7 @@ def comfy_preflight(graph: dict[str, Any], http: Any) -> None:
         else:
             infos[cls] = info
     if missing_nodes:
-        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: Qwen-Image 2.1 needs ComfyUI v0.37 or later, MiniMax-H3-Image v0.45.0 — the pod swaps it in at boot from COMFYUI_VERSION (default v0.45.0; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
+        raise PaintError(f"ComfyUI on the pod lacks the nodes {', '.join(missing_nodes)}: MiniMax-H3-Image needs ComfyUI v0.45.0 or later — the pod swaps it in at boot from COMFYUI_VERSION (default v0.45.0; runpod/comfyui images ship v0.35.0 at most), see /app/comfyui_version.log and the pod log")
     problems = []
     for nid, node in graph.items():
         spec = {**((infos[node["class_type"]].get("input") or {}).get("required") or {}), **((infos[node["class_type"]].get("input") or {}).get("optional") or {})}
@@ -872,7 +872,7 @@ def comfy_upload(path: Path, http: Any) -> str:
 
 def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, settings: dict[str, Any], http: Any = requests) -> Any:
     """One picture from an image model on the pod's ComfyUI: the model's API-format graph, its reference
-    slots filled in order (<image1> / <Picture 1> is the first), the Studio's settings applied, then the first
+    slots filled in order (<Picture 1> is the first), the Studio's settings applied, then the first
     saved image — at the canvas the model drew on, which the caller fits to the asked size."""
     Image = _pil()
     import random
@@ -884,13 +884,9 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         raise PaintError(f"this pod has no image model {model} (workflows/image_models.json)")
     missing = missing_files(entry)
     if missing:
-        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (H3_IMAGE=1 / QWEN_IMAGE=1 / QWEN_IMAGE_BASE=1 / QWEN_EDIT_2509=1, /app/download_h3_image.log, /app/download_qwen_image*.log, /app/download_qie2509.log) when the disk has room")
+        raise PaintError(f"{model}: model files not on the pod yet ({', '.join(missing)}); they download at boot (H3_IMAGE=1, /app/download_h3_image.log) when the disk has room")
     if len(pictures) > int(entry.get("max_images", MAX_COMFY_PICTURES)):
         raise PaintError(f"{model} takes at most {entry.get('max_images')} pictures")
-    if len(pictures) < int(entry.get("min_images", 0)):
-        raise PaintError(f"{model} needs at least {entry.get('min_images')} pictures (a pose and a portrait or costume)")
-    # a model with a set number of slots (Qwen-Image-Edit 2509) has a graph per picture count
-    entry = {**entry, **((entry.get("variants") or {}).get(str(len(pictures))) or {})}
     graph = json.loads((POD_DIR / "workflows" / f"{entry['workflow']}.json").read_text())
     graph = {k: v for k, v in graph.items() if not k.startswith("_")}
     loaders = list(entry.get("image_loaders") or [])
@@ -909,7 +905,7 @@ def run_comfy(model: str, prompt: str, pictures: list[Path], w: int, h: int, set
         graph[loaders[i]]["inputs"]["image"] = comfy_upload(pic, http)
     m = int(entry.get("size_multiple") or 16)
     _put(graph, entry.get("prompt"), prompt)
-    # above CFG 1 the negative branch runs: a single space, as the Omni card asks (empty would switch true CFG off)
+    # above CFG 1 the negative branch runs: a single space (empty would switch true CFG off)
     _put(graph, entry.get("negative"), " " if settings.get("cfg", 1) > 1 else "")
     # a model with a working range draws small requests larger (the job's resolution is the side of that area)
     min_area = settings["resolution"] ** 2 if entry.get("min_area") and "resolution" in settings else int(entry.get("min_area") or 0)
