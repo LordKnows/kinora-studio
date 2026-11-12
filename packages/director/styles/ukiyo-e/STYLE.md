@@ -105,11 +105,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no shading or gradients on figures",
-    "no photographic depth of field"
+    "figures are flat colour inside keyblock lines; gradients only in sky and water",
+    "every plane is equally sharp from the foreground to the horizon"
   ],
   "cinematography": {
     "lens": "normal",

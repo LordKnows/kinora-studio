@@ -90,7 +90,7 @@
       "lens": "camcorder wide, auto-focus and auto-exposure failing",
       "lighting": "fluorescent panels, some dead; flicker"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no monsters", "no gore", "no people"],
+    "negative": ["every room and corridor is empty and still", "the dread comes from empty space, dead lights and tape faults alone", "the camera operator stays behind the lens"],
     "cinematography": { "grade": "muted", "texture": "vhs", "lens": "wide", "angle": "pov", "dof": "deep", "lighting": ["practicals"], "pace": "still" },
     "bySize": { "insert": { "lens": "normal" } },
     "loras": [],

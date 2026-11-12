@@ -106,11 +106,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no close-up faces",
-    "no UI"
+    "people are tiny figures seen from high above",
+    "the frame is a clean photograph from edge to edge"
   ],
   "cinematography": {
     "angle": "high",

@@ -6,7 +6,7 @@ import { flatShots } from "../types.js";
 
 export interface LookOverrides {
   aspectRatio?: Look["aspectRatio"];
-  /** Extra negatives, e.g. from the brief. */
+  /** Extra constraints, e.g. from the brief: statements of what the picture shows (H3 has no negative prompt). */
   negative?: string[];
   /** The speed LoRAs the project uses; the style's own LoRAs are appended. */
   loras?: Look["loras"];

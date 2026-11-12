@@ -4,7 +4,7 @@ The director layer beside the Cinema Studio MCP: judgement, not formatting. The 
 
 | Area | What it adds | Tool |
 |---|---|---|
-| Style | 16 presets in the eleven-section STYLE.md convention, compiled to Studio fields (Look, negatives, per-shot cinematography defaults, allowed camera moves, transitions, sound defaults); user styles in `~/.openhiggsfield/my-styles` shadow the library | `list_styles`, `suggest_styles`, `get_style`, `compile_look`, `apply_style` |
+| Style | 16 presets in the eleven-section STYLE.md convention, compiled to Studio fields (Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions, sound defaults); user styles in `~/.openhiggsfield/my-styles` shadow the library | `list_styles`, `suggest_styles`, `get_style`, `compile_look`, `apply_style` |
 | Treatment | logline, arc, three candidate structures, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design table, silences, J/L cuts → `TREATMENT.md` for `save_script` | `validate_treatment` |
 | Rhythm | deterministic lint on a shotlist: pace / size / move variety, a breath, static use, beat tiling, link and mode sanity, dialogue density, render-order switches | `lint_shotlist` |
 | Craft | staging in screen terms (blocking, the 180° line, exits), what moves (dead frames), eye level at most twice, no run of one size, frame plans, handles; wording the model misreads (loose directions, negations, unison reactions, "cartoon"); the pictures AI video gets wrong (`fragile.*`, and a fragility score for the batch probe); treatment turns as problem → solution → reaction | `lint_shotlist`, `validate_treatment` |

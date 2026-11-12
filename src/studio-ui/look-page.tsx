@@ -2,6 +2,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
+import { checkConstraint } from "@director/lint/constraints";
+
 import { planDurations } from "@/studio/editing";
 import type { LookSettings, LoraRef } from "@/studio/schemas";
 import type { Asset, Project } from "@/studio/types";
@@ -195,8 +197,14 @@ export function LookPage() {
             <Field label="Lens"><input className="st-input" value={style.lens} onChange={(e) => set("lens", e.target.value)} placeholder="35mm, shallow depth of field" /></Field>
           </div>
           <Field label="Lighting"><input className="st-input" value={style.lighting} onChange={(e) => set("lighting", e.target.value)} placeholder="practical sources, hard key" /></Field>
-          <Field label="Constraints (negative)" group>
-            <Chips values={style.negative} onRemove={(i) => set("negative", style.negative.filter((_, j) => j !== i))} onAdd={(v) => style.negative.length < 10 && set("negative", [...style.negative, v])} placeholder="no on-screen text" />
+          <Field label="Constraints" group>
+            <Chips values={style.negative} onRemove={(i) => set("negative", style.negative.filter((_, j) => j !== i))} onAdd={(v) => style.negative.length < 10 && set("negative", [...style.negative, v])} placeholder="exactly two people in the room" />
+            <span className="st-muted">What the picture shows. H3 has no negative prompt: a word written here is drawn, so “blurry” or “no logos” work against you.</span>
+            {style.negative.map(checkConstraint).filter((v) => v.kind !== "ok").map((v, i) => (
+              <span key={`${v.text}-${i}`} className="st-muted">
+                “{v.text}” {v.inPrompt ? "is a ban and can add what it names" : "is left out of the prompt"}: {v.suggest}.
+              </span>
+            ))}
           </Field>
         </div>
 

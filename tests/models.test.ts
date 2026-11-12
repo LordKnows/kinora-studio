@@ -48,7 +48,7 @@ const turbo = { id: "lora_h3_turbo_fl2v", name: "H3 turbo 8-step (fl2v)", kind: 
 describe("resolving the settings", () => {
   it("takes the base model's recommendation, its workflow variant, then the speed LoRA's chain", () => {
     const base = resolveParams(H3, { workflow: "I2VA" });
-    expect(base.params).toMatchObject({ steps: 20, sampler: "res_multistep", scheduler: "simple", shiftVideo: 1, shiftAudio: 1 });
+    expect(base.params).toMatchObject({ steps: 20, sampler: "res_multistep", scheduler: "simple", shiftVideo: 12, shiftAudio: 3 });
     expect(resolveParams(H3, { workflow: "R2VA" }).params.scheduler).toBe("beta");
     expect(isGraphDefault(H3, base.params)).toBe(false);
     const fast = resolveParams(H3, { workflow: "R2VA", loras: [turbo] });

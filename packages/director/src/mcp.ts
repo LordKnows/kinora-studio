@@ -58,11 +58,11 @@ server.registerTool("get_style", {
 });
 
 server.registerTool("compile_look", {
-  description: "Style → the `look` object for start_film / update_look (genre, palette, camera, lens, lighting, negatives, LoRAs). Pass the project's speed LoRAs in `loras`.",
+  description: "Style → the `look` object for start_film / update_look (genre, palette, camera, lens, lighting, constraints, LoRAs). Pass the project's speed LoRAs in `loras`.",
   inputSchema: {
     style: z.string().min(1),
     aspectRatio: z.enum(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
-    negative: z.array(z.string().max(80)).optional().describe("extra negatives from the brief"),
+    negative: z.array(z.string().max(80)).optional().describe("extra constraints from the brief, each a statement of what the picture shows (H3 has no negative prompt)"),
     loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).optional(),
     genreSuffix: z.string().max(80).optional(),
     paletteSuffix: z.string().max(80).optional(),

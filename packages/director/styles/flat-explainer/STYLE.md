@@ -104,12 +104,7 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no gradients",
-    "no 3D shading",
-    "no realistic faces"
+    "faces are simple shapes: an oval head, dot eyes, a single line for the mouth"
   ],
   "cinematography": {
     "lens": "normal",

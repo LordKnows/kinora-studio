@@ -107,11 +107,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no close-up faces",
-    "no handheld shake"
+    "people are small figures in wide frames, seen from a distance",
+    "the camera is tripod-locked or glides on a smooth track"
   ],
   "cinematography": {
     "lens": "wide",

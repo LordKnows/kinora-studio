@@ -89,7 +89,7 @@
       "lens": "macro to normal, shallow focus on card layers",
       "lighting": "a single warm desk lamp from one side, soft paper shadows"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no hands", "no smooth CGI surfaces"],
+    "negative": ["pages turn and tabs pull by themselves; only book, desk and lamp are in frame"],
     "cinematography": { "animation": "stopmotion", "grade": "pastel", "texture": "digital", "lens": "macro", "dof": "shallow", "lighting": ["practicals", "rim"], "pace": "slow" },
     "bySize": { "els": { "lens": "normal", "dof": "medium" } },
     "loras": [],

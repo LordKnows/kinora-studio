@@ -105,12 +105,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no colour",
-    "no modern haircuts or clothes",
-    "no spoken dialogue"
+    "everyone wears 1920s clothes and hair: bowler hats, bobbed hair, high collars",
+    "actors mime and gesture; the soundtrack is a solo pit piano"
   ],
   "cinematography": {
     "lens": "normal",

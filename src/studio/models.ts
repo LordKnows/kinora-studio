@@ -170,13 +170,16 @@ export const MODELS: ModelEntry[] = [
   {
     id: "minimax-h3", kind: "video", runtime: "pod", label: "MiniMax H3", zh: "MiniMax H3 视频", family: "minimax-h3",
     workflows: ["T2VA", "I2VA", "FL2VA", "R2VA"],
-    /* the base chain (HANDOFF §3); a speed LoRA replaces it */
-    params: { steps: 20, sampler: "res_multistep", scheduler: "simple", shiftVideo: 1, shiftAudio: 1 },
+    /* the base chain (HANDOFF §3); a speed LoRA replaces it. The handoff's 20-step graph had no
+       MiniMaxH3SigmaShift node, which leaves the model's own shift (ComfyUI supported_models:
+       shift 12, audio_shift 3). Our graphs always carry the node, so the base chain sets it to
+       those values; 1/1 would be no shift at all (too few steps at high noise: camera moves stutter). */
+    params: { steps: 20, sampler: "res_multistep", scheduler: "simple", shiftVideo: 12, shiftAudio: 3 },
     variants: { R2VA: { scheduler: "beta" } },
     graphDefaults: { steps: 8, sampler: "euler", scheduler: "simple", shiftVideo: 6, shiftAudio: 3 },
     license: "MiniMax Community License (excludes deployments in the US, EU, UK and South Korea)", commercial: "ask", moderation: "none",
     source: "https://huggingface.co/Comfy-Org/MiniMax-H3",
-    notes: "Video with sound, 768p, 5–15 s per take. Without a speed LoRA: the base chain at 20 steps. With a turbo LoRA (lightx2v): 8 steps, euler/simple, sigma shift 6 video / 3 audio — about 2.5× faster.",
+    notes: "Video with sound, 768p, 5–15 s per take. Without a speed LoRA: the base chain at 20 steps, the model's own sigma shift (12 video / 3 audio). With a turbo LoRA (lightx2v): 8 steps, euler/simple, sigma shift 6 video / 3 audio — about 2.5× faster.",
   },
   {
     id: "open-h3-regenerate-2k", kind: "video", runtime: "pod", label: "Open-H3-Regenerate-2K", zh: "H3 2K 重生成", family: "minimax-h3",

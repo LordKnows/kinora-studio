@@ -152,7 +152,7 @@ describe("lightx2v structured prompt and loops", () => {
   it("serialises the sections the way the handoff prompts are written", async () => {
     const { compileShot } = await import("@/studio/compiler");
     const base = { id: "s", projectId: "p", sceneId: "c", index: 0, createdAt: 0, updatedAt: 0 };
-    const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["no logos"], loras: [], dialogueLanguage: "en" };
+    const look = { genre: "neo-noir", palette: "teal and amber", camera: "", lens: "", lighting: "", aspectRatio: "16:9" as const, resolution: "768p" as const, upscale: false, negative: ["the lobby is empty", "no logos", "blurry, lowres"], loras: [], dialogueLanguage: "en" };
     const assets = new Map([
       ["h", { id: "h", projectId: "p", url: "https://r2/h.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
       ["e", { id: "e", projectId: "p", url: "https://r2/e.png", kind: "image" as const, source: "upload" as const, meta: {}, createdAt: 0 }],
@@ -169,7 +169,11 @@ describe("lightx2v structured prompt and loops", () => {
     expect(paragraphs[0]).toBe("integrated_multimodal_description: For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced, and the target video ends on <Picture 2>.");
     expect(paragraphs[1]).toMatch(/^\[Shot 1\] neo-noir\. teal and amber\. One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>\. Mara crosses the lobby\./);
     expect(paragraphs[1]).toContain('Mara (S1) says (breathless): <d>[English] Not tonight.</d>');
-    expect(paragraphs[1]).toContain("no logos");
+    /* H3 has no negative prompt: a statement goes in, a text ban and bare negative words stay out, and the compiler adds no ban of its own */
+    expect(paragraphs[1]).toContain("the lobby is empty.");
+    for (const word of ["no logos", "blurry", "lowres", "No subtitles"]) expect(fl.prompt).not.toContain(word);
+    expect(fl.warnings.some((w) => w.includes("left out of the prompt") && w.includes('"no logos"') && w.includes('"blurry, lowres"'))).toBe(true);
+    expect(fl.input.negative).toBe("");
     expect(paragraphs[2]).toBe("overall_soundscape: rain. wet street.");
     expect(paragraphs[3]).toBe("non_diegetic_music: N/A");
 

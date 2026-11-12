@@ -89,7 +89,7 @@
       "lens": "macro, shallow depth of field",
       "lighting": "soft window daylight on a tabletop, glossy highlights on plastic"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no hands", "no real-scale buildings"],
+    "negative": ["only bricks, minifigures and the tabletop are in frame; bricks move on their own", "every building is a brick model a few bricks tall"],
     "cinematography": { "animation": "stopmotion", "grade": "vivid", "texture": "digital", "lens": "macro", "dof": "shallow", "lighting": ["highkey", "practicals"], "pace": "steady" },
     "bySize": { "els": { "lens": "normal", "dof": "medium" } },
     "loras": [],

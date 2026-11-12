@@ -106,12 +106,9 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no monsters",
-    "no gore",
-    "no people"
+    "every room and corridor is empty and still",
+    "the dread comes from empty space, dead lights and tape faults alone",
+    "the camera operator stays behind the lens"
   ],
   "cinematography": {
     "angle": "pov",

@@ -105,12 +105,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no colour",
-    "no realistic anatomy",
-    "no 3D"
+    "limbs bend in smooth curves like hoses; hands are white four-finger gloves",
+    "flat ink-and-paint drawings with one even line weight"
   ],
   "cinematography": {
     "lens": "normal",

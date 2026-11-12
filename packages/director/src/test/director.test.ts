@@ -32,7 +32,7 @@ test("findStyle by slug, English and Chinese", () => {
 
 test("compileLook merges negatives, keeps the Studio limits and appends style LoRAs", () => {
   const s = findStyle("ink-wash")!.style;
-  const look = compileLook(s, { negative: ["no cars", "no on-screen text"], loras: [{ id: "lora_h3_turbo_fl2v" }], aspectRatio: "9:16" });
+  const look = compileLook(s, { negative: ["no cars", "no outlines"], loras: [{ id: "lora_h3_turbo_fl2v" }], aspectRatio: "9:16" });
   assert.equal(look.aspectRatio, "9:16");
   assert.equal(look.resolution, "768p");
   assert.ok(look.negative!.length <= 10);

@@ -105,11 +105,7 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no hands",
-    "no glossy plastic"
+    "only the clay and felt figures and their set are in frame, moving on their own"
   ],
   "cinematography": {
     "lens": "normal",

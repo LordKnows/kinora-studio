@@ -105,11 +105,7 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
-    "no hands",
-    "no smooth CGI surfaces"
+    "pages turn and tabs pull by themselves; only book, desk and lamp are in frame"
   ],
   "cinematography": {
     "lens": "macro",

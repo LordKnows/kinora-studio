@@ -52,7 +52,7 @@ describe("dialogue in the H3 guide's format", () => {
   it("writes on-screen lines as (S1) says: <d>[Chinese] …</d>, Chinese by default", () => {
     const job = compile(shotOf({ dialogue: [{ speaker: "mara", text: "今晚的雨下得真大。", delivery: "voice tight" }] }));
     expect(job.prompt).toContain("<Subject 1> (S1), a young woman in her twenties, mezzo voice, clear and soft, says (voice tight): <d>[Chinese] 今晚的雨下得真大。</d>");
-    expect(job.prompt).toContain("No extra dialogue beyond the lines above");
+    expect(job.prompt).toContain("The lines above are the only words spoken.");
   });
 
   it("follows the project's dialogue language and a line's own language", () => {
@@ -84,7 +84,27 @@ describe("dialogue in the H3 guide's format", () => {
     ] }));
     expect(job.prompt).not.toContain("门外有人");
     expect(job.prompt).not.toContain("<d>");
-    expect(job.prompt).toContain("No one in the frame speaks; every mouth stays closed");
+    expect(job.prompt).toContain("<Subject 1> stays silent, lips closed.");
+  });
+
+  it("says who is silent by name, as what happens, and only when someone is in the shot", () => {
+    /* no lines: the cast is silent */
+    expect(compile(shotOf({})).prompt).toContain("<Subject 1> stays silent.");
+    expect(compile(shotOf({ characters: ["mara", "theo"] })).prompt).toMatch(/<Subject 1> and (<Subject 2>|Theo) stay silent\./);
+    expect(compile(shotOf({ mode: "keyframe" }, { heroAssetId: "h" })).prompt).toContain("Mara stays silent.");
+    /* a voice that is not speech (a laugh in the action, a purr in the sound) is not silenced */
+    expect(compile(shotOf({ beats: [{ from: 0, to: 8, action: "Mara laughs and shakes her head" }] })).prompt).not.toContain("silent");
+    expect(compile(shotOf({ sound: { sfx: ["a soft cat purr"], ambience: "", music: "N/A" } })).prompt).not.toContain("silent");
+    /* nobody in the shot: nothing is said about speech, so no people are asked for */
+    const empty = compile(shotOf({ mode: "text", characters: [] })).prompt;
+    expect(empty).not.toContain("silent");
+    expect(empty).not.toMatch(/\bNo (dialogue|one)\b/);
+    /* off-screen lines over a shot with nobody listed still close the mouths in frame */
+    expect(compile(shotOf({ mode: "text", characters: [], dialogue: [{ speaker: "theo", text: "门外有人。", kind: "offscreen" }] })).prompt).toContain("Everyone in the frame stays silent, lips closed.");
+    /* the rule itself carries no negation */
+    for (const p of [compile(shotOf({})).prompt, compile(shotOf({ dialogue: [{ speaker: "mara", text: "好。" }] })).prompt]) {
+      expect(p).not.toMatch(/\b(No dialogue|No extra dialogue|No one|No subtitles)\b/);
+    }
   });
 
   it("puts a timed line in the [Shot k] segment of its beat and warns about a line across a cut", () => {

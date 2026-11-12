@@ -902,7 +902,13 @@ export type LintWarning = { code: string; message: string; scene?: string; shot?
     completeness the MCP save path reports. */
 export async function lintProject(projectId: string, opts?: { totalSeconds?: number }): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number } }> {
   const { view, shotlist } = await shotlistOf(projectId);
-  if (shotlist.scenes.length === 0) return { warnings: [], counts: { error: 0, warn: 0, info: 0 } };
+  /* the Look's constraints are checked with or without a shotlist: they ride in every prompt */
+  const lookWarnings = director.lintConstraints(view.project.look.negative ?? []) as LintWarning[];
+  if (shotlist.scenes.length === 0) {
+    const counts = { error: 0, warn: 0, info: 0 };
+    for (const x of lookWarnings) counts[x.severity]++;
+    return { warnings: lookWarnings, counts };
+  }
   const elements = view.elements.map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures }));
   const raw = director.lintShotlist(shotlist as never, { totalSeconds: opts?.totalSeconds ?? view.project.targetSeconds ?? undefined, elements }) as LintWarning[];
   /* The package numbers shots across the film from 0; the Board keys them
@@ -920,6 +926,7 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
       warnings.push(...frameWarnings(sh, w, h).map((x) => ({ ...x, ...at })));
     });
   }
+  warnings.push(...lookWarnings);
   for (const p of paletteContrastWarnings(view)) warnings.push({ code: "palette.contrast", severity: "warn", scene: p.scene, message: p.message });
   warnings.push(...(await checkSeams(projectId)));
   const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");

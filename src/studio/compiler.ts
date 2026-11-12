@@ -1,3 +1,5 @@
+import { promptConstraints } from "@director/lint/constraints";
+
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
@@ -33,7 +35,7 @@ export type WorkerInput = {
   enhance: boolean;
   steps: number;
   /** Set when no speed LoRA is active: the base chain the handoff measured
-      (res_multistep, simple or beta, no sigma shift) instead of the turbo
+      (res_multistep, simple or beta, the model's own shift 12/3) instead of the turbo
       chain baked into the graphs (euler/simple, shift 6/3). */
   sampling?: { sampler: string; scheduler: string; shift_video: number; shift_audio: number };
   seed?: number;
@@ -130,6 +132,9 @@ const CAMERA_PHRASE: Record<(typeof CAMERA_MOVES)[number], string> = {
   zoom: "zooms",
 };
 
+/* A voice that is not speech: a cast that laughs, sighs or purrs is not told to stay silent. */
+const VOCAL_SOUND = /\b(laugh|giggl|chuckl|snicker|sigh|gasp|sob|weep|cr(y|ies|ying)|scream|shout|yell|cheer|moan|groan|grunt|hum(s|med|ming)?\b|sing(s|ing)?\b|whisper|murmur|mutter|pant|cough|sneez|yawn|snor|whistl|purr|meow|mew|bark|growl|howl|whimper|chirp|neigh|roar)|笑|哭|叹|喊|叫|唱|喘|呻吟|低语|咳|呼噜|喵|吠|吼/i;
+
 /** The effective link: the explicit Tier-2 link, or the legacy linkToPrev. */
 export function effectiveLink(spec: ShotInput): ShotLink {
   if (spec.link) return spec.link;
@@ -213,18 +218,23 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   if (loras.length > MAX_TAKE_LORAS) throw new CompileError(`this shot would load ${loras.length} LoRAs (${loras.map((l) => l.name).join(", ")}); a take takes at most ${MAX_TAKE_LORAS} — drop some from the Look or override the shot's loras`);
   const speed = loras.find((l) => l.kind === "speed");
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type, audios);
+  if (!shot.promptOverride?.trim()) {
+    const left = promptConstraints(look.negative).dropped;
+    if (left.length) warnings.push(`Look constraints left out of the prompt (H3 has no negative prompt, the words would be drawn): ${left.map((v) => `"${v.text.trim()}"`).join(", ")} — lint_project says what to write instead`);
+  }
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
   /* The settings follow the model and its speed LoRA (models.ts): the turbo
      LoRA's chain is the one the graphs carry (euler/simple, shift 6/3, 8
      steps), so nothing more is sent; without one, the base chain the
-     handoff measured (res_multistep, simple or beta, no shift, 20 steps). */
+     handoff measured (res_multistep, simple or beta, the model's own shift
+     12/3, 20 steps). */
   const h3 = { ...H3_MODEL, params: { ...H3_MODEL.params, steps: Number(process.env.H3_BASE_STEPS ?? H3_MODEL.params.steps) } };
   const resolved = resolveParams(h3, { workflow, loras, steps: ctx.steps });
   warnings.push(...resolved.warnings.map((w) => w.replace(/^MiniMax H3 wants about (\d+) steps/, "no speed LoRA: the base model wants about $1 steps")));
   const p = resolved.params;
   const steps = p.steps ?? 8;
-  const sampling = isGraphDefault(h3, p) ? undefined : { sampler: p.sampler ?? "euler", scheduler: p.scheduler ?? "simple", shift_video: p.shiftVideo ?? 1, shift_audio: p.shiftAudio ?? 1 };
-  if (!speed && sampling) warnings.push(`no speed LoRA: base sampling chain (${sampling.sampler}/${sampling.scheduler}, no sigma shift), ${steps} steps — about ${Math.round((steps / 8) * 10) / 10}× the turbo render time`);
+  const sampling = isGraphDefault(h3, p) ? undefined : { sampler: p.sampler ?? "euler", scheduler: p.scheduler ?? "simple", shift_video: p.shiftVideo ?? H3_MODEL.params.shiftVideo ?? 12, shift_audio: p.shiftAudio ?? H3_MODEL.params.shiftAudio ?? 3 };
+  if (!speed && sampling) warnings.push(`no speed LoRA: base sampling chain (${sampling.sampler}/${sampling.scheduler}, shift ${sampling.shift_video}/${sampling.shift_audio}), ${steps} steps — about ${Math.round((steps / 8) * 10) / 10}× the turbo render time`);
 
   const input: WorkerInput = {
     workflow,
@@ -239,7 +249,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     steps,
     ...(sampling ? { sampling } : {}),
     ...(ctx.seed !== undefined ? { seed: ctx.seed } : {}),
-    negative: look.negative.join(", "),
+    /* H3 has no negative input (mapping.json: negative null); the Look's constraints are in the prompt */
+    negative: "",
     loras: loras.map((l) => ({ name: l.name, file: l.filename, strength: l.strength, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}), kind: l.kind })),
   };
   const effectiveSeconds = h3EffectiveSeconds(spec.durationS);
@@ -665,14 +676,26 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   const castLine = ctx.experiments?.positiveCast && images.some((i) => i.role === "first_frame") && !(spec.blocking ?? []).some((b) => b.from === "off_left" || b.from === "off_right")
     ? ["Only the people and objects already in the first frame appear, throughout"] : [];
   const unvoiced = spec.dialogue.length > onscreen.length;
-  const speechRule = onscreen.length ? "No extra dialogue beyond the lines above" : unvoiced ? "No one in the frame speaks; every mouth stays closed" : "No dialogue";
-  const constraints = [...castLine, ...look.negative, speechRule, "No subtitles"].filter((c) => {
+  /* Who speaks, said as what happens (MiniMax's guide: "the on-screen character's lips remain closed"),
+     and by name: "everyone" in a shot of a cat or a landscape would ask for people. A shot with lines
+     says they are all there is; one with only off-screen or inner lines closes the mouths in frame;
+     one with no lines keeps its cast silent unless the action or the sound gives them a voice. */
+  const cast = spec.characters.filter((id) => ctx.elements.has(id)).map(who);
+  const castStays = cast.length > 1 ? `${cast.slice(0, -1).join(", ")} and ${cast.at(-1)} stay` : cast.length === 1 ? `${cast[0]} stays` : "";
+  const voiced = VOCAL_SOUND.test([...spec.beats.map((b) => b.action), ...spec.sound.sfx, spec.sound.ambience ?? ""].join(" "));
+  const speechRule = onscreen.length ? "The lines above are the only words spoken"
+    : unvoiced ? `${castStays || "Everyone in the frame stays"} silent, lips closed`
+    : castStays && !voiced ? `${castStays} silent` : "";
+  /* H3 has no negative prompt (cfg 1, no negative branch): whatever stands here is drawn. The Look's
+     constraints go in as statements; a bare negative-prompt word and a ban on text are left out
+     (lint/constraints.ts), and the compiler adds no ban of its own. */
+  const constraints = [...castLine, ...promptConstraints(look.negative).keep, speechRule].filter((c) => {
     const key = c.trim().toLowerCase().replace(/[.\s]+$/, "");
     if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
+  if (constraints.length) blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
   out.constraints = constraints;
   out.references = refLines;
   (out as Sections & { blocks: string }).blocks = blocks.join("\n\n");
