@@ -552,9 +552,12 @@ button.st-pill {
   background: var(--tx);
   border-color: var(--tx);
 }
+.studio .st-lamp[data-state="canceled"]::before {
+  border-style: dashed;
+  border-color: var(--tx3);
+}
 .studio .st-lamp[data-state="failed"]::before,
 .studio .st-lamp[data-state="timeout"]::before,
-.studio .st-lamp[data-state="canceled"]::before,
 .studio .st-lamp[data-state="danger"]::before {
   width: 10px;
   height: 10px;
@@ -4151,4 +4154,18 @@ button.st-pill {
   gap: 8px;
   padding-top: 10px;
   border-top: 2px solid var(--line-3);
+}
+
+/* takes that failed for one reason, said once */
+.studio .st-take--ng {
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+.studio .st-take-ng-mark {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 1.5px solid var(--tx);
+  font-size: 15px;
+  font-weight: 500;
 }

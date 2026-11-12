@@ -10,7 +10,7 @@ import type { Take } from "@/studio/types";
 import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
-import { del, get, patch, post, put, usd } from "./api";
+import { del, describe, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
@@ -209,7 +209,7 @@ function Board() {
             </Button>
           )}
           {approved && (
-            <Button kind="primary" busy={plan.busy} onClick={() => void plan.fire()} title="Order the shots without a take: R2VA first, anchors before linked shots, one estimate">
+            <Button kind="tally" busy={plan.busy} onClick={() => void plan.fire()} title="Order the shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.">
               Render batch
             </Button>
           )}
@@ -260,6 +260,7 @@ function Board() {
                   key={shot.id}
                   shot={shot}
                   index={i}
+                  slate={`${view.scenes.indexOf(scene) + 1}·${i + 1}`}
                   lint={lintByShot.get(shotKey(scene.slug, i)) ?? []}
                   open={openId === shot.id}
                   onOpen={() => setOpenId(shot.id)}
@@ -332,7 +333,7 @@ function Board() {
             {batch.probe && batch.probe.shotIds.length > 0 && (
               <div className="st-card st-row st-row--between">
                 <span><strong>Probe first.</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
-                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>Render probe ({batch.probe.shotIds.length})</Button>
+                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>Render probe ({batch.probe.shotIds.length}) <span className="st-btn-price">· ≈ {usd(batch.probe.estimateUsd)}</span></Button>
               </div>
             )}
             {batch.passes.map((pass, pi) => (
@@ -368,8 +369,8 @@ function Board() {
             {batch.deferred.length > 0 && <span className="st-muted">Waiting for an anchor: {batch.deferred.map((d) => d.shotId).join(", ")}</span>}
             <div className="st-row st-row--between">
               <span className="st-muted">Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.</span>
-              <Button kind="primary" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
-                Render pass 1 ({batch.passes[0]?.length ?? 0})
+              <Button kind="tally" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
+                Render pass 1 ({batch.passes[0]?.length ?? 0}) <span className="st-btn-price">· ≈ {usd((batch.passes[0] ?? []).reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0))}</span>
               </Button>
             </div>
           </div>
@@ -386,7 +387,7 @@ function linkLabel(spec: ShotView["spec"]): string | null {
   return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
 }
 
-function ShotCard({ shot, index, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
+function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
   const latest = shot.takes[0];
   const cost = shot.takes.reduce((n, t) => n + (t.costUsd ?? 0), 0);
   const codes = cineCodes(shot.spec);
@@ -399,7 +400,7 @@ function ShotCard({ shot, index, lint, open, onOpen, onUp, onDown }: { shot: Sho
           const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
           return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : "no take yet"}</div>;
         })()}
-        <span className="st-shot-index">{index + 1}</span>
+        <span className="st-shot-index">{slate ?? index + 1}</span>
         {latest && (
           <span className="st-shot-status">
             <Lamp state={latest.status} label={statusLabel(latest.status)} />
@@ -469,7 +470,7 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
 
   return (
     <Drawer
-      title={`Shot ${shot.index + 1} · ${shot.spec.intent || "untitled"}`}
+      title={`${view ? `${view.scenes.findIndex((sc) => sc.id === shot.sceneId) + 1}·${shot.index + 1}` : `Shot ${shot.index + 1}`} · ${shot.spec.intent || "untitled"}`}
       onClose={onClose}
       head={
         <>
@@ -585,13 +586,33 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
 }
 
 function TakesPanel({ shot }: { shot: ShotView }) {
-  const { projectId, reload } = useProjectContext();
+  const { projectId, view, reload } = useProjectContext();
   const [n, setN] = useState(1);
   const [steps, setSteps] = useState<number | null>(null);
+  /* the price goes on the button: what this shot compiles to, times the takes asked for */
+  const [est, setEst] = useState<Compiled["estimate"] | null>(null);
+  const [why, setWhy] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    get<Compiled>(`/api/shots/${shot.id}/compile${steps ? `?steps=${steps}` : ""}`)
+      .then((c) => { if (alive) { setEst(c.estimate); setWhy(null); } })
+      .catch((caught) => { if (alive) { setEst(null); setWhy(describe(caught)); } });
+    return () => { alive = false; };
+  }, [shot.id, shot.updatedAt, steps]);
   const generate = useAction(async (confirm) => {
     await post(`/api/shots/${shot.id}/takes`, { n, ...(steps ? { steps } : {}), confirm });
     await reload();
   });
+  const next = Math.max(0, ...shot.takes.map((t) => t.n)) + 1;
+  const left = view ? view.project.budgetCapUsd - view.project.spentUsd : undefined;
+  /* failures that say the same thing are one line, not a wall of them */
+  const rows: Array<{ kind: "take"; take: Take } | { kind: "ng"; takes: Take[] }> = [];
+  for (const take of shot.takes) {
+    const last = rows[rows.length - 1];
+    const failed = take.status === "failed" || take.status === "timeout";
+    if (failed && last?.kind === "ng" && last.takes[0]!.error === take.error) last.takes.push(take);
+    else rows.push(failed ? { kind: "ng", takes: [take] } : { kind: "take", take });
+  }
   return (
     <div className="st-stack">
       <ErrorBanner error={generate.error} projectId={projectId} onConfirm={() => void generate.confirm()} onDismiss={generate.dismiss} />
@@ -604,15 +625,43 @@ function TakesPanel({ shot }: { shot: ShotView }) {
             <NumberInput className="st-input st-input--sm" min={4} max={50} placeholder="auto" allowEmpty value={steps} onCommit={(v) => setSteps(v)} style={{ width: 70 }} />
           </Field>
         </div>
-        <Button kind="primary" busy={generate.busy} onClick={() => void generate.fire()}>
-          Generate take{n > 1 ? "s" : ""}
-        </Button>
+        <div className="st-stack st-stack--tight" style={{ alignItems: "flex-end" }}>
+          <Button kind="tally" busy={generate.busy} onClick={() => void generate.fire()}>
+            Roll take{n > 1 ? `s ${next}–${next + n - 1}` : ` ${next}`}{est ? <span className="st-btn-price"> · ≈ {usd(est.usd * n)}</span> : null}
+          </Button>
+          <span className="st-muted st-num">
+            {est ? `${est.source === "measured" ? "from finished takes" : "placeholder constants, nothing measured yet"} · ${Math.round(est.gpuSeconds * n)} GPU s` : why ? `no estimate: ${why}` : "estimating…"}
+            {left !== undefined && est ? ` · ${usd(Math.max(0, left - est.usd * n))} left after` : ""}
+          </span>
+        </div>
       </div>
       {shot.takes.length === 0 ? (
         <Empty title="No takes yet" hint="Steps follow the LoRA: 8 with a turbo LoRA, 20 on the base chain. Leave it empty unless you want to override." />
       ) : (
-        shot.takes.map((take) => <TakeRow key={take.id} take={take} shot={shot} />)
+        rows.map((row) => (row.kind === "take" || row.takes.length === 1 ? <TakeRow key={row.kind === "take" ? row.take.id : row.takes[0]!.id} take={row.kind === "take" ? row.take : row.takes[0]!} shot={shot} /> : <NgGroup key={row.takes[0]!.id} takes={row.takes} />))
       )}
+    </div>
+  );
+}
+
+/* Several takes that failed for one reason: said once, with what they cost together. */
+function NgGroup({ takes }: { takes: Take[] }) {
+  const { projectId, reload } = useProjectContext();
+  const newest = takes[0]!;
+  const retry = useAction(async (confirm) => {
+    await post(`/api/takes/${newest.id}/retry`, { confirm });
+    await reload();
+  });
+  return (
+    <div className="st-take st-take--ng">
+      <div className="st-take-ng-mark st-num">NG</div>
+      <div className="st-stack st-stack--tight">
+        <strong>Takes {takes.map((t) => t.n).sort((a, b) => a - b).join(", ")} · the same failure</strong>
+        <span className="st-muted st-num">{newest.workflow} · {usd(takes.reduce((n, t) => n + (t.costUsd ?? 0), 0))} together</span>
+        <div className="st-alert"><span>{newest.error ?? "failed"}</span></div>
+        <ErrorBanner error={retry.error} projectId={projectId} onConfirm={() => void retry.confirm()} onDismiss={retry.dismiss} />
+        <div className="st-row"><Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>Retry take {newest.n}</Button></div>
+      </div>
     </div>
   );
 }
