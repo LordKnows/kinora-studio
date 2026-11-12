@@ -80,9 +80,9 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
   return (
     <header className="st-topbar">
       <Link className="st-brand" href="/" aria-label={`${BRAND.name} ${BRAND.zh}`}>
-        {/* the ink plate on the grey card; the cards alone in the dark room (.st-lightsdown) */}
-        <BrandMark className="st-brand-mark st-brand-mark--plate" size={22} />
-        <BrandMark className="st-brand-mark st-brand-mark--bare" size={19} bare />
+        {/* the ink plate on the grey card; in the dark room (.st-lightsdown) the plate raised one step, with its edge */}
+        <BrandMark className="st-brand-mark st-brand-mark--ink" size={22} />
+        <BrandMark className="st-brand-mark st-brand-mark--night" size={22} ground="night" />
         <BrandWord className="st-brand-name" />
         <span className="st-brand-zh" lang="zh-Hans" aria-hidden="true">{BRAND.zh}</span>
       </Link>

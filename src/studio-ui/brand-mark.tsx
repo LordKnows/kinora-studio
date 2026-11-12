@@ -1,13 +1,17 @@
 import { BRAND, BRAND_COLORS, MARK } from "@/brand";
 
-/** The Kinora mark (src/brand.ts): three cards making a K, the red one at the stop. On its ink plate by default; `bare` is the cards alone, in the text colour, for dark grounds. */
-export function BrandMark({ size = 22, bare = false, className }: { size?: number; bare?: boolean; className?: string }) {
-  const [, , w, h] = MARK.bareViewBox.split(" ").map(Number);
+/** The Kinora mark (src/brand.ts): three cards making a K, the red one at the stop. `ink`: on its ink plate, for light grounds; `night`: on the plate raised one step above a dark ground, with its edge. */
+export function BrandMark({ size = 22, ground = "ink", className }: { size?: number; ground?: "ink" | "night"; className?: string }) {
+  const night = ground === "night";
   return (
-    <svg className={className} viewBox={bare ? MARK.bareViewBox : MARK.viewBox} width={bare ? (size * w!) / h! : size} height={size} aria-hidden="true" focusable="false">
-      {!bare && <rect width="64" height="64" rx={MARK.plateRadius} fill={BRAND_COLORS.ink} />}
+    <svg className={className} viewBox={MARK.viewBox} width={size} height={size} aria-hidden="true" focusable="false">
+      {night ? (
+        <rect x="1" y="1" width="62" height="62" rx={MARK.plateRadius} fill={BRAND_COLORS.nightPlate} stroke={BRAND_COLORS.nightEdge} strokeWidth="2" />
+      ) : (
+        <rect width="64" height="64" rx={MARK.plateRadius} fill={BRAND_COLORS.ink} />
+      )}
       {MARK.cards.map((c, i) => (
-        <rect key={i} x={c.x} y={c.y} width={c.w} height={c.h} rx={MARK.cardRadius} fill={c.red ? `var(--accent, ${BRAND_COLORS.tally})` : bare ? "currentColor" : BRAND_COLORS.card} transform={c.rotate ? `rotate(${c.rotate})` : undefined} />
+        <rect key={i} x={c.x} y={c.y} width={c.w} height={c.h} rx={MARK.cardRadius} fill={c.red ? `var(--accent, ${BRAND_COLORS.tally})` : night ? BRAND_COLORS.night : BRAND_COLORS.card} transform={c.rotate ? `rotate(${c.rotate})` : undefined} />
       ))}
     </svg>
   );

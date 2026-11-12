@@ -240,8 +240,9 @@
 }
 /* The brand (src/brand.ts, docs/brand.md): the K of three cards, then
    "kinora" in bold with the i's dot as the red card, "Studio" in regular,
-   影匣 in Songti. In the dark room the plate goes and the cards stand alone,
-   and the word loses a little weight, since light type on dark reads heavier. */
+   影匣 in Songti. In the dark room the plate is raised one step above the
+   ground with a hairline edge (the ink plate would sink into it), and the word
+   loses a little weight, since light type on dark reads heavier. */
 .studio .st-brand {
   display: flex;
   align-items: center;
@@ -256,11 +257,11 @@
   flex: none;
   margin-right: 1px;
 }
-.studio .st-brand-mark--bare,
-.studio .st-lightsdown .st-brand-mark--plate {
+.studio .st-brand-mark--night,
+.studio .st-lightsdown .st-brand-mark--ink {
   display: none;
 }
-.studio .st-lightsdown .st-brand-mark--bare {
+.studio .st-lightsdown .st-brand-mark--night {
   display: block;
 }
 .studio .st-brand-word {

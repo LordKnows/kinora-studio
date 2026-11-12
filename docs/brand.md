@@ -69,14 +69,14 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 | 场合 | 图标 | 字 |
 |---|---|---|
 | 白底、灰卡底（默认） | 墨色底板 `#121212`，卡片 `#E6E6E4` | `kinora` 墨色，字重 800、字距 −0.03em；`Studio` 灰 |
-| 黑底：和字标并排 | **去掉底板**，卡片直接放上去，`#EDEDEA` | 白用 `#EDEDEA`，不用纯白；字重 760、字距 −0.022em；`Studio` 用 `#8C8C87` |
-| 黑底：单独的图标（深色模式的 App 图标、黑色浏览器标签） | **抬高一层**的底板 `#1F1F1E`，一圈细边 `#3A3A38` | — |
+| 黑底（和字标并排、单独的图标、深色模式的 App 图标、黑色浏览器标签） | **抬高一层**的底板 `#1F1F1E`，一圈细边 `#3A3A38`，卡片 `#EDEDEA` | 白用 `#EDEDEA`，不用纯白；字重 760、字距 −0.022em；`Studio` 用 `#8C8C87` |
 | 黑底海报、片尾出品标 | 浅色底板 `#EDEDEA` 上的墨色卡片：反白章，平时不用 | — |
+| 特别大的展示（片头、海报主视觉） | 也可以去掉底板，卡片直接放在黑底上（`markSvg({ ground: "none" })`） | — |
 
-黑底不是把白底反色：墨色底板会和背景融成一片，亮字在黑底上也显得更粗。红卡在两种底上都不变，
+黑底不是把白底反色：墨色底板会和背景融成一片，所以底板要比背景亮一档、加一圈细边，像浮在上面；亮字在黑底上也显得更粗。红卡在两种底上都不变，
 还是 `#FF4B1F`（在 `#121212` 上对比度约 5.6:1）。
 
-界面里：顶栏在灰卡底上用带底板的图标；放映页“灯光暗下”时顶栏变黑，自动换成不带底板的卡片，
+界面里：顶栏在灰卡底上用墨色底板的图标；放映页“灯光暗下”时顶栏变黑，自动换成抬高一层的底板，
 字重也跟着减一档（`studio.css` 里的 `.st-lightsdown`）。浏览器标签里的 favicon 跟着系统深浅色自动切换。
 
 ### 不要
@@ -108,7 +108,7 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 | 文件 | 内容 |
 |---|---|
 | `src/brand.ts` | 名字、颜色、标志的几何、`markSvg()` 和 `faviconSvg()`。改名或改标志只改这里 |
-| `src/studio-ui/brand-mark.tsx` | 界面里用的图标（`BrandMark`）和字标（`BrandWord`） |
+| `src/studio-ui/brand-mark.tsx` | 界面里用的图标（`BrandMark`，`ground` 为 `ink` 或 `night`）和字标（`BrandWord`） |
 | `scripts/build-brand-assets.mjs` | 从 `src/brand.ts` 生成 `src/app/icon.svg`、`public/icon-*.png`、`src/app/apple-icon.png` 和 `public/og.png`（`node scripts/build-brand-assets.mjs`，需要 Node 22.18 以上和一个 Chromium） |
 | `tests/brand.test.ts` | favicon 和 `src/brand.ts` 一致；三张卡、一张红；界面里没有旧名字 |
 
