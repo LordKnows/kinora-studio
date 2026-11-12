@@ -15,7 +15,9 @@ import { useProject } from "./use-project";
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
    pill, the global pages (folded into a menu on phones). ProjectShell adds
    the left rail with the six steps of a film in working order and the
-   budget; GlobalShell is the plain
+   budget (on phones the steps are the bottom tab bar, and the rest of the
+   rail — budget, readiness, Project settings — heads the menu); GlobalShell
+   is the plain
    frame for the home, Canvas, Library, Machine and Connect pages. Pages read the
    shared project view through ProjectContext so one SSE subscription serves
    the whole project. */
@@ -52,7 +54,7 @@ function isCurrent(href: string, pathname: string | null): boolean {
   return href === "/" ? pathname === "/" : !!pathname?.startsWith(href);
 }
 
-export function TopBar({ crumb }: { crumb?: ReactNode }) {
+export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: ReactNode }) {
   const pathname = usePathname();
   return (
     <header className="st-topbar">
@@ -70,28 +72,34 @@ export function TopBar({ crumb }: { crumb?: ReactNode }) {
           </Link>
         ))}
       </nav>
-      <NavMenu pathname={pathname} />
+      <NavMenu pathname={pathname} head={menuHead} />
     </header>
   );
 }
 
 /* Phones: the global pages do not fit beside the GPU pill, so the bar shows
-   this button in their place (studio.css hides it on wider screens). */
-function NavMenu({ pathname }: { pathname: string | null }) {
+   this button in their place (studio.css hides it on wider screens). Inside
+   a project the rail is hidden too, so `head` carries what only the rail
+   had: the budget, readiness and the way to Project settings. */
+function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode }) {
   const { open, setOpen, ref } = usePopover();
   return (
     <div className="st-nav-menu-anchor" ref={ref}>
-      <button type="button" className="st-iconbtn" aria-label="Studio pages" aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="st-iconbtn" aria-label={head ? "Project and studio pages" : "Studio pages"} aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
         <MenuIcon size={16} />
       </button>
       {open && (
-        <nav id="st-nav-menu" className="st-nav-menu" aria-label="Studio">
-          {GLOBAL_NAV.map((item) => (
-            <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined} onClick={() => setOpen(false)}>
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        /* following any link in it closes the menu */
+        <div id="st-nav-menu" className="st-nav-menu" onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setOpen(false); }}>
+          {head}
+          <nav aria-label="Studio">
+            {GLOBAL_NAV.map((item) => (
+              <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
       )}
     </div>
   );
@@ -126,30 +134,48 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
     }
     return null;
   };
+  const settingsHref = `/p/${projectId}/settings`;
+  const name = view?.project.name ?? (loading ? "…" : "Project");
+  /* the rail's head on wide screens, the menu's head on phones */
+  const meter = (
+    <>
+      <div className="st-rail-name" title={view?.project.name}>{name}</div>
+      <div className="st-rail-budget">
+        <span>Spent</span>
+        <span className="st-num">{usd(spent)} / {usd(cap)}</span>
+      </div>
+      <div className="st-rail-bar" data-over={spent > cap ? "true" : "false"}>
+        <span style={{ width: `${pct}%` }} />
+      </div>
+      {target !== undefined && (
+        <div className="st-rail-target st-num" data-match={boardSeconds === target ? "true" : "false"}>
+          board {boardSeconds} s · target {target} s
+        </div>
+      )}
+    </>
+  );
+  const readiness = view && (view.canGenerate ? <Lamp state="ok" label="Ready to render" /> : <span>{view.blockers.join(" · ")}</span>);
+  const menuHead = (
+    <nav className="st-nav-menu-project" aria-label="Project">
+      <div className="st-nav-menu-meter">
+        {meter}
+        {readiness && <div className="st-nav-menu-ready">{readiness}</div>}
+      </div>
+      <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Project settings</Link>
+    </nav>
+  );
   const items = PROJECT_NAV.map((item) => {
     const href = `/p/${projectId}/${item.slug}`;
     return { ...item, href, current: pathname === href || pathname?.startsWith(`${href}/`), lamp: lampFor(item.slug) };
   });
   return (
     <ProjectContext.Provider value={{ projectId, view, error, loading, reload }}>
-      <TopBar crumb={<><span>/</span><strong title={view?.project.name}>{view?.project.name ?? (loading ? "…" : "Project")}</strong></>} />
+      <TopBar crumb={<><span>/</span><strong title={view?.project.name}>{name}</strong></>} menuHead={menuHead} />
       <div className="st-shell">
         <nav className="st-rail" aria-label="Project">
           <div className="st-rail-head">
             <Link className="st-rail-brand" href="/">← All projects</Link>
-            <div className="st-rail-name" title={view?.project.name}>{view?.project.name ?? (loading ? "…" : "Project")}</div>
-            <div className="st-rail-budget">
-              <span>Spent</span>
-              <span className="st-num">{usd(spent)} / {usd(cap)}</span>
-            </div>
-            <div className="st-rail-bar" data-over={spent > cap ? "true" : "false"}>
-              <span style={{ width: `${pct}%` }} />
-            </div>
-            {target !== undefined && (
-              <div className="st-rail-target st-num" data-match={boardSeconds === target ? "true" : "false"}>
-                board {boardSeconds} s · target {target} s
-              </div>
-            )}
+            {meter}
           </div>
           <div className="st-rail-nav">
             {items.map((item) => (
@@ -163,8 +189,8 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
             ))}
           </div>
           <div className="st-rail-foot">
-            {view && (view.canGenerate ? <Lamp state="ok" label="Ready to render" /> : <span>{view.blockers.join(" · ")}</span>)}
-            <Link href={`/p/${projectId}/settings`}>Project settings</Link>
+            {readiness}
+            <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Project settings</Link>
           </div>
         </nav>
         <main className="st-main">

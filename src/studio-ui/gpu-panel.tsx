@@ -195,7 +195,7 @@ export function GpuStatsTable() {
       {rows.length === 0 ? (
         <p className="st-muted">No completed takes yet.</p>
       ) : (
-        <table className="st-table">
+        <div className="st-table-scroll"><table className="st-table">
           <thead>
             <tr>
               <th>GPU type</th>
@@ -223,7 +223,7 @@ export function GpuStatsTable() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       <span className="st-muted">Sorted by USD per second of video. Set RUNPOD_GPU_PRIORITY=cost to order the allow-list by this column when a pod is created.</span>
     </div>
@@ -365,7 +365,7 @@ export function GpuSection() {
       </div>
       {typesError && <p className="st-danger">{typesError}</p>}
       {types && (
-        <table className="st-table">
+        <div className="st-table-scroll"><table className="st-table">
           <thead>
             <tr>
               <th>GPU</th>
@@ -384,7 +384,7 @@ export function GpuSection() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );
