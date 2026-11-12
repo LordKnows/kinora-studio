@@ -9,6 +9,7 @@ import { filmShots } from "./film";
 import { needsOf, type LintWarning } from "./needs";
 import { NeedsYou } from "./score-page";
 import { useProjectContext } from "./shell";
+import { useT } from "./i18n";
 import { useLint } from "./use-lint";
 
 /* The director's desk: who decides what. On the left what waits for the
@@ -20,10 +21,11 @@ import { useLint } from "./use-lint";
 export function DirectorPage() {
   const { projectId, view } = useProjectContext();
   const lint = useLint(projectId, view);
+  const t = useT();
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
   if (!view) return null;
   const base = `/p/${projectId}`;
-  const needs = needsOf(view, lint, base);
+  const needs = needsOf(view, lint, base, t);
   const rolling = shots.flatMap((s) => s.shot.takes).filter((t) => t.status === "queued" || t.status === "running");
   const slateOf = (w: LintWarning) => {
     const s = shots.find((x) => x.scene.slug === w.scene && x.shot.index + 1 === w.shot);

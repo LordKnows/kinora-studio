@@ -10,6 +10,7 @@ import { usd } from "./api";
 import { Lamp, Skeleton, usePopover } from "./common";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
+import { setLang, useLang, useT } from "./i18n";
 import { MenuIcon } from "./icons";
 import { NoticeProvider, useTakeNotices } from "./notices";
 import { useProject } from "./use-project";
@@ -59,8 +60,21 @@ function isCurrent(href: string, pathname: string | null): boolean {
   return href === "/" ? pathname === "/" : !!pathname?.startsWith(href);
 }
 
+/* EN / 中: the interface language, for this browser */
+function LangSwitch() {
+  const lang = useLang();
+  const t = useT();
+  return (
+    <div className="st-lang" role="group" aria-label={t("Language")}>
+      <button type="button" aria-pressed={lang === "en"} lang="en" onClick={() => setLang("en")}>EN</button>
+      <button type="button" aria-pressed={lang === "zh"} lang="zh-Hans" onClick={() => setLang("zh")}>中</button>
+    </div>
+  );
+}
+
 export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: ReactNode }) {
   const pathname = usePathname();
+  const t = useT();
   return (
     <header className="st-topbar">
       <Link className="st-brand" href="/">
@@ -70,10 +84,11 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />
       <GpuMenu />
+      <LangSwitch />
       <nav className="st-topbar-nav" aria-label="Studio">
         {GLOBAL_NAV.map((item) => (
           <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
-            {item.label}
+            {t(item.label)}
           </Link>
         ))}
       </nav>
@@ -88,6 +103,7 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
    had: the budget, readiness and the way to Project settings. */
 function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode }) {
   const { open, setOpen, ref } = usePopover();
+  const t = useT();
   return (
     <div className="st-nav-menu-anchor" ref={ref}>
       <button type="button" className="st-iconbtn" aria-label={head ? "Project and studio pages" : "Studio pages"} aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
@@ -100,7 +116,7 @@ function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode
           <nav aria-label="Studio">
             {GLOBAL_NAV.map((item) => (
               <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
-                {item.label}
+                {t(item.label)}
               </Link>
             ))}
           </nav>
@@ -122,6 +138,7 @@ export function GlobalShell({ children, crumb }: { children: ReactNode; crumb?: 
 export function ProjectShell({ projectId, children }: { projectId: string; children: ReactNode }) {
   const { view, error, loading, reload } = useProject(projectId);
   const pathname = usePathname();
+  const t = useT();
   const base = `/p/${projectId}`;
   const lightsDown = pathname === `${base}/screening`;
   const spent = view?.project.spentUsd ?? 0;
@@ -133,11 +150,11 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
     if (!view) return null;
     if (slug === "script") {
       const a = view.script?.approval ?? "none";
-      return a === "approved" ? { state: "ok", label: "approved" } : a === "none" ? { state: "draft", label: "empty" } : { state: "warn", label: "draft" };
+      return a === "approved" ? { state: "ok", label: t("approved") } : a === "none" ? { state: "draft", label: t("empty") } : { state: "warn", label: t("draft") };
     }
     if (slug === "board") {
       const a = view.project.shotlistApproval;
-      return a === "approved" ? { state: "ok", label: "approved" } : { state: "warn", label: "draft" };
+      return a === "approved" ? { state: "ok", label: t("approved") } : { state: "warn", label: t("draft") };
     }
     return null;
   };
@@ -146,10 +163,10 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   const meter = (
     <>
       <span className="st-num" data-over={cap > 0 && spent > cap ? "true" : undefined}>{usd(spent)} / {usd(cap)}</span>
-      {target !== undefined && <span className="st-num" data-match={boardSeconds === target ? "true" : "false"}>board {boardSeconds} s · target {target} s</span>}
+      {target !== undefined && <span className="st-num" data-match={boardSeconds === target ? "true" : "false"}>{t("board {b} s · target {t} s", { b: boardSeconds, t: target })}</span>}
     </>
   );
-  const readiness = view && (view.canGenerate ? <Lamp state="ok" label="Ready to render" /> : <Lamp state="warn" label={view.blockers.join(" · ")} />);
+  const readiness = view && (view.canGenerate ? <Lamp state="ok" label={t("Ready to render")} /> : <Lamp state="warn" label={view.blockers.join(" · ")} />);
   /* phones: the bar's meter and the way to Project settings head the menu */
   const menuHead = (
     <nav className="st-nav-menu-project" aria-label="Project">
@@ -158,7 +175,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
         <div className="sc-meter">{meter}</div>
         {readiness && <div className="st-nav-menu-ready">{readiness}</div>}
       </div>
-      <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Project settings</Link>
+      <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>{t("Project settings")}</Link>
     </nav>
   );
   const items = PROJECT_NAV.map((item) => {
@@ -175,7 +192,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
             <nav className="sc-stages" aria-label="Project">
               {items.map((item) => (
                 <Link key={item.slug} href={item.href} aria-current={item.current ? "page" : undefined}>
-                  {item.label}
+                  {t(item.label)}
                   {item.lamp && <span className="st-lamp" data-state={item.lamp.state} title={item.lamp.label} aria-label={item.lamp.label} />}
                 </Link>
               ))}
@@ -183,7 +200,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
             <div className="sc-meter">
               {meter}
               {readiness}
-              <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Settings</Link>
+              <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>{t("Settings")}</Link>
             </div>
           </div>
           {shots.length > 0 && (

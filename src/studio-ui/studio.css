@@ -4331,3 +4331,23 @@ button.st-pill {
 .studio .nt-close:hover {
   color: #f4f4f2;
 }
+
+/* ---------- EN / 中 ---------- */
+
+.studio .st-lang {
+  flex: none;
+  display: inline-flex;
+  border: 1px solid var(--line-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.studio .st-lang button {
+  min-width: 32px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--tx);
+}
+.studio .st-lang button[aria-pressed="true"] {
+  background: var(--tx);
+  color: var(--bg);
+}

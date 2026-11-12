@@ -10,6 +10,7 @@ import type { Take } from "@/studio/types";
 import { post, usd } from "./api";
 import { ErrorBanner, useAction } from "./common";
 import { filmShots, shotPicture, takePicture, takesInOrder, tc, type FilmShot } from "./film";
+import { plural, useT } from "./i18n";
 import { PlayIcon } from "./icons";
 import { useProjectContext } from "./shell";
 
@@ -34,6 +35,7 @@ function Screening() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
+  const tr = useT();
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
   const screenable = useMemo(() => shots.filter((s) => finishedOf(s).length > 0), [shots]);
   const here = screenable.find((s) => s.shot.id === params.get("shot")) ?? screenable.find((s) => s.picked && !s.picked.review) ?? screenable[0];
@@ -150,7 +152,7 @@ function Screening() {
   if (!here || !a) {
     return (
       <div className="st-page scr-page">
-        <div className="st-empty"><strong>Nothing to screen yet</strong>A shot shows up here once one of its takes has finished rendering. <Link className="st-link" href={`${base}/board`}>Open the Board</Link></div>
+        <div className="st-empty"><strong>{tr("Nothing to screen yet")}</strong>{tr("A shot shows up here once one of its takes has finished rendering.")} <Link className="st-link" href={`${base}/board`}>{tr("Open the Board")}</Link></div>
       </div>
     );
   }
@@ -162,20 +164,20 @@ function Screening() {
       <div className="scr-top">
         <span className="sc-slate sc-slate--xl">{here.slate}</span>
         <span className="st-num scr-facts">
-          {tc(here.startS)}–{tc(here.startS + here.durationS)} · {here.durationS} s · {spec.mode} · {String(spec.camera?.move ?? "static").replace(/_/g, " ")}
+          {tr("{a}–{b} · {d} s · {mode} · {move}", { a: tc(here.startS), b: tc(here.startS + here.durationS), d: here.durationS, mode: tr(spec.mode), move: tr(String(spec.camera?.move ?? "static").replace(/_/g, " ")) })}
           <br />
-          {here.linkIn !== "cut" ? `${here.linkIn.replace(/_/g, " ")} from the shot before · ` : ""}{takes.length} {takes.length === 1 ? "take" : "takes"}
+          {here.linkIn !== "cut" ? tr("{link} from the shot before · ", { link: tr(here.linkIn.replace(/_/g, " ")) }) : ""}{plural(tr, takes.length, "1 take", "{n} takes")}
         </span>
         <span className="scr-spacer" />
-        <span className="st-num scr-count">{reviewed} of {pickedShots.length} circled takes reviewed</span>
+        <span className="st-num scr-count">{tr("{r} of {p} circled takes reviewed", { r: reviewed, p: pickedShots.length })}</span>
         {takes.length > 1 && (
           <div className="st-seg" role="group" aria-label="View">
-            <button type="button" aria-pressed={!b} onClick={() => go({ b: null })}>One take</button>
-            <button type="button" aria-pressed={Boolean(b)} onClick={() => { if (!b) compare(); }}>Compare</button>
+            <button type="button" aria-pressed={!b} onClick={() => go({ b: null })}>{tr("One take")}</button>
+            <button type="button" aria-pressed={Boolean(b)} onClick={() => { if (!b) compare(); }}>{tr("Compare")}</button>
           </div>
         )}
-        <Link className="st-link" href={`${base}/board?shot=${here.shot.id}`}>Shot sheet</Link>
-        <Link className="st-btn scr-lights" href={`${base}?shot=${here.shot.id}`}>Lights up</Link>
+        <Link className="st-link" href={`${base}/board?shot=${here.shot.id}`}>{tr("Shot sheet")}</Link>
+        <Link className="st-btn scr-lights" href={`${base}?shot=${here.shot.id}`}>{tr("Lights up")}</Link>
       </div>
 
       <div className="scr-main">
@@ -184,22 +186,22 @@ function Screening() {
             <TakeFigure letter={b ? "A" : undefined} take={a} circled={circled === a.id} focus videoRef={aRef} muted={false}
               onTime={(x) => { setT(x); const vb = bRef.current; if (vb && Math.abs(vb.currentTime - x) > 0.25) vb.currentTime = x; }}
               onMeta={(d) => setDur(d)} onEnded={() => { setPlaying(false); bRef.current?.pause(); }}
-              action={circled === a.id ? undefined : { label: "Circle this take", busy: select.busy, run: () => void select.fire(a.id) }} />
+              action={circled === a.id ? undefined : { label: tr("Circle this take"), busy: select.busy, run: () => void select.fire(a.id) }} />
             {b && (
               <TakeFigure letter="B" take={b} circled={circled === b.id} videoRef={bRef} muted
-                action={circled === b.id ? undefined : { label: "Circle B instead", busy: select.busy, run: () => void select.fire(b.id) }} />
+                action={circled === b.id ? undefined : { label: tr("Circle B instead"), busy: select.busy, run: () => void select.fire(b.id) }} />
             )}
           </div>
 
           <div className="scr-transport">
-            <button type="button" className="scr-play" aria-label={playing ? "Pause" : b ? "Play both takes" : "Play"} aria-pressed={playing} onClick={toggle}>
+            <button type="button" className="scr-play" aria-label={playing ? tr("Pause") : b ? tr("Play both takes") : tr("Play")} aria-pressed={playing} onClick={toggle}>
               {playing ? <span className="scr-pause" aria-hidden="true" /> : <PlayIcon size={16} />}
             </button>
             <div className="scr-scrub">
-              <input type="range" aria-label="Position in the take" min={0} max={dur || a.outputSeconds || here.durationS} step={0.01} value={t} onChange={(e) => seek(Number(e.target.value))} />
+              <input type="range" aria-label={tr("Position in the take")} min={0} max={dur || a.outputSeconds || here.durationS} step={0.01} value={t} onChange={(e) => seek(Number(e.target.value))} />
               <div className="st-num scr-scrub-read">
                 <span>{t.toFixed(1)} s</span>
-                <span>{b ? "A and B play in step · " : ""}{here.durationS} s asked{a.outputSeconds ? ` · ${a.outputSeconds.toFixed(2)} s rendered` : ""}</span>
+                <span>{b ? tr("A and B play in step · ") : ""}{tr("{s} s asked", { s: here.durationS })}{a.outputSeconds ? tr(" · {s} s rendered", { s: a.outputSeconds.toFixed(2) }) : ""}</span>
               </div>
             </div>
           </div>
@@ -209,14 +211,14 @@ function Screening() {
 
           {takes.length > 1 && (
             <div className="scr-others">
-              <span className="sc-cap">Takes</span>
+              <span className="sc-cap">{tr("Takes")}</span>
               {takes.map((x) => (
                 <button key={x.id} type="button" className="sc-pip sc-pip--lg" data-state={x.id === circled ? "circled" : "done"} aria-pressed={x.id === a.id}
-                  title={x.id === a.id ? "Under review (A)" : b && x.id === b.id ? "Beside it (B)" : "Review this take"} onClick={() => go({ take: x.id, ...(b && b.id === x.id ? { b: a.id } : {}) })}>
+                  title={x.id === a.id ? tr("Under review (A)") : b && x.id === b.id ? tr("Beside it (B)") : tr("Review this take")} onClick={() => go({ take: x.id, ...(b && b.id === x.id ? { b: a.id } : {}) })}>
                   {x.n}
                 </button>
               ))}
-              <span className="st-num scr-hint">{b ? "the arrows change B" : "the arrows change the take"}</span>
+              <span className="st-num scr-hint">{b ? tr("the arrows change B") : tr("the arrows change the take")}</span>
             </div>
           )}
           <ErrorBanner error={select.error} projectId={projectId} onDismiss={select.dismiss} />
@@ -227,13 +229,13 @@ function Screening() {
       </div>
 
       <nav className="scr-line" aria-label="Film">
-        <div className="scr-line-head"><span className="sc-cap">The line · the score of each circled take</span><span className="st-num scr-here-range">{tc(here.startS)}–{tc(here.startS + here.durationS)}</span></div>
+        <div className="scr-line-head"><span className="sc-cap">{tr("The line · the score of each circled take")}</span><span className="st-num scr-here-range">{tc(here.startS)}–{tc(here.startS + here.durationS)}</span></div>
         <div className="scr-strip-scroll">
           <div className="scr-strip">
             {shots.map((s) => {
               const pic = shotPicture(s.shot);
               const can = finishedOf(s).length > 0;
-              const tag = s.picked?.review ? `${s.picked.review.score}/5` : s.picked ? "–" : can ? "pick" : "";
+              const tag = s.picked?.review ? `${s.picked.review.score}/5` : s.picked ? "–" : can ? tr("pick") : "";
               const inner = (
                 <>
                   {pic ? <img src={pic} alt="" loading="lazy" /> : <span className="sc-frame-empty" />}
@@ -258,6 +260,7 @@ function TakeFigure({ letter, take, circled, focus, videoRef, muted, onTime, onM
   letter?: string; take: Take; circled: boolean; focus?: boolean; videoRef: React.RefObject<HTMLVideoElement | null>; muted: boolean;
   onTime?: (t: number) => void; onMeta?: (duration: number) => void; onEnded?: () => void; action?: { label: string; busy: boolean; run: () => void };
 }) {
+  const tr = useT();
   const up = take.upscale;
   const src = up?.status === "completed" && up.url ? up.url : take.resultUrl;
   return (
@@ -265,7 +268,7 @@ function TakeFigure({ letter, take, circled, focus, videoRef, muted, onTime, onM
       <figcaption>
         {letter && <span className="sc-slate scr-letter">{letter}</span>}
         <span className="sc-pip sc-pip--lg" data-state={circled ? "circled" : "done"}>{take.n}</span>
-        {circled && <strong>Circled · in the cut</strong>}
+        {circled && <strong>{tr("Circled · in the cut")}</strong>}
         <span className="st-num scr-take-facts">{take.workflow}{take.seed !== undefined ? ` · seed ${take.seed}` : ""}{take.outputSeconds ? ` · ${take.outputSeconds.toFixed(2)} s` : ""} · {usd(take.costUsd)}</span>
         <span className="scr-spacer" />
         {action && <button type="button" className="st-link st-link--btn" disabled={action.busy} onClick={action.run}>{action.label}</button>}
@@ -295,43 +298,44 @@ function ReviewPanel({ take, letter, score, setScore, saveRef, next, onSaved }: 
     await onSaved();
   });
   saveRef.current = () => { if (score && !save.busy) void save.fire(); };
+  const tr = useT();
   return (
-    <section className="scr-review" aria-label="Review">
+    <section className="scr-review" aria-label={tr("Review this take")}>
       <div className="scr-review-head">
-        <h2>Review {letter ? `${letter} · ` : ""}take {take.n}</h2>
-        <span className="st-num">{take.review ? `${take.review.score}/5 by ${take.review.by === "human" ? "you" : "the director"}` : "not reviewed yet"}</span>
+        <h2>{tr("Review {letter}take {n}", { letter: letter ? `${letter} · ` : "", n: take.n })}</h2>
+        <span className="st-num">{take.review ? tr(take.review.by === "human" ? "{s}/5 by you" : "{s}/5 by the director", { s: take.review.score }) : tr("not reviewed yet")}</span>
       </div>
-      {take.review?.by === "agent" && take.review.basis && <p className="scr-basis">The director judged it from {take.review.basis}.</p>}
-      <div className="scr-scores st-num" role="group" aria-label="Score">
+      {take.review?.by === "agent" && take.review.basis && <p className="scr-basis">{tr("The director judged it from {basis}.", { basis: take.review.basis })}</p>}
+      <div className="scr-scores st-num" role="group" aria-label={tr("Rating")}>
         {[1, 2, 3, 4, 5].map((n) => (
           <button key={n} type="button" aria-pressed={score === n} onClick={() => setScore(score === n ? undefined : n)}>{n}</button>
         ))}
       </div>
-      <label className="scr-label">Review notes
+      <label className="scr-label">{tr("Review notes")}
         <textarea className="st-textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
-      <span className="sc-cap scr-faults-cap">What went wrong · feeds the retro</span>
+      <span className="sc-cap scr-faults-cap">{tr("What went wrong · feeds the retro")}</span>
       <div className="st-chips">
         {TAKE_FAULTS.map((f) => (
           <button key={f} type="button" className="st-chip st-chip--btn" aria-pressed={faults.includes(f)} onClick={() => setFaults((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}>
-            {f.replaceAll("_", " ")}
+            {tr(f.replaceAll("_", " "))}
           </button>
         ))}
       </div>
       <label className="st-toggle scr-mute">
         <input type="checkbox" checked={audioOk === false} onChange={(e) => setAudioOk(e.target.checked ? false : true)} />
-        Sound unusable — mute it in the cut
+        {tr("Sound unusable — mute it in the cut")}
       </label>
       <ErrorBanner error={save.error} projectId={projectId} onDismiss={save.dismiss} />
       <button type="button" className="st-btn st-btn--primary scr-save" disabled={!score || save.busy} data-busy={save.busy ? "true" : undefined} onClick={() => void save.fire()}>
-        <span>{next ? `Save and go to ${next.slate}` : "Save review"}</span>
-        <small className="st-num">{!score ? "give it a score first" : next ? (next.picked ? "the next circled take without a review" : "the next shot with no take circled") : "every circled take has a review"}</small>
+        <span>{next ? tr("Save and go to {s}", { s: next.slate }) : tr("Save review")}</span>
+        <small className="st-num">{!score ? tr("give it a score first") : next ? (next.picked ? tr("the next circled take without a review") : tr("the next shot with no take circled")) : tr("every circled take has a review")}</small>
       </button>
       <dl className="scr-keys st-num">
-        <div><dt>1–5</dt><dd>score</dd></div><div><dt>⌘↵</dt><dd>save</dd></div>
-        <div><dt>Space</dt><dd>play</dd></div><div><dt>C</dt><dd>compare</dd></div>
-        <div><dt>← →</dt><dd>take</dd></div><div><dt>↑ ↓</dt><dd>shot</dd></div>
-        <div><dt>↵</dt><dd>circle</dd></div><div><dt>N</dt><dd>next unreviewed</dd></div>
+        <div><dt>1–5</dt><dd>{tr("score")}</dd></div><div><dt>⌘↵</dt><dd>{tr("save")}</dd></div>
+        <div><dt>Space</dt><dd>{tr("play")}</dd></div><div><dt>C</dt><dd>{tr("compare")}</dd></div>
+        <div><dt>← →</dt><dd>{tr("take")}</dd></div><div><dt>↑ ↓</dt><dd>{tr("shot")}</dd></div>
+        <div><dt>↵</dt><dd>{tr("circle")}</dd></div><div><dt>N</dt><dd>{tr("next unreviewed")}</dd></div>
       </dl>
     </section>
   );
