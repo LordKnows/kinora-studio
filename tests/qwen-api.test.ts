@@ -109,7 +109,7 @@ describe("the painter heartbeat (/api/painter/claim)", () => {
   });
 
   it("accepts every backend a painter can report, and keeps its features", () => {
-    for (const backends of [["codex", "qwen"], ["codex", "api", "comfy:qwen-image-2.1-turbo", "comfy:qwen-image-2.1", "comfy:qwen-image-edit-2509"]]) {
+    for (const backends of [["codex", "qwen"], ["codex", "api", "comfy:minimax-h3-image"]]) {
       const parsed = PainterInfo.parse(heartbeat(backends));
       expect(parsed.backends).toEqual(backends);
       expect(parsed.features).toEqual(["mirror_refs"]);

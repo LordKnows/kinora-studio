@@ -331,18 +331,18 @@ describe("pod mode", () => {
     await gpu.terminateGpu();
     scenario.createMode = "ok";
     await gpu.startGpu(web, true);
-    scenario.health = { ok: true, models: { ready: true }, downloads: { active: true, gb_left: 42.5, current: "models-qie2509.txt qwen_image_edit_2509_fp8_e4m3fn.safetensors 20430698424", failed: [], skipped: [] } };
+    scenario.health = { ok: true, models: { ready: true }, downloads: { active: true, gb_left: 42.5, current: "models-h3-image.txt minimax_h3_image_pruned_int8_convrot.safetensors 20979314802", failed: [], skipped: [] } };
     try {
     await gpu.refreshGpu();
     const state = await gpu.getGpuState();
     expect(state.status).toBe("starting");
-    expect(state.message).toMatch(/downloading models: 42\.5 GB left \(now qwen_image_edit_2509_fp8_e4m3fn\.safetensors\)/);
-    await expect(gpu.assertPodCanWork("a take")).rejects.toThrow(/still downloading models \(42\.5 GB left, now qwen_image_edit_2509_fp8_e4m3fn\.safetensors\): a take now would crawl/);
+    expect(state.message).toMatch(/downloading models: 42\.5 GB left \(now minimax_h3_image_pruned_int8_convrot\.safetensors\)/);
+    await expect(gpu.assertPodCanWork("a take")).rejects.toThrow(/still downloading models \(42\.5 GB left, now minimax_h3_image_pruned_int8_convrot\.safetensors\): a take now would crawl/);
     /* done downloading, but one file of the model failed */
-    scenario.health = { ok: true, models: { ready: true }, downloads: { active: false, gb_left: 20.4, failed: ["models-qie2509.txt qwen_image_edit_2509_fp8_e4m3fn.safetensors"], skipped: [] },
-      image_models: { "qwen-image-edit-2509": { ready: false, missing: ["diffusion_models/qwen_image_edit_2509_fp8_e4m3fn.safetensors"] }, "qwen-image-2.1-turbo": { ready: true, missing: [] } } };
-    await expect(gpu.assertPodCanWork("a picture", { id: "qwen-image-edit-2509", label: "Qwen-Image-Edit 2509" })).rejects.toThrow(/Qwen-Image-Edit 2509 is not on the GPU pod whole yet \(missing: qwen_image_edit_2509_fp8_e4m3fn\.safetensors; the last download failed for qwen_image_edit_2509_fp8_e4m3fn\.safetensors\)\. Restart the pod/);
-    await expect(gpu.assertPodCanWork("a picture", { id: "qwen-image-2.1-turbo", label: "Qwen-Image 2.1 Turbo" })).resolves.toBeUndefined();
+    scenario.health = { ok: true, models: { ready: true }, downloads: { active: false, gb_left: 21, failed: ["models-h3-image.txt minimax_h3_image_pruned_int8_convrot.safetensors"], skipped: [] },
+      image_models: { "minimax-h3-image": { ready: false, missing: ["diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors"] }, "another-pod-model": { ready: true, missing: [] } } };
+    await expect(gpu.assertPodCanWork("a picture", { id: "minimax-h3-image", label: "MiniMax H3 Image" })).rejects.toThrow(/MiniMax H3 Image is not on the GPU pod whole yet \(missing: minimax_h3_image_pruned_int8_convrot\.safetensors; the last download failed for minimax_h3_image_pruned_int8_convrot\.safetensors\)\. Restart the pod/);
+    await expect(gpu.assertPodCanWork("a picture", { id: "another-pod-model", label: "Another pod model" })).resolves.toBeUndefined();
     await expect(gpu.assertPodCanWork("a take")).resolves.toBeUndefined();
     await gpu.refreshGpu();
     expect((await gpu.getGpuState()).status).toBe("running");

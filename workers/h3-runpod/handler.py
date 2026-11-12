@@ -1248,8 +1248,7 @@ def models_status(models_dir: Path | None = None) -> dict[str, Any]:
 
 
 # The lists the boot chain fetches (start.sh fetch_models), with the switch that turns each off.
-DOWNLOAD_LISTS = [("models.txt", "AUTO_DOWNLOAD_MODELS"), ("models-h3-image.txt", "H3_IMAGE"), ("models-qie2509.txt", "QWEN_EDIT_2509"), ("models-qwen-image.txt", "QWEN_IMAGE"),
-                  ("models-qwen-image-base.txt", "QWEN_IMAGE_BASE"), ("models-regen.txt", "REGEN_2K")]
+DOWNLOAD_LISTS = [("models.txt", "AUTO_DOWNLOAD_MODELS"), ("models-h3-image.txt", "H3_IMAGE"), ("models-regen.txt", "REGEN_2K")]
 
 
 def downloads_status(models_dir: Path | None = None) -> dict[str, Any]:

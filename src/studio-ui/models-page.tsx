@@ -61,7 +61,7 @@ function ModelCard({ m, loras, first }: { m: Listed; loras: Lora[]; first: boole
       <dl className="st-dl st-model-dl">
         <dt>Settings</dt>
         <dd className="st-num">{describeParams(m.params) || "set by the service"}{m.variants ? <span className="st-muted"> · {Object.entries(m.variants).map(([w, p]) => `${w}: ${describeParams(p)}`).join("; ")}</span> : null}</dd>
-        {m.maxRefs ? (<><dt>Pictures</dt><dd>up to {m.maxRefs} per call{m.refStyle === "qwen" ? " · named <image1>…" : m.refStyle === "h3" ? " · named <Picture 1>…" : ""}</dd></>) : null}
+        {m.maxRefs ? (<><dt>Pictures</dt><dd>up to {m.maxRefs} per call{m.refStyle === "h3" ? " · named <Picture 1>…" : ""}</dd></>) : null}
         {m.workflows?.length ? (<><dt>Workflows</dt><dd className="st-num">{m.workflows.join(", ")}</dd></>) : null}
         <dt>Licence</dt>
         <dd>{m.license}{m.commercial === false ? <strong className="st-warn"> · not for commercial use</strong> : null}</dd>

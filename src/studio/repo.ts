@@ -11,7 +11,7 @@ import type {
 } from "./types";
 import type { FixedFeature, RefView, ScenePalette, SceneSound } from "./schemas";
 import { isAdultLora, loraParams, type InferenceParams } from "./models";
-import { QWEN_LORA_SEED, QWEN_LORA_SQL } from "@/db/migrations/0017_seed_qwen_loras";
+import { DROP_QWEN_LORA_SEED, DROP_QWEN_LORA_SQL } from "@/db/migrations/0023_drop_qwen_loras";
 
 /* Every table gets a row type, a mapper and a handful of narrow functions.
    No ORM: the SQL is small enough to read, and it runs unchanged on D1. */
@@ -1080,11 +1080,11 @@ async function loraDb(): Promise<Db> {
         if (!/duplicate column/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
       }
     }
-    /* built-in LoRAs added after 0016 (Qwen-Image 2.1): once per database, so a deleted one stays deleted */
+    /* the LoRA seeded for Qwen-Image 2.1 (0017) left with the model (0023): removed once per database */
     await d.run("CREATE TABLE IF NOT EXISTS studio_seeds (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)");
-    if (!(await d.get("SELECT name FROM studio_seeds WHERE name = ?", [QWEN_LORA_SEED]))) {
-      await d.run(QWEN_LORA_SQL);
-      await d.run("INSERT OR IGNORE INTO studio_seeds (name, applied_at) VALUES (?, ?)", [QWEN_LORA_SEED, Date.now()]);
+    if (!(await d.get("SELECT name FROM studio_seeds WHERE name = ?", [DROP_QWEN_LORA_SEED]))) {
+      await d.run(DROP_QWEN_LORA_SQL);
+      await d.run("INSERT OR IGNORE INTO studio_seeds (name, applied_at) VALUES (?, ?)", [DROP_QWEN_LORA_SEED, Date.now()]);
     }
     loraColumnsReady = true;
   }

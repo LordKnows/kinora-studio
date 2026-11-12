@@ -84,8 +84,8 @@ export type CanvasPromptRecipe = CanvasPerson & {
   text?: string;
   style?: string;
   note?: string;
-  /** How the model names the pictures: 图1, 图2 … (GPT Image; "Picture 1" in English), <image1>, <image2> … (Qwen-Image 2.1), or <Picture 1>, <Picture 2> … (MiniMax-H3-Image). */
-  refStyle?: "zh" | "qwen" | "h3";
+  /** How the model names the pictures: 图1, 图2 … (GPT Image; "Picture 1" in English), or <Picture 1>, <Picture 2> … (MiniMax-H3-Image). */
+  refStyle?: "zh" | "h3";
   /** The language of the composed prompt: the Chinese original (default) or the English template. */
   lang?: CanvasLang;
 };
@@ -190,8 +190,8 @@ function buildChinese(r: CanvasPromptRecipe): string {
   if (style.prompt) lines.push(`• 风格：${style.prompt} ${faceless ? "人物比例协调，手部自然，脸部无五官，光影统一。" : "人物比例协调，手部与五官自然，光影统一。"}`);
   lines.push("画面中的人物均为成年人。画面中没有任何文字、标志或水印。");
   const out = lines.join("\n");
-  /* Qwen-Image 2.1 reads its reference pictures as <image1> … <image10>, MiniMax-H3-Image as <Picture 1> … */
-  return r.refStyle === "qwen" ? out.replace(/图(\d+)/g, "<image$1>") : r.refStyle === "h3" ? out.replace(/图(\d+)/g, "<Picture $1>") : out;
+  /* MiniMax-H3-Image reads its reference pictures as <Picture 1> … <Picture 10> */
+  return r.refStyle === "h3" ? out.replace(/图(\d+)/g, "<Picture $1>") : out;
 }
 
 /* ---------- the English template ---------- */
@@ -205,7 +205,7 @@ function buildEnglish(r: CanvasPromptRecipe): string {
   const style = CANVAS_STYLES.find((s) => s.id === (r.style ?? "realistic")) ?? CANVAS_STYLES[1]!;
   const isPhoto = !!style.photo;
   const two = !!r.partner;
-  const P = (i: number) => (r.refStyle === "qwen" ? `<image${i}>` : r.refStyle === "h3" ? `<Picture ${i}>` : `Picture ${i}`);
+  const P = (i: number) => (r.refStyle === "h3" ? `<Picture ${i}>` : `Picture ${i}`);
   const clauses: string[] = [];
   let idx = 1;
 
@@ -343,5 +343,5 @@ export function canvasOutputSize(size: string, resolution: CanvasResolution | un
 
 /** Codex's image tool takes at most five pictures per call (paint.py MAX_CODEX_PICTURES); each model says its own (models.ts maxRefs). */
 export const CANVAS_MAX_REFS = 5;
-/** The most any model takes (Qwen-Image 2.1: ten). */
+/** The most any model takes (MiniMax-H3-Image: ten). */
 export const CANVAS_MAX_REFS_ANY = 10;

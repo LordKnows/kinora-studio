@@ -1,0 +1,11 @@
+# Weights of models the Studio no longer runs: ComfyUI subdir<TAB>file name. remove_retired_models.sh deletes them from the models directory (the network volume) at every boot, before the download chain, so their room goes to the lists the pod still fetches. A file a current list names is never removed.
+# Qwen-Image 2.1 Turbo, Qwen-Image 2.1 (base) and Qwen-Image-Edit 2509 with its Lightning LoRA, removed 2026-11-12 (≈55 GB), and ChatR Omni, the LoRA the Studio seeded for the base model.
+diffusion_models	qwen_image_2.1_turbo_int8_convrot.safetensors
+diffusion_models	qwen_image_2.1_int8_convrot.safetensors
+diffusion_models	qwen_image_edit_2509_fp8_e4m3fn.safetensors
+text_encoders	qwen3vl_8b_int8_convrot.safetensors
+text_encoders	qwen_2.5_vl_7b_fp8_scaled.safetensors
+vae	qwen_image_2.1_vae_bf16.safetensors
+vae	qwen_image_vae.safetensors
+loras	Qwen-Image-Edit-2509-Lightning-4steps-V1.0-bf16.safetensors
+loras	chatrlabs-omni-lora-v0.1-bf16.safetensors

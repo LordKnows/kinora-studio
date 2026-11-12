@@ -350,7 +350,6 @@ export function CanvasPage() {
       if (!file || recipe.mode === "text") return;
       e.preventDefault();
       if (count >= maxRefs) return setError(new Error(`${model.label} takes at most ${maxRefs} pictures per call`));
-      if (model.poseRecipe) return setError(new Error(`${model.label} takes no extra pictures: drop it on the portrait, costume or pose`));
       tryUpload(file, "extra");
     };
     window.addEventListener("paste", onPaste);
@@ -450,11 +449,9 @@ export function CanvasPage() {
   const imaging = project?.imaging;
   const uploadedFaceAdult = uploadedFace && (nsfwInRecipe || !!adultLora);
   const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (Settings → Director)" : imaging.stoppedReason ? `Image generation stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
-  /* Qwen-Image-Edit 2509: fixed slots, a pose and a portrait and/or a costume */
-  const poseRecipeWhy = !model.poseRecipe || count === 0 ? "" : recipe.two ? `${model.label} draws one person: pick GPT Image or Qwen-Image 2.1 for two` : !recipe.pose ? `${model.label} draws a pose: pick one` : !recipe.portrait && !castA && !recipe.costume ? `${model.label} needs a portrait or a costume next to the pose` : recipe.extras.length ? `${model.label} takes no extra pictures` : "";
   const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? "Person A: pick a portrait, a costume or a character" : !personB ? "Person B: pick a portrait, a costume or a character" : "";
-  const textWhy = !textMode ? "" : model.poseRecipe ? `${model.label} draws a pose from pictures, not from text: pick another model for text to image` : !recipe.text?.trim() && !recipe.prompt?.trim() ? "Describe the picture" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "";
-  const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? "Pick at least one reference" : poseRecipeWhy ? poseRecipeWhy : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
+  const textWhy = !textMode ? "" : !recipe.text?.trim() && !recipe.prompt?.trim() ? "Describe the picture" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "";
+  const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? "Pick at least one reference" : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -515,7 +512,7 @@ export function CanvasPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or MiniMax H3 Image or Qwen-Image (2.1, or Edit 2509 — the pose gallery&apos;s own workflow) on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
+          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or MiniMax H3 Image on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
         </div>
         <div className="st-row">
           <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
@@ -622,8 +619,7 @@ export function CanvasPage() {
                 {slotCard("pose")}
               </div>
             )}
-            {model.poseRecipe && <p className="st-muted">{model.label} draws a pose with a portrait and/or a costume: portrait + costume + pose, or one of them + pose. No extra pictures.</p>}
-            <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs && !model.poseRecipe} uploading={uploading === "extra"}
+            <Extras recipe={recipe} canAdd={!!projectId && count < maxRefs} uploading={uploading === "extra"}
               onAdd={(f) => tryUpload(f, "extra")}
               onRemove={(i) => setRecipe((r) => ({ ...r, extras: r.extras.filter((_, j) => j !== i) }))}
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
@@ -655,8 +651,8 @@ export function CanvasPage() {
               </select>
             </Field>
             <div className="st-fields st-canvas-fields">
-              <Field label="Size" hint={model.canvasSize ? `${model.label}: follows the pose picture` : undefined}>
-                <select className="st-select" value={model.canvasSize ?? recipe.size} disabled={!!model.canvasSize} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
+              <Field label="Size">
+                <select className="st-select" value={recipe.size} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
                   {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
                 </select>
               </Field>
@@ -762,7 +758,7 @@ function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu 
         </select>
       </Field>
       {loras}
-      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {model.poseRecipe ? "pose + portrait and/or costume" : `up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : model.moderation === "alibaba" ? " · Alibaba Cloud moderation" : " · no content filter"}</span>
+      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {`up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : model.moderation === "alibaba" ? " · Alibaba Cloud moderation" : " · no content filter"}</span>
       {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
       {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
         <div className="st-alert st-alert--warn">

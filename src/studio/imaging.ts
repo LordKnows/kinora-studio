@@ -23,7 +23,7 @@ import type { Actor, Asset, Element, Imaging, Job, Lora, Project } from "./types
  * workers/painter) with the image model the user chose for the project
  * (Settings → Director, models.ts AGENT_IMAGE_MODELS): GPT Image (Codex's
  * image_gen on the ChatGPT plan, or the images API) or Qwen-Image 3.0 Pro
- * away from the GPU, or an image model on the GPU pod (Qwen-Image 2.1),
+ * away from the GPU, or an image model on the GPU pod (MiniMax-H3-Image),
  * which draws while the pod runs.
  *
  * Painting is off per project until switched on in Settings (web only) and

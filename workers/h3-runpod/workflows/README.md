@@ -97,7 +97,7 @@ chain instead. At most 4 LoRAs per take (`MAX_LORAS`); only a
 
 `image_models.json` lists the image models the pod's painter draws for the
 Studio (`workers/painter/paint.py` → `run_comfy`). Each entry names its
-API-format graph here, its download list (`models-qwen-image.txt`), the
+API-format graph here, its download list (`models-h3-image.txt`), the
 LoadImage slots for the reference pictures and the `[node, input]` each
 setting goes to. The painter advertises `comfy:<model>` once ComfyUI answers
 and every file is on disk, checks the graph against `/object_info` before it
@@ -131,25 +131,3 @@ of that area is drawn as asked, on the grid: Canvas → Resolution asks for
 the large size itself (5376×3072 for a 16:9 picture at 16 MP) and gets it
 back pixel for pixel. The painter accepts up to 6400 px a side and 21 MP
 from a `comfy:` backend (`MAX_POD_SIDE`, `MAX_POD_PIXELS`).
-
-`QWEN21_EDIT.json` is Comfy-Org's *Qwen Image 2.1 Turbo: Image edit*
-template (`image_qwen_image_2_1_turbo_image_edit.json`) in API format,
-without its prompt-enhancer branch: `TextEncodeQwenImage21` with up to ten
-pictures (`<image1>`…`<image10>` in the prompt), `QwenImage21Cache`, the
-fixed 8-step Turbo sigma schedule, CFG 1, euler, a custom canvas size. It
-needs a ComfyUI recent enough to have those nodes (September 2026 or later).
-
-
-`QIE2509_3IMG.json` / `QIE2509_2IMG.json` are anhao/ai-pose-gallery-zh's
-`qwen_image_edit_2509_3img.api.json` and its two-picture form (MIT,
-Copyright (c) 2026 Anhao): Qwen-Image-Edit 2509 fp8 with the Lightning
-4-step LoRA, shift 3, CFGNorm, `TextEncodeQwenImageEditPlus` for the prompt
-and every picture, `ReferenceLatent` for the portrait and the costume only
-(the pose steers through the text encoder, so the grey mannequin's look
-never comes through), KSampler euler/simple, CFG 1. Node 10 is the
-original's: the canvas takes the pose picture's aspect at 1 MP (3:4 for every
-library pose). An earlier port sized it to the Canvas pick instead; at 2:3,
-the costume picture's own shape, the model redrew the costume picture in
-place with the face put in and ignored the pose. The
-manifest's `variants` pick the graph by the number of pictures (three:
-portrait, costume, pose; two: person, pose), `min_images` refuses one.

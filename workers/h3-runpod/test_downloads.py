@@ -105,3 +105,68 @@ def test_every_list_names_sizes():
             if line.strip() and not line.startswith("#"):
                 subdir, url, size = line.split("\t")
                 assert url.startswith("https://huggingface.co/") and size.isdigit() and int(size) > 1_000_000, (listing.name, line)
+
+
+# ---------- models the Studio no longer runs: removed from the volume at boot ----------
+
+
+def remove_retired(models: Path, listing: Path | None = None) -> subprocess.CompletedProcess:
+    args = ["bash", str(HERE / "remove_retired_models.sh"), str(models)] + ([str(listing)] if listing else [])
+    return subprocess.run(args, capture_output=True, text=True, timeout=60)
+
+
+def test_retired_weights_are_removed_and_everything_else_stays(tmp_path):
+    models = tmp_path / "models"
+    retired = [line.split("\t") for line in (HERE / "retired-models.txt").read_text().splitlines() if line.strip() and not line.startswith("#")]
+    assert len(retired) == 9
+    for subdir, name in retired:
+        (models / subdir).mkdir(parents=True, exist_ok=True)
+        (models / subdir / name).write_bytes(b"x" * 2_000_000)
+    # what a cut-off download left, and the same file under ComfyUI's other name for the folder
+    (models / "vae" / "qwen_image_vae.safetensors.part").write_bytes(b"x" * 1000)
+    (models / "vae" / "qwen_image_vae.safetensors.part.aria2").write_bytes(b"x")
+    (models / "unet").mkdir()
+    (models / "unet" / "qwen_image_2.1_int8_convrot.safetensors").write_bytes(b"x" * 1000)
+    # the models the pod still runs, a user's own LoRA, and the H3 text encoder (a Qwen3-VL the H3 models load)
+    kept = []
+    for listing in sorted(HERE.glob("models*.txt")):
+        for line in listing.read_text().splitlines():
+            if line.strip() and not line.startswith("#"):
+                subdir, url = line.split("\t")[:2]
+                kept.append(models / subdir / url.rsplit("/", 1)[-1])
+    kept.append(models / "loras" / "my_own_qwen_lora.safetensors")
+    for path in kept:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"k")
+    assert models / "text_encoders" / "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors" in kept
+    r = remove_retired(models)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not [p for p in models.rglob("*") if p.is_file() and p not in kept]
+    assert all(p.is_file() for p in kept)
+    assert r.stdout.strip().splitlines()[-1] == "retired models: 12 files removed, 17 MB freed"
+    # the next boot finds nothing to do
+    again = remove_retired(models)
+    assert again.returncode == 0 and again.stdout.strip() == "retired models: 0 files removed, 0 MB freed"
+
+
+def test_a_retired_list_never_takes_a_file_the_pod_still_downloads_or_one_outside_the_models(tmp_path):
+    models = tmp_path / "models"
+    (models / "vae").mkdir(parents=True)
+    (models / "vae" / "minimax_h3_video_vae_fp16.safetensors").write_bytes(b"k")
+    (tmp_path / "outside.safetensors").write_bytes(b"k")
+    listing = tmp_path / "retired.txt"
+    listing.write_text("# subdir<TAB>file\nvae\tminimax_h3_video_vae_fp16.safetensors\nvae\t../../outside.safetensors\n../..\toutside.safetensors\n")
+    r = remove_retired(models, listing)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "keeping vae/minimax_h3_video_vae_fp16.safetensors" in r.stdout and r.stdout.count("skipping") == 2
+    assert (models / "vae" / "minimax_h3_video_vae_fp16.safetensors").is_file() and (tmp_path / "outside.safetensors").is_file()
+
+
+def test_no_list_names_a_retired_file_and_the_start_script_runs_the_cleanup():
+    retired = {line.split("\t")[1] for line in (HERE / "retired-models.txt").read_text().splitlines() if line.strip() and not line.startswith("#")}
+    for listing in sorted(HERE.glob("models*.txt")):
+        assert not [n for n in retired if n in listing.read_text()], listing.name
+    for graph in sorted((HERE / "workflows").glob("*.json")):
+        assert not [n for n in retired if n in graph.read_text()], graph.name
+    start = (HERE / "start.sh").read_text()
+    assert start.index("remove_retired_models.sh") < start.index("fetch_list \"$dir\" models.txt")

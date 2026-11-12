@@ -214,8 +214,8 @@ def test_handler_health_lists_templates(monkeypatch):
     monkeypatch.setattr(h, "WORKFLOW_DIR", HERE / "workflows")
     monkeypatch.setattr(h.ComfyClient, "health", lambda self: {"reachable": False})
     out = h.handler({"input": {"action": "health"}})
-    assert out["ok"] and out["workflows"] == ["FL2VA", "H3_IMAGE", "I2VA", "I2VA_GUIDE", "QIE2509_2IMG", "QIE2509_3IMG", "QWEN21_EDIT", "QWEN21_EDIT_BASE", "R2VA", "REGEN", "REMAKE", "T2VA"] and "remake" in out
-    assert out["image_models"]["qwen-image-2.1-turbo"]["ready"] is False and out["image_models"]["qwen-image-2.1-turbo"]["missing"]
+    assert out["ok"] and out["workflows"] == ["FL2VA", "H3_IMAGE", "I2VA", "I2VA_GUIDE", "R2VA", "REGEN", "REMAKE", "T2VA"] and "remake" in out
+    assert list(out["image_models"]) == ["minimax-h3-image"]
     assert out["image_models"]["minimax-h3-image"] == {"ready": False, "workflow": "H3_IMAGE", "missing": [
         "diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors", "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", "vae/minimax_h3_image_vae_fp16.safetensors"]}
 
@@ -354,7 +354,7 @@ def test_downloads_status_says_what_is_left_and_whether_the_chain_runs(tmp_path,
     (base / "vae").mkdir(parents=True)
     state.mkdir()
     monkeypatch.setenv("DOWNLOAD_STATE_DIR", str(state))
-    for switch in ("H3_IMAGE", "QWEN_EDIT_2509", "QWEN_IMAGE", "QWEN_IMAGE_BASE", "REGEN_2K"):
+    for switch in ("H3_IMAGE", "REGEN_2K"):
         monkeypatch.setenv(switch, "0")
     idle = handler.downloads_status(base)
     assert idle["active"] is False and idle["gb_left"] > 60 and len(idle["missing"]) == 7
