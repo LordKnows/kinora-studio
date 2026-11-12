@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { assertVisible } from "@/auth/scope";
 import * as director from "@/director";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
@@ -27,6 +28,7 @@ import { paletteContrastWarnings, sketchBoardSvg } from "@/studio/sketch";
 import { nameOfUploadKey, presignPut, objectExists, publicUrl, uploadKey } from "@/studio/storage/r2";
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
+import * as sharing from "@/studio/sharing";
 import {
   ElementInput, ElementPatch, ExportRequest, VoiceCardInput, VoiceCardPatch, LookPatch, LoraInput, LoraPatch, PresignRequest, ProjectInput, PromptExperiments, MAX_ELEMENT_REFS, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
@@ -66,7 +68,9 @@ export function createStudioServer(actor: Actor): McpServer {
   const tool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<unknown>) => {
     const cb = async (args: unknown) => {
       try {
-        return ok(await run(input.parse(args)));
+        const parsed = input.parse(args);
+        await assertVisible(actor, parsed);
+        return ok(await run(parsed));
       } catch (caught) {
         return fail(caught);
       }
@@ -78,7 +82,9 @@ export function createStudioServer(actor: Actor): McpServer {
   const pictureTool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<{ text: unknown; pictures: Array<{ label: string; url?: string }> }>) => {
     const cb = async (args: unknown) => {
       try {
-        const { text, pictures } = await run(input.parse(args));
+        const parsed = input.parse(args);
+        await assertVisible(actor, parsed);
+        const { text, pictures } = await run(parsed);
         const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [{ type: "text", text: JSON.stringify(text, null, 2) }];
         for (const p of pictures.slice(0, 8)) {
           if (!p.url) continue;
@@ -175,8 +181,9 @@ export function createStudioServer(actor: Actor): McpServer {
     shots: z.number().int().min(1).max(120).optional().describe("Preferred shot count; otherwise derived from the length"),
     look: LookPatch.optional(),
     budgetCapUsd: z.number().min(0).max(100000).optional(),
-  }), async ({ name, brief, totalSeconds, shots, look, budgetCapUsd }) => {
-    const project = await repo.createProject({ name, brief, targetSeconds: totalSeconds, look, budgetCapUsd });
+    visibility: z.enum(["shared", "private"]).optional().describe("private: only your user sees the project; default shared (every signed-in user)."),
+  }), async ({ name, brief, totalSeconds, shots, look, budgetCapUsd, visibility }) => {
+    const project = await sharing.createProjectAs(actor, { name, brief, targetSeconds: totalSeconds, look, budgetCapUsd, visibility });
     const plan = filmPlan({ brief, totalSeconds, shots });
     const ask = budgetCapUsd === undefined ? { ask: `No budget was given: the cap defaults to ${project.budgetCapUsd} USD. Ask the user for the total budget (and whether they want music and subtitles) before planning renders, then set it on the Settings page or pass budgetCapUsd.` } : {};
     return { project, ...ask, ...plan, editingGrammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY, cinematography: CINEMA.map((c) => ({ key: c.key, label: c.label, multi: c.multi, terms: c.terms.map((x) => ({ key: x.key, label: x.label, use: x.use })) })), loras: await repo.listLoras(), nextSteps: ["save_script", "create_element for every character/location/prop", "save_shotlist with link + cinematography per shot", "ask the user to approve the script and the shotlist"] };
@@ -185,8 +192,8 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("editing_grammar", "Tier 2 reference as data: every link type with its mechanism, default anchor, H3 workflow and when to use it.", z.object({}), async () => ({ grammar: EDIT_GRAMMAR, timelineOnly: TIMELINE_ONLY }));
   tool("cinematography_catalog", "Tier 3 reference as data: every category and key with the prose it compiles to and when to use it.", z.object({ category: z.enum(["size", "angle", "lens", "dof", "lighting", "grade", "texture", "vfx", "animation", "pace"]).optional() }), async ({ category }) => ({ categories: CINEMA.filter((c) => !category || c.key === category) }));
 
-  tool("list_projects", "List projects.", z.object({}), async () => ({ projects: await repo.listProjects() }));
-  tool("create_project", "Create a project with an optional Look draft.", ProjectInput, async (input) => ({ project: await repo.createProject(input) }));
+  tool("list_projects", "List the projects your user sees: every shared one and their own private ones (visibility, mine).", z.object({}), async () => ({ projects: await sharing.listProjectsFor(actor) }));
+  tool("create_project", "Create a project with an optional Look draft. It is your user's; visibility private keeps it to them alone (default shared: every signed-in user sees it). Only the owner changes it afterwards, on the web.", ProjectInput, async (input) => ({ project: await sharing.createProjectAs(actor, input) }));
   tool("get_project", "Aggregate view: look, budget, approvals, the project's elements, scenes, shots (full spec) with their takes and frames as one-line summaries, timeline, blockers, and counts of the assets. For detail: get_take (a take's prompt, input, thumbnails), list_assets (the pictures), list_elements with includeLibrary (the library).", z.object({ projectId: id }), async ({ projectId }) => agentProjectView(await orch.getProjectView(projectId)));
   tool("update_look", "Patch the project-level Look (genre, palette, camera, lens, lighting, aspect ratio, negatives, LoRAs). Only the keys you pass change; the rest of the Look stays as it is.", z.object({ projectId: id, look: LookPatch }), async ({ projectId, look }) => ({ project: await repo.setProjectLook(projectId, look) }));
   tool("gpu_status", "The GPU pod: status (none/starting/running/stopped/unavailable), GPU type, cost per hour, uptime, session cost, allowed GPU types, pending takes. 'unavailable' means none of the allowed GPU types has capacity right now; try again later.", z.object({}), async () => {
@@ -198,7 +205,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return gpu.getGpuState();
   });
   tool("gpu_start", "Start (or create) the GPU pod. Billed per hour while it runs, so confirm first. generate_take starts it automatically.", z.object({ confirm: z.boolean().default(false) }), async ({ confirm }) => gpu.startGpu(actor, confirm));
-  tool("gpu_stop", "Stop the GPU pod now (the sweep also stops it after the idle timeout). Queued takes wait until it is started again.", z.object({}), async () => gpu.stopGpu());
+  tool("gpu_stop", "Stop the GPU pod now (the sweep also stops it after the idle timeout). Queued takes wait until it is started again. The pod is shared by every user: while other projects' work is on it the answer is needs_confirm — ask your user, then call again with confirm: true.", z.object({ confirm: z.boolean().default(false) }), async ({ confirm }) => gpu.stopGpu({ actor, confirm }));
   tool("gpu_types", "GPU types RunPod knows, flagged with whether the studio is allowed to use them.", z.object({}), async () => ({ types: await gpu.listGpuTypes() }));
   tool("gpu_stats", "Per GPU type: completed takes, total generation seconds, total video seconds, GPU-seconds per video second, and USD per video second at the price the pod was billed. Use it to rank RUNPOD_GPU_TYPES.", z.object({}), async () => ({ stats: await gpu.gpuStats(), estimateBasis: await gpu.measuredForEstimate() }));
   tool("list_loras", "The LoRA library (speed / style / effect) with filenames, HuggingFace links, trigger words and step hints. Project defaults live in the Look (update_look loras); shots can override with revise_shot loras.", z.object({}), async () => ({ loras: await repo.listLoras() }));

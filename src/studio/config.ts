@@ -112,4 +112,10 @@ export const config = {
 
   /** Static bearer for clients that cannot do OAuth (Claude Code, curl). */
   mcpStaticToken: (): string | undefined => env("MCP_STATIC_TOKEN"),
+  /** Whom the static token acts as: its private projects are that user's. Unset: "mcp-static",
+      which owns nothing and sees shared projects only. */
+  mcpStaticUser: (): string => env("MCP_STATIC_USER") ?? "mcp-static",
+  /** Emails that run the shared machines (terminate, adopt, repair the GPU pod; the painters) and may
+      claim a project from before private projects. Unset: every signed-in user, as before. */
+  adminUsers: (): string[] => (env("ADMIN_USERS") ?? "").split(/[,\s]+/).map((u) => u.trim().toLowerCase()).filter(Boolean),
 };

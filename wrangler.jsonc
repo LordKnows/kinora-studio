@@ -47,10 +47,16 @@
     "PAINTER_POD_CPU_FLAVORS": "cpu3c,cpu3g,cpu5c",
     "PAINTER_POD_VCPUS": "2",
     "PAINTER_IDLE_STOP_MINUTES": "10"
+    // Private projects: the emails that run the shared machines (terminate,
+    // adopt, repair the GPU pod; the painters) and may claim a project from
+    // before private projects. Unset = every signed-in user, as before. Put it
+    // here (a plain var) or set it as a Secret in the dashboard.
+    // "ADMIN_USERS": "you@example.com"
   }
   // Secrets (dashboard, type Secret — plain vars are overwritten by this file
   // on every deploy): RUNPOD_API_KEY, RUNPOD_NETWORK_VOLUMES ("DC:volumeId,DC:volumeId"),
   // STUDIO_WORKER_TOKEN, RUNPOD_ENDPOINT_ID, RUNPOD_ASSEMBLER_ENDPOINT_ID,
   // RUNPOD_WEBHOOK_SECRET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY,
-  // HF_API_BASE_URL, HF_API_KEY, CRON_SECRET, MCP_STATIC_TOKEN (optional)
+  // HF_API_BASE_URL, HF_API_KEY, CRON_SECRET, MCP_STATIC_TOKEN (optional),
+  // MCP_STATIC_USER (optional: the email the static token acts as), ADMIN_USERS
 }
