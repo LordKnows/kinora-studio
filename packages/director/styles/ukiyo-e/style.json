@@ -89,7 +89,7 @@
       "lens": "flat graphic perspective, stacked planes, no vanishing point",
       "lighting": "no cast light; colour fields carry the hour"
     },
-    "negative": ["no shading or gradients on figures", "no photographic depth of field"],
+    "negative": ["figures are flat colour inside keyblock lines; gradients only in sky and water", "every plane is equally sharp from the foreground to the horizon"],
     "cinematography": { "animation": "comic", "grade": "muted", "texture": "halftone", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "still" },
     "bySize": { "els": { "lens": "wide" }, "insert": { "lens": "macro" } },
     "loras": [],

@@ -90,7 +90,7 @@
       "lens": "tilt-shift, thin horizontal sharp band, heavy blur above and below",
       "lighting": "harsh sunny high-key, short shadows; dusk for light trails"
     },
-    "negative": ["no close-up faces", "no UI"],
+    "negative": ["people are tiny figures seen from high above", "the frame is a clean photograph from edge to edge"],
     "cinematography": { "grade": "vivid", "texture": "digital", "lens": "tele", "angle": "high", "dof": "tiltshift", "vfx": ["timelapse"], "lighting": ["harshsun"], "pace": "brisk" },
     "bySize": { "els": { "angle": "high" }, "cu": { "vfx": ["speedramp"], "pace": "slow" } },
     "loras": [],

@@ -105,8 +105,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no hands",
-    "no real-scale buildings"
+    "only bricks, minifigures and the tabletop are in frame; bricks move on their own",
+    "every building is a brick model a few bricks tall"
   ],
   "cinematography": {
     "lens": "macro",

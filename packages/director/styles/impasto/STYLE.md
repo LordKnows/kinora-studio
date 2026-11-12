@@ -105,8 +105,7 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no smooth photoreal surfaces",
-    "no thin paint"
+    "faces, skin and sky are built from the same thick knife strokes as the rest"
   ],
   "cinematography": {
     "lens": "normal",

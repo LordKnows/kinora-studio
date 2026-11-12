@@ -91,7 +91,7 @@
       "lens": "normal, painted depth, anamorphic flares on lights",
       "lighting": "backlit practicals, neon spill, rim light on cels"
     },
-    "negative": ["no gradients inside cels", "no moe faces", "no 3D rendering"],
+    "negative": ["each cel area is one flat colour with one hard-edged shadow tone", "1980s OVA faces: angular jaws, narrow eyes, defined noses"],
     "cinematography": { "animation": "anime", "grade": "cyberpunk", "texture": "vhs", "lens": "normal", "dof": "medium", "lighting": ["neon", "practicals", "rim"], "pace": "steady" },
     "bySize": { "cu": { "lens": "portrait", "dof": "shallow" }, "els": { "lens": "wide", "dof": "deep" } },
     "loras": [],

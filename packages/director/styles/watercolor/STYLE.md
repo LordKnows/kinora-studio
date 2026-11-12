@@ -105,9 +105,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no black outlines",
-    "no opaque paint",
-    "no photoreal textures"
+    "edges are where one wash meets another or meets bare paper",
+    "fur, bark and water are suggested with a few dry-brush strokes"
   ],
   "cinematography": {
     "lens": "normal",

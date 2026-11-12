@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { checkConstraint, lintConstraints, promptConstraints } from "@director/lint/constraints";
@@ -50,6 +53,21 @@ describe("the Look's constraints on a model with no negative prompt", () => {
     expect(lint[2]!.message).toContain('"no extra people" → ');
     expect(lintConstraints(["the street is empty"])).toEqual([]);
     expect(lintConstraints([])).toEqual([]);
+  });
+
+  it("every style preset's constraints are statements: none is a ban, a bare word or a text ban", () => {
+    const dir = join(__dirname, "../packages/director/styles");
+    const slugs = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith("_")).map((d) => d.name);
+    expect(slugs.length).toBe(16);
+    for (const slug of slugs) {
+      const list = JSON.parse(readFileSync(join(dir, slug, "style.json"), "utf8")).engine.negative as string[];
+      expect(list.length, slug).toBeGreaterThan(0);
+      for (const text of list) {
+        expect(checkConstraint(text), `${slug}: ${text}`).toMatchObject({ kind: "ok", inPrompt: true });
+        expect(text, `${slug}: ${text}`).not.toMatch(/\b(no|not|never|without|avoid|don't)\b/i);
+      }
+      expect(lintConstraints(list), slug).toEqual([]);
+    }
   });
 
   it("a new Look starts with no constraints", () => {

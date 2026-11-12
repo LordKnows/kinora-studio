@@ -107,9 +107,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no gradients inside cels",
-    "no moe faces",
-    "no 3D rendering"
+    "each cel area is one flat colour with one hard-edged shadow tone",
+    "1980s OVA faces: angular jaws, narrow eyes, defined noses"
   ],
   "cinematography": {
     "lens": "normal",

@@ -91,7 +91,7 @@
       "lens": "wide to tele, deep focus",
       "lighting": "natural: dawn, noon, blue hour, sodium night"
     },
-    "negative": ["no close-up faces", "no handheld shake"],
+    "negative": ["people are small figures in wide frames, seen from a distance", "the camera is tripod-locked or glides on a smooth track"],
     "cinematography": { "grade": "muted", "texture": "35mm", "lens": "wide", "dof": "deep", "vfx": ["timelapse"], "lighting": ["blue"], "pace": "brisk" },
     "bySize": { "cu": { "vfx": ["slowmo"], "pace": "still", "lens": "portrait" }, "els": { "angle": "high" } },
     "loras": [],

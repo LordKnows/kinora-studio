@@ -107,9 +107,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no real products",
-    "no coloured background",
-    "no hands"
+    "the object is an invented design with plain unmarked surfaces",
+    "the object is the only thing in frame"
   ],
   "cinematography": {
     "lens": "macro",

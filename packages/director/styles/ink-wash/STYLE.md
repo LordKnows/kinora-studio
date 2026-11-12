@@ -111,9 +111,8 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no colour except one vermilion",
-    "no photoreal faces",
-    "no outlines"
+    "faces are a few brush strokes: a dot or a dash for each feature",
+    "forms are wash and broken brush strokes with soft, open edges"
   ],
   "cinematography": {
     "lens": "normal",

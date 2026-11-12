@@ -89,7 +89,7 @@
       "lens": "normal, deep focus, period glass",
       "lighting": "flat daylight or arc-lamp stage light, pale skies"
     },
-    "negative": ["no colour", "no modern haircuts or clothes", "no spoken dialogue"],
+    "negative": ["everyone wears 1920s clothes and hair: bowler hats, bobbed hair, high collars", "actors mime and gesture; the soundtrack is a solo pit piano"],
     "cinematography": { "grade": "mono", "texture": "8mm", "lens": "normal", "dof": "deep", "lighting": ["highkey"], "pace": "brisk" },
     "bySize": { "cu": { "pace": "slow" }, "els": { "lens": "wide" } },
     "loras": [],

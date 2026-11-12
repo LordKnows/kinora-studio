@@ -91,7 +91,7 @@
       "lens": "macro to portrait, shallow focus",
       "lighting": "long strip lights behind and beside the object, mirror floor, no fill"
     },
-    "negative": ["no real products", "no coloured background", "no hands"],
+    "negative": ["the object is an invented design with plain unmarked surfaces", "the object is the only thing in frame"],
     "cinematography": { "grade": "muted", "texture": "digital", "lens": "macro", "dof": "shallow", "lighting": ["rim", "lowkey"], "pace": "slow", "animation": "cgi" },
     "bySize": { "els": { "lens": "normal", "dof": "medium" }, "ls": { "lens": "portrait" } },
     "loras": [],

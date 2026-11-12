@@ -89,7 +89,7 @@
       "lens": "normal, deep focus, period glass",
       "lighting": "daylight actuality, arc-lamp interiors"
     },
-    "negative": ["no colour", "no modern clothes or cars", "no handheld"],
+    "negative": ["everyone wears 1920s dress; the vehicles are 1920s motor cars, trams and carts"],
     "cinematography": { "grade": "mono", "texture": "16mm", "lens": "normal", "dof": "deep", "lighting": ["harshsun"], "pace": "brisk" },
     "bySize": { "els": { "lens": "wide" } },
     "loras": [],

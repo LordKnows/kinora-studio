@@ -132,6 +132,9 @@ const CAMERA_PHRASE: Record<(typeof CAMERA_MOVES)[number], string> = {
   zoom: "zooms",
 };
 
+/* A voice that is not speech: a cast that laughs, sighs or purrs is not told to stay silent. */
+const VOCAL_SOUND = /\b(laugh|giggl|chuckl|snicker|sigh|gasp|sob|weep|cr(y|ies|ying)|scream|shout|yell|cheer|moan|groan|grunt|hum(s|med|ming)?\b|sing(s|ing)?\b|whisper|murmur|mutter|pant|cough|sneez|yawn|snor|whistl|purr|meow|mew|bark|growl|howl|whimper|chirp|neigh|roar)|笑|哭|叹|喊|叫|唱|喘|呻吟|低语|咳|呼噜|喵|吠|吼/i;
+
 /** The effective link: the explicit Tier-2 link, or the legacy linkToPrev. */
 export function effectiveLink(spec: ShotInput): ShotLink {
   if (spec.link) return spec.link;
@@ -673,7 +676,16 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   const castLine = ctx.experiments?.positiveCast && images.some((i) => i.role === "first_frame") && !(spec.blocking ?? []).some((b) => b.from === "off_left" || b.from === "off_right")
     ? ["Only the people and objects already in the first frame appear, throughout"] : [];
   const unvoiced = spec.dialogue.length > onscreen.length;
-  const speechRule = onscreen.length ? "No extra dialogue beyond the lines above" : unvoiced ? "No one in the frame speaks; every mouth stays closed" : "No dialogue";
+  /* Who speaks, said as what happens (MiniMax's guide: "the on-screen character's lips remain closed"),
+     and by name: "everyone" in a shot of a cat or a landscape would ask for people. A shot with lines
+     says they are all there is; one with only off-screen or inner lines closes the mouths in frame;
+     one with no lines keeps its cast silent unless the action or the sound gives them a voice. */
+  const cast = spec.characters.filter((id) => ctx.elements.has(id)).map(who);
+  const castStays = cast.length > 1 ? `${cast.slice(0, -1).join(", ")} and ${cast.at(-1)} stay` : cast.length === 1 ? `${cast[0]} stays` : "";
+  const voiced = VOCAL_SOUND.test([...spec.beats.map((b) => b.action), ...spec.sound.sfx, spec.sound.ambience ?? ""].join(" "));
+  const speechRule = onscreen.length ? "The lines above are the only words spoken"
+    : unvoiced ? `${castStays || "Everyone in the frame stays"} silent, lips closed`
+    : castStays && !voiced ? `${castStays} silent` : "";
   /* H3 has no negative prompt (cfg 1, no negative branch): whatever stands here is drawn. The Look's
      constraints go in as statements; a bare negative-prompt word and a ban on text are left out
      (lint/constraints.ts), and the compiler adds no ban of its own. */
@@ -683,7 +695,7 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
     seen.add(key);
     return true;
   });
-  blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
+  if (constraints.length) blocks.push(`CONSTRAINTS\n${constraints.join(". ")}.`);
   out.constraints = constraints;
   out.references = refLines;
   (out as Sections & { blocks: string }).blocks = blocks.join("\n\n");

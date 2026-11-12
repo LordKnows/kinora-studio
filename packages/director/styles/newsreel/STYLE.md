@@ -105,9 +105,7 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no colour",
-    "no modern clothes or cars",
-    "no handheld"
+    "everyone wears 1920s dress; the vehicles are 1920s motor cars, trams and carts"
   ],
   "cinematography": {
     "lens": "normal",
