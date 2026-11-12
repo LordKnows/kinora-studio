@@ -381,13 +381,13 @@ def test_downloads_status_says_what_is_left_and_whether_the_chain_runs(tmp_path,
 def test_sampling_profile_patches_sampler_scheduler_and_shift():
     mapping = h.load_mapping()["T2VA"]
     graph = h.load_workflow("T2VA")
-    params = h.validate_input(good_input(steps=20, loras=[], sampling={"sampler": "res_multistep", "scheduler": "simple", "shift_video": 1.0, "shift_audio": 1.0}))
+    params = h.validate_input(good_input(steps=20, loras=[], sampling={"sampler": "res_multistep", "scheduler": "simple", "shift_video": 12.0, "shift_audio": 3.0}))
     patched = h.fill_graph(graph, mapping, {**params, "files": {}})
     assert patched["17"]["inputs"]["sampler_name"] == "res_multistep"
     assert patched["9"]["inputs"]["scheduler"] == "simple"
     assert patched["9"]["inputs"]["steps"] == 20
-    assert patched["8"]["inputs"]["shift_video"] == 1.0
-    assert patched["8"]["inputs"]["shift_audio"] == 1.0
+    assert patched["8"]["inputs"]["shift_video"] == 12.0
+    assert patched["8"]["inputs"]["shift_audio"] == 3.0
     assert patched["7"]["inputs"]["strength_model"] == 0.0
     with pytest.raises(h.JobError):
         h.validate_input(good_input(sampling={"sampler": "rm -rf"}))

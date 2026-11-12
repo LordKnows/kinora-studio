@@ -77,7 +77,7 @@ T2VA、I2VA、FL2VA 用 fl2va 底模，R2VA 用 ref2va 底模。
 | 分辨率 | 1344×768 | 1344×768（最早一次测试是 864×480） |
 | 步数 | 8 | 20 |
 | 采样器 / 调度 | euler / simple | res_multistep / simple（fl2va），beta（ref2va） |
-| Sigma shift | 视频 6.0，音频 3.0（lightx2v 给 768p 模型的值） | 不接 |
+| Sigma shift | 视频 6.0，音频 3.0（lightx2v 给 768p 模型的值） | 不接（即模型自带的默认值：视频 12.0，音频 3.0，见 ComfyUI `supported_models.py`；不等于 1/1） |
 | CFG | 不适用（BasicGuider，等效 1） | 同左 |
 | 帧率 | 24 | 24 |
 | 单段长度 | 243 帧 ≈ 10.1 s | 同左 |

@@ -480,7 +480,7 @@ describe("gpu stats and loras", () => {
     expect(cb.input.loras).toEqual([]);
     expect(cb.prompt).not.toContain("neon noir");
     expect(cb.input.steps).toBe(20);
-    expect(cb.input.sampling).toEqual({ sampler: "res_multistep", scheduler: "simple", shift_video: 1, shift_audio: 1 });
+    expect(cb.input.sampling).toEqual({ sampler: "res_multistep", scheduler: "simple", shift_video: 12, shift_audio: 3 });
     expect(cb.warnings.some((w) => w.includes("base sampling chain"))).toBe(true);
     const cb8 = await orch.compileForShot(b!.id, { steps: 8 });
     expect(cb8.input.steps).toBe(8);
