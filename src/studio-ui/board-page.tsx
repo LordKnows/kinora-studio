@@ -12,7 +12,8 @@ import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
-import { plural, type T, useT } from "./i18n";
+import { plural, type T, useLang, useT } from "./i18n";
+import { lintLine } from "./zh/lint";
 import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
@@ -87,6 +88,7 @@ function useShotAddress() {
 function Board() {
   const { projectId, view, reload } = useProjectContext();
   const tr = useT();
+  const lang = useLang();
   const undoable = useUndoable(reload);
   const address = useShotAddress();
   const openId = address.openId;
@@ -245,7 +247,7 @@ function Board() {
             </div>
             <div className="st-row">
               <Button size="sm" kind="quiet" onClick={() => void editPalette.fire(scene)} title={tr("This scene's colour script; it compiles into every shot")}>
-                {tr("Palette")}
+                {tr("Palette||scene colours")}
               </Button>
               <Button size="sm" busy={addShot.busy} onClick={() => void addShot.fire(scene.id)}>
                 {tr("Add shot")}
@@ -310,15 +312,20 @@ function Board() {
             <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass.")} />
           ) : (
             <div className="st-lint">
-              {lint.warnings.map((w, i) => (
-                <div key={i} className="st-lint-row" data-severity={w.severity}>
-                  <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : tr("film")}</span>
-                  <span>
-                    <span className={w.severity === "error" ? "st-danger" : w.severity === "warn" ? "st-warn" : "st-muted"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginRight: 8 }}>{w.code}</span>
-                    {w.message}
-                  </span>
-                </div>
-              ))}
+              {lint.warnings.map((w, i) => {
+                /* in Chinese: what the code means, and the server's own message beneath it */
+                const line = lintLine(lang, w);
+                return (
+                  <div key={i} className="st-lint-row" data-severity={w.severity}>
+                    <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : tr("film")}</span>
+                    <span>
+                      <span className={w.severity === "error" ? "st-danger" : w.severity === "warn" ? "st-warn" : "st-muted"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginRight: 8 }}>{w.code}</span>
+                      {line.text}
+                      {line.detail && <span className="st-muted" style={{ display: "block" }}>{line.detail}</span>}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </Drawer>
@@ -393,6 +400,7 @@ function linkLabel(spec: ShotView["spec"]): string | null {
 
 function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
   const tr = useT();
+  const lang = useLang();
   const latest = shot.takes[0];
   const cost = shot.takes.reduce((n, t) => n + (t.costUsd ?? 0), 0);
   const codes = cineCodes(shot.spec);
@@ -417,7 +425,7 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
         <div className="st-shot-tags">
           {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
           {link && <span className="st-chip st-chip--mono" aria-pressed="true">{tr(link)}</span>}
-          {problems > 0 && <span className="st-chip st-chip--mono st-chip--warn" title={lint.map((w) => w.message).join("\n")}>⚠ {problems}</span>}
+          {problems > 0 && <span className="st-chip st-chip--mono st-chip--warn" title={lint.map((w) => lintLine(lang, w).text).join("\n")}>⚠ {problems}</span>}
         </div>
         <button type="button" className="st-shot-intent" onClick={onOpen} style={{ textAlign: "left" }}>
           {shot.spec.intent || tr("Untitled shot")}

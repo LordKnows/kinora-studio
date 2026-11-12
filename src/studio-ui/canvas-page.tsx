@@ -721,7 +721,7 @@ export function CanvasPage() {
 
           <Section title={`${tr("Results")}${results.length ? ` (${results.length})` : ""}`} aside={projectId ? <Link className="st-link" href={`/p/${projectId}/pictures`}>{tr("All pictures")}</Link> : undefined}>
             {pending.map(([id, j]) => <div key={id} className="st-alert st-alert--info"><span className="st-lamp" data-state="running">{tr("Drawing…")}</span><span className="st-muted">{j.runner ?? (j.status === "queued" ? tr("queued for a painter") : tr("a painter is drawing it"))}</span></div>)}
-            {failed.map(([id, j]) => <div key={id} className="st-alert"><span>{tr("Failed: {error}", { error: j.error ?? tr("no picture") })}</span><button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Dismiss")} onClick={() => setJobs((m) => { const n = { ...m }; delete n[id]; return n; })}><CloseIcon size={12} /></button></div>)}
+            {failed.map(([id, j]) => <div key={id} className="st-alert"><span>{tr("Failed: {error}", { error: j.error ?? tr("no picture||failed job") })}</span><button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Dismiss")} onClick={() => setJobs((m) => { const n = { ...m }; delete n[id]; return n; })}><CloseIcon size={12} /></button></div>)}
             {results.length === 0 && !pending.length ? <p className="st-muted">{tr("Generated characters appear here, and in the project's Pictures.")}</p> : (
               <div className="st-canvas-results">
                 {results.slice(0, 24).map((a) => (
@@ -843,7 +843,7 @@ function CharacterCard({ label, element, picture, onClear }: { label: string; el
   return (
     <div className="st-slot" data-kind="character">
       <span className="st-label">{label}</span>
-      <div className="st-slot-pic">{thumb ? <img src={thumb} alt={element.name} /> : <span className="st-muted">{tr("no picture")}</span>}</div>
+      <div className="st-slot-pic">{thumb ? <img src={thumb} alt={element.name} /> : <span className="st-muted">{tr("no picture||character")}</span>}</div>
       <div className="st-slot-name" title={element.name}>{element.name}</div>
       <div className="st-muted st-slot-sub">{tr("project character · its sheet")}</div>
       <div className="st-slot-actions">

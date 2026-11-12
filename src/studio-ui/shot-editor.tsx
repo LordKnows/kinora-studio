@@ -423,7 +423,7 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <div className="st-row st-row--between">
-          <span className="st-label" style={{ marginBottom: 0 }}>LoRAs</span>
+          <span className="st-label" style={{ marginBottom: 0 }}>{tr("LoRAs")}</span>
           <select
             className="st-select st-input--sm"
             value={value.loras === undefined ? "inherit" : value.loras.length === 0 ? "none" : "override"}

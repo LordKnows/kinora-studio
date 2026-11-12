@@ -46,6 +46,7 @@ function shownStatus(s: string, tr: T): string {
   if (s.startsWith("failed: ")) return tr("failed: {error}", { error: tr(s.slice(8)) });
   if (s.startsWith("drawing… ")) return tr("drawing… {n}", { n: s.slice(9) });
   if (s.startsWith("queued — ")) return tr("queued — {why}", { why: tr(s.slice(9)) });
+  if (s === "done") return tr("done||picture drawn");
   return tr(s);
 }
 
