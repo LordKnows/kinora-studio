@@ -44,6 +44,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 | `migrations/0017_seed_qwen_loras.sql` | Qwen-Image 2.1 的 LoRA：预置 ChatR Omni v0.1（18+，需在 Canvas 打开 18+ 才能用），并建 `studio_seeds` 表记录已预置（删掉的不会再回来）。幂等；不执行也能用——Studio 首次读写 LoRA 时会自己预置 |
 | `migrations/0018_user_references.sql` | Canvas「我的」：`user_references` 表（用户自己上传的肖像、服装、姿势，所有项目可见）。幂等；不执行也能用——Studio 首次用到时会自己建表 |
 | `migrations/0019_voice_cards.sql` | 声音卡：`voice_cards` 表（`project_id` 为空即全局声音库，所有项目共用）和 `voice_settings` 表（每个项目的语音 API 开关、模型和字数额度）。幂等；不执行也能用——Studio 首次读写声音卡时会自己建表。角色对声音卡的引用存在 `elements.meta_json`，不需要改表 |
+| `migrations/0020_project_owner.sql` | 私有项目：`projects` 表加 `owner`（创建者邮箱）、`visibility`（`shared` / `private`）和一个索引。两条 ALTER 只执行一次；不执行也能用——Studio 首次读写项目时会自己加这两列（之后 Console 里的 ALTER 报 `duplicate column` 就跳过，索引那行照样执行）。已有项目没有 owner，保持共享 |
 
 先执行迁移、再部署新代码：旧代码会忽略新列，新代码缺列会报错。Console 一次执行多条语句报错时，
 逐条粘贴执行；某条 ALTER 报 `duplicate column name` 说明已经执行过，跳过即可。
@@ -125,6 +126,8 @@ Worker 页面 → **Settings → Variables and Secrets**。
 型号 ID 可以在 Studio 的 Settings → GPU pod → "GPU types" 里查。
 | `CRON_SECRET` | 自己生成，供定时 Worker 调用轮询 |
 | `MCP_STATIC_TOKEN` | 可选，给 Claude Code 这类能发 header 的客户端 |
+| `MCP_STATIC_USER` | 可选，静态 token 代表的邮箱（它能看到这个人的私有项目）；不设则只看得到共享项目 |
+| `ADMIN_USERS` | 你的邮箱（多个用逗号分隔）：只有他们能 terminate / adopt / repair GPU Pod、管画图机器和 Codex 登录、把没有 owner 的老项目改成私有。不设 = 所有登录用户都算管理员。用 Secret 类型，部署不会覆盖，邮箱也不进仓库 |
 
 改完密钥要 **Deploy** 一次（Deployments → 最新一次 → Retry/Redeploy）才生效。
 
@@ -135,6 +138,9 @@ Worker 页面 → **Settings → Variables and Secrets**。
 - Application name：`Cinema Studio`
 - Application domain：`studio.zyhu.dev`
 - Policy：Action **Allow**，Include → **Emails** → 填你的邮箱。保存。
+  多人使用时把其他人的邮箱也加进来（或用 **Emails ending in** 填一个域名、或一个
+  Access Group）。每个人登录用的邮箱就是他在 Studio 里的账号：私有项目只有创建者
+  看得到，GPU Pod、画图机器、素材库所有人共用。
 - 保存后在应用的 **Overview** 复制 **Application Audience (AUD) Tag** → 就是
   `CF_ACCESS_AUD`。
 - **Team domain**：Zero Trust → Settings → Custom Pages 里显示的
@@ -178,6 +184,11 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 4. 在 Claude 的 Settings → Connectors → Add custom connector 填
    `https://studio.zyhu.dev/mcp`，会跳到 Studio 的同意页；Grok 在
    grok.com → Connectors → New → Custom 同样操作。
+
+5. 私有项目：首页新建时选 **Private**，或进项目 Settings → **Sharing** 切换。用
+   另一个邮箱（无痕窗口登录）打开首页，看不到这个项目；直接打开 `/p/<id>/board`
+   也是 not found。每个人在自己的 Claude / Grok 里加 connector 时会走一次同意页，
+   connector 就代表那个邮箱。
 
 ## 常见问题
 
