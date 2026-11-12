@@ -962,12 +962,47 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
   const unplanned = view.scenes.filter((s) => !s.sound);
   if (unplanned.length) warnings.push({ code: "sound.table", severity: "info", message: `${unplanned.length} scene(s) have no row in the sound design table (${unplanned.slice(0, 4).map((s) => s.slug).join(", ")}): set the ambience, the foley and the state of the music with set_scene_sound or save_shotlist` });
   for (const finding of treatments.soundPlanFindings(view.scenes, view.timeline, treatment)) warnings.push({ code: "sound.plan", severity: "warn", message: finding });
+  warnings.push(...(await styleLoraHints(view)));
   warnings.push(...(await checkSeams(projectId)));
   const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
   if (open.length) warnings.push({ code: "requirements.open", severity: "info", message: `${open.length} requirement(s) from the user still open: ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}` });
   const counts = { error: 0, warn: 0, info: 0 };
   for (const x of warnings) counts[x.severity]++;
   return { warnings, counts };
+}
+
+/* Which H3 workflows a shot can render on: a LoRA trained for some of them does nothing on the others. */
+function workflowsOf(spec: { mode: string; link?: { type: string } }): string[] {
+  if (spec.link?.type === "match_cut" || spec.mode === "reference") return ["R2VA"];
+  if (spec.mode === "keyframe") return ["I2VA", "FL2VA"];
+  return ["T2VA"];
+}
+
+/**
+ * A style may name style LoRAs that could suit it. They are never applied
+ * for the user: nobody has rendered them with that style. The lint says so
+ * once per LoRA, while it would act on a shot of this film, is in neither
+ * the Look nor a shot, and no decision in the log names it.
+ */
+export async function styleLoraHints(view: ProjectView): Promise<LintWarning[]> {
+  const style = (await styles.resolveStyle(view.project.look.style ?? ""))?.style;
+  if (!view.project.look.style || !style || style.engine.loraSuggestions.length === 0) return [];
+  const shots = view.scenes.flatMap((s) => s.shots);
+  const used = new Set([...view.project.look.loras.map((l) => l.id), ...shots.flatMap((sh) => (sh.spec.loras ?? []).map((l) => l.id))]);
+  const decided = JSON.stringify((await repo.listNotes(view.project.id, "decision")).filter((n) => n.status !== "overturned").map((n) => n.body));
+  const library = await repo.getLoras(style.engine.loraSuggestions.map((l) => l.id));
+  const out: LintWarning[] = [];
+  for (const suggestion of style.engine.loraSuggestions) {
+    const lora = library.get(suggestion.id);
+    if (!lora || used.has(suggestion.id) || decided.includes(suggestion.id)) continue;
+    const fits = shots.filter((sh) => lora.workflows.length === 0 || workflowsOf(sh.spec).some((w) => lora.workflows.includes(w as never))).length;
+    if (fits === 0) continue;
+    out.push({
+      code: "style.lora", severity: "info",
+      message: `the ${style.en} style suggests the LoRA ${lora.name} (${suggestion.id}) at ${suggestion.strength}, for ${suggestion.when} It would act on ${fits} of this film's ${shots.length} shot(s) and is not in the Look. Nobody has rendered it with this style yet: ask the user; with their yes, render one probe shot with it and one without (revise_shot loras) and keep it only if the picture is better (update_look loras). To drop this hint without using it, log_decision naming ${suggestion.id}.`,
+    });
+  }
+  return out;
 }
 
 /** First / last frame checks that need the assets: same size, the render's
