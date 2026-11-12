@@ -1,82 +1,59 @@
-/* Builds every raster brand asset from the one mark geometry.
+/* Builds every brand asset from the one mark in src/brand.ts.
 
-   The mark is authored once as SVG (src/app/icon.svg for the favicon,
-   src/components/OpenHiggsfieldMark.tsx for the interface). Apple, the web app
-   manifest and Open Graph all need rasters, so this script draws the same
-   32-unit field in a headless Chromium and screenshots it at each size.
+   The favicon (src/app/icon.svg) is written as SVG; Apple, the web app
+   manifest and Open Graph need rasters, so this script draws the same 32-unit
+   field in a headless Chromium and screenshots it at each size.
 
      node scripts/build-brand-assets.mjs
 
-   Chromium comes from a local Playwright install; point CHROME_BIN at any
-   Chrome build to use a different one. Outputs are committed — this runs when
-   the mark changes, not on every build. */
+   Node 22.18 or later reads src/brand.ts as TypeScript. Chromium: CHROME_BIN,
+   else Playwright's or a system Chrome. The Open Graph card loads its fonts
+   from Google Fonts. Outputs are committed: this runs when the mark changes,
+   not on every build. docs/brand.md describes the mark. */
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { BRAND, BRAND_COLORS, MARK, markSvg } from "../src/brand.ts";
+
+const { ink: INK, card: CARD, tally: TALLY } = BRAND_COLORS;
+
 /* ---------- the mark ---------- */
 
-const PLATE = "#0e1011";
-const ACCENT = "#6fe3c0";
-const INK = "#c2c9c8";
-
-/** The two brackets on a 32-unit field. Keep in step with src/app/icon.svg. */
-function brackets({ stroke = 2.5, accent = ACCENT, ink = INK } = {}) {
-  return `<g fill="none" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M19.5 6.5H8.9A2.4 2.4 0 0 0 6.5 8.9V17" stroke="${accent}"/>
-    <path d="M12.5 25.5H23.1a2.4 2.4 0 0 0 2.4-2.4V15" stroke="${ink}"/>
-  </g>`;
-}
-
-const markSvg = (size, opts) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">${brackets(opts)}</svg>`;
-
-/* The plate edge is one unit — a true hairline — at favicon size. In the large
-   rasters it has to stay a hairline, so there it scales as a fraction of a unit. */
-const roundedPlate = (size) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">
-  <rect width="32" height="32" rx="7.5" fill="${PLATE}"/>
-  <rect x=".06" y=".06" width="31.88" height="31.88" rx="7.44" fill="none" stroke="rgba(255,255,255,0.11)" stroke-width=".12"/>
-  ${brackets()}
+/** The mark on a full-bleed square, scaled inside it: Apple and the maskable spec cut their own shape. */
+const bleed = (size, scale) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${MARK.viewBox}" width="${size}" height="${size}">
+  <rect width="32" height="32" fill="${INK}"/>
+  <g transform="translate(16 16) scale(${scale}) translate(-16 -16)" shape-rendering="crispEdges">
+    <path d="${MARK.staves}" stroke="${CARD}" stroke-width="${MARK.stroke}" fill="none"/>
+    <path d="${MARK.here}" stroke="${TALLY}" stroke-width="${MARK.stroke}" fill="none"/>
+  </g>
 </svg>`;
-
-/** Full-bleed square: Apple and the maskable spec apply their own mask. */
-const bleedPlate = (size, scale) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="${size}" height="${size}">
-  <rect width="32" height="32" fill="${PLATE}"/>
-  <g transform="translate(16 16) scale(${scale}) translate(-16 -16)">${brackets()}</g>
-</svg>`;
-
-const GRAIN =
-  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='128' height='128'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E\")";
 
 /* ---------- renderer ---------- */
 
 function findChrome() {
   const candidates = [
     process.env.CHROME_BIN,
-    ...["1237", "1228"].map((build) =>
-      join(
-        homedir(),
-        "Library/Caches/ms-playwright",
-        `chromium-${build}/chrome-mac-arm64`,
-        "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
-      ),
-    ),
+    "/opt/pw-browsers/chromium",
+    ...["1243", "1237", "1228"].flatMap((build) => [
+      join(homedir(), "Library/Caches/ms-playwright", `chromium-${build}/chrome-mac-arm64`, "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"),
+      join(homedir(), ".cache/ms-playwright", `chromium-${build}/chrome-linux64/chrome`),
+    ]),
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/usr/bin/google-chrome",
+    "/usr/bin/chromium",
   ].filter(Boolean);
-
   const found = candidates.find((path) => existsSync(path));
   if (found) return found;
-  throw new Error(
-    "No Chrome found. Install one, or set CHROME_BIN to a Chrome/Chromium binary.",
-  );
+  throw new Error("No Chrome found. Install one, or set CHROME_BIN to a Chrome/Chromium binary.");
 }
 
 const CHROME = findChrome();
 const ROOT = resolve(import.meta.dirname, "..");
-const WORK = mkdtempSync(join(tmpdir(), "openhiggsfield-brand-"));
+const WORK = mkdtempSync(join(tmpdir(), "stave-brand-"));
 
 function shoot(out, html, width, height, { transparent = false } = {}) {
   const page = join(WORK, `${width}x${height}-${Math.abs(hash(out))}.html`);
@@ -87,9 +64,11 @@ function shoot(out, html, width, height, { transparent = false } = {}) {
     [
       "--headless",
       "--disable-gpu",
+      /* Chromium refuses to run as root with its sandbox on (containers, CI) */
+      ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
       "--hide-scrollbars",
       "--force-device-scale-factor=1",
-      "--virtual-time-budget=6000",
+      "--virtual-time-budget=8000",
       ...(transparent ? ["--default-background-color=00000000"] : []),
       `--window-size=${width},${height}`,
       `--screenshot=${out}`,
@@ -113,66 +92,68 @@ const shell = (body, bg = "transparent") =>
    body{display:flex}
    </style>${body}`;
 
+/* ---------- favicon ---------- */
+
+console.log("favicon");
+writeFileSync(join(ROOT, "src/app/icon.svg"), `${markSvg({ size: 32, plate: true })}\n`);
+console.log("  src/app/icon.svg");
+
 /* ---------- app icons ---------- */
 
 console.log("app icons");
-shoot(join(ROOT, "public/icon-512.png"), shell(roundedPlate(512)), 512, 512, {
-  transparent: true,
-});
-shoot(join(ROOT, "public/icon-192.png"), shell(roundedPlate(192)), 192, 192, {
-  transparent: true,
-});
+shoot(join(ROOT, "public/icon-512.png"), shell(markSvg({ size: 512 })), 512, 512, { transparent: true });
+shoot(join(ROOT, "public/icon-192.png"), shell(markSvg({ size: 192 })), 192, 192, { transparent: true });
 // Maskable keeps the mark inside the 80%-diameter safe circle.
-shoot(join(ROOT, "public/icon-maskable-512.png"), shell(bleedPlate(512, 0.82)), 512, 512);
-shoot(join(ROOT, "src/app/apple-icon.png"), shell(bleedPlate(180, 1)), 180, 180);
+shoot(join(ROOT, "public/icon-maskable-512.png"), shell(bleed(512, 0.78)), 512, 512);
+shoot(join(ROOT, "src/app/apple-icon.png"), shell(bleed(180, 0.9)), 180, 180);
 
 /* ---------- open graph card ----------
-   No stand-in tiles standing in for generated work we do not have. The only
-   device besides the type is the mark itself, drawn large and hairline-thin:
-   the card sits inside the field the mark names. */
+   The card is a page of the score: the name and what it is, above four
+   staves of shots crossed by the red line that marks now. No stand-in
+   pictures of work we do not have. */
+
+const staves = [
+  { label: "SCRIPT", cuts: [0, 0.16, 0.41, 0.58, 0.83, 1] },
+  { label: "BOARD", cuts: [0, 0.09, 0.27, 0.36, 0.52, 0.71, 0.79, 1] },
+  { label: "TAKES", cuts: [0, 0.14, 0.33, 0.47, 0.62, 0.9, 1] },
+  { label: "CUT", cuts: [0, 0.22, 0.31, 0.55, 0.68, 1] },
+];
+const HERE = 0.62;
+const staveRows = staves
+  .map(
+    (s) => `<div class="stave"><span class="lab">${s.label}</span><div class="line">${s.cuts
+      .slice(0, -1)
+      .map((a, i) => `<i style="left:calc(${a * 100}% + 3px);width:calc(${(s.cuts[i + 1] - a) * 100}% - 6px)"></i>`)
+      .join("")}</div></div>`,
+  )
+  .join("");
 
 const og = `<!doctype html><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Inter:wght@400;500;600&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@600;700&display=block" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:1200px;height:630px;overflow:hidden}
-  body{
-    position:relative;
-    background:
-      radial-gradient(110% 85% at 4% -8%, rgba(111,227,192,0.06), transparent 56%),
-      radial-gradient(95% 115% at 104% 108%, rgba(255,255,255,0.032), transparent 60%),
-      #0a0a0b;
-    color:#edefef;
-    font-family:Inter, ui-sans-serif, system-ui, sans-serif;
-    -webkit-font-smoothing:antialiased;
-    padding:74px 88px;
-    display:flex;
-    flex-direction:column;
-    justify-content:space-between;
-  }
-  .field{position:absolute;top:88px;right:78px;line-height:0}
-  .grain{position:absolute;inset:0;background-image:${GRAIN};background-size:180px;opacity:.06}
-  .band{position:relative}
-  /* The footer band is gone, so the text block centers in what is left of the
-     plate instead of sinking to the bottom edge. */
-  .mid{position:relative;flex:1;display:flex;align-items:center}
-  .mark{display:flex}
-  h1{font-size:106px;font-weight:600;letter-spacing:-.05em;line-height:.92;color:#f2f4f4}
-  .descriptor{margin-top:20px;font-family:"Geist Mono",ui-monospace,monospace;font-size:15px;font-weight:500;letter-spacing:.30em;text-transform:uppercase;color:#7d8486}
-  .rule{margin:34px 0 28px;width:455px;height:1px;background:rgba(255,255,255,.09)}
-  p{font-size:24px;line-height:1.45;color:#a8aeaf;max-width:530px;letter-spacing:-.011em}
+  body{background:${CARD};color:${INK};font-family:Archivo,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:64px 72px 56px;display:flex;flex-direction:column}
+  .head{display:flex;align-items:center;gap:28px}
+  .name{font-size:112px;font-weight:800;font-stretch:125%;letter-spacing:.06em;line-height:1;text-transform:uppercase}
+  .zh{font-family:"Noto Serif SC",serif;font-size:92px;font-weight:700;line-height:1;color:#4a4a47;margin-left:6px}
+  .what{margin-top:26px;font-family:"IBM Plex Mono",monospace;font-size:17px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:#5b5b58}
+  .what b{color:${INK};font-weight:500}
+  .tag{margin-top:14px;font-size:26px;line-height:1.35;letter-spacing:-.005em;color:#2b2b29;max-width:900px}
+  .score{position:relative;margin-top:auto;border-top:1px solid ${INK}}
+  .stave{display:flex;align-items:center;height:30px;border-bottom:1px solid rgba(18,18,18,.18)}
+  .lab{width:92px;flex:none;font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.16em;color:#6b6b68}
+  .line{position:relative;flex:1;height:100%}
+  .line i{position:absolute;top:13px;height:4px;background:${INK}}
+  .here{position:absolute;top:-14px;bottom:-6px;left:calc(92px + (100% - 92px) * ${HERE});width:3px;background:${TALLY}}
+  .tc{position:absolute;top:-36px;left:calc(92px + (100% - 92px) * ${HERE} + 10px);font-family:"IBM Plex Mono",monospace;font-size:14px;font-weight:500;color:${TALLY}}
 </style>
-<div class="field">${markSvg(454, { stroke: 1.15, accent: "rgba(111,227,192,0.17)", ink: "rgba(255,255,255,0.085)" })}</div>
-<div class="band mark">${markSvg(58, { stroke: 2.5 })}</div>
-<div class="mid"><div class="band">
-  <h1>OpenHiggsfield AI</h1>
-  <div class="descriptor">Open source AI studio</div>
-  <div class="rule"></div>
-  <p>One prompt bar for image and video. Each model&rsquo;s own settings, and every finished run in one gallery.</p>
-</div></div>
-<div class="grain"></div>`;
+<div class="head">${markSvg({ size: 96 })}<span class="name">${BRAND.name}</span><span class="zh">${BRAND.zh}</span></div>
+<div class="what"><b>${BRAND.descriptor}</b> · ${BRAND.descriptorZh}</div>
+<div class="tag">${BRAND.tagline}</div>
+<div class="score">${staveRows}<span class="here"></span><span class="tc">0:31.5</span></div>`;
 
 console.log("open graph");
 // public/, not app/opengraph-image.png — see the OG_IMAGE note in src/site.ts.

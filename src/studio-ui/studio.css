@@ -1,4 +1,4 @@
-/* Cinema Studio — the one stylesheet. "Score": one line, two lights, one red.
+/* Stave — the one stylesheet. "Score": one line, two lights, one red.
 
    Tokens live on .studio (the document root for every studio surface).
    Lights up (the default) is a neutral grey card with ink on it, for
@@ -252,7 +252,17 @@
   white-space: nowrap;
 }
 .studio .st-brand-mark {
-  display: none;
+  flex: none;
+  margin-right: 2px;
+}
+/* 镜谱 beside STAVE: the brand's Chinese name, in the script's Songti */
+.studio .st-brand-zh {
+  font-family: var(--font-song);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-stretch: normal;
+  letter-spacing: 0.04em;
+  color: var(--tx2);
 }
 .studio .st-topbar-crumb {
   display: flex;
@@ -487,6 +497,7 @@ button.st-pill {
    GPU menu spans the screen (its pill is no longer at the right edge) */
 @media (max-width: 520px) {
   .studio .st-brand-name,
+  .studio .st-brand-zh,
   .studio .st-gpu-pill-name {
     display: none;
   }

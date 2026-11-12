@@ -3,7 +3,7 @@
 > A place over one day, time bent: machines fast, people slow, every cut on a beat of a score written first.
 > 一个地方的一天，时间被弯折：机器快、人慢，每一刀都落在先写好的乐谱节拍上。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Edit & Documentary · 剪辑与纪实  
 **Uses:** City and place films · Music montages · Openers and idents · Anniversaries

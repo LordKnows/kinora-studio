@@ -1,4 +1,11 @@
-# Cinema Studio — an open Cinema Studio on self-hosted MiniMax H3
+<img src="public/icon-192.png" alt="" width="64" height="64">
+
+# Stave 镜谱 — an AI film studio on self-hosted MiniMax H3
+
+A stave is the set of lines music is written on; Stave lays a film out the
+same way, on one score: every shot, take and cut in its place, read top to
+bottom at any moment. 镜谱 is its Chinese name, a score of shots. The name,
+the mark and how to use them: [docs/brand.md](docs/brand.md).
 
 A film-crew workflow in the browser: **script → elements → shotlist → hero
 frames → takes → timeline → export**. The director is your own subscription
@@ -6,8 +13,6 @@ Claude or Grok, connected over MCP. Video renders on **MiniMax H3-Base** running
 on your RunPod endpoint. Hero frames and element references are uploaded (a
 still-image backend is a TODO). Everything is stored in R2 and a small
 SQLite/D1 database. Deploys to Cloudflare Workers.
-
-The original single-shot studio is still here at `/playground`.
 
 Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
 
@@ -236,15 +241,13 @@ agent/editing.md         Tier 2 edit grammar (generated from src/studio/editing.
 agent/cinematography.md  Tier 3 vocabulary (generated from src/studio/cinematography.ts)
 docs/                    design document
 migrations/              SQL emitted for wrangler d1 (pnpm db:emit)
-src/app/                 pages (/, /p/[id]/…, /playground, /oauth/authorize) and /api routes
+src/app/                 pages (/, /p/[id]/…, /canvas, /library, /machine, /connect, /oauth/authorize) and /api routes
 src/studio/              schemas · types · repo · compiler · checkpoints · cost · orchestrator · backends · storage
 src/mcp/                 MCP server (tools + resource)
 src/oauth/               OAuth 2.1 authorization server for connectors
 src/auth/                Cloudflare Access JWT, bearer tokens, HMAC
 src/db/                  SQLite (Node) / D1 (Workers) and migrations
 src/studio-ui/           the studio pages' components and styles
-src/generation/          the original catalog + platform client (/playground only)
-src/openhiggsfield/      the original single-shot studio (/playground)
 workers/h3-runpod/       ComfyUI handler for H3 and the pod's job server
 workers/painter/         the painter: draws pictures (Codex / images API), crops, extracts frames
 workers/assembler/       ffmpeg serverless handler
@@ -358,8 +361,8 @@ assembler renders, subtitle reading-time rules and a batch planner. Registered i
 `.mcp.json` as `director`; see [`packages/director/README.md`](packages/director/README.md).
 
 ```bash
-pnpm --filter @openhiggsfield/director build
-pnpm --filter @openhiggsfield/director test
+pnpm --filter @stave/director build
+pnpm --filter @stave/director test
 ```
 
 ## Voices: voice cards and dialogue

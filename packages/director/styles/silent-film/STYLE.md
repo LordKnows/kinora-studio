@@ -3,7 +3,7 @@
 > A one-reel silent comedy: locked wide shots, intertitles, a piano in the pit and a flickering print.
 > 一卷默片喜剧：固定的全景、字幕卡、乐池里的钢琴和闪烁的胶片。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Cinema & Eras · 电影与时代  
 **Uses:** Comedy · Retro brands · Silent storytelling · Anniversaries

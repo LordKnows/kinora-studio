@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import { authenticateWeb } from "@/auth/access";
+import { BRAND } from "@/brand";
 import { parseAuthorize } from "@/oauth/server";
 import { StudioError } from "@/studio/errors";
 
@@ -23,7 +24,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
   return (
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
       <form method="post" action="/api/oauth/authorize" className="st-consent">
-        <h1 className="st-consent-title">Connect to Cinema Studio</h1>
+        <h1 className="st-consent-title">Connect to {BRAND.name}</h1>
         {problem ? (
           <p className="st-consent-problem">{problem}</p>
         ) : !actor ? (

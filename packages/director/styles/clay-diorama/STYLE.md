@@ -3,7 +3,7 @@
 > A tabletop world of clay, felt and painted wood, filmed in stop-motion with fingerprints left in.
 > 黏土、毛毡和彩绘木头搭成的桌面世界，定格拍摄，指纹留在上面。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Materials & 3D · 材质与 3D  
 **Uses:** Web and app heroes · Ambient loops · Seasons and nature · Handmade brands

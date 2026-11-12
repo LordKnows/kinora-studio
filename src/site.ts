@@ -3,6 +3,8 @@
    browser, so importing SITE_URL into a client component would resolve
    differently on each side. Keep this module out of "use client" files. */
 
+import { BRAND } from "./brand";
+
 function resolveOrigin(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
@@ -15,12 +17,12 @@ function resolveOrigin(): string {
 
 export const SITE_URL = resolveOrigin();
 
-export const SITE_NAME = "OpenHiggsfield AI";
-export const SITE_DESCRIPTOR = "Open source AI studio";
-export const SITE_TITLE = `${SITE_NAME} — ${SITE_DESCRIPTOR}`;
+export const SITE_NAME = BRAND.name;
+export const SITE_DESCRIPTOR = BRAND.descriptor;
+export const SITE_TITLE = `${SITE_NAME} ${BRAND.zh} — ${SITE_DESCRIPTOR}`;
 
 export const SITE_DESCRIPTION =
-  "A studio for image and video generation — one prompt bar, each model’s own settings, and every finished run in one gallery.";
+  "An AI film studio on a self-hosted open video model. A director you talk to writes the script and the shotlist; the whole film sits on one score, every shot, take and cut in its place.";
 
 /** The studio ground with the lights up (the grey card); also the installed-app and browser-chrome color. */
 export const STUDIO_BG = "#e6e6e4";
@@ -36,7 +38,7 @@ export const OG_IMAGE = {
   width: 1200,
   height: 630,
   type: "image/png",
-  alt: "The OpenHiggsfield AI open-frame mark on a near-black field, above the OpenHiggsfield AI wordmark, the words Open source AI studio, and a line describing one prompt bar for image and video with every finished run in one gallery.",
+  alt: "The Stave mark, three staves cut into shots with a red line marking now, beside the words Stave 镜谱 and AI film studio, on a light grey card crossed by the hairline staves of a film score.",
 };
 
 /* Next replaces the whole `openGraph` (and `twitter`) object when a route

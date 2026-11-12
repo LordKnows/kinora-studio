@@ -4,9 +4,11 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { createContext, Suspense, useContext, useMemo, type ReactNode } from "react";
 
+import { BRAND } from "@/brand";
 import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
+import { BrandMark } from "./brand-mark";
 import { Lamp, Skeleton, usePopover } from "./common";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
@@ -78,8 +80,9 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
   return (
     <header className="st-topbar">
       <Link className="st-brand" href="/">
-        <span className="st-brand-mark">H3</span>
-        <span className="st-brand-name">Cinema Studio</span>
+        <BrandMark className="st-brand-mark" plate size={22} />
+        <span className="st-brand-name">{BRAND.name}</span>
+        <span className="st-brand-zh" lang="zh-Hans">{BRAND.zh}</span>
       </Link>
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />

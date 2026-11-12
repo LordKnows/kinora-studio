@@ -1,4 +1,10 @@
-# 用 Cloudflare 网页端部署 Cinema Studio
+# 用 Cloudflare 网页端部署 Stave（镜谱）
+
+> 产品原名 Cinema Studio。改名只改了看得见的名字；Cloudflare 和 RunPod 里的资源名没有改：
+> Worker 仍叫 `cinema-studio` 和 `cinema-studio-cron`，D1 和 R2 仍叫 `studio`，
+> GPU 机器和绘图机仍叫 `cinema-studio-h3*`、`cinema-studio-painter*`。改了 Worker 名字等于新建一个
+> Worker，原来那个的密钥和域名不会跟过来；机器名是 Studio 认领已有机器用的。已经按旧名字建好的
+> Access 应用也不用改。
 
 目标：把 Studio 跑在 `studio.zyhu.dev` 上，媒体文件走同一个域名下的 `/media/*`
 （Studio 通过 R2 binding 直接读桶，不需要给 R2 单独配域名）。全部在 Cloudflare
@@ -138,7 +144,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 
 **Zero Trust（左侧菜单）→ Access → Applications → Add an application → Self-hosted**
 
-- Application name：`Cinema Studio`
+- Application name：`Stave`
 - Application domain：`studio.zyhu.dev`
 - Policy：Action **Allow**，Include → **Emails** → 填你的邮箱。保存。
   多人使用时把其他人的邮箱也加进来（或用 **Emails ending in** 填一个域名、或一个
@@ -151,7 +157,7 @@ Worker 页面 → **Settings → Variables and Secrets**。
 
 再加一个 **Bypass** 应用，让机器调用的路径绕过登录（它们各自有自己的鉴权）：
 
-- Add an application → Self-hosted，名称 `Cinema Studio machine paths`，
+- Add an application → Self-hosted，名称 `Stave machine paths`，
   在 Application domain 里逐条添加（同一个应用可以加多条域名 + 路径）：
   - `studio.example.com/mcp`
   - `studio.example.com/.well-known/*`

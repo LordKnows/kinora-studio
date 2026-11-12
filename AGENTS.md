@@ -8,7 +8,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 <!-- END:nextjs-agent-rules -->
 
-# Cinema Studio: project notes
+# Stave (镜谱): project notes
 
 The app is a Next.js Studio on Cloudflare Workers (`src/`), an MCP server at `/mcp` (`src/mcp/server.ts`) and three workers (`workers/h3-runpod` renders, `workers/assembler` cuts, `workers/painter` draws). The director layer is a separate package, `packages/director`, served through the same MCP. Design: `docs/cinema-studio-h3-design.md`; the model's graphs and timings: `docs/handoff/HANDOFF.md`.
 
@@ -19,7 +19,7 @@ Edit the source, then run the emitter; the generated files are committed.
 | Source | Generated | Command |
 |---|---|---|
 | `agent/director.md` (the guide the MCP serves) | `src/mcp/guide.ts` | `pnpm guide:emit` |
-| `packages/director/styles/*/style.json`, `packages/director/docs/*.md` | `packages/director/styles/*/STYLE.md`, `styles/README.md`, `src/director/generated.ts` | `pnpm --filter @openhiggsfield/director build`, then `pnpm guide:emit` |
+| `packages/director/styles/*/style.json`, `packages/director/docs/*.md` | `packages/director/styles/*/STYLE.md`, `styles/README.md`, `src/director/generated.ts` | `pnpm --filter @stave/director build`, then `pnpm guide:emit` |
 | `src/studio/editing.ts`, `src/studio/cinematography.ts` | `agent/editing.md`, `agent/cinematography.md` | `pnpm guide:emit` |
 | `src/db/migrations/*.ts` | `migrations/*.sql` | `pnpm db:emit` |
 | `workers/h3-runpod`, `workers/assembler/handler.py`, `workers/painter` | `src/pod/bundle.ts` | `pnpm pod:bundle` |
@@ -29,7 +29,7 @@ Edit the source, then run the emitter; the generated files are committed.
 ## Checks
 
 - `pnpm typecheck` and `pnpm test` (vitest, `tests/`).
-- `pnpm --filter @openhiggsfield/director test` (node:test, `packages/director/src/test`).
+- `pnpm --filter @stave/director test` (node:test, `packages/director/src/test`).
 - `python3 -m pytest workers` for the workers (needs ffmpeg).
 
 ## Facts that were got wrong once

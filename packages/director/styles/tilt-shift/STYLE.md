@@ -3,7 +3,7 @@
 > A real place seen from high up through a tilt-shift lens: a thin sharp band, toy colours, time-lapse traffic.
 > 从高处用移轴镜头看真实世界：一条清晰带、玩具般的色彩、延时的车流。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Materials & 3D · 材质与 3D  
 **Uses:** City promos · Real estate and campuses · Transport and logistics · Events from above

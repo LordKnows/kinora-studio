@@ -3,7 +3,7 @@
 > One fictional object of glass, metal and light in an infinite black studio; every move lands on the beat.
 > 一个虚构的玻璃金属物体悬浮在无限黑色影棚里，每一次运镜都落在节拍上。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Materials & 3D · 材质与 3D  
 **Uses:** Product launches · Consumer tech · Beauty and fragrance · Audio and wearables

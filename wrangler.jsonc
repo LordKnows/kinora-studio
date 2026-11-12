@@ -2,6 +2,8 @@
   // Cloudflare Workers deployment via OpenNext. Fill in the ids after
   // `wrangler d1 create studio` and `wrangler r2 bucket create studio`.
   "$schema": "node_modules/wrangler/config-schema.json",
+  // The Worker's name from before the product was called Stave. Keep it: a
+  // new name deploys a new Worker without this one's secrets and domain.
   "name": "cinema-studio",
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-09-01",

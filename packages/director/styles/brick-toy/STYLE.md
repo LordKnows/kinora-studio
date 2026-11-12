@@ -3,7 +3,7 @@
 > A world built from plastic bricks on a tabletop, assembled brick by brick in stop-motion.
 > 一个用塑料积木在桌面上搭出的世界，逐块定格拼装。
 
-<!-- generated from style.json by @openhiggsfield/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
+<!-- generated from style.json by @stave/director; edit the JSON. Structure after lemo-opuscar STYLE.md (CC BY 4.0); text written for the H3 pipeline. -->
 
 **Category:** Materials & 3D · 材质与 3D  
 **Uses:** Toys and kids · Product and process builds · Space and vehicles · City and architecture

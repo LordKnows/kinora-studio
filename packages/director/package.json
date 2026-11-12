@@ -1,9 +1,9 @@
 {
-  "name": "@openhiggsfield/director",
+  "name": "@stave/director",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Director layer for the Cinema Studio MCP: style presets, treatment, rhythm lint, cue maps, J/L-cut assembly, subtitles and batch planning.",
+  "description": "Director layer for the Stave MCP: style presets, treatment, rhythm lint, cue maps, J/L-cut assembly, subtitles and batch planning.",
   "bin": {
     "director-mcp": "./dist/mcp.js"
   },

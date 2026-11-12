@@ -1,7 +1,7 @@
-/* Document base. The studio at / ships its own scoped system in
-   src/openhiggsfield/openhiggsfield.css; this file only owns what lives outside
-   that scope — the document canvas, which overscroll rubber-banding exposes.
-   Literal because --bg lives on .ohf; it matches STUDIO_BG in src/site.ts. */
+/* Document base. The studio ships its own scoped system in
+   src/studio-ui/studio.css; this file only owns what lives outside that
+   scope — the document canvas, which overscroll rubber-banding exposes.
+   Literal because --bg lives on .studio; it matches STUDIO_BG in src/site.ts. */
 
 html {
   -webkit-text-size-adjust: 100%;
