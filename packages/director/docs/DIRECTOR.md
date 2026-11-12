@@ -84,6 +84,7 @@ Everyone wants something different: brand colours, a character, the tone of a ch
 - The style's constraints (`engine.negative`) are statements of what the picture shows ("only the clay and felt figures are in frame"), as in the library presets. H3 has no negative prompt, so a ban is drawn as the thing it bans; `save_style` names any entry written as one.
 - At most five changes a round. `save_style(style, basedOn, why)` keeps it and answers with the changed sections, their groups and the warnings. Show the user that summary, then prove the look with a style frame before a film depends on it.
 - Story, structure, cast, pacing and voice are free in every film. If that is all they want changed, they do not need a style of their own.
+- A kept style is usable by every user of the Studio, since a project's Look names it by slug. `list_styles` marks it `mine` for whoever made it and `shared` for everyone else; nobody's email is shown, and only its maker can change or delete it.
 
 ## 6. Sound is half the film
 

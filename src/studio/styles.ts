@@ -7,7 +7,9 @@ import type { Actor } from "./types";
 /* Styles: the library that ships with the director layer, and the styles the
    users made from it. A project's Look names its style by slug, so a style of
    someone's own resolves for everyone who works on that project; only whoever
-   made it can change or delete it. */
+   made it can change or delete it. Who made a style stays inside the Studio:
+   a listing says "mine" to its maker and "shared" to everyone else, never an
+   email. */
 
 /* The picture prompts are built by plain functions; they read a style of
    someone's own from here. `warm` fills it before a picture is drawn. */
@@ -24,8 +26,8 @@ export async function warm(slug: string | undefined): Promise<void> {
   if (slug && !knownStyle(slug)) await allStyles();
 }
 
-/** Every style: the users' own first (newest first), then the library. */
-export async function allStyles(): Promise<director.LoadedStyle[]> {
+/** Every style: the viewer's own first, then the other users' (newest first), then the library. */
+export async function allStyles(viewer?: string): Promise<director.LoadedStyle[]> {
   const mine: director.LoadedStyle[] = [];
   for (const row of await repo.listUserStyles()) {
     const parsed = director.StyleSchema.safeParse(row.style);
@@ -35,6 +37,7 @@ export async function allStyles(): Promise<director.LoadedStyle[]> {
   known.clear();
   for (const s of mine) known.set(s.style.slug, s);
   const taken = new Set(mine.map((s) => s.style.slug));
+  if (viewer) mine.sort((a, b) => Number(b.by === viewer) - Number(a.by === viewer));
   return [...mine, ...director.loadStyles().filter((s) => !taken.has(s.style.slug))];
 }
 
@@ -50,8 +53,12 @@ export async function mustResolveStyle(query: string): Promise<director.LoadedSt
   return found;
 }
 
-export function summary(s: director.LoadedStyle) {
-  return { slug: s.style.slug, en: s.style.en, cn: s.style.cn, category: s.style.category, uses: s.style.uses, line: s.style.line, line_cn: s.style.line_cn, origin: s.origin, ...(s.by ? { by: s.by } : {}), ...(s.basedOn ? { basedOn: s.basedOn } : {}) };
+export type StyleOrigin = "library" | "mine" | "shared";
+
+/** A style as a listing shows it to `viewer`: theirs is "mine", another user's is "shared", and nobody's email is in it. */
+export function summary(s: director.LoadedStyle, viewer?: string) {
+  const origin: StyleOrigin = s.origin === "library" ? "library" : viewer && s.by === viewer ? "mine" : "shared";
+  return { slug: s.style.slug, en: s.style.en, cn: s.style.cn, category: s.style.category, uses: s.style.uses, line: s.style.line, line_cn: s.style.line_cn, origin, ...(s.basedOn ? { basedOn: s.basedOn } : {}) };
 }
 
 /** A copy of a style under a new name, with the three groups that say what each change costs. Nothing is stored. */
@@ -91,7 +98,7 @@ export async function saveStyle(actor: Actor, input: { style: unknown; basedOn?:
   const changes = base ? director.diffStyle(base, style, input.why) : [];
   const row = await repo.putUserStyle({ slug: style.slug, user: actor.user, ...(base ? { basedOn: base.slug } : {}), style, changes });
   return {
-    style: summary({ style, origin: "mine", by: row.user, ...(row.basedOn ? { basedOn: row.basedOn } : {}) }),
+    style: summary({ style, origin: "mine", by: row.user, ...(row.basedOn ? { basedOn: row.basedOn } : {}) }, actor.user),
     changes,
     warnings,
     ...(base ? { changesMarkdown: director.changesToMarkdown(base, style, changes) } : {}),

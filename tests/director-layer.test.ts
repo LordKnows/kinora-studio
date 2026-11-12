@@ -110,7 +110,9 @@ describe("a style of the user's own", () => {
     style.colour.examplePalette = "paper #101418, ink #e8e2d2, vermilion #d8402c";
     style.engine.look.palette = "pale ink on blue-black paper, one vermilion seal red, no other colour";
     const saved = await styles.saveStyle(mia, { style, basedOn: "ink-wash", why: { "§3 palette": "the brand film plays at night" } });
-    expect(saved.style).toMatchObject({ slug: "night-ink", origin: "mine", by: "mia@example.com", basedOn: "ink-wash" });
+    expect(saved.style).toMatchObject({ slug: "night-ink", origin: "mine", basedOn: "ink-wash" });
+    // who made it stays inside the Studio: no listing, and nothing save_style answers, carries an email
+    expect(JSON.stringify(saved)).not.toContain("mia@example.com");
     expect(saved.changes.map((c) => c.section)).toEqual(["§3 palette"]);
     expect(saved.changes[0]).toMatchObject({ group: "safe", why: "the brand film plays at night" });
     expect(saved.warnings.filter((w) => w.severity !== "info")).toEqual([]);
@@ -119,9 +121,23 @@ describe("a style of the user's own", () => {
     // listed first, found by any of its names, suggested with the library
     const all = await styles.allStyles();
     expect(all[0]!.style.slug).toBe("night-ink");
+    // to its maker it is "mine"; to anyone else it is "shared", and usable all the same
+    const forMia = (await styles.allStyles(mia.user)).map((x) => styles.summary(x, mia.user));
+    const forJoe = (await styles.allStyles(joe.user)).map((x) => styles.summary(x, joe.user));
+    expect(forMia[0]).toMatchObject({ slug: "night-ink", origin: "mine" });
+    expect(forJoe.find((x) => x.slug === "night-ink")).toMatchObject({ origin: "shared", basedOn: "ink-wash" });
+    expect(JSON.stringify(forJoe)).not.toContain("mia@example.com");
+    expect(JSON.stringify(forMia)).not.toContain("@example.com");
+    expect(forJoe.filter((x) => x.origin === "library")).toHaveLength(16);
     expect(all.filter((s) => s.origin === "library")).toHaveLength(16);
     expect((await styles.resolveStyle("夜墨"))?.style.slug).toBe("night-ink");
     expect((await styles.resolveStyle("Night Ink"))?.origin).toBe("mine");
+    // a second user's own style comes first in their listing, ahead of mia's
+    const joes = structuredClone(style); joes.slug = "joes-ink"; joes.en = "Joe's Ink"; joes.cn = "乔墨";
+    await styles.saveStyle(joe, { style: joes, basedOn: "ink-wash" });
+    expect((await styles.allStyles(joe.user)).slice(0, 2).map((x) => styles.summary(x, joe.user)).map((x) => [x.slug, x.origin])).toEqual([["joes-ink", "mine"], ["night-ink", "shared"]]);
+    expect((await styles.allStyles(mia.user)).slice(0, 2).map((x) => styles.summary(x, mia.user)).map((x) => [x.slug, x.origin])).toEqual([["night-ink", "mine"], ["joes-ink", "shared"]]);
+    await styles.deleteStyle(joe, "joes-ink");
     expect((await styles.styleChanges("night-ink"))?.basedOn).toBe("ink-wash");
 
     // a project uses it like any style

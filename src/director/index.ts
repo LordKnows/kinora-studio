@@ -29,6 +29,7 @@ export interface LoadedStyle {
   style: Style;
   /** "mine": a style a user made (src/studio/styles.ts); it carries who and from what. */
   origin: "library" | "mine";
+  /** Who made it. For ownership inside the Studio only: listings never show it. */
   by?: string;
   basedOn?: string;
 }

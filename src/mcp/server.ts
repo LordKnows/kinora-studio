@@ -121,8 +121,8 @@ export function createStudioServer(actor: Actor): McpServer {
     hits: z.array(z.object({ id: z.string(), section: z.string(), bar: z.number(), beat: z.number(), what: z.string() })).default([]),
     silences: z.array(z.object({ t: z.number(), durationS: z.number(), why: z.string() })).optional(),
   });
-  tool("list_styles", "Every style: the users' own first (origin mine, with who made it and its base), then the library. Slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
-    (await styles.allStyles()).map(styles.summary));
+  tool("list_styles", "Every style: your user's own first (origin mine), then other users' (origin shared), then the library; a user's style says which style it is based on. Slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
+    (await styles.allStyles(actor.user)).map((x) => styles.summary(x, actor.user)));
   tool("suggest_styles", "Two or three styles that fit a topic, with why; the users' own styles are in the pool. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
     director.suggestStyles(topic, n, await styles.allStyles()).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
   tool("get_style", "One style in full: JSON (engine fields, camera grammar, native moves, pitfalls, variation space) or STYLE.md. For a style of the user's own, format changes gives what differs from its base.", z.object({ style: z.string().min(1).describe("slug, English or Chinese name"), format: z.enum(["json", "markdown", "changes"]).default("markdown") }), async ({ style, format }) => {
