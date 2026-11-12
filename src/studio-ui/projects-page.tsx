@@ -133,7 +133,7 @@ function groups(projects: ListedProject[]): Array<{ key: string; title?: string;
 function ProjectCard({ p }: { p: ListedProject }) {
   const steps = [Boolean(p.brief), p.shotlistApproval === "approved", p.spentUsd > 0];
   return (
-    <Link href={`/p/${p.id}/board`} className="st-project">
+    <Link href={`/p/${p.id}`} className="st-project">
       <span className="st-row st-row--between" style={{ alignItems: "flex-start", gap: 8 }}>
         <span className="st-project-name">{p.name}</span>
         {p.visibility === "private" ? (

@@ -1,6 +1,10 @@
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 
-export default async function ProjectIndex({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  redirect(`/p/${id}/board`);
+import { ScorePage } from "@/studio-ui/score-page";
+
+export const metadata: Metadata = { title: "Score" };
+
+/* A project's home is its Score: the whole film on one time axis. */
+export default function Page() {
+  return <ScorePage />;
 }

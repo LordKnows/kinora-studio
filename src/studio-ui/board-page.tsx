@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
@@ -52,8 +53,40 @@ const BLANK_SHOT: ShotInput = {
 };
 
 export function BoardPage() {
+  return (
+    <Suspense fallback={null}>
+      <Board />
+    </Suspense>
+  );
+}
+
+/* The open shot and its tab live in the address (?shot=…&tab=…): a reload
+   keeps them, Back closes the drawer, and the link can be sent to someone. */
+function useShotAddress() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const go = (change: (q: URLSearchParams) => void, how: "push" | "replace") => {
+    const q = new URLSearchParams(params.toString());
+    change(q);
+    const url = q.size ? `${pathname}?${q}` : pathname;
+    if (how === "push") router.push(url, { scroll: false });
+    else router.replace(url, { scroll: false });
+  };
+  return {
+    openId: params.get("shot"),
+    tab: params.get("tab"),
+    open: (id: string) => go((q) => { q.set("shot", id); q.delete("tab"); }, "push"),
+    close: () => go((q) => { q.delete("shot"); q.delete("tab"); }, "replace"),
+    setTab: (tab: string) => go((q) => q.set("tab", tab), "replace"),
+  };
+}
+
+function Board() {
   const { projectId, view, reload } = useProjectContext();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const address = useShotAddress();
+  const openId = address.openId;
+  const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
   const [newScene, setNewScene] = useState("");
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintOpen, setLintOpen] = useState(false);
@@ -411,7 +444,10 @@ type Compiled = {
 
 function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) {
   const { projectId, view, reload } = useProjectContext();
-  const [tab, setTab] = useState<"edit" | "compile" | "frames" | "takes">(shot.takes.length ? "takes" : "edit");
+  const address = useShotAddress();
+  const TABS = ["edit", "compile", "frames", "takes"] as const;
+  const tab = TABS.find((t) => t === address.tab) ?? (shot.takes.length ? "takes" : "edit");
+  const setTab = (t: (typeof TABS)[number]) => address.setTab(t);
   const [draft, setDraft] = useState<ShotDraft>({ ...shot.spec, promptOverride: shot.promptOverride ?? shot.spec.promptOverride });
   const [dirty, setDirty] = useState(false);
   const problems = useMemo(() => validateDraft(draft), [draft]);
