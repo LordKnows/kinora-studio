@@ -51,7 +51,12 @@ export type T = (s: string, vars?: Record<string, string | number>) => string;
 
 const fill = (s: string, vars?: Record<string, string | number>) => (vars ? s.replace(/\{(\w+)\}/g, (all, k: string) => (k in vars ? String(vars[k]) : all)) : s);
 
-export const translate = (lang: Lang): T => (s, vars) => fill(lang === "zh" ? ZH[s] ?? s : s, vars);
+/* A key may carry a context after "||" ("Score||rating") when one English word
+   needs two translations; English shows only the part before it. */
+export const translate = (lang: Lang): T => (s, vars) => {
+  const shown = s.includes("||") ? s.slice(0, s.indexOf("||")) : s;
+  return fill(lang === "zh" ? ZH[s] ?? ZH[shown] ?? shown : shown, vars);
+};
 
 export function useT(): T {
   const lang = useLang();
