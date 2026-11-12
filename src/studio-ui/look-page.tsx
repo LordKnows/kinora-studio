@@ -237,7 +237,7 @@ export function LookPage() {
                 );
               })}
             </div>
-            <span className="st-muted">{t("H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Finals page.")}</span>
+            <span className="st-muted">{t("H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Cut page, in its export panel.")}</span>
           </div>
           <div className="st-card st-stack">
             <CardHead title="LoRAs" dirty={lorasKey(loras) !== lorasKey(saved.loras)}>

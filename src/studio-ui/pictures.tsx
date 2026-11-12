@@ -359,7 +359,7 @@ export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Ass
   return (
     <dl className="st-kv">
       <dt>{t("Size")}</dt>
-      <dd className="st-num">{asset.width ? `${asset.width}×${asset.height}` : "—"} · {asset.source}{m.purpose ? ` · ${String(m.purpose)}` : ""}</dd>
+      <dd className="st-num">{asset.width ? `${asset.width}×${asset.height}` : "—"} · {t(`${asset.source}||source`)}{m.purpose ? ` · ${t(`${String(m.purpose)}||purpose`)}` : ""}</dd>
       {uses && (
         <>
           <dt>{t("Used as")}</dt>

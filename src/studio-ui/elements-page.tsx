@@ -236,7 +236,7 @@ function ElementEditor({
             </select>
           </Field>
           <Field label={t("Name")}>
-            <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Mara" />
+            <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("Mara")} />
           </Field>
         </div>
         <Field label={t("Visual description")} hint={t("Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.")}>
