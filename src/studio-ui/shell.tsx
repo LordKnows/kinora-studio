@@ -85,7 +85,7 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
       <div className="st-topbar-spacer" />
       <GpuMenu />
       <LangSwitch />
-      <nav className="st-topbar-nav" aria-label="Studio">
+      <nav className="st-topbar-nav" aria-label={t("Studio pages")}>
         {GLOBAL_NAV.map((item) => (
           <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
             {t(item.label)}
@@ -106,14 +106,14 @@ function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode
   const t = useT();
   return (
     <div className="st-nav-menu-anchor" ref={ref}>
-      <button type="button" className="st-iconbtn" aria-label={head ? "Project and studio pages" : "Studio pages"} aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="st-iconbtn" aria-label={head ? t("Project and studio pages") : t("Studio pages")} aria-expanded={open} aria-controls="st-nav-menu" onClick={() => setOpen((o) => !o)}>
         <MenuIcon size={16} />
       </button>
       {open && (
         /* following any link in it closes the menu */
         <div id="st-nav-menu" className="st-nav-menu" onClick={(e) => { if ((e.target as HTMLElement).closest("a")) setOpen(false); }}>
           {head}
-          <nav aria-label="Studio">
+          <nav aria-label={t("Studio pages")}>
             {GLOBAL_NAV.map((item) => (
               <Link key={item.href} href={item.href} aria-current={isCurrent(item.href, pathname) ? "page" : undefined}>
                 {t(item.label)}
@@ -169,7 +169,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   const readiness = view && (view.canGenerate ? <Lamp state="ok" label={t("Ready to render")} /> : <Lamp state="warn" label={view.blockers.join(" · ")} />);
   /* phones: the bar's meter and the way to Project settings head the menu */
   const menuHead = (
-    <nav className="st-nav-menu-project" aria-label="Project">
+    <nav className="st-nav-menu-project" aria-label={t("Project")}>
       <div className="st-nav-menu-meter">
         <div className="st-rail-name" title={view?.project.name}>{name}</div>
         <div className="sc-meter">{meter}</div>
@@ -189,7 +189,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
       {!lightsDown && (
         <div className="sc-bar">
           <div className="sc-bar-row">
-            <nav className="sc-stages" aria-label="Project">
+            <nav className="sc-stages" aria-label={t("Project")}>
               {items.map((item) => (
                 <Link key={item.slug} href={item.href} aria-current={item.current ? "page" : undefined}>
                   {t(item.label)}
@@ -249,9 +249,10 @@ function TakeWatch({ view, base }: { view: ProjectView | null; base: string }) {
    (?shot=) is where you are, and is the red one. */
 export function FilmLine({ projectId, shots }: { projectId: string; shots: FilmShot[] }) {
   const here = useSearchParams().get("shot");
+  const t = useT();
   const total = filmSeconds(shots);
   return (
-    <nav className="sc-line" aria-label="Film">
+    <nav className="sc-line" aria-label={t("Film")}>
       <div className="sc-line-track">
         {shots.map((s) => {
           const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
@@ -259,7 +260,7 @@ export function FilmLine({ projectId, shots }: { projectId: string; shots: FilmS
           return (
             <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
               data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
-              title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || "Untitled shot"}`}>
+              title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || t("Untitled shot")}`}>
               {s.slate}
             </Link>
           );

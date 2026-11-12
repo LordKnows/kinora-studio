@@ -142,3 +142,22 @@ describe("the script's text", () => {
     expect(changed).toEqual([{ kind: "removed", text: "它望着远处，眼睛里映着灯光。" }]);
   });
 });
+
+describe("the Chinese explanations of lint codes", () => {
+  it("name only codes the lint really writes", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { LINT_ZH } = await import("@/studio-ui/zh/lint");
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith(".ts") ? [join(dir, e.name)] : []));
+    const src = [...files("packages/director/src"), ...files("src/studio")].map((f) => readFileSync(f, "utf8")).join("\n");
+    const written = new Set([...src.matchAll(/code: "([a-z0-9_.]+)"/g)].map((m) => m[1]!));
+    for (const code of Object.keys(LINT_ZH)) expect(written.has(code), `${code} is not a lint code`).toBe(true);
+  });
+
+  it("show the explanation in Chinese and the server's message beside it", async () => {
+    const { lintLine } = await import("@/studio-ui/zh/lint");
+    expect(lintLine("zh", { code: "seam.trim", message: "the timeline ends …" })).toEqual({ text: expect.stringContaining("接缝"), detail: "the timeline ends …" });
+    expect(lintLine("en", { code: "seam.trim", message: "the timeline ends …" })).toEqual({ text: "the timeline ends …" });
+    expect(lintLine("zh", { code: "no.such.code", message: "x" })).toEqual({ text: "x" });
+  });
+});

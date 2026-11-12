@@ -171,7 +171,7 @@ function Screening() {
         <span className="scr-spacer" />
         <span className="st-num scr-count">{tr("{r} of {p} circled takes reviewed", { r: reviewed, p: pickedShots.length })}</span>
         {takes.length > 1 && (
-          <div className="st-seg" role="group" aria-label="View">
+          <div className="st-seg" role="group" aria-label={tr("View")}>
             <button type="button" aria-pressed={!b} onClick={() => go({ b: null })}>{tr("One take")}</button>
             <button type="button" aria-pressed={Boolean(b)} onClick={() => { if (!b) compare(); }}>{tr("Compare")}</button>
           </div>
@@ -181,7 +181,7 @@ function Screening() {
       </div>
 
       <div className="scr-main">
-        <section className="scr-stage" aria-label="Takes">
+        <section className="scr-stage" aria-label={tr("Takes")}>
           <div className="scr-takes" data-two={b ? "true" : undefined}>
             <TakeFigure letter={b ? "A" : undefined} take={a} circled={circled === a.id} focus videoRef={aRef} muted={false}
               onTime={(x) => { setT(x); const vb = bRef.current; if (vb && Math.abs(vb.currentTime - x) > 0.25) vb.currentTime = x; }}
@@ -228,7 +228,7 @@ function Screening() {
           onSaved={async () => { await reload(); if (nextOpen) go({ shot: nextOpen.shot.id }, "push"); }} />
       </div>
 
-      <nav className="scr-line" aria-label="Film">
+      <nav className="scr-line" aria-label={tr("Film")}>
         <div className="scr-line-head"><span className="sc-cap">{tr("The line · the score of each circled take")}</span><span className="st-num scr-here-range">{tc(here.startS)}–{tc(here.startS + here.durationS)}</span></div>
         <div className="scr-strip-scroll">
           <div className="scr-strip">
@@ -269,7 +269,7 @@ function TakeFigure({ letter, take, circled, focus, videoRef, muted, onTime, onM
         {letter && <span className="sc-slate scr-letter">{letter}</span>}
         <span className="sc-pip sc-pip--lg" data-state={circled ? "circled" : "done"}>{take.n}</span>
         {circled && <strong>{tr("Circled · in the cut")}</strong>}
-        <span className="st-num scr-take-facts">{take.workflow}{take.seed !== undefined ? ` · seed ${take.seed}` : ""}{take.outputSeconds ? ` · ${take.outputSeconds.toFixed(2)} s` : ""} · {usd(take.costUsd)}</span>
+        <span className="st-num scr-take-facts">{take.workflow}{take.seed !== undefined ? ` · ${tr("seed {n}", { n: take.seed })}` : ""}{take.outputSeconds ? ` · ${take.outputSeconds.toFixed(2)} s` : ""} · {usd(take.costUsd)}</span>
         <span className="scr-spacer" />
         {action && <button type="button" className="st-link st-link--btn" disabled={action.busy} onClick={action.run}>{action.label}</button>}
       </figcaption>
@@ -277,7 +277,7 @@ function TakeFigure({ letter, take, circled, focus, videoRef, muted, onTime, onM
         <video ref={videoRef} src={src} poster={takePicture(take)} muted={muted} playsInline preload="metadata"
           onTimeUpdate={onTime ? (e) => onTime(e.currentTarget.currentTime) : undefined} onLoadedMetadata={onMeta ? (e) => onMeta(e.currentTarget.duration) : undefined} onEnded={onEnded} />
       ) : (
-        <div className="st-placeholder">no video</div>
+        <div className="st-placeholder">{tr("no video")}</div>
       )}
     </figure>
   );
@@ -333,7 +333,7 @@ function ReviewPanel({ take, letter, score, setScore, saveRef, next, onSaved }: 
       </button>
       <dl className="scr-keys st-num">
         <div><dt>1–5</dt><dd>{tr("score")}</dd></div><div><dt>⌘↵</dt><dd>{tr("save")}</dd></div>
-        <div><dt>Space</dt><dd>{tr("play")}</dd></div><div><dt>C</dt><dd>{tr("compare")}</dd></div>
+        <div><dt>{tr("Space")}</dt><dd>{tr("play")}</dd></div><div><dt>C</dt><dd>{tr("compare")}</dd></div>
         <div><dt>← →</dt><dd>{tr("take")}</dd></div><div><dt>↑ ↓</dt><dd>{tr("shot")}</dd></div>
         <div><dt>↵</dt><dd>{tr("circle")}</dd></div><div><dt>N</dt><dd>{tr("next unreviewed")}</dd></div>
       </dl>

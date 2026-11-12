@@ -10,10 +10,11 @@ import { usd } from "./api";
 import { cutAfter, filmSeconds, filmShots, pipState, rendersSeconds, shotPicture, shotSpend, takesInOrder, tc, type FilmShot } from "./film";
 import { coverage } from "@/studio/coverage";
 
-import { plural, useT } from "./i18n";
+import { plural, useLang, useT } from "./i18n";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
 import { useProjectContext } from "./shell";
 import { useLint } from "./use-lint";
+import { lintLine } from "./zh/lint";
 
 /* The Score: a project's home. One time axis, and on it every layer of the
    film as a stave — scenes, the board's frames, the takes, the sound, the
@@ -133,11 +134,12 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
   const maxSpend = Math.max(0.0001, ...shots.map((s) => shotSpend(s.shot)));
   const takeCount = shots.reduce((n, s) => n + s.shot.takes.length, 0);
   const t = useT();
+  const lang = useLang();
   const cov = view.script ? coverage(view.script.text, shots.map((s) => ({ id: s.shot.id, slate: s.slate, scriptLines: s.shot.spec.scriptLines }))) : null;
   let cutAt = 0;
 
   return (
-    <section className="sc-score" aria-label="Score">
+    <section className="sc-score" aria-label={t("Score")}>
       <div className="sc-score-inner" style={{ ["--sc-total" as string]: total }}>
         {here && (
           <>
@@ -214,7 +216,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
               <div key={s.shot.id} style={{ flexGrow: s.durationS }}>
                 {takesInOrder(s.shot).map((k) => {
                   const st = pipState(k, s.picked?.id);
-                  return <span key={k.id} className="sc-pip" data-state={st} title={`Take ${k.n}: ${st === "ng" ? "no good" : st}`}>{st === "ng" ? "NG" : k.n}</span>;
+                  return <span key={k.id} className="sc-pip" data-state={st} title={t("Take {n}: {state}", { n: k.n, state: t(st === "ng" ? "no good" : st) })}>{st === "ng" ? "NG" : k.n}</span>;
                 })}
               </div>
             ))}
@@ -245,7 +247,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
                 cutAt += len;
                 const joined = i > 0 && c.transition !== "cut";
                 return (
-                  <div key={`${c.shotId}-${i}`} className="sc-clip st-num" style={{ flexGrow: len }} data-joined={joined ? "true" : undefined} title={`${s?.slate ?? "?"} take ${take?.n ?? "?"} · ${tc(at, true)}–${tc(at + len, true)}${joined ? ` · ${c.transition}` : ""}`}>
+                  <div key={`${c.shotId}-${i}`} className="sc-clip st-num" style={{ flexGrow: len }} data-joined={joined ? "true" : undefined} title={`${t("{slate} take {n}", { slate: s?.slate ?? "?", n: take?.n ?? "?" })} · ${tc(at, true)}–${tc(at + len, true)}${joined ? ` · ${t(c.transition.replace("_", " "))}` : ""}`}>
                     {joined && <i aria-hidden="true" />}
                     T{take?.n ?? "?"} · {trim(c.inS)}–{trim(c.outS)}
                   </div>
@@ -264,7 +266,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
               const loud = mine.filter((w) => w.severity !== "info" && !w.code.startsWith("seam."));
               const notes = mine.filter((w) => w.severity === "info").length;
               return (
-                <div key={s.shot.id} style={{ flexGrow: s.durationS }} title={mine.map((w) => `${w.code}: ${w.message}`).join("\n")}>
+                <div key={s.shot.id} style={{ flexGrow: s.durationS }} title={mine.map((w) => `${w.code}: ${lintLine(lang, w).text}`).join("\n")}>
                   {seam && <i className="sc-bang sc-bang--seam" title={t("The cut jumps at this join")}>!</i>}
                   {loud.length > 0 && <span className="sc-bang-text"><i className="sc-bang">!</i>{loud[0]!.code}{loud.length > 1 ? ` +${loud.length - 1}` : ""}</span>}
                   {notes > 0 && <span>{plural(t, notes, "1 note", "{n} notes")}</span>}
@@ -301,8 +303,9 @@ function UnderTheLine({ s, lint, base }: { s: FilmShot; lint: LintReport | null;
   const renders = rendersSeconds(s.durationS);
   const mine = lintOfShot(lint, s.scene.slug, s.shot.index);
   const t = useT();
+  const lang = useLang();
   return (
-    <section className="sc-under" aria-label="Shot under the playhead">
+    <section className="sc-under" aria-label={t("Shot under the playhead")}>
       <Link className="sc-under-pic" href={`${base}/board?shot=${s.shot.id}`}>
         {pic ? <img src={pic} alt={`Shot ${s.slate}`} /> : <span className="st-placeholder">{t("no picture yet")}</span>}
       </Link>
@@ -319,16 +322,17 @@ function UnderTheLine({ s, lint, base }: { s: FilmShot; lint: LintReport | null;
         {(spec.beats ?? []).slice(0, 2).map((b, i) => (
           <p key={i} className="sc-beat"><span className="st-num">{trim(b.from)}–{trim(b.to)}</span> {b.action}</p>
         ))}
-        {mine.filter((w) => w.severity !== "info").map((w, i) => (
-          <p key={i} className="sc-beat"><i className="sc-bang">!</i> {w.message}</p>
-        ))}
+        {mine.filter((w) => w.severity !== "info").map((w, i) => {
+          const line = lintLine(lang, w);
+          return <p key={i} className="sc-beat" title={line.detail}><i className="sc-bang">!</i> {line.text}</p>;
+        })}
       </div>
       <div className="sc-under-take">
         <span className="sc-cap">{s.picked ? t("Circled take") : finished ? t("No take circled") : t("No take yet")}</span>
         {s.picked && (
           <div className="sc-circled">
             <span className="sc-pip sc-pip--xl" data-state="circled">{s.picked.n}</span>
-            <span className="st-num">{s.picked.workflow}{s.picked.seed !== undefined ? ` · seed ${s.picked.seed}` : ""}<br />{s.picked.outputSeconds ? `${s.picked.outputSeconds.toFixed(2)} s · ` : ""}{usd(s.picked.costUsd)}{s.picked.executionMs ? ` · ${Math.round(s.picked.executionMs / 1000)} s GPU` : ""}</span>
+            <span className="st-num">{s.picked.workflow}{s.picked.seed !== undefined ? ` · ${t("seed {n}", { n: s.picked.seed })}` : ""}<br />{s.picked.outputSeconds ? `${s.picked.outputSeconds.toFixed(2)} s · ` : ""}{usd(s.picked.costUsd)}{s.picked.executionMs ? ` · ${t("{s} s GPU", { s: Math.round(s.picked.executionMs / 1000) })}` : ""}</span>
           </div>
         )}
         <span className="st-num sc-grid-note">{t("asks {a} s → renders {b} s", { a: s.durationS, b: renders.toFixed(2) })}</span>

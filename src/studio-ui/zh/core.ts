@@ -6,7 +6,7 @@ export const core: Record<string, string> = {
   "Score": "总谱", "Brief & style": "简报与风格", "Script": "剧本", "Elements": "元素", "Board": "分镜", "Pictures": "图片", "Cut": "剪辑", "Director": "导演台",
   "Settings": "设置", "Project settings": "项目设置", "Ready to render": "可以开拍",
   "board {b} s · target {t} s": "分镜 {b} 秒 · 目标 {t} 秒", "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
-  "Language": "语言",
+  "Language": "语言", "Studio pages": "工作室页面", "Project and studio pages": "项目与工作室页面", "Project": "项目", "Film": "影片",
 
   /* the Score */
   "1 scene": "1 场", "{n} scenes": "{n} 场", "1 shot": "1 个镜头", "{n} shots": "{n} 个镜头",
@@ -27,7 +27,10 @@ export const core: Record<string, string> = {
   "checking": "检查中", "{e} err · ": "{e} 错误 · ", "{w} warn · {i} notes": "{w} 警告 · {i} 提示", "{x} in takes": "镜次共 {x}",
   "1 note": "1 条提示", "{n} notes": "{n} 条提示", "The cut jumps at this join": "剪辑在这个接点跳帧",
   "Shot {s}, {a} to {b}": "镜头 {s}，{a}–{b}",
-  "under the line": "片针所在", "Untitled shot": "未命名镜头", "no picture yet": "还没有画面",
+  "under the line": "片针所在", "Shot under the playhead": "片针所在的镜头",
+  "Take {n}: {state}": "镜次 {n}：{state}", "no good": "NG", "canceled": "已取消", "circled": "圈选", "done": "拍完", "rolling": "正在拍",
+  "{slate} take {n}": "{slate} 镜次 {n}", "dissolve": "叠化", "fade black": "黑场过渡", "fade white": "白场过渡", "iris": "圈入圈出", "wipe": "划像",
+  "seed {n}": "种子 {n}", "{s} s GPU": "GPU {s} 秒", "Untitled shot": "未命名镜头", "no picture yet": "还没有画面",
   "Circled take": "圈选的镜次", "No take circled": "没有圈选镜次", "No take yet": "还没有镜次",
   "asks {a} s → renders {b} s": "要 {a} 秒 → 实拍 {b} 秒", "Open shot": "打开镜头", "Screen 1 take": "看 1 条镜次", "Screen {n} takes": "看 {n} 条镜次",
 
@@ -52,6 +55,7 @@ export const core: Record<string, string> = {
   "budget cap passed": "预算超了上限", "No new take will render until the cap is raised.": "上限提高之前不会再拍新镜次。",
 
   /* Screening */
+  "View": "视图", "no video": "没有视频", "Space": "空格",
   "Nothing to screen yet": "还没有可看的", "A shot shows up here once one of its takes has finished rendering.": "镜头的任一镜次拍完后会出现在这里。",
   "{r} of {p} circled takes reviewed": "圈选镜次已审 {r}/{p}", "One take": "单条", "Compare": "并排对比", "Shot sheet": "镜头单", "Lights up": "开灯",
   "{a}–{b} · {d} s · {mode} · {move}": "{a}–{b} · {d} 秒 · {mode} · {move}", "{link} from the shot before · ": "与上一镜{link} · ", "1 take": "1 条镜次", "{n} takes": "{n} 条镜次",

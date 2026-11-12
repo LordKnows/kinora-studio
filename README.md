@@ -293,9 +293,13 @@ continuous, red is where you are), each linking to that shot.
   approvals, reviews and choices that are the person's, and one red button for
   the next step. Below it, the shot under the playhead.
 - **Brief & style**, **Elements**: as before.
-- **Script**: versions and approval; a version can be read, laid **beside the
-  board** (its sections next to their scenes, the time each heading states
-  against the board's seconds) or compared with the version before it.
+- **Script**: versions and approval; a version can be read, **lined** or
+  compared with the version before it. Lined is a lined script: each shot names
+  the script lines it shows (`scriptLines`, quoted from the script), drawn as a
+  tramline in the margin with its slate; a clause no shot shows is underlined,
+  and a sentence can be lined to a shot or taken off one in place. Sections sit
+  next to their scenes, with the time each heading states against the board's
+  seconds. `lint_project` flags `script.uncovered` and `script.quote.stale`.
 - **Board**: shot cards with slates (2·3), cinematography codes, link and lint
   badges; the shot drawer, whose shot and tab are in the address
   (`?shot=…&tab=…`). The buttons that spend show their estimate; takes that
@@ -317,6 +321,17 @@ continuous, red is where you are), each linking to that shot.
   envelope, delegated approval, requirements (the user can add one), decisions,
   reviews.
 - **Settings**: name, budget cap, sharing, delete.
+
+Deleting a shot, a scene, an element, pictures or a project keeps what was
+removed in a trash for 14 days (migration 0024): the web answers with an Undo
+notice, the Director page (and the Projects page, for whole projects) lists
+what can still be put back, and a restore writes the same rows back, re-attaches
+pictures where they were used and, when nothing changed in between, approves
+the shotlist again. Picture files are removed from storage only when the entry
+expires (the sweep).
+
+The interface is in English or Chinese (EN / 中 in the top bar, per browser);
+text the server writes — lint messages, errors — stays in English.
 
 Global pages: Canvas (compose a character from the reference library, below),
 Library (styles + LoRAs), Machine (the pod), Connect (MCP). The look is
