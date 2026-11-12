@@ -55,7 +55,7 @@ export function ProjectsPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Projects</h1>
-          <p className="st-subtitle">One project per film. Brief and style, script, elements, shotlist, takes, finals, timeline — in that order, with two approvals along the way.</p>
+          <p className="st-subtitle">One project per film. Brief and style, script, elements, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Score: the whole film on one line of time, and what waits for you.</p>
         </div>
       </div>
 
@@ -112,8 +112,8 @@ export function ProjectsPage() {
           <div className="st-stepcard"><span className="st-step">02</span><strong>Script</strong><span>Treatment and screenplay; you approve it.</span></div>
           <div className="st-stepcard"><span className="st-step">03</span><strong>Elements</strong><span>Characters, places, props with reference images.</span></div>
           <div className="st-stepcard"><span className="st-step">04</span><strong>Board</strong><span>Shots with links and cinematography; you approve, then render.</span></div>
-          <div className="st-stepcard"><span className="st-step">05</span><strong>Finals</strong><span>Pick takes, regenerate them at 2K.</span></div>
-          <div className="st-stepcard"><span className="st-step">06</span><strong>Timeline</strong><span>Order, trim, music, export.</span></div>
+          <div className="st-stepcard"><span className="st-step">05</span><strong>Screening</strong><span>Takes side by side; score them, circle one per shot.</span></div>
+          <div className="st-stepcard"><span className="st-step">06</span><strong>Cut</strong><span>Order, trim, titles, sound; every pick at 2K; export.</span></div>
         </div>
       </div>
     </div>
