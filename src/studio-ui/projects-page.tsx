@@ -5,8 +5,9 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import type { Project, ProjectVisibility } from "@/studio/types";
 
-import { get, post, usd, when } from "./api";
-import { Button, Empty, ErrorBanner, Field, Skeleton } from "./common";
+import { get, post, usd } from "./api";
+import { Button, Empty, ErrorBanner, Field, Skeleton, whenT } from "./common";
+import { useT } from "./i18n";
 import { RecentlyDeleted } from "./recently-deleted";
 
 type ListedProject = Project & { mine: boolean };
@@ -15,6 +16,7 @@ type ListedProject = Project & { mine: boolean };
    first; the shared ones are everyone's (the GPU, painters and director
    connector are shared either way). */
 export function ProjectsPage() {
+  const t = useT();
   const [projects, setProjects] = useState<ListedProject[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [name, setName] = useState("");
@@ -55,30 +57,30 @@ export function ProjectsPage() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Projects</h1>
-          <p className="st-subtitle">One project per film. Brief and style, script, elements, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Score: the whole film on one line of time, and what waits for you.</p>
+          <h1 className="st-title">{t("Projects")}</h1>
+          <p className="st-subtitle">{t("One project per film. Brief and style, script, elements, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Score: the whole film on one line of time, and what waits for you.")}</p>
         </div>
       </div>
 
       <form className="st-card" onSubmit={create}>
         <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
           <div style={{ flex: 2, minWidth: 220 }}>
-            <Field label="New project">
-              <input className="st-input" placeholder="Neon rain chase" value={name} onChange={(e) => setName(e.target.value)} />
+            <Field label={t("New project")}>
+              <input className="st-input" placeholder={t("Neon rain chase")} value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
           </div>
           <div style={{ width: 150 }}>
-            <Field label="Budget cap (USD)">
+            <Field label={t("Budget cap (USD)")}>
               <input className="st-input" type="number" min={0} step={1} value={cap} onChange={(e) => setCap(e.target.value)} />
             </Field>
           </div>
-          <Field label="Who sees it" group>
-            <div className="st-seg" role="group" aria-label="Who sees it">
-              <button type="button" aria-pressed={visibility === "shared"} onClick={() => setVisibility("shared")} title="Every signed-in user of this studio">Shared</button>
-              <button type="button" aria-pressed={visibility === "private"} onClick={() => setVisibility("private")} title="Only you, on the web and through your director connector">Private</button>
+          <Field label={t("Who sees it")} group>
+            <div className="st-seg" role="group" aria-label={t("Who sees it")}>
+              <button type="button" aria-pressed={visibility === "shared"} onClick={() => setVisibility("shared")} title={t("Every signed-in user of this studio")}>{t("Shared")}</button>
+              <button type="button" aria-pressed={visibility === "private"} onClick={() => setVisibility("private")} title={t("Only you, on the web and through your director connector")}>{t("Private")}</button>
             </div>
           </Field>
-          <Button type="submit" kind="primary" busy={busy} disabled={!name.trim()}>Create</Button>
+          <Button type="submit" kind="primary" busy={busy} disabled={!name.trim()}>{t("Create")}</Button>
         </div>
       </form>
 
@@ -91,12 +93,12 @@ export function ProjectsPage() {
             <Skeleton height={140} />
           </div>
         ) : projects.length === 0 ? (
-          <Empty title="No projects yet" hint="Create one above, or let your director agent call start_film over MCP." />
+          <Empty title={t("No projects yet")} hint={t("Create one above, or let your director agent call start_film over MCP.")} />
         ) : (
           <>
             {groups(projects).map((g) => (
               <div key={g.key} className="st-stack" style={{ marginTop: g.key === "shared" && projects.some((p) => p.visibility === "private") ? 22 : 0 }}>
-                {g.title && <div className="st-section-title"><span>{g.title}</span></div>}
+                {g.title && <div className="st-section-title"><span>{t(g.title)}</span></div>}
                 <div className="st-grid">
                   {g.items.map((p) => <ProjectCard key={p.id} p={p} />)}
                 </div>
@@ -111,14 +113,14 @@ export function ProjectsPage() {
       </div>
 
       <div className="st-section">
-        <div className="st-section-title"><span>How a film moves through the studio</span></div>
+        <div className="st-section-title"><span>{t("How a film moves through the studio")}</span></div>
         <div className="st-steps">
-          <div className="st-stepcard"><span className="st-step">01</span><strong>Brief & style</strong><span>What the film is, how long, which of the 16 looks.</span></div>
-          <div className="st-stepcard"><span className="st-step">02</span><strong>Script</strong><span>Treatment and screenplay; you approve it.</span></div>
-          <div className="st-stepcard"><span className="st-step">03</span><strong>Elements</strong><span>Characters, places, props with reference images.</span></div>
-          <div className="st-stepcard"><span className="st-step">04</span><strong>Board</strong><span>Shots with links and cinematography; you approve, then render.</span></div>
-          <div className="st-stepcard"><span className="st-step">05</span><strong>Screening</strong><span>Takes side by side; score them, circle one per shot.</span></div>
-          <div className="st-stepcard"><span className="st-step">06</span><strong>Cut</strong><span>Order, trim, titles, sound; every pick at 2K; export.</span></div>
+          <div className="st-stepcard"><span className="st-step">01</span><strong>{t("Brief & style")}</strong><span>{t("What the film is, how long, which of the 16 looks.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">02</span><strong>{t("Script")}</strong><span>{t("Treatment and screenplay; you approve it.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">03</span><strong>{t("Elements")}</strong><span>{t("Characters, places, props with reference images.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">04</span><strong>{t("Board")}</strong><span>{t("Shots with links and cinematography; you approve, then render.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">05</span><strong>{t("Screening")}</strong><span>{t("Takes side by side; score them, circle one per shot.")}</span></div>
+          <div className="st-stepcard"><span className="st-step">06</span><strong>{t("Cut")}</strong><span>{t("Order, trim, titles, sound; every pick at 2K; export.")}</span></div>
         </div>
       </div>
     </div>
@@ -136,25 +138,26 @@ function groups(projects: ListedProject[]): Array<{ key: string; title?: string;
 }
 
 function ProjectCard({ p }: { p: ListedProject }) {
+  const t = useT();
   const steps = [Boolean(p.brief), p.shotlistApproval === "approved", p.spentUsd > 0];
   return (
     <Link href={`/p/${p.id}`} className="st-project">
       <span className="st-row st-row--between" style={{ alignItems: "flex-start", gap: 8 }}>
         <span className="st-project-name">{p.name}</span>
         {p.visibility === "private" ? (
-          <span className="st-chip st-chip--mono" title="Only you see it">Private</span>
+          <span className="st-chip st-chip--mono" title={t("Only you see it")}>{t("Private")}</span>
         ) : p.owner && !p.mine ? (
-          <span className="st-chip st-chip--mono" title={`Shared by ${p.owner}`}>{p.owner.split("@")[0]}</span>
+          <span className="st-chip st-chip--mono" title={t("Shared by {owner}", { owner: p.owner })}>{p.owner.split("@")[0]}</span>
         ) : null}
       </span>
       <span className="st-project-meta">
-        <span>{when(p.updatedAt)}</span>
+        <span>{whenT(t, p.updatedAt)}</span>
         <span className="st-num">{usd(p.spentUsd)} / {usd(p.budgetCapUsd)}</span>
       </span>
-      <span className="st-project-steps" aria-label="progress">
+      <span className="st-project-steps" aria-label={t("progress")}>
         {steps.map((done, i) => <span key={i} data-done={done ? "true" : "false"} />)}
       </span>
-      <span className="st-muted">{p.shotlistApproval === "approved" ? "Shotlist approved" : p.brief ? "Brief written" : "Just created"}</span>
+      <span className="st-muted">{p.shotlistApproval === "approved" ? t("Shotlist approved") : p.brief ? t("Brief written") : t("Just created")}</span>
     </Link>
   );
 }

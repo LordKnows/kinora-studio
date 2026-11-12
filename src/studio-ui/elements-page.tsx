@@ -9,6 +9,7 @@ import { detailTargets, sheetStage } from "@/studio/sheet";
 
 import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
+import { type T, plural, useT } from "./i18n";
 import { useProjectContext } from "./shell";
 import { useUndoable } from "./notices";
 import { ImageButton, useImagingOn } from "./image-tools";
@@ -19,7 +20,11 @@ type ElementRow = Element & { refs: Asset[] };
 const KINDS = ["character", "location", "prop"] as const;
 const KIND_LABEL: Record<(typeof KINDS)[number], string> = { character: "Characters", location: "Locations", prop: "Props" };
 
+/** A reference view's name: "three_quarter" → "three quarter", in the interface language. */
+const viewName = (t: T, v: string) => t(v.replace("_", " "));
+
 export function ElementsPage() {
+  const t = useT();
   const { projectId, view, reload } = useProjectContext();
   const [elements, setElements] = useState<ElementRow[] | null>(null);
   const [library, setLibrary] = useState<ElementRow[]>([]);
@@ -46,20 +51,20 @@ export function ElementsPage() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Elements</h1>
-          <p className="st-subtitle">Characters, locations and props. Each carries the reference images the compiler hands to H3; the first one is primary.</p>
+          <h1 className="st-title">{t("Elements")}</h1>
+          <p className="st-subtitle">{t("Characters, locations and props. Each carries the reference images the compiler hands to H3; the first one is primary.")}</p>
         </div>
         <div className="st-actions">
           <Button kind="primary" onClick={() => setCreating(true)}>
-            New element
+            {t("New element")}
           </Button>
         </div>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       {elements && elements.length === 0 && (
-        <Empty title="No elements yet" hint="Create the people, places and things that appear in the script, then generate references for each.">
-          <Button onClick={() => setCreating(true)}>Create the first one</Button>
+        <Empty title={t("No elements yet")} hint={t("Create the people, places and things that appear in the script, then generate references for each.")}>
+          <Button onClick={() => setCreating(true)}>{t("Create the first one")}</Button>
         </Empty>
       )}
 
@@ -67,19 +72,19 @@ export function ElementsPage() {
         const list = (elements ?? []).filter((e) => e.kind === kind);
         if (list.length === 0) return null;
         return (
-          <Section key={kind} title={KIND_LABEL[kind]} aside={<small>{list.length}</small>}>
+          <Section key={kind} title={t(KIND_LABEL[kind])} aside={<small>{list.length}</small>}>
             <div className="st-grid">
               {list.map((el) => (
                 <button key={el.id} type="button" className="st-shot" aria-pressed={open === el.id} onClick={() => setOpen(el.id)}>
                   <div className="st-shot-media" style={{ aspectRatio: kind === "character" ? "3 / 4" : "16 / 9" }}>
                     {el.refs[0] ? <img src={el.refs[0].url} alt={el.name} /> : <div className="st-placeholder"><span className="st-placeholder-initial">{el.name.slice(0, 1).toUpperCase()}</span></div>}
                     <span className="st-shot-status">
-                      <span className="st-chip">{el.refs.length} ref{el.refs.length === 1 ? "" : "s"}</span>
+                      <span className="st-chip">{plural(t, el.refs.length, "1 ref", "{n} refs")}</span>
                     </span>
                   </div>
                   <div className="st-shot-body">
                     <div className="st-shot-intent">{el.name}</div>
-                    <div className="st-shot-facts">{el.description || "No description yet"}</div>
+                    <div className="st-shot-facts">{el.description || t("No description yet")}</div>
                   </div>
                 </button>
               ))}
@@ -89,7 +94,7 @@ export function ElementsPage() {
       })}
 
       {library.length > 0 && (
-        <Section title="Library" aside={<small>shared across projects</small>}>
+        <Section title={t("Library")} aside={<small>{t("shared across projects")}</small>}>
           <div className="st-chips">
             {library.map((el) => (
               <button
@@ -100,7 +105,7 @@ export function ElementsPage() {
                   void post(`/api/projects/${projectId}/elements/import`, { elementId: el.id }).then(load).then(reload).catch(setError);
                 }}
               >
-                + {el.name} <span className="st-muted">{el.kind}</span>
+                + {el.name} <span className="st-muted">{t(el.kind)}</span>
               </button>
             ))}
           </div>
@@ -151,6 +156,7 @@ function ElementEditor({
   onSaved: () => Promise<void>;
   onDeleted?: () => Promise<void>;
 }) {
+  const t = useT();
   const [kind, setKind] = useState<(typeof KINDS)[number]>(element?.kind ?? "character");
   const [name, setName] = useState(element?.name ?? "");
   const [description, setDescription] = useState(element?.description ?? "");
@@ -189,7 +195,7 @@ function ElementEditor({
     if (!element) return;
     const { trashId } = await del<{ trashId?: string }>(`/api/elements/${element.id}`);
     await onDeleted?.();
-    undoable(trashId, `Deleted ${element.name}`);
+    undoable(trashId, t("Deleted {name}", { name: element.name }));
   });
 
   const promote = useAction(async () => {
@@ -216,44 +222,44 @@ function ElementEditor({
   };
 
   return (
-    <Drawer title={element ? element.name : "New element"} onClose={onClose}>
+    <Drawer title={element ? element.name : t("New element")} onClose={onClose}>
       <div className="st-stack">
         <ErrorBanner error={save.error ?? saveRefs.error ?? remove.error ?? promote.error} onDismiss={() => { save.dismiss(); saveRefs.dismiss(); remove.dismiss(); promote.dismiss(); }} />
         <div className="st-fields">
-          <Field label="Kind">
+          <Field label={t("Kind")}>
             <select className="st-select" value={kind} onChange={(e) => setKind(e.target.value as (typeof KINDS)[number])}>
               {KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {k}
+                  {t(k)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Name">
+          <Field label={t("Name")}>
             <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Mara" />
           </Field>
         </div>
-        <Field label="Visual description" hint="Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.">
+        <Field label={t("Visual description")} hint={t("Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.")}>
           <textarea className="st-textarea" rows={5} value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Fixed features" hint="Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile. For a character, tick detail on up to three that are not on the face: the sheet draws each close, and the whole-figure views copy it." group>
+        <Field label={t("Fixed features")} hint={t("Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile. For a character, tick detail on up to three that are not on the face: the sheet draws each close, and the whole-figure views copy it.")} group>
           <div className="st-stack st-stack--tight">
             {features.map((f, i) => (
               <div key={i} className="st-line">
-                <input className="st-input st-input--sm" placeholder="feature (dragon tattoo)" value={f.feature} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, feature: e.target.value } : x)))} />
-                <input className="st-input st-input--sm" placeholder="where (left forearm, inner side)" value={f.where} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, where: e.target.value } : x)))} />
+                <input className="st-input st-input--sm" placeholder={t("feature (dragon tattoo)")} value={f.feature} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, feature: e.target.value } : x)))} />
+                <input className="st-input st-input--sm" placeholder={t("where (left forearm, inner side)")} value={f.where} onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, where: e.target.value } : x)))} />
                 {kind === "character" && (
-                  <label className="st-row" style={{ gap: 4, whiteSpace: "nowrap" }} title="Draw a close detail picture of this feature for the sheet (at most 3 per character). Whole-figure views copy it.">
+                  <label className="st-row" style={{ gap: 4, whiteSpace: "nowrap" }} title={t("Draw a close detail picture of this feature for the sheet (at most 3 per character). Whole-figure views copy it.")}>
                     <input type="checkbox" checked={f.detail === true} disabled={f.detail !== true && features.filter((x) => x.detail === true).length >= MAX_DETAILS}
                       onChange={(e) => setFeatures(features.map((x, j) => (j === i ? { ...x, detail: e.target.checked ? true : undefined } : x)))} />
-                    <span className="st-muted">detail</span>
+                    <span className="st-muted">{t("detail")}</span>
                   </label>
                 )}
-                <Button size="sm" kind="quiet" onClick={() => setFeatures(features.filter((_, j) => j !== i))}>Remove</Button>
+                <Button size="sm" kind="quiet" onClick={() => setFeatures(features.filter((_, j) => j !== i))}>{t("Remove")}</Button>
               </div>
             ))}
             <div>
-              <Button size="sm" disabled={features.length >= 8} onClick={() => setFeatures([...features, { feature: "", where: "" }])}>Add feature</Button>
+              <Button size="sm" disabled={features.length >= 8} onClick={() => setFeatures([...features, { feature: "", where: "" }])}>{t("Add feature")}</Button>
             </div>
           </div>
         </Field>
@@ -261,24 +267,24 @@ function ElementEditor({
           <div className="st-row">
             {element && (
               <Button kind="danger" size="sm" busy={remove.busy} onClick={() => void remove.fire()}>
-                Delete
+                {t("Delete")}
               </Button>
             )}
             {element && (
-              <Button kind="quiet" size="sm" busy={promote.busy} onClick={() => void promote.fire()} title="Copy into the shared library">
-                Promote to library
+              <Button kind="quiet" size="sm" busy={promote.busy} onClick={() => void promote.fire()} title={t("Copy into the shared library")}>
+                {t("Promote to library")}
               </Button>
             )}
           </div>
           <Button kind="primary" busy={save.busy} disabled={!name.trim()} onClick={() => void save.fire()}>
-            {element ? "Save" : "Create"}
+            {element ? t("Save") : t("Create")}
           </Button>
         </div>
 
         {element && <SheetTools element={element} />}
         {element && (
           <Section
-            title="Reference images"
+            title={t("Reference images")}
             aside={
               <span className="st-row">
                 <SelectBar sel={pickSel} all={candidates.map((a) => a.id)} onDeleted={afterDelete} />
@@ -287,7 +293,7 @@ function ElementEditor({
             }
           >
             {candidates.length === 0 ? (
-              <Empty title="No references yet" hint="Upload an image, generate a sheet above, or pick any project image. The first pick is the primary reference." />
+              <Empty title={t("No references yet")} hint={t("Upload an image, generate a sheet above, or pick any project image. The first pick is the primary reference.")} />
             ) : (
               <>
                 <div className="st-thumbs st-thumbs--named">
@@ -309,7 +315,7 @@ function ElementEditor({
                               <CheckIcon size={11} />
                             </span>
                           )}
-                          {idx === 0 && <span className="st-thumb-tag">PRIMARY</span>}
+                          {idx === 0 && <span className="st-thumb-tag">{t("PRIMARY")}</span>}
                         </button>
                         <PictureCaption asset={a} />
                       </div>
@@ -318,7 +324,7 @@ function ElementEditor({
                 </div>
                 {selected.length > 0 && (
                   <div className="st-stack st-stack--tight" style={{ marginTop: 10 }}>
-                    <span className="st-muted">Which view does each reference show? Face is the character&apos;s portrait: an uploaded one tagged face is the identity the rest of the sheet is drawn from. A detail names the fixed feature it shows. Tagged views let a profile shot use the side view and a close-up the portrait.</span>
+                    <span className="st-muted">{t("Which view does each reference show? Face is the character's portrait: an uploaded one tagged face is the identity the rest of the sheet is drawn from. A detail names the fixed feature it shows. Tagged views let a profile shot use the side view and a close-up the portrait.")}</span>
                     {selected.map((id, k) => {
                       const a = candidates.find((c) => c.id === id);
                       return (
@@ -327,12 +333,12 @@ function ElementEditor({
                           {a && <img src={a.url} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 0 }} />}
                           <span className="st-muted st-num">#{k + 1}</span>
                           <select className="st-select st-input--sm" value={views[id] ?? ""} onChange={(e) => setViews({ ...views, [id]: e.target.value as RefView })}>
-                            <option value="">view —</option>
-                            {REF_VIEWS.map((v) => <option key={v} value={v}>{v.replace("_", " ")}</option>)}
+                            <option value="">{t("view —")}</option>
+                            {REF_VIEWS.map((v) => <option key={v} value={v}>{viewName(t, v)}</option>)}
                           </select>
                           {views[id] === "detail" && (
-                            <select className="st-select st-input--sm" value={refFeatures[id] ?? ""} aria-label="The fixed feature this detail shows" onChange={(e) => setRefFeatures({ ...refFeatures, [id]: e.target.value })}>
-                              <option value="">which feature —</option>
+                            <select className="st-select st-input--sm" value={refFeatures[id] ?? ""} aria-label={t("The fixed feature this detail shows")} onChange={(e) => setRefFeatures({ ...refFeatures, [id]: e.target.value })}>
+                              <option value="">{t("which feature —")}</option>
                               {features.filter((f) => f.feature.trim()).map((f) => <option key={f.feature} value={f.feature}>{f.feature}</option>)}
                             </select>
                           )}
@@ -342,9 +348,9 @@ function ElementEditor({
                   </div>
                 )}
                 <div className="st-row st-row--between" style={{ marginTop: 10 }}>
-                  <span className="st-muted st-num">{selected.length} selected</span>
+                  <span className="st-muted st-num">{t("{n} selected", { n: selected.length })}</span>
                   <Button kind="primary" size="sm" busy={saveRefs.busy} onClick={() => void saveRefs.fire()}>
-                    Use selected
+                    {t("Use selected")}
                   </Button>
                 </div>
               </>
@@ -358,51 +364,52 @@ function ElementEditor({
 
 /* The project's image model (Settings → Director): the element's reference sheet, one picture per view, tagged. */
 function SheetTools({ element }: { element: ElementRow }) {
+  const t = useT();
   const imaging = useImagingOn();
   const isChar = element.kind === "character";
   const [views, setViews] = useState<RefView[]>([]);
   const have = new Set(Object.values(element.refViews ?? {}));
   const { stage, now, later } = sheetStage(element);
   const targets = detailTargets(element);
-  const name = (x: { view: RefView; feature?: string }) => (x.feature ? `detail: ${x.feature}` : x.view.replace("_", " "));
+  const name = (x: { view: RefView; feature?: string }) => (x.feature ? t("detail: {feature}", { feature: x.feature }) : viewName(t, x.view));
+  const sep = t(", ||list");
   if (!isChar) {
     return (
-      <Section title={`Generate with ${imaging.label}`}>
+      <Section title={t("Generate with {model}", { model: imaging.label })}>
         <div className="st-stack st-stack--tight">
-          <span className="st-muted">One reference picture in the project&apos;s look.</span>
-          <ImageButton label="Generate reference" body={{ action: "element_sheet", elementId: element.id, views: ["front"] }} kind="primary" />
+          <span className="st-muted">{t("One reference picture in the project's look.")}</span>
+          <ImageButton label={t("Generate reference")} body={{ action: "element_sheet", elementId: element.id, views: ["front"] }} kind="primary" />
         </div>
       </Section>
     );
   }
   return (
-    <Section title={`Generate with ${imaging.label}`}>
+    <Section title={t("Generate with {model}", { model: imaging.label })}>
       <div className="st-stack st-stack--tight">
         <span className="st-muted">
-          The sheet is drawn in the order identity is built: the face portrait (drawn here, or your own picture tagged face above) → four expressions and up to three details, from the portrait → the front figure → side and back.
-          Every picture copies the portrait itself. Look at each stage before the next is drawn from it.
+          {t("The sheet is drawn in the order identity is built: the face portrait (drawn here, or your own picture tagged face above) → four expressions and up to three details, from the portrait → the front figure → side and back. Every picture copies the portrait itself. Look at each stage before the next is drawn from it.")}
         </span>
         {stage === "complete" ? (
-          <span className="st-muted">The sheet is complete. Pick views below to redraw one; the new picture takes the old one&apos;s place.</span>
+          <span className="st-muted">{t("The sheet is complete. Pick views below to redraw one; the new picture takes the old one's place.")}</span>
         ) : (
           <>
             <span>
-              <strong>Next: {now.map(name).join(", ")}</strong>
-              {later.length > 0 && <span className="st-muted"> · then {[...new Set(later.map((x) => x.view.replace("_", " ")))].join(", ")}</span>}
+              <strong>{t("Next: {list}", { list: now.map(name).join(sep) })}</strong>
+              {later.length > 0 && <span className="st-muted">{t(" · then {list}", { list: [...new Set(later.map((x) => viewName(t, x.view)))].join(sep) })}</span>}
             </span>
-            <ImageButton label={`Generate ${now.map(name).join(", ")}`} body={{ action: "element_sheet", elementId: element.id, views: [] }} kind="primary" />
+            <ImageButton label={t("Generate {list}", { list: now.map(name).join(sep) })} body={{ action: "element_sheet", elementId: element.id, views: [] }} kind="primary" />
           </>
         )}
-        {targets.length === 0 && <span className="st-muted">No detail pictures: this character has no fixed feature off the face. Add one above (a tattoo, an emblem, a prop in hand) and tick detail to get one.</span>}
-        <span className="st-muted">Redraw or add a view:</span>
+        {targets.length === 0 && <span className="st-muted">{t("No detail pictures: this character has no fixed feature off the face. Add one above (a tattoo, an emblem, a prop in hand) and tick detail to get one.")}</span>}
+        <span className="st-muted">{t("Redraw or add a view:")}</span>
         <div className="st-chips">
           {REF_VIEWS.map((v) => (
             <button key={v} type="button" className="st-chip st-chip--btn" aria-pressed={views.includes(v)} onClick={() => setViews(views.includes(v) ? views.filter((x) => x !== v) : [...views, v])}>
-              {v.replace("_", " ")}{have.has(v) ? " ✓" : ""}
+              {viewName(t, v)}{have.has(v) ? " ✓" : ""}
             </button>
           ))}
         </div>
-        {views.length > 0 && <ImageButton label={`Generate ${views.map((v) => v.replace("_", " ")).join(", ")}`} body={{ action: "element_sheet", elementId: element.id, views }} />}
+        {views.length > 0 && <ImageButton label={t("Generate {list}", { list: views.map((v) => viewName(t, v)).join(sep) })} body={{ action: "element_sheet", elementId: element.id, views }} />}
       </div>
     </Section>
   );

@@ -7,6 +7,7 @@ import { CAMERA_MOVES, MOTION_SOURCES, SCREEN_POSITIONS, SHOT_MODES, type ShotIn
 import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field, NumberInput } from "./common";
+import { translate, type T, useT } from "./i18n";
 import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
 
@@ -16,27 +17,27 @@ import { useProjectContext } from "./shell";
 
 export type ShotDraft = ShotInput;
 
-export function validateDraft(d: ShotDraft): string[] {
+export function validateDraft(d: ShotDraft, t: T = translate("en")): string[] {
   const problems: string[] = [];
   const sorted = [...d.beats].sort((a, b) => a.from - b.from);
   let cursor = 0;
   for (const b of sorted) {
     if (Math.abs(b.from - cursor) > 0.01) {
-      problems.push(`Beats must tile the shot: expected a beat starting at ${cursor}s.`);
+      problems.push(t("Beats must tile the shot: expected a beat starting at {s}s.", { s: cursor }));
       break;
     }
     if (b.to <= b.from) {
-      problems.push("Each beat must end after it starts.");
+      problems.push(t("Each beat must end after it starts."));
       break;
     }
     cursor = b.to;
   }
-  if (Math.abs(cursor - d.durationS) > 0.01) problems.push(`Beats end at ${cursor}s but the shot is ${d.durationS}s.`);
-  if (d.beats.filter((b) => b.cut).length > 3) problems.push("At most 3 cuts per shot.");
-  if (d.beats.some((b) => b.action.trim().length < 5)) problems.push("Every beat needs an action.");
-  if (d.intent.trim().length < 5) problems.push("Intent is required.");
-  if (d.mode === "edit" && !d.sourceTakeId) problems.push("Edit mode needs a source take.");
-  if (d.mode === "edit" && !d.editInstruction?.trim()) problems.push("Edit mode needs an edit instruction.");
+  if (Math.abs(cursor - d.durationS) > 0.01) problems.push(t("Beats end at {end}s but the shot is {d}s.", { end: cursor, d: d.durationS }));
+  if (d.beats.filter((b) => b.cut).length > 3) problems.push(t("At most 3 cuts per shot."));
+  if (d.beats.some((b) => b.action.trim().length < 5)) problems.push(t("Every beat needs an action."));
+  if (d.intent.trim().length < 5) problems.push(t("Intent is required."));
+  if (d.mode === "edit" && !d.sourceTakeId) problems.push(t("Edit mode needs a source take."));
+  if (d.mode === "edit" && !d.editInstruction?.trim()) problems.push(t("Edit mode needs an edit instruction."));
   return problems;
 }
 
@@ -55,6 +56,7 @@ export function ShotEditor({
   shotId?: string;
 }) {
   const { view } = useProjectContext();
+  const tr = useT();
   const set = <K extends keyof ShotDraft>(key: K, v: ShotDraft[K]) => onChange({ ...value, [key]: v });
   const characters = elements.filter((e) => e.kind === "character");
   const locations = elements.filter((e) => e.kind === "location");
@@ -94,14 +96,14 @@ export function ShotEditor({
   return (
     <div className="st-stack">
       <div className="st-fields">
-        <Field label="Duration (s)">
+        <Field label={tr("Duration (s)")}>
           <NumberInput min={5} max={15} value={value.durationS} onCommit={(v) => set("durationS", v ?? 5)} />
         </Field>
-        <Field label="Mode">
+        <Field label={tr("Mode")}>
           <select className="st-select" value={value.mode} onChange={(e) => set("mode", e.target.value as ShotDraft["mode"])}>
             {SHOT_MODES.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {tr(m)}
               </option>
             ))}
           </select>
@@ -109,19 +111,19 @@ export function ShotEditor({
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Edit</span>
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Edit||the editing of shots together")}</span>
         <div className="st-fields">
-          <Field label="Link to earlier shots">
+          <Field label={tr("Link to earlier shots")}>
             <select className="st-select" value={linkType} onChange={(e) => setLink({ type: e.target.value as LinkType })}>
               {EDIT_GRAMMAR.map((g) => (
-                <option key={g.type} value={g.type} title={g.when}>
-                  {g.label}
+                <option key={g.type} value={g.type} title={tr(g.when)}>
+                  {tr(g.label)}
                 </option>
               ))}
             </select>
           </Field>
           {grammar.mechanism !== "none" && (
-            <Field label="Anchor (offset)" hint="-1 = previous shot, -2 = the one before it.">
+            <Field label={tr("Anchor (offset)")} hint={tr("-1 = previous shot, -2 = the one before it.")}>
               <input
                 className="st-input"
                 type="number"
@@ -135,9 +137,9 @@ export function ShotEditor({
             </Field>
           )}
           {grammar.mechanism !== "none" && (
-            <Field label="Or a specific shot">
+            <Field label={tr("Or a specific shot")}>
               <select className="st-select" value={value.link?.anchorShotId ?? ""} onChange={(e) => setLink({ anchorShotId: e.target.value || undefined })}>
-                <option value="">— by offset —</option>
+                <option value="">{tr("— by offset —")}</option>
                 {earlier.map((sh) => (
                   <option key={sh.id} value={sh.id}>
                     {sh.scene} · {sh.index + 1} · {sh.intent.slice(0, 40)}
@@ -148,20 +150,20 @@ export function ShotEditor({
           )}
         </div>
         <div className="st-edit-when">
-          <strong>{grammar.label}:</strong> {grammar.when}. <span className="st-muted">{grammar.how} Workflow: {grammar.workflow}.</span>
+          <strong>{tr("{label}:", { label: tr(grammar.label) })}</strong> {tr("{when}.", { when: tr(grammar.when) })} <span className="st-muted">{tr(grammar.how)} {tr("Workflow: {workflow}.", { workflow: tr(grammar.workflow) })}</span>
         </div>
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Cinematography</span>
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Cinematography")}</span>
         <div className="st-cine-grid">
           {CINEMA.filter((c) => !c.multi).map((c) => (
-            <Field key={c.key} label={c.label}>
+            <Field key={c.key} label={tr(c.label)}>
               <select className="st-select st-input--sm" value={(cine[c.key] as string | undefined) ?? ""} onChange={(e) => setCine(c.key, e.target.value || undefined)}>
                 <option value="">—</option>
                 {c.terms.map((t) => (
-                  <option key={t.key} value={t.key} title={t.use}>
-                    {t.label}
+                  <option key={t.key} value={t.key} title={tr(t.use)}>
+                    {tr(t.label)}
                   </option>
                 ))}
               </select>
@@ -171,7 +173,7 @@ export function ShotEditor({
         {CINEMA.filter((c) => c.multi).map((c) => {
           const chosen = (cine[c.key] as string[] | undefined) ?? [];
           return (
-            <Field key={c.key} label={`${c.label} (max 4)`} group>
+            <Field key={c.key} label={tr("{label} (max 4)", { label: tr(c.label) })} group>
               <div className="st-chips">
                 {c.terms.map((t) => {
                   const on = chosen.includes(t.key);
@@ -181,11 +183,11 @@ export function ShotEditor({
                       type="button"
                       className="st-chip st-chip--btn"
                       aria-pressed={on}
-                      title={t.use}
+                      title={tr(t.use)}
                       disabled={!on && chosen.length >= 4}
                       onClick={() => setCine(c.key, on ? chosen.filter((k) => k !== t.key) : [...chosen, t.key])}
                     >
-                      {t.label}
+                      {tr(t.label)}
                     </button>
                   );
                 })}
@@ -195,29 +197,29 @@ export function ShotEditor({
         })}
       </div>
 
-      <Field label="Intent" hint="One sentence: what this shot is for.">
+      <Field label={tr("Intent")} hint={tr("One sentence: what this shot is for.")}>
         <input className="st-input" value={value.intent} onChange={(e) => set("intent", e.target.value)} />
       </Field>
 
-      <Field label="Script lines" hint="The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Script page lines them, and the lint flags a line no shot shows." group>
-        <Chips values={value.scriptLines ?? []} placeholder="Paste a sentence from the script, then Enter"
+      <Field label={tr("Script lines")} hint={tr("The lines of the script this shot shows, quoted as they read in the latest version. Planning only, never in the prompt: the Script page lines them, and the lint flags a line no shot shows.")} group>
+        <Chips values={value.scriptLines ?? []} placeholder={tr("Paste a sentence from the script, then Enter")}
           onRemove={(i) => set("scriptLines", (value.scriptLines ?? []).filter((_, j) => j !== i))}
           onAdd={(v) => { const t = v.trim(); if (t.length >= 2 && (value.scriptLines ?? []).length < 12) set("scriptLines", [...(value.scriptLines ?? []), t]); }} />
       </Field>
 
       {value.mode === "edit" && (
         <div className="st-card st-stack">
-          <Field label="Source take">
+          <Field label={tr("Source take")}>
             <select className="st-select" value={value.sourceTakeId ?? ""} onChange={(e) => set("sourceTakeId", e.target.value || undefined)}>
-              <option value="">Choose a completed take…</option>
+              <option value="">{tr("Choose a completed take…")}</option>
               {takes.filter((t) => t.status === "completed").map((t) => (
                 <option key={t.id} value={t.id}>
-                  Take {t.n} · {t.id}
+                  {tr("Take {n}", { n: t.n })} · {t.id}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Edit instruction" hint="Only what changes. Everything else is kept.">
+          <Field label={tr("Edit instruction")} hint={tr("Only what changes. Everything else is kept.")}>
             <textarea className="st-textarea" rows={3} value={value.editInstruction ?? ""} onChange={(e) => set("editInstruction", e.target.value)} />
           </Field>
         </div>
@@ -225,7 +227,7 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <div className="st-row st-row--between">
-          <span className="st-label" style={{ marginBottom: 0 }}>Beats</span>
+          <span className="st-label" style={{ marginBottom: 0 }}>{tr("Beats")}</span>
           <Button
             size="sm"
             disabled={value.beats.length >= 6}
@@ -235,19 +237,19 @@ export function ShotEditor({
               set("beats", [...value.beats, { from, to: Math.min(value.durationS, from + Math.max(1, value.durationS - from)), action: "" }]);
             }}
           >
-            Add beat
+            {tr("Add beat")}
           </Button>
         </div>
         {value.beats.map((b, i) => (
           <div key={i} className="st-beat">
-            <input className="st-input st-input--sm" type="number" step={0.5} value={b.from} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, from: Number(e.target.value) } : x)))} aria-label="From" />
-            <input className="st-input st-input--sm" type="number" step={0.5} value={b.to} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, to: Number(e.target.value) } : x)))} aria-label="To" />
-            <input className="st-input st-input--sm" placeholder="Start state → one action → end state" value={b.action} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, action: e.target.value } : x)))} />
-            <label className="st-toggle" title="Hard cut opens this beat">
+            <input className="st-input st-input--sm" type="number" step={0.5} value={b.from} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, from: Number(e.target.value) } : x)))} aria-label={tr("From")} />
+            <input className="st-input st-input--sm" type="number" step={0.5} value={b.to} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, to: Number(e.target.value) } : x)))} aria-label={tr("To")} />
+            <input className="st-input st-input--sm" placeholder={tr("Start state → one action → end state")} value={b.action} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, action: e.target.value } : x)))} />
+            <label className="st-toggle" title={tr("Hard cut opens this beat")}>
               <input type="checkbox" checked={Boolean(b.cut)} onChange={(e) => set("beats", value.beats.map((x, j) => (j === i ? { ...x, cut: e.target.checked || undefined } : x)))} />
-              cut
+              {tr("cut")}
             </label>
-            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove beat" disabled={value.beats.length <= 1} onClick={() => set("beats", value.beats.filter((_, j) => j !== i))}>
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove beat")} disabled={value.beats.length <= 1} onClick={() => set("beats", value.beats.filter((_, j) => j !== i))}>
               <CloseIcon size={11} />
             </button>
           </div>
@@ -255,40 +257,40 @@ export function ShotEditor({
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Camera</span>
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Camera")}</span>
         <div className="st-fields">
-          <Field label="Move">
+          <Field label={tr("Move")}>
             <select className="st-select" value={value.camera.move} onChange={(e) => set("camera", { ...value.camera, move: e.target.value as ShotDraft["camera"]["move"] })}>
               {CAMERA_MOVES.map((m) => (
                 <option key={m} value={m}>
-                  {m.replace("_", " ")}
+                  {tr(m.replace("_", " "))}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Amplitude">
+          <Field label={tr("Amplitude")}>
             <select className="st-select" value={value.camera.amplitude} onChange={(e) => set("camera", { ...value.camera, amplitude: e.target.value as ShotDraft["camera"]["amplitude"] })}>
-              <option>subtle</option>
-              <option>moderate</option>
-              <option>strong</option>
+              <option value="subtle">{tr("subtle")}</option>
+              <option value="moderate">{tr("moderate")}</option>
+              <option value="strong">{tr("strong")}</option>
             </select>
           </Field>
-          <Field label="Speed">
+          <Field label={tr("Speed")}>
             <select className="st-select" value={value.camera.speed} onChange={(e) => set("camera", { ...value.camera, speed: e.target.value as ShotDraft["camera"]["speed"] })}>
-              <option>slow</option>
-              <option>medium</option>
-              <option>fast</option>
+              <option value="slow">{tr("slow")}</option>
+              <option value="medium">{tr("medium||speed")}</option>
+              <option value="fast">{tr("fast")}</option>
             </select>
           </Field>
         </div>
-        <Field label="Note" hint="Free text; does not reset the approval.">
+        <Field label={tr("Note")} hint={tr("Free text; does not reset the approval.")}>
           <input className="st-input" value={value.camera.note ?? ""} onChange={(e) => set("camera", { ...value.camera, note: e.target.value || undefined })} />
         </Field>
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Staging</span>
-        <Field label="What moves" hint="At least one; a static camera with nothing moving is a dead frame." group>
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Staging")}</span>
+        <Field label={tr("What moves")} hint={tr("At least one; a static camera with nothing moving is a dead frame.")} group>
           <div className="st-chips">
             {MOTION_SOURCES.map((m) => {
               const on = (value.motion ?? []).includes(m);
@@ -296,62 +298,62 @@ export function ShotEditor({
                 <button key={m} type="button" className="st-chip st-chip--btn" aria-pressed={on} onClick={() => {
                   const next = on ? (value.motion ?? []).filter((x) => x !== m) : [...(value.motion ?? []), m];
                   set("motion", next.length ? next : undefined);
-                }}>{m}</button>
+                }}>{tr(`${m}||what moves`)}</button>
               );
             })}
           </div>
         </Field>
         <div className="st-fields">
-          <Field label="Subject at" hint="Eyes on the 38 % or 62 % line; centre only for symmetry.">
+          <Field label={tr("Subject at")} hint={tr("Eyes on the 38 % or 62 % line; centre only for symmetry.")}>
             <select className="st-select" value={value.composition?.subjectX ?? ""} onChange={(e) => set("composition", e.target.value ? { ...(value.composition ?? {}), subjectX: e.target.value as "left" | "center" | "right" } : undefined)}>
               <option value="">—</option>
-              <option value="left">left third (38 %)</option>
-              <option value="center">centre</option>
-              <option value="right">right third (62 %)</option>
+              <option value="left">{tr("left third (38 %)")}</option>
+              <option value="center">{tr("centre")}</option>
+              <option value="right">{tr("right third (62 %)")}</option>
             </select>
           </Field>
-          <Field label="Headroom">
+          <Field label={tr("Headroom")}>
             <select className="st-select" disabled={!value.composition} value={value.composition?.headroom ?? ""} onChange={(e) => value.composition && set("composition", { ...value.composition, headroom: (e.target.value || undefined) as "tight" | "normal" | "generous" | undefined })}>
               <option value="">—</option>
-              <option value="tight">tight</option>
-              <option value="normal">normal</option>
-              <option value="generous">generous</option>
+              <option value="tight">{tr("tight")}</option>
+              <option value="normal">{tr("normal")}</option>
+              <option value="generous">{tr("generous")}</option>
             </select>
           </Field>
-          <Field label="On screen (s)" hint="Render at least this + 0.5 s for handles.">
+          <Field label={tr("On screen (s)")} hint={tr("Render at least this + 0.5 s for handles.")}>
             <input className="st-input st-input--sm" type="number" min={1} max={15} step={0.5} value={value.screenS ?? ""} onChange={(e) => set("screenS", e.target.value ? Number(e.target.value) : undefined)} />
           </Field>
         </div>
         <div className="st-row st-row--between">
-          <span className="st-muted">Blocking — who enters, crosses or leaves which side of the frame</span>
-          <Button size="sm" disabled={(value.blocking?.length ?? 0) >= 6} onClick={() => set("blocking", [...(value.blocking ?? []), { who: characters[0]?.id ?? "someone", from: "off_left", to: "center" }])}>Add</Button>
+          <span className="st-muted">{tr("Blocking — who enters, crosses or leaves which side of the frame")}</span>
+          <Button size="sm" disabled={(value.blocking?.length ?? 0) >= 6} onClick={() => set("blocking", [...(value.blocking ?? []), { who: characters[0]?.id ?? "someone", from: "off_left", to: "center" }])}>{tr("Add")}</Button>
         </div>
         {(value.blocking ?? []).map((b, i) => (
           <div key={i} className="st-line">
-            <input className="st-input st-input--sm" list="st-blocking-who" placeholder="who" value={characters.find((c) => c.id === b.who)?.name ?? b.who} onChange={(e) => {
+            <input className="st-input st-input--sm" list="st-blocking-who" placeholder={tr("who")} value={characters.find((c) => c.id === b.who)?.name ?? b.who} onChange={(e) => {
               const hit = characters.find((c) => c.name === e.target.value);
               set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, who: hit?.id ?? e.target.value } : x)));
             }} style={{ width: 120 }} />
             <select className="st-select st-input--sm" value={b.from ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, from: (e.target.value || undefined) as typeof x.from } : x)))}>
-              <option value="">from —</option>
-              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>from {p.replace("_", " ")}</option>)}
+              <option value="">{tr("from —")}</option>
+              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>{tr("from {position}", { position: tr(`${p.replace("_", " ")}||screen position`) })}</option>)}
             </select>
             <select className="st-select st-input--sm" value={b.to ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, to: (e.target.value || undefined) as typeof x.to } : x)))}>
-              <option value="">to —</option>
-              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>to {p.replace("_", " ")}</option>)}
+              <option value="">{tr("to —")}</option>
+              {SCREEN_POSITIONS.map((p) => <option key={p} value={p}>{tr("to {position}", { position: tr(`${p.replace("_", " ")}||screen position`) })}</option>)}
             </select>
-            <input className="st-input st-input--sm" placeholder="path / pace" value={b.note ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value || undefined } : x)))} />
-            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove" onClick={() => { const next = (value.blocking ?? []).filter((_, j) => j !== i); set("blocking", next.length ? next : undefined); }}>
+            <input className="st-input st-input--sm" placeholder={tr("path / pace")} value={b.note ?? ""} onChange={(e) => set("blocking", (value.blocking ?? []).map((x, j) => (j === i ? { ...x, note: e.target.value || undefined } : x)))} />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove")} onClick={() => { const next = (value.blocking ?? []).filter((_, j) => j !== i); set("blocking", next.length ? next : undefined); }}>
               <CloseIcon size={11} />
             </button>
           </div>
         ))}
         <datalist id="st-blocking-who">{characters.map((c) => <option key={c.id} value={c.name} />)}</datalist>
         <div className="st-fields">
-          <Field label="First frame shows" hint="Who stands where, facing where, which props are visible. Reviewed before anyone draws it.">
+          <Field label={tr("First frame shows")} hint={tr("Who stands where, facing where, which props are visible. Reviewed before anyone draws it.")}>
             <textarea className="st-textarea" rows={2} value={value.frames?.first ?? ""} onChange={(e) => set("frames", e.target.value || value.frames?.last ? { ...(value.frames ?? {}), first: e.target.value || undefined } : undefined)} />
           </Field>
-          <Field label="Last frame shows">
+          <Field label={tr("Last frame shows")}>
             <textarea className="st-textarea" rows={2} value={value.frames?.last ?? ""} onChange={(e) => set("frames", e.target.value || value.frames?.first ? { ...(value.frames ?? {}), last: e.target.value || undefined } : undefined)} />
           </Field>
         </div>
@@ -359,12 +361,12 @@ export function ShotEditor({
 
       <div className="st-card st-stack">
         <div className="st-row st-row--between">
-          <span className="st-label" style={{ marginBottom: 0 }}>Dialogue</span>
+          <span className="st-label" style={{ marginBottom: 0 }}>{tr("Dialogue")}</span>
           <Button size="sm" disabled={value.dialogue.length >= 8 || characters.length === 0} onClick={() => set("dialogue", [...value.dialogue, { speaker: characters[0]!.id, text: "", delivery: "neutral", kind: "onscreen" }])}>
-            Add line
+            {tr("Add line")}
           </Button>
         </div>
-        {characters.length === 0 && <span className="st-muted">Create a character element to add dialogue.</span>}
+        {characters.length === 0 && <span className="st-muted">{tr("Create a character element to add dialogue.")}</span>}
         {value.dialogue.map((l, i) => (
           <div key={i} className="st-line">
             <select className="st-select st-input--sm" value={l.speaker} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, speaker: e.target.value } : x)))}>
@@ -374,10 +376,10 @@ export function ShotEditor({
                 </option>
               ))}
             </select>
-            <input className="st-input st-input--sm" placeholder="The exact line" value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
-            <input className="st-input st-input--sm" placeholder="zh" value={l.language ?? ""} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value || undefined } : x)))} aria-label="Language" />
-            <input className="st-input st-input--sm" placeholder="delivery" value={l.delivery} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, delivery: e.target.value } : x)))} aria-label="Delivery" />
-            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Remove line" onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
+            <input className="st-input st-input--sm" placeholder={tr("The exact line")} value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
+            <input className="st-input st-input--sm" placeholder="zh" value={l.language ?? ""} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value || undefined } : x)))} aria-label={tr("Language")} />
+            <input className="st-input st-input--sm" placeholder={tr("delivery")} value={l.delivery} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, delivery: e.target.value } : x)))} aria-label={tr("Delivery")} />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove line")} onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
               <CloseIcon size={11} />
             </button>
           </div>
@@ -385,26 +387,26 @@ export function ShotEditor({
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Sound</span>
-        <Field label="SFX (events)" group>
-          <Chips values={value.sound.sfx} onRemove={(i) => set("sound", { ...value.sound, sfx: value.sound.sfx.filter((_, j) => j !== i) })} onAdd={(v) => value.sound.sfx.length < 8 && set("sound", { ...value.sound, sfx: [...value.sound.sfx, v] })} placeholder="rain on tin roof" />
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Sound")}</span>
+        <Field label={tr("SFX (events)")} group>
+          <Chips values={value.sound.sfx} onRemove={(i) => set("sound", { ...value.sound, sfx: value.sound.sfx.filter((_, j) => j !== i) })} onAdd={(v) => value.sound.sfx.length < 8 && set("sound", { ...value.sound, sfx: [...value.sound.sfx, v] })} placeholder={tr("rain on tin roof")} />
         </Field>
         <div className="st-fields">
-          <Field label="Ambience">
-            <input className="st-input" value={value.sound.ambience} onChange={(e) => set("sound", { ...value.sound, ambience: e.target.value })} placeholder="distant traffic, wet street" />
+          <Field label={tr("Ambience")}>
+            <input className="st-input" value={value.sound.ambience} onChange={(e) => set("sound", { ...value.sound, ambience: e.target.value })} placeholder={tr("distant traffic, wet street")} />
           </Field>
-          <Field label="Music" hint="N/A suppresses score.">
+          <Field label={tr("Music")} hint={tr("N/A suppresses score.")}>
             <input className="st-input" value={value.sound.music} onChange={(e) => set("sound", { ...value.sound, music: e.target.value })} />
           </Field>
         </div>
       </div>
 
       <div className="st-card st-stack">
-        <span className="st-label" style={{ marginBottom: 0 }}>Who and where</span>
-        <Field label="Characters (max 3)" group>
+        <span className="st-label" style={{ marginBottom: 0 }}>{tr("Who and where")}</span>
+        <Field label={tr("Characters (max 3)")} group>
           <ElementPick options={characters} value={value.characters} max={3} onChange={(v) => set("characters", v)} />
         </Field>
-        <Field label="Location">
+        <Field label={tr("Location")}>
           <select className="st-select" value={value.location ?? ""} onChange={(e) => set("location", e.target.value || undefined)}>
             <option value="">—</option>
             {locations.map((l) => (
@@ -414,7 +416,7 @@ export function ShotEditor({
             ))}
           </select>
         </Field>
-        <Field label="Props (max 3)" group>
+        <Field label={tr("Props (max 3)")} group>
           <ElementPick options={props} value={value.props} max={3} onChange={(v) => set("props", v)} />
         </Field>
       </div>
@@ -426,21 +428,21 @@ export function ShotEditor({
             className="st-select st-input--sm"
             value={value.loras === undefined ? "inherit" : value.loras.length === 0 ? "none" : "override"}
             onChange={(e) => set("loras", e.target.value === "inherit" ? undefined : e.target.value === "none" ? [] : value.loras?.length ? value.loras : [])}
-            aria-label="LoRA mode"
+            aria-label={tr("LoRA mode")}
           >
-            <option value="inherit">inherit project LoRAs</option>
-            <option value="override">override</option>
-            <option value="none">none</option>
+            <option value="inherit">{tr("inherit project LoRAs")}</option>
+            <option value="override">{tr("override")}</option>
+            <option value="none">{tr("none")}</option>
           </select>
         </div>
         {value.loras === undefined ? (
-          <span className="st-muted">Uses the project Look’s LoRAs.</span>
+          <span className="st-muted">{tr("Uses the project Look’s LoRAs.")}</span>
         ) : (
           <LoraPicker compact value={value.loras} onChange={(v) => set("loras", v)} />
         )}
       </div>
 
-      <Field label="Prompt override" hint="Replaces the compiled prompt entirely. Leave empty to let the compiler write it.">
+      <Field label={tr("Prompt override")} hint={tr("Replaces the compiled prompt entirely. Leave empty to let the compiler write it.")}>
         <textarea className="st-textarea" rows={4} value={value.promptOverride ?? ""} onChange={(e) => set("promptOverride", e.target.value || undefined)} />
       </Field>
     </div>
@@ -448,7 +450,8 @@ export function ShotEditor({
 }
 
 function ElementPick({ options, value, max, onChange }: { options: Element[]; value: string[]; max: number; onChange: (v: string[]) => void }) {
-  if (options.length === 0) return <span className="st-muted">None available</span>;
+  const tr = useT();
+  if (options.length === 0) return <span className="st-muted">{tr("None available")}</span>;
   return (
     <div className="st-chips">
       {options.map((o) => {

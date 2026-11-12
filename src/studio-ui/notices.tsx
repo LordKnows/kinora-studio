@@ -7,6 +7,7 @@ import type { ProjectView } from "@/studio/orchestrator";
 
 import { describe, post } from "./api";
 import { filmShots } from "./film";
+import { useT } from "./i18n";
 
 /* Notices: a short line at the bottom of the screen with at most one action —
    a take that finished or failed while you were elsewhere in the project, or
@@ -24,6 +25,7 @@ export function useNotify() {
 }
 
 export function NoticeProvider({ children }: { children: ReactNode }) {
+  const tr = useT();
   const [list, setList] = useState<Notice[]>([]);
   const seq = useRef(0);
   const drop = useCallback((id: number) => setList((xs) => xs.filter((x) => x.id !== id)), []);
@@ -38,11 +40,12 @@ export function NoticeProvider({ children }: { children: ReactNode }) {
       <div className="nt-region" role="status" aria-live="polite">
         {list.map((n) => (
           <div key={n.id} className="nt" data-mark={n.mark}>
-            <span className="nt-text">{n.text}</span>
+            {/* a notice is worded where it is raised; a fixed English one ("Undo") is translated here */}
+            <span className="nt-text">{tr(n.text)}</span>
             {n.action && (n.action.href
-              ? <Link className="nt-action" href={n.action.href} onClick={() => drop(n.id)}>{n.action.label}</Link>
-              : <button type="button" className="nt-action" onClick={() => { n.action!.run?.(); drop(n.id); }}>{n.action.label}</button>)}
-            <button type="button" className="nt-close" aria-label="Dismiss" onClick={() => drop(n.id)}>×</button>
+              ? <Link className="nt-action" href={n.action.href} onClick={() => drop(n.id)}>{tr(n.action.label)}</Link>
+              : <button type="button" className="nt-action" onClick={() => { n.action!.run?.(); drop(n.id); }}>{tr(n.action.label)}</button>)}
+            <button type="button" className="nt-close" aria-label={tr("Dismiss")} onClick={() => drop(n.id)}>×</button>
           </div>
         ))}
       </div>
@@ -52,6 +55,7 @@ export function NoticeProvider({ children }: { children: ReactNode }) {
 
 /** Watch the project's takes and say when one finishes or fails. */
 export function useTakeNotices(view: ProjectView | null, base: string) {
+  const tr = useT();
   const notify = useNotify();
   const seen = useRef<Map<string, string> | null>(null);
   const asked = useRef(false);
@@ -68,38 +72,39 @@ export function useTakeNotices(view: ProjectView | null, base: string) {
         const was = before.get(t.id);
         if (was !== "queued" && was !== "running") continue;
         if (t.status === "completed") {
-          const text = `Take ${t.n} of ${s.slate} finished`;
+          const text = tr("Take {n} of {slate} finished", { n: t.n, slate: s.slate });
           const canAsk = typeof Notification !== "undefined" && Notification.permission === "default" && !asked.current;
           notify({
             text, mark: "done", ttlMs: 15_000,
             action: canAsk
-              ? { label: "Tell me in the background too", run: () => { asked.current = true; void Notification.requestPermission(); } }
-              : { label: "Screen it", href: `${base}/screening?shot=${s.shot.id}&take=${t.id}` },
+              ? { label: tr("Tell me in the background too"), run: () => { asked.current = true; void Notification.requestPermission(); } }
+              : { label: tr("Screen it"), href: `${base}/screening?shot=${s.shot.id}&take=${t.id}` },
           });
           if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
             try { new Notification(`${view.project.name}: ${text}`, { body: s.shot.spec.intent, tag: t.id }); } catch { /* some browsers only notify from a service worker */ }
           }
         } else if (t.status === "failed" || t.status === "timeout") {
-          notify({ text: `Take ${t.n} of ${s.slate} failed${t.error ? `: ${t.error.slice(0, 90)}` : ""}`, mark: "ng", ttlMs: 20_000, action: { label: "Open the shot", href: `${base}/board?shot=${s.shot.id}&tab=takes` } });
+          notify({ text: tr("Take {n} of {slate} failed{why}", { n: t.n, slate: s.slate, why: t.error ? `: ${t.error.slice(0, 90)}` : "" }), mark: "ng", ttlMs: 20_000, action: { label: tr("Open the shot"), href: `${base}/board?shot=${s.shot.id}&tab=takes` } });
         }
       }
     }
-  }, [view, base, notify]);
+  }, [view, base, notify, tr]);
 }
 
 /** After a delete: a notice whose Undo puts the thing back from the trash. */
 export function useUndoable(after: () => Promise<void> | void) {
+  const tr = useT();
   const notify = useNotify();
   return useCallback((trashId: string | undefined, text: string) => {
     if (!trashId) return;
     notify({
       text, mark: "undo", ttlMs: 15_000,
       action: {
-        label: "Undo",
+        label: tr("Undo"),
         run: () => {
-          void post(`/api/trash/${trashId}/restore`).then(() => after(), (caught) => notify({ text: `Could not put it back: ${describe(caught)}`, mark: "ng" }));
+          void post(`/api/trash/${trashId}/restore`).then(() => after(), (caught) => notify({ text: tr("Could not put it back: {why}", { why: describe(caught) }), mark: "ng" }));
         },
       },
     });
-  }, [notify, after]);
+  }, [notify, after, tr]);
 }

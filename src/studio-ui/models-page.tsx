@@ -7,6 +7,7 @@ import type { Lora } from "@/studio/types";
 
 import { get } from "./api";
 import { ErrorBanner, Lamp, Skeleton } from "./common";
+import { useT } from "./i18n";
 import { OpenOutIcon } from "./icons";
 
 /* Library → Models: what the Studio runs, sorted out. Each model with its
@@ -19,6 +20,7 @@ type Listed = ModelEntry & { painters?: { ready: boolean; note?: string; drawers
 type Answer = { models: Listed[]; gpu: { status: string; configured: boolean } | null; loras: Lora[] };
 
 export function ModelsGallery() {
+  const t = useT();
   const [data, setData] = useState<Answer | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
@@ -32,7 +34,7 @@ export function ModelsGallery() {
         <section key={kind}>
           <div className="st-section-title" style={{ marginBottom: 12 }}>
             <span>{kind === "image" ? "Image models · 图像" : "Video models · 视频"}</span>
-            {kind === "image" && data.gpu && <small>GPU pod: {data.gpu.configured ? data.gpu.status : "not set up"}</small>}
+            {kind === "image" && data.gpu && <small>{t("GPU pod: {status}", { status: data.gpu.configured ? t(`${data.gpu.status}||gpu`) : t("not set up") })}</small>}
           </div>
           <div className="st-models">
             {data.models.filter((m) => m.kind === kind).map((m) => <ModelCard key={m.id} m={m} loras={data.loras.filter((l) => (l.baseModel ?? "minimax-h3") === m.family)} first={data.models.find((x) => x.family === m.family)?.id === m.id} />)}
@@ -44,6 +46,7 @@ export function ModelsGallery() {
 }
 
 function ModelCard({ m, loras, first }: { m: Listed; loras: Lora[]; first: boolean }) {
+  const t = useT();
   const gb = (m.files ?? []).reduce((n, f) => n + f.gb, 0);
   return (
     <article className="st-card st-model">
@@ -53,27 +56,27 @@ function ModelCard({ m, loras, first }: { m: Listed; loras: Lora[]; first: boole
           <div className="st-muted">{m.zh}</div>
         </div>
         <span className="st-chips">
-          <span className="st-chip st-chip--mono">{m.runtime === "pod" ? "GPU pod" : "painter · API"}</span>
-          {m.moderation === "openai" ? <span className="st-chip st-chip--mono">OpenAI moderation</span> : m.moderation === "alibaba" ? <span className="st-chip st-chip--mono">Alibaba Cloud moderation</span> : <span className="st-chip st-chip--mono">no filter</span>}
+          <span className="st-chip st-chip--mono">{m.runtime === "pod" ? t("GPU pod") : t("painter · API")}</span>
+          {m.moderation === "openai" ? <span className="st-chip st-chip--mono">{t("OpenAI moderation")}</span> : m.moderation === "alibaba" ? <span className="st-chip st-chip--mono">{t("Alibaba Cloud moderation")}</span> : <span className="st-chip st-chip--mono">{t("no filter")}</span>}
         </span>
       </div>
-      {m.painters && (m.painters.ready ? <Lamp state="ok" label={`can draw now · ${m.painters.drawers.join(", ")}`} /> : <span className="st-muted">{m.painters.note}</span>)}
+      {m.painters && (m.painters.ready ? <Lamp state="ok" label={t("can draw now · {drawers}", { drawers: m.painters.drawers.join(", ") })} /> : <span className="st-muted">{m.painters.note}</span>)}
       <dl className="st-dl st-model-dl">
-        <dt>Settings</dt>
-        <dd className="st-num">{describeParams(m.params) || "set by the service"}{m.variants ? <span className="st-muted"> · {Object.entries(m.variants).map(([w, p]) => `${w}: ${describeParams(p)}`).join("; ")}</span> : null}</dd>
-        {m.maxRefs ? (<><dt>Pictures</dt><dd>up to {m.maxRefs} per call{m.refStyle === "h3" ? " · named <Picture 1>…" : ""}</dd></>) : null}
-        {m.workflows?.length ? (<><dt>Workflows</dt><dd className="st-num">{m.workflows.join(", ")}</dd></>) : null}
-        <dt>Licence</dt>
-        <dd>{m.license}{m.commercial === false ? <strong className="st-warn"> · not for commercial use</strong> : null}</dd>
-        {m.files?.length ? (<><dt>Files</dt><dd className="st-num st-model-files">{m.files.map((f) => <div key={f.file}>{f.dir}/{f.file} · {f.gb} GB</div>)}<div className="st-muted">{Math.round(gb * 10) / 10} GB, downloaded onto the pod at boot</div></dd></>) : null}
+        <dt>{t("Settings")}</dt>
+        <dd className="st-num">{describeParams(m.params) || t("set by the service")}{m.variants ? <span className="st-muted"> · {Object.entries(m.variants).map(([w, p]) => `${w}: ${describeParams(p)}`).join("; ")}</span> : null}</dd>
+        {m.maxRefs ? (<><dt>{t("Pictures")}</dt><dd>{t("up to {n} per call", { n: m.maxRefs })}{m.refStyle === "h3" ? t(" · named <Picture 1>…") : ""}</dd></>) : null}
+        {m.workflows?.length ? (<><dt>{t("Workflows")}</dt><dd className="st-num">{m.workflows.join(", ")}</dd></>) : null}
+        <dt>{t("Licence")}</dt>
+        <dd>{m.license}{m.commercial === false ? <strong className="st-warn">{t(" · not for commercial use")}</strong> : null}</dd>
+        {m.files?.length ? (<><dt>{t("Files")}</dt><dd className="st-num st-model-files">{m.files.map((f) => <div key={f.file}>{f.dir}/{f.file} · {f.gb} GB</div>)}<div className="st-muted">{t("{gb} GB, downloaded onto the pod at boot", { gb: Math.round(gb * 10) / 10 })}</div></dd></>) : null}
       </dl>
       <p className="st-muted st-model-notes">{m.notes}</p>
       {first && loras.length > 0 && (
         <div className="st-stack st-stack--tight">
-          <span className="st-label">LoRAs for {m.family}</span>
+          <span className="st-label">{t("LoRAs for {family}", { family: m.family })}</span>
           <ul className="st-model-loras">
             {loras.map((l) => (
-              <li key={l.id}><span>{l.name}</span> <span className="st-muted st-num">{l.kind} · {describeParams(l.recommended) || "—"}</span></li>
+              <li key={l.id}><span>{l.name}</span> <span className="st-muted st-num">{t(`${l.kind}||lora`)} · {describeParams(l.recommended) || "—"}</span></li>
             ))}
           </ul>
         </div>

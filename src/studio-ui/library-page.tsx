@@ -4,27 +4,32 @@ import { useEffect, useState } from "react";
 
 import { get } from "./api";
 import { Empty, ErrorBanner, Skeleton } from "./common";
+import { useT } from "./i18n";
 import { LorasPage } from "./loras-page";
 import { ModelsGallery } from "./models-page";
 
 /* Library: what every project draws from — the style presets of the
    director layer and the LoRA library. */
 
+/* the markdown state when the style could not be loaded (the message is shown in the reader's language) */
+const LOAD_FAILED = "\u0000failed";
+
 type StyleCard = { slug: string; en: string; cn: string; category: string; uses: string[]; line: string; line_cn: string };
 
 export function LibraryPage() {
+  const tr = useT();
   const [tab, setTab] = useState<"styles" | "loras" | "models">("styles");
   return (
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Library</h1>
-          <p className="st-subtitle">Style presets the director compiles into a Look, the LoRAs a project can switch on, and the models the Studio runs with the settings they recommend. Shared across projects.</p>
+          <h1 className="st-title">{tr("Library")}</h1>
+          <p className="st-subtitle">{tr("Style presets the director compiles into a Look, the LoRAs a project can switch on, and the models the Studio runs with the settings they recommend. Shared across projects.")}</p>
         </div>
         <div className="st-tabs" role="tablist" style={{ width: 360, maxWidth: "100%" }}>
           {(["styles", "loras", "models"] as const).map((t) => (
             <button key={t} type="button" role="tab" className="st-tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-              {t === "styles" ? "Styles" : t === "loras" ? "LoRAs" : "Models"}
+              {tr(t === "styles" ? "Styles" : t === "loras" ? "LoRAs" : "Models")}
             </button>
           ))}
         </div>
@@ -35,6 +40,7 @@ export function LibraryPage() {
 }
 
 export function StyleGallery({ selected, onPick }: { selected?: string; onPick?: (slug: string) => void }) {
+  const t = useT();
   const [styles, setStyles] = useState<StyleCard[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -45,11 +51,11 @@ export function StyleGallery({ selected, onPick }: { selected?: string; onPick?:
   useEffect(() => {
     if (!open) return;
     setMarkdown("");
-    get<{ markdown: string }>(`/api/styles/${open}`).then((r) => setMarkdown(r.markdown)).catch(() => setMarkdown("Could not load this style."));
+    get<{ markdown: string }>(`/api/styles/${open}`).then((r) => setMarkdown(r.markdown)).catch(() => setMarkdown(LOAD_FAILED));
   }, [open]);
   if (error) return <ErrorBanner error={error} onDismiss={() => setError(null)} />;
   if (!styles) return <div className="st-styles"><Skeleton height={150} /><Skeleton height={150} /><Skeleton height={150} /></div>;
-  if (styles.length === 0) return <Empty title="No styles" hint="The director package ships 16 presets; the build generates them into the studio." />;
+  if (styles.length === 0) return <Empty title={t("No styles")} hint={t("The director package ships 16 presets; the build generates them into the studio.")} />;
   const groups = new Map<string, StyleCard[]>();
   for (const s of styles) groups.set(s.category, [...(groups.get(s.category) ?? []), s]);
   return (
@@ -77,9 +83,9 @@ export function StyleGallery({ selected, onPick }: { selected?: string; onPick?:
             <div className="st-card" style={{ marginTop: 14 }}>
               <div className="st-row st-row--between" style={{ marginBottom: 10 }}>
                 <span className="st-h2">{list.find((s) => s.slug === open)!.en} · STYLE.md</span>
-                <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={() => setOpen(null)}>Close</button>
+                <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={() => setOpen(null)}>{t("Close")}</button>
               </div>
-              <pre className="st-pre" style={{ maxHeight: 560 }}>{markdown || "Loading…"}</pre>
+              <pre className="st-pre" style={{ maxHeight: 560 }}>{markdown === LOAD_FAILED ? t("Could not load this style.") : markdown || t("Loading…")}</pre>
             </div>
           )}
         </section>

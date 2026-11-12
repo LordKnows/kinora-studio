@@ -9,6 +9,7 @@ import type { Lora } from "@/studio/types";
 
 import { del, describe, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, NumberInput, Section, Skeleton, useAction } from "./common";
+import { useT } from "./i18n";
 import { LORA_KIND_LABEL } from "./lora-picker";
 
 /* The global LoRA library: speed LoRAs (fewer steps), style and effect LoRAs.
@@ -40,6 +41,7 @@ function hfLabel(url: string): string {
 }
 
 export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
+  const t = useT();
   const [loras, setLoras] = useState<Lora[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Lora | "new" | null>(null);
@@ -58,7 +60,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
   }, [reload]);
 
   const remove = useAction(async (_confirm, lora: Lora) => {
-    if (!window.confirm(`Delete ${lora.name} from the library? Projects that reference it will simply skip it.`)) return;
+    if (!window.confirm(t("Delete {name} from the library? Projects that reference it will simply skip it.", { name: lora.name }))) return;
     await del(`/api/loras/${lora.id}`);
     await reload();
   });
@@ -67,12 +69,12 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
     <div className={embedded ? "st-stack" : "st-page"}>
       <div className="st-page-head" style={embedded ? { marginBottom: 4 } : undefined}>
         <div>
-          {!embedded && <h1 className="st-title">LoRAs</h1>}
-          <p className="st-subtitle">Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on Brief & style; a shot can override.</p>
+          {!embedded && <h1 className="st-title">{t("LoRAs")}</h1>}
+          <p className="st-subtitle">{t("Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on Brief & style; a shot can override.")}</p>
         </div>
         <div className="st-actions">
           <Button kind="primary" onClick={() => setEditing("new")}>
-            Add LoRA
+            {t("Add LoRA")}
           </Button>
         </div>
       </div>
@@ -85,9 +87,9 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
         </div>
       ) : loras.length === 0 ? (
         <div className="st-section">
-          <Empty title="No LoRAs yet" hint="Add the acceleration LoRA first (e.g. lightx2v 8-step), then any style or effect LoRAs you use.">
+          <Empty title={t("No LoRAs yet")} hint={t("Add the acceleration LoRA first (e.g. lightx2v 8-step), then any style or effect LoRAs you use.")}>
             <Button kind="primary" onClick={() => setEditing("new")}>
-              Add LoRA
+              {t("Add LoRA")}
             </Button>
           </Empty>
         </div>
@@ -96,17 +98,17 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
           const group = loras.filter((l) => l.kind === kind);
           if (group.length === 0) return null;
           return (
-            <Section key={kind} title={`${LORA_KIND_LABEL[kind]} LoRAs`}>
+            <Section key={kind} title={t("{kind} LoRAs", { kind: t(`${LORA_KIND_LABEL[kind]}||LoRA kind`) })}>
               <div className="st-table-scroll"><table className="st-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>File</th>
-                    <th>Model</th>
-                    <th>Recommended</th>
-                    <th>Trigger words</th>
-                    <th>Workflows</th>
-                    <th>Source</th>
+                    <th>{t("Name")}</th>
+                    <th>{t("File")}</th>
+                    <th>{t("Model")}</th>
+                    <th>{t("Recommended")}</th>
+                    <th>{t("Trigger words")}</th>
+                    <th>{t("Workflows")}</th>
+                    <th>{t("Source")}</th>
                     <th />
                   </tr>
                 </thead>
@@ -123,19 +125,19 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
                       <td>{FAMILIES.find(([f]) => f === l.baseModel)?.[1] ?? l.baseModel}</td>
                       <td className="st-num">{describeParams(l.recommended) || "—"}</td>
                       <td className="st-lora-trigger">{l.triggerWords || "—"}</td>
-                      <td>{l.workflows.length ? l.workflows.join(", ") : "all"}</td>
+                      <td>{l.workflows.length ? l.workflows.join(", ") : t("all||workflows")}</td>
                       <td>
                         {l.hfUrl ? (
                           <a className="st-link st-link--ext" href={l.hfUrl} target="_blank" rel="noreferrer noopener">
                             {hfLabel(l.hfUrl)} <OpenOutIcon size={11} />
                           </a>
                         ) : (
-                          <span className="st-muted">on the volume</span>
+                          <span className="st-muted">{t("on the volume")}</span>
                         )}
                       </td>
                       <td>
                         <Button size="sm" kind="quiet" onClick={() => setEditing(l)}>
-                          Edit
+                          {t("Edit")}
                         </Button>
                       </td>
                     </tr>
@@ -163,6 +165,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
 }
 
 function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose: () => void; onSaved: () => Promise<void>; onDelete?: () => void }) {
+  const t = useT();
   const [draft, setDraft] = useState<Draft>(
     lora
       ? { name: lora.name, kind: lora.kind, filename: lora.filename, hfUrl: lora.hfUrl, triggerWords: lora.triggerWords, defaultStrength: lora.defaultStrength, stepsHint: lora.stepsHint, workflows: lora.workflows as Draft["workflows"], notes: lora.notes, baseModel: lora.baseModel, params: lora.params }
@@ -190,17 +193,17 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
 
   return (
     <Drawer
-      title={lora ? lora.name : "New LoRA"}
+      title={lora ? lora.name : t("New LoRA")}
       onClose={onClose}
       head={
         <span className="st-row">
           {onDelete && (
             <Button kind="danger" size="sm" onClick={onDelete}>
-              Delete
+              {t("Delete")}
             </Button>
           )}
           <Button kind="primary" size="sm" busy={save.busy} disabled={!draft.name.trim() || !draft.filename.trim()} onClick={() => void save.fire()}>
-            {lora ? "Save" : "Create"}
+            {lora ? t("Save") : t("Create")}
           </Button>
         </span>
       }
@@ -208,55 +211,55 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
       <div className="st-stack">
         <ErrorBanner error={save.error} onDismiss={save.dismiss} />
         <div className="st-fields">
-          <Field label="Kind">
+          <Field label={t("Kind")}>
             <select className="st-select" value={draft.kind} onChange={(e) => set("kind", e.target.value as Draft["kind"])}>
               {LORA_KINDS.map((k) => (
                 <option key={k} value={k}>
-                  {LORA_KIND_LABEL[k]}
+                  {t(`${LORA_KIND_LABEL[k]}||LoRA kind`)}
                 </option>
               ))}
             </select>
           </Field>
-          <Field label="Name">
+          <Field label={t("Name")}>
             <input className="st-input" value={draft.name} onChange={(e) => set("name", e.target.value)} placeholder="lightx2v 8-step" />
           </Field>
         </div>
-        <Field label="Filename" hint="Inside ComfyUI's models/loras on the pod.">
+        <Field label={t("Filename")} hint={t("Inside ComfyUI's models/loras on the pod.")}>
           <input className="st-input" value={draft.filename} onChange={(e) => set("filename", e.target.value)} placeholder="h3_lightx2v_8step.safetensors" />
         </Field>
-        <Field label="HuggingFace link" hint="Paste the file's HuggingFace link (…/blob/main/xxx.safetensors); the pod downloads it into models/loras when missing.">
+        <Field label={t("HuggingFace link")} hint={t("Paste the file's HuggingFace link (…/blob/main/xxx.safetensors); the pod downloads it into models/loras when missing.")}>
           <input className="st-input" value={draft.hfUrl ?? ""} onChange={(e) => set("hfUrl", e.target.value || undefined)} placeholder="https://huggingface.co/…/blob/main/xxx.safetensors" />
         </Field>
         <div className="st-fields">
-          <Field label={`Default strength · ${draft.defaultStrength.toFixed(2)}`}>
+          <Field label={t("Default strength · {n}", { n: draft.defaultStrength.toFixed(2) })}>
             <input type="range" min={0} max={2} step={0.05} value={draft.defaultStrength} onChange={(e) => set("defaultStrength", Number(e.target.value))} className="st-range" />
           </Field>
-          <Field label="Steps hint" hint="Speed LoRAs: the step count they are trained for; becomes the project default.">
+          <Field label={t("Steps hint")} hint={t("Speed LoRAs: the step count they are trained for; becomes the project default.")}>
             <NumberInput min={1} max={60} allowEmpty value={draft.stepsHint} onCommit={(v) => set("stepsHint", v ?? undefined)} placeholder="8" />
           </Field>
         </div>
-        <Field label="Base model" hint="The model family it was trained for; it only loads with that family's workflows.">
+        <Field label={t("Base model")} hint={t("The model family it was trained for; it only loads with that family's workflows.")}>
           <select className="st-select" value={draft.baseModel} onChange={(e) => set("baseModel", e.target.value)}>
             {FAMILIES.map(([f, label]) => <option key={f} value={f}>{label}</option>)}
           </select>
         </Field>
         <div className="st-stack st-stack--tight">
-          <span className="st-label">Recommended settings <span className="st-muted">— from its model card; a speed LoRA's replace the base model's when it is picked</span></span>
+          <span className="st-label">{t("Recommended settings")} <span className="st-muted">{t("— from its model card; a speed LoRA's replace the base model's when it is picked")}</span></span>
           <div className="st-fields st-canvas-fields">
-            <Field label="Sampler"><input className="st-input" value={draft.params.sampler ?? ""} placeholder={known.sampler ?? "euler"} onChange={(e) => setParam("sampler", e.target.value.trim() || undefined)} /></Field>
-            <Field label="Scheduler"><input className="st-input" value={draft.params.scheduler ?? ""} placeholder={known.scheduler ?? "simple"} onChange={(e) => setParam("scheduler", e.target.value.trim() || undefined)} /></Field>
+            <Field label={t("Sampler")}><input className="st-input" value={draft.params.sampler ?? ""} placeholder={known.sampler ?? "euler"} onChange={(e) => setParam("sampler", e.target.value.trim() || undefined)} /></Field>
+            <Field label={t("Scheduler")}><input className="st-input" value={draft.params.scheduler ?? ""} placeholder={known.scheduler ?? "simple"} onChange={(e) => setParam("scheduler", e.target.value.trim() || undefined)} /></Field>
             <Field label="CFG"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.cfg} placeholder={known.cfg !== undefined ? String(known.cfg) : "—"} onCommit={(v) => setParam("cfg", v ?? undefined)} /></Field>
-            <Field label="Shift (video)"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftVideo} placeholder={known.shiftVideo !== undefined ? String(known.shiftVideo) : "—"} onCommit={(v) => setParam("shiftVideo", v ?? undefined)} /></Field>
-            <Field label="Shift (audio)"><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftAudio} placeholder={known.shiftAudio !== undefined ? String(known.shiftAudio) : "—"} onCommit={(v) => setParam("shiftAudio", v ?? undefined)} /></Field>
-            <Field label="Strength from"><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[0]} placeholder={known.strengthRange ? String(known.strengthRange[0]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [v, draft.params.strengthRange?.[1] ?? known.strengthRange?.[1] ?? 2])} /></Field>
-            <Field label="Strength to"><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[1]} placeholder={known.strengthRange ? String(known.strengthRange[1]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [draft.params.strengthRange?.[0] ?? known.strengthRange?.[0] ?? 0, v])} /></Field>
+            <Field label={t("Shift (video)")}><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftVideo} placeholder={known.shiftVideo !== undefined ? String(known.shiftVideo) : "—"} onCommit={(v) => setParam("shiftVideo", v ?? undefined)} /></Field>
+            <Field label={t("Shift (audio)")}><NumberInput integer={false} min={0} max={30} allowEmpty value={draft.params.shiftAudio} placeholder={known.shiftAudio !== undefined ? String(known.shiftAudio) : "—"} onCommit={(v) => setParam("shiftAudio", v ?? undefined)} /></Field>
+            <Field label={t("Strength from")}><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[0]} placeholder={known.strengthRange ? String(known.strengthRange[0]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [v, draft.params.strengthRange?.[1] ?? known.strengthRange?.[1] ?? 2])} /></Field>
+            <Field label={t("Strength to")}><NumberInput integer={false} min={0} max={2} allowEmpty value={draft.params.strengthRange?.[1]} placeholder={known.strengthRange ? String(known.strengthRange[1]) : "—"} onCommit={(v) => setParam("strengthRange", v === null ? undefined : [draft.params.strengthRange?.[0] ?? known.strengthRange?.[0] ?? 0, v])} /></Field>
           </div>
-          {lora && <span className="st-muted st-num">In effect: {describeParams(lora.recommended) || "the base model's settings"}</span>}
+          {lora && <span className="st-muted st-num">{t("In effect: {params}", { params: describeParams(lora.recommended) || t("the base model's settings") })}</span>}
         </div>
-        <Field label="Trigger words" hint="Appended to the LOOK block when this LoRA is active.">
+        <Field label={t("Trigger words")} hint={t("Appended to the LOOK block when this LoRA is active.")}>
           <input className="st-input" value={draft.triggerWords} onChange={(e) => set("triggerWords", e.target.value)} placeholder="anime style, flat shading" />
         </Field>
-        <Field label="Workflows" hint="None selected = applies to every workflow." group>
+        <Field label={t("Workflows")} hint={t("None selected = applies to every workflow.")} group>
           <div className="st-chips">
             {WORKFLOWS.map((w) => (
               <button key={w} type="button" className="st-chip st-chip--btn" aria-pressed={draft.workflows.includes(w)} onClick={() => toggleWorkflow(w)}>
@@ -265,7 +268,7 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
             ))}
           </div>
         </Field>
-        <Field label="Notes">
+        <Field label={t("Notes")}>
           <textarea className="st-textarea" rows={3} value={draft.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
       </div>

@@ -7,7 +7,8 @@ import { createPortal } from "react-dom";
 import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
-import { ApiError, describe, usd } from "./api";
+import { ApiError, describe, usd, when } from "./api";
+import { type T, useT } from "./i18n";
 
 /* Small shared controls for the studio pages. Every control carries its
    hover / focus / disabled / busy states in studio.css. */
@@ -125,6 +126,7 @@ export function ErrorBanner({
   onDismiss?: () => void;
   projectId?: string;
 }) {
+  const t = useT();
   if (!error) return null;
   const api = error instanceof ApiError ? error : null;
   const checkpointHref = api?.checkpoint && projectId
@@ -139,25 +141,25 @@ export function ErrorBanner({
         {api?.code === "needs_confirm" && api.estimateUsd !== undefined && (
           <>
             {" "}
-            <strong className="st-num">Estimated {usd(api.estimateUsd)}.</strong>
+            <strong className="st-num">{t("Estimated {usd}.", { usd: usd(api.estimateUsd) })}</strong>
           </>
         )}
         {checkpointHref && (
           <>
             {" "}
             <Link className="st-link" href={checkpointHref}>
-              Open the {api!.checkpoint} page
+              {t(`Open the ${api!.checkpoint} page`)}
             </Link>
           </>
         )}
       </span>
       {api?.code === "needs_confirm" && onConfirm && (
         <Button kind="primary" size="sm" onClick={onConfirm}>
-          Confirm and spend
+          {t("Confirm and spend")}
         </Button>
       )}
       {onDismiss && (
-        <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onDismiss} aria-label="Dismiss">
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onDismiss} aria-label={t("Dismiss")}>
           <CloseIcon size={12} />
         </button>
       )}
@@ -223,6 +225,7 @@ export function useAction<Args extends unknown[]>(run: (confirm: boolean, ...arg
 }
 
 export function CopyRow({ label, value }: { label: string; value: string }) {
+  const tr = useT();
   const [done, setDone] = useState(false);
   useEffect(() => {
     if (!done) return;
@@ -239,10 +242,10 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
           onClick={() => {
             void navigator.clipboard.writeText(value).then(() => setDone(true));
           }}
-          title="Copy"
+          title={tr("Copy")}
         >
           {done ? <CheckIcon size={12} /> : <CopyIcon size={12} />}
-          {done ? "Copied" : "Copy"}
+          {done ? tr("Copied") : tr("Copy")}
         </Button>
       </div>
     </div>
@@ -250,16 +253,17 @@ export function CopyRow({ label, value }: { label: string; value: string }) {
 }
 
 export function Chips({ values, onRemove, onAdd, placeholder }: { values: string[]; onRemove?: (i: number) => void; onAdd?: (v: string) => void; placeholder?: string }) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   return (
     <div className="st-stack st-stack--tight">
       <div className="st-chips">
-        {values.length === 0 && <span className="st-muted">None</span>}
+        {values.length === 0 && <span className="st-muted">{t("None")}</span>}
         {values.map((v, i) => (
           <span key={`${v}-${i}`} className="st-chip">
             {v}
             {onRemove && (
-              <button type="button" onClick={() => onRemove(i)} aria-label={`Remove ${v}`}>
+              <button type="button" onClick={() => onRemove(i)} aria-label={t("Remove {v}", { v })}>
                 <CloseIcon size={10} />
               </button>
             )}
@@ -269,7 +273,7 @@ export function Chips({ values, onRemove, onAdd, placeholder }: { values: string
       {onAdd && (
         <input
           className="st-input st-input--sm"
-          placeholder={placeholder ?? "Type and press Enter"}
+          placeholder={placeholder ?? t("Type and press Enter")}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
@@ -286,10 +290,11 @@ export function Chips({ values, onRemove, onAdd, placeholder }: { values: string
 }
 
 export function Stars({ value, onChange }: { value?: number; onChange: (n: number) => void }) {
+  const t = useT();
   return (
-    <span className="st-stars" role="radiogroup" aria-label="Score">
+    <span className="st-stars" role="radiogroup" aria-label={t("Score||rating")}>
       {[1, 2, 3, 4, 5].map((n) => (
-        <button key={n} type="button" className="st-star" aria-pressed={(value ?? 0) >= n} onClick={() => onChange(n)} aria-label={`${n} of 5`}>
+        <button key={n} type="button" className="st-star" aria-pressed={(value ?? 0) >= n} onClick={() => onChange(n)} aria-label={t("{n} of 5", { n })}>
           ★
         </button>
       ))}
@@ -299,6 +304,7 @@ export function Stars({ value, onChange }: { value?: number; onChange: (n: numbe
 
 /** A popup over everything (also over a drawer): Esc or a click outside closes it, and only it. */
 export function Modal({ title, onClose, children, size = "md", head }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "md" | "lg" | "full"; head?: ReactNode }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -315,7 +321,7 @@ export function Modal({ title, onClose, children, size = "md", head }: { title: 
         <div className="st-modal-head">
           <div className="st-modal-title">{title}</div>
           {head}
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onClose} aria-label="Close">
+          <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onClose} aria-label={t("Close")}>
             <CloseIcon size={13} />
           </button>
         </div>
@@ -327,6 +333,7 @@ export function Modal({ title, onClose, children, size = "md", head }: { title: 
 }
 
 export function Drawer({ title, onClose, children, head }: { title: string; onClose: () => void; children: ReactNode; head?: ReactNode }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -341,7 +348,7 @@ export function Drawer({ title, onClose, children, head }: { title: string; onCl
         <div className="st-drawer-head">
           <div className="st-drawer-title">{title}</div>
           {head}
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onClose} aria-label="Close">
+          <button type="button" className="st-btn st-btn--quiet st-btn--sm" onClick={onClose} aria-label={t("Close")}>
             <CloseIcon size={13} />
           </button>
         </div>
@@ -355,6 +362,7 @@ export function Skeleton({ height = 120 }: { height?: number }) {
   return <div className="st-skeleton" style={{ height }} />;
 }
 
+/** A take's status in a word. English: the components that show it pass it through t(). */
 export function statusLabel(status: string): string {
   switch (status) {
     case "queued":
@@ -396,6 +404,7 @@ export function UploadButton({
   disabled?: boolean;
   title?: string;
 }) {
+  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -421,10 +430,17 @@ export function UploadButton({
           }
         }}
       />
-      <Button size={size} busy={busy} disabled={disabled} onClick={() => input.current?.click()} title={title}>
-        <UploadIcon size={12} /> {busy ? "Uploading…" : label}
+      <Button size={size} busy={busy} disabled={disabled} onClick={() => input.current?.click()} title={t(title)}>
+        <UploadIcon size={12} /> {busy ? t("Uploading…") : t(label)}
       </Button>
       {error && <span className="st-muted st-danger">{error}</span>}
     </span>
   );
+}
+
+/** `when` (api.ts) in the interface language: "just now", "5 min ago"… */
+export function whenT(t: T, ts: number): string {
+  const s = when(ts);
+  const m = /^(\d+) (min|hr|d) ago$/.exec(s);
+  return m ? t(`{n} ${m[2]} ago`, { n: m[1]! }) : t(s);
 }

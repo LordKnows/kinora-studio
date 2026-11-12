@@ -10,6 +10,7 @@ import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
 import { CheckIcon } from "./icons";
 import { describeVerdict, faceLabel, pictureTag, type FaceVerdict } from "@/studio/face-verdict";
 
+import { type T, plural, useT } from "./i18n";
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
 import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
@@ -26,15 +27,43 @@ export function pictureTitle(a: Asset): string {
   return [a.handle, a.name].filter(Boolean).join(" · ") || a.id;
 }
 
+/* face-verdict.ts words its verdicts and tag titles in English; these put
+   them in the interface language, piece by piece (what the model wrote, a
+   reason or a failure, stays as it is). */
+
+/** describeVerdict's list without "face check: " ("an illustration, an adult, unsure (60%)"). */
+function verdictWords(t: T, words: string): string {
+  return words.split(", ").map((w) => {
+    const unsure = /^unsure \((\d+)%\)$/.exec(w);
+    return unsure ? t("unsure ({p}%)", { p: unsure[1]! }) : t(w);
+  }).join(t(", ||list"));
+}
+
+/** A tag's title from face-verdict.ts: "<what the tag allows> (<why it has it>)". */
+export function tagTitle(t: T, title: string): string {
+  const i = title.indexOf(" (");
+  if (i < 0 || !title.endsWith(")")) return t(title);
+  const head = title.slice(0, i);
+  const why = title.slice(i + 2, -1);
+  const again = /^(.*); Check again on the Pictures page$/.exec(why);
+  const notRun = again && /^the face check did not run: (.*)$/.exec(again[1]!);
+  const detail = why.startsWith("face check: ") ? t("face check: {what}", { what: verdictWords(t, why.slice("face check: ".length)) })
+    : again ? t("{what}; Check again on the Pictures page", { what: notRun ? t("the face check did not run: {why}", { why: notRun[1]! }) : t(again[1]!) })
+    : t(why);
+  return t("{head} ({detail})", { head: t(head), detail });
+}
+
 /** A picture's tag: 模拟 (any reference, R18 included) or 真实 (not for R18). */
 export function TagBadge({ sim, title }: { sim: boolean; title: string }) {
-  return <span className="st-face" data-allowed={sim ? "true" : undefined} title={title}>{sim ? "模拟" : "真实"}</span>;
+  const t = useT();
+  return <span className="st-face" data-allowed={sim ? "true" : undefined} title={tagTitle(t, title)}>{sim ? "模拟" : "真实"}</span>;
 }
 
 /** An upload's tag from its face check (模拟 / 真实). */
 export function FaceBadge({ verdict, error }: { verdict: FaceVerdict | null | undefined; error?: { why?: string } | string }) {
+  const t = useT();
   const l = faceLabel(verdict ?? undefined, typeof error === "string" ? { why: error } : error);
-  return <span className="st-face" data-allowed={l.allowed ? "true" : undefined} title={l.title}>{l.label}</span>;
+  return <span className="st-face" data-allowed={l.allowed ? "true" : undefined} title={tagTitle(t, l.title)}>{l.label}</span>;
 }
 
 /** A picture that came from outside the Studio (an upload, an import) and so carries a face check. */
@@ -44,12 +73,13 @@ export function fromOutside(a: Asset): boolean {
 
 /** The handle and name under a thumbnail. */
 export function PictureCaption({ asset, extra }: { asset: Asset; extra?: ReactNode }) {
+  const t = useT();
   const tag = asset.kind === "image" ? pictureTag(asset.meta, fromOutside(asset)) : undefined;
   return (
     <span className="st-pic-caption" title={pictureTitle(asset)}>
       <span className="st-pic-line">
         {asset.handle && <span className="st-pic-handle st-num">{asset.handle}</span>}
-        <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? "upload" : asset.source === "frame-extract" ? "take frame" : "")}</span>
+        <span className="st-pic-name">{asset.name ?? (asset.source === "upload" ? t("upload") : asset.source === "frame-extract" ? t("take frame") : "")}</span>
         {tag && <TagBadge sim={tag.sim} title={tag.title} />}
       </span>
       {extra && <span className="st-pic-extra">{extra}</span>}
@@ -76,6 +106,7 @@ export function SelectMark({ on }: { on: boolean }) {
 
 /** Delete the selected pictures; in-use ones are listed and confirmed first. */
 export function useDeletePictures(onDone: () => Promise<void> | void) {
+  const t = useT();
   const { projectId } = useProjectContext();
   const undoable = useUndoable(onDone);
   return useAction(async (_c, refs: string[]) => {
@@ -88,41 +119,43 @@ export function useDeletePictures(onDone: () => Promise<void> | void) {
       /* in use: say where they are taken out of (Undo puts them back there too) */
       const inUse = (caught.details?.inUse as Array<{ handle?: string; id: string; uses: Use[] }> | undefined) ?? [];
       const lines = inUse.map((u) => `${u.handle ?? u.id}: ${u.uses.map((x) => x.label).join("; ")}`);
-      if (!window.confirm(`These are in use and will be taken out of those places:\n\n${lines.join("\n")}\n\nDelete anyway? Undo puts them back.`)) return;
+      if (!window.confirm(t("These are in use and will be taken out of those places:\n\n{lines}\n\nDelete anyway? Undo puts them back.", { lines: lines.join("\n") }))) return;
       plan = await post(`/api/projects/${projectId}/pictures/delete`, { refs, confirm: true });
     }
     await onDone();
-    undoable(plan.trashId, `Deleted ${plan.deleted.length} ${plan.deleted.length === 1 ? "picture" : "pictures"}`);
+    undoable(plan.trashId, plural(t, plan.deleted.length, "Deleted 1 picture", "Deleted {n} pictures"));
   });
 }
 
 /** "Select" / "Delete N" / "Cancel" for any grid of pictures. */
 export function SelectBar({ sel, all, onDeleted, label = "Select" }: { sel: ReturnType<typeof usePictureSelection>; all: string[]; onDeleted: () => Promise<void> | void; label?: string }) {
+  const t = useT();
   const del = useDeletePictures(async () => {
     sel.stop();
     await onDeleted();
   });
   if (!sel.selecting) {
-    return all.length ? <Button size="sm" kind="quiet" onClick={() => sel.setSelecting(true)} title="Select pictures to delete">{label}</Button> : null;
+    return all.length ? <Button size="sm" kind="quiet" onClick={() => sel.setSelecting(true)} title={t("Select pictures to delete")}>{t(label)}</Button> : null;
   }
   const allOn = all.length > 0 && all.every((id) => sel.selected.includes(id));
   return (
     <span className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
       <ErrorBanner error={del.error} onDismiss={del.dismiss} />
-      <Button size="sm" kind="quiet" onClick={() => sel.setSelected(allOn ? [] : all)}>{allOn ? "None" : "All"}</Button>
+      <Button size="sm" kind="quiet" onClick={() => sel.setSelected(allOn ? [] : all)}>{allOn ? t("None||select") : t("All||select")}</Button>
       <Button size="sm" kind="danger" busy={del.busy} disabled={!sel.selected.length} onClick={() => void del.fire(sel.selected)}>
-        Delete {sel.selected.length || ""}
+        {t("Delete {n}", { n: sel.selected.length || "" })}
       </Button>
-      <Button size="sm" kind="quiet" onClick={sel.stop}>Cancel</Button>
+      <Button size="sm" kind="quiet" onClick={sel.stop}>{t("Cancel")}</Button>
     </span>
   );
 }
 
 /** Rename a picture (a prompt is enough: one short line). */
 export function useRenamePicture(onDone: () => Promise<void> | void) {
+  const t = useT();
   const { projectId } = useProjectContext();
   return useAction(async (_c, asset: Asset) => {
-    const name = window.prompt(`Name for ${asset.handle ?? "this picture"}`, asset.name ?? "");
+    const name = window.prompt(t("Name for {what}", { what: asset.handle ?? t("this picture") }), asset.name ?? "");
     if (name === null || !name.trim() || name.trim() === asset.name) return;
     await patch(`/api/projects/${projectId}/pictures/${encodeURIComponent(asset.id)}`, { name: name.trim() });
     await onDone();
@@ -143,13 +176,13 @@ const FILTERS: Array<{ key: string; label: string; test: (a: Listed) => boolean 
   { key: "flagged", label: "Flagged", test: (a) => a.meta.review === "fail" || (a.meta.autoReview as { verdict?: string } | undefined)?.verdict === "fail" || ((a.meta.checks as Array<{ level: string }> | undefined) ?? []).some((c) => c.level === "fail") },
 ];
 
-function checkChip(a: Asset): string | undefined {
+function checkChip(a: Asset, t: T): { text: string; fail: boolean } | undefined {
   const auto = (a.meta.autoReview as { verdict?: string; findings?: unknown[] } | undefined)?.verdict;
   const checks = (a.meta.checks as Array<{ level: string }> | undefined) ?? [];
-  if (auto === "fail") return "self-check: fail";
-  if (checks.some((c) => c.level === "fail")) return "check: fail";
-  if (checks.length) return `${checks.length} warning${checks.length > 1 ? "s" : ""}`;
-  return auto === "pass" ? "self-check ✓" : undefined;
+  if (auto === "fail") return { text: t("self-check: fail"), fail: true };
+  if (checks.some((c) => c.level === "fail")) return { text: t("check: fail"), fail: true };
+  if (checks.length) return { text: plural(t, checks.length, "1 warning", "{n} warnings"), fail: false };
+  return auto === "pass" ? { text: t("self-check ✓"), fail: false } : undefined;
 }
 
 /** The project's pictures, all in one place. */
@@ -164,6 +197,7 @@ export function PicturesPage() {
 /* The filter and the open picture are in the address (?show=review&pic=…),
    so "7 pictures await review" can link straight to them. */
 function Pictures() {
+  const t = useT();
   const { projectId, view, reload: reloadProject } = useProjectContext();
   const [pictures, setPictures] = useState<Listed[] | null>(null);
   const router = useRouter();
@@ -226,8 +260,8 @@ function Pictures() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Pictures</h1>
-          <p className="st-subtitle">Every picture of the project with its handle — say “IMG-12” to the director and it knows which one. Rename them, see where each is used, and clear out the drafts.</p>
+          <h1 className="st-title">{t("Pictures")}</h1>
+          <p className="st-subtitle">{t("Every picture of the project with its handle — say “IMG-12” to the director and it knows which one. Rename them, see where each is used, and clear out the drafts.")}</p>
         </div>
         <SelectBar sel={sel} all={shown.map((a) => a.id)} onDeleted={after} label="Select to delete" />
       </div>
@@ -237,30 +271,31 @@ function Pictures() {
           const n = (pictures ?? []).filter(f.test).length;
           return (
             <Button key={f.key} size="sm" kind={filter === f.key ? "primary" : "quiet"} onClick={() => setFilter(f.key)}>
-              {f.label}{pictures ? ` ${n}` : ""}
+              {t(f.label)}{pictures ? ` ${n}` : ""}
             </Button>
           );
         })}
-        {twins.size > 0 && <Button size="sm" kind={filter === "twice" ? "primary" : "quiet"} onClick={() => setFilter("twice")} title="The same file under more than one handle">Listed twice {twins.size}</Button>}
+        {twins.size > 0 && <Button size="sm" kind={filter === "twice" ? "primary" : "quiet"} onClick={() => setFilter("twice")} title={t("The same file under more than one handle")}>{t("Listed twice {n}", { n: twins.size })}</Button>}
       </div>
       {!pictures ? (
         <Skeleton />
       ) : shown.length === 0 ? (
-        <Empty title="No pictures here" hint="Uploads, generated sheets and frames, edits and frames grabbed from takes all land here." />
+        <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {shown.map((a) => {
             const on = sel.selected.includes(a.id);
-            const chip = checkChip(a);
+            const chip = checkChip(a, t);
+            const review = reviewChip(a);
             return (
               <div key={a.id} className="st-pic">
                 <button type="button" className="st-thumb" aria-pressed={sel.selecting ? on : open === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : setOpen(open === a.id ? null : a.id))} title={pictureTitle(a)}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
                   {sel.selecting && <SelectMark on={on} />}
-                  {a.uses.length > 0 && <span className="st-thumb-tag">IN USE</span>}
+                  {a.uses.length > 0 && <span className="st-thumb-tag">{t("IN USE")}</span>}
                 </button>
-                <PictureCaption asset={a} extra={reviewChip(a) || chip || twins.has(a.id) ? <span className={chip?.includes("fail") ? "st-warn" : "st-muted"}>{[reviewChip(a), chip, twins.has(a.id) ? `= ${twins.get(a.id)!.handle ?? "another"}` : undefined].filter(Boolean).join(" · ")}</span> : undefined} />
+                <PictureCaption asset={a} extra={review || chip || twins.has(a.id) ? <span className={chip?.fail ? "st-warn" : "st-muted"}>{[review && t(review), chip?.text, twins.has(a.id) ? `= ${twins.get(a.id)!.handle ?? t("another")}` : undefined].filter(Boolean).join(" · ")}</span> : undefined} />
               </div>
             );
           })}
@@ -271,18 +306,18 @@ function Pictures() {
           <div className="st-row st-row--between" style={{ flexWrap: "wrap" }}>
             <strong>{pictureTitle(current)}</strong>
             <span className="st-row" style={{ gap: 6 }}>
-              <Button size="sm" busy={rename.busy} onClick={() => void rename.fire(current)}>Rename</Button>
-              <Button size="sm" kind={editing === current.id ? "primary" : "default"} onClick={() => setEditing(editing === current.id ? null : current.id)} title={`Box the part to change and say what it should become; ${imaging.label} draws a new picture`}>
-                Edit a region
+              <Button size="sm" busy={rename.busy} onClick={() => void rename.fire(current)}>{t("Rename")}</Button>
+              <Button size="sm" kind={editing === current.id ? "primary" : "default"} onClick={() => setEditing(editing === current.id ? null : current.id)} title={t("Box the part to change and say what it should become; {model} draws a new picture", { model: imaging.label })}>
+                {t("Edit a region")}
               </Button>
-              <a className="st-btn st-btn--sm st-btn--quiet" href={current.url} target="_blank" rel="noreferrer">Open full size</a>
-              <Button size="sm" kind="quiet" onClick={() => { setOpen(null); setEditing(null); }}>Close</Button>
+              <a className="st-btn st-btn--sm st-btn--quiet" href={current.url} target="_blank" rel="noreferrer">{t("Open full size")}</a>
+              <Button size="sm" kind="quiet" onClick={() => { setOpen(null); setEditing(null); }}>{t("Close")}</Button>
             </span>
           </div>
           {editing === current.id ? (
             <>
               <EditRegion key={current.id} asset={current} onClose={() => setEditing(null)} />
-              <span className="st-muted">The edit is a new picture next to this one; choose it where you need it (a shot's frame, an element sheet).</span>
+              <span className="st-muted">{t("The edit is a new picture next to this one; choose it where you need it (a shot's frame, an element sheet).")}</span>
             </>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
@@ -290,13 +325,13 @@ function Pictures() {
           )}
           {current.kind === "image" && editing !== current.id && (
             <div className="pic-verdict">
-              <span className="sc-cap">Your verdict{current.meta.review === "pending" ? " · it waits for one" : current.meta.review ? ` · now ${String(current.meta.review)}${current.meta.reviewedBy === "human" ? " by you" : current.meta.reviewedBy ? " by the director" : ""}` : ""}</span>
+              <span className="sc-cap">{t("Your verdict")}{current.meta.review === "pending" ? t(" · it waits for one") : current.meta.review ? t(" · now {state}{by}", { state: t(`${String(current.meta.review)}||verdict`), by: current.meta.reviewedBy === "human" ? t(" by you") : current.meta.reviewedBy ? t(" by the director") : "" }) : ""}</span>
               <div className="st-row">
-                <input className="st-input" style={{ flex: 1, minWidth: 180 }} aria-label="What is wrong, if anything" placeholder="What is wrong, if anything" maxLength={500} value={problem} onChange={(e) => setProblem(e.target.value)} />
-                <Button kind="primary" busy={verdict.busy} onClick={() => void verdict.fire(current, "pass", problem)}>Pass</Button>
-                <Button busy={verdict.busy} onClick={() => void verdict.fire(current, "fail", problem)} title="A failed picture is not used for takes; have it redrawn or edit a region">Fail</Button>
+                <input className="st-input" style={{ flex: 1, minWidth: 180 }} aria-label={t("What is wrong, if anything")} placeholder={t("What is wrong, if anything")} maxLength={500} value={problem} onChange={(e) => setProblem(e.target.value)} />
+                <Button kind="primary" busy={verdict.busy} onClick={() => void verdict.fire(current, "pass", problem)}>{t("Pass")}</Button>
+                <Button busy={verdict.busy} onClick={() => void verdict.fire(current, "fail", problem)} title={t("A failed picture is not used for takes; have it redrawn or edit a region")}>{t("Fail")}</Button>
               </div>
-              {twins.has(current.id) && <span className="st-muted">This is the same file as {twins.get(current.id)!.handle ?? "another picture"}; a verdict on one does not mark the other.</span>}
+              {twins.has(current.id) && <span className="st-muted">{t("This is the same file as {other}; a verdict on one does not mark the other.", { other: twins.get(current.id)!.handle ?? t("another picture") })}</span>}
             </div>
           )}
           <PictureFacts asset={current} uses={current.uses} projectId={projectId} onChanged={after} />
@@ -308,6 +343,7 @@ function Pictures() {
 
 /** What a picture is, where it is used, and what the checks said. */
 export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Asset; uses?: Use[]; projectId?: string; onChanged?: () => Promise<void> | void }) {
+  const t = useT();
   const recheck = useAction(async () => {
     await post(`/api/projects/${projectId}/pictures/${encodeURIComponent(asset.id)}/face-check`, {});
     await onChanged?.();
@@ -322,12 +358,12 @@ export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Ass
   const findings = (m.reviewFindings as Array<{ code?: string; severity?: string; where?: string; problem?: string; fix?: string }> | undefined) ?? [];
   return (
     <dl className="st-kv">
-      <dt>Size</dt>
+      <dt>{t("Size")}</dt>
       <dd className="st-num">{asset.width ? `${asset.width}×${asset.height}` : "—"} · {asset.source}{m.purpose ? ` · ${String(m.purpose)}` : ""}</dd>
       {uses && (
         <>
-          <dt>Used as</dt>
-          <dd>{uses.length ? uses.map((u) => u.label).join("; ") : <span className="st-muted">nothing — safe to delete</span>}</dd>
+          <dt>{t("Used as")}</dt>
+          <dd>{uses.length ? uses.map((u) => u.label).join("; ") : <span className="st-muted">{t("nothing — safe to delete")}</span>}</dd>
         </>
       )}
       {tag && (
@@ -335,43 +371,43 @@ export function PictureFacts({ asset, uses, projectId, onChanged }: { asset: Ass
           <dt>模拟 / 真实</dt>
           <dd className={tag.sim ? undefined : "st-muted"}>
             <TagBadge sim={tag.sim} title={tag.title} />{" "}
-            {tag.sim ? "any reference, R18 included" : "not for R18; every other picture is fine"}
+            {tag.sim ? t("any reference, R18 included") : t("not for R18; every other picture is fine")}
             {outside
-              ? <> · {face ? <>{describeVerdict(face).replace(/^face check: /, "")}{face.reason ? ` — ${face.reason}` : ""}</> : faceError?.why ? <>the check did not run: {faceError.why}</> : <>not checked</>}
-                  {projectId && <>{" "}<Button size="sm" kind="quiet" busy={recheck.busy} onClick={() => void recheck.fire()}>Check again</Button></>}
+              ? <> · {face ? <>{verdictWords(t, describeVerdict(face).replace(/^face check: /, ""))}{face.reason ? ` — ${face.reason}` : ""}</> : faceError?.why ? t("the check did not run: {why}", { why: faceError.why }) : t("not checked")}
+                  {projectId && <>{" "}<Button size="sm" kind="quiet" busy={recheck.busy} onClick={() => void recheck.fire()}>{t("Check again")}</Button></>}
                   <ErrorBanner error={recheck.error} projectId={projectId} onDismiss={recheck.dismiss} />
                 </>
-              : m.reference ? <> · the reference library</> : <> · {tag.sim ? "drawn from 模拟 pictures only, or from text" : "drawn from a 真实 picture"}</>}
+              : m.reference ? <> · {t("the reference library")}</> : <> · {tag.sim ? t("drawn from 模拟 pictures only, or from text") : t("drawn from a 真实 picture")}</>}
           </dd>
         </>
       )}
       {checks.length > 0 && (
         <>
-          <dt>Pixel checks</dt>
-          <dd>{checks.map((c) => <div key={c.id} className={c.level === "fail" ? "st-warn" : "st-muted"}>{c.level}: {c.message}</div>)}</dd>
+          <dt>{t("Pixel checks")}</dt>
+          <dd>{checks.map((c) => <div key={c.id} className={c.level === "fail" ? "st-warn" : "st-muted"}>{t(`${c.level}||level`)}: {c.message}</div>)}</dd>
         </>
       )}
       {auto && (
         <>
-          <dt>Self-check</dt>
+          <dt>{t("Self-check")}</dt>
           <dd>
-            <div className={auto.verdict === "fail" ? "st-warn" : undefined}>{auto.verdict}{auto.summary ? ` — ${auto.summary}` : ""}</div>
+            <div className={auto.verdict === "fail" ? "st-warn" : undefined}>{auto.verdict && t(`${auto.verdict}||verdict`)}{auto.summary ? ` — ${auto.summary}` : ""}</div>
             {(auto.findings ?? []).map((f, k) => <div key={k} className="st-muted">{f.severity} · {f.code} · {f.where}: {f.what}{f.fix ? ` → ${f.fix}` : ""}</div>)}
           </dd>
         </>
       )}
       {m.review !== undefined && (
         <>
-          <dt>Review</dt>
+          <dt>{t("Review")}</dt>
           <dd>
-            {reviewChip(asset)}
+            {reviewChip(asset) && t(reviewChip(asset)!)}
             {findings.map((f, k) => <div key={k} className="st-muted">{f.severity ?? ""} {f.code ? `· ${f.code} ` : ""}· {f.where}: {f.problem}{f.fix ? ` → ${f.fix}` : ""}</div>)}
           </dd>
         </>
       )}
       {typeof m.prompt === "string" && (
         <>
-          <dt>Asked for</dt>
+          <dt>{t("Asked for")}</dt>
           <dd><pre className="st-pre" style={{ whiteSpace: "pre-wrap", maxHeight: 220, overflow: "auto" }}>{m.prompt}</pre></dd>
         </>
       )}

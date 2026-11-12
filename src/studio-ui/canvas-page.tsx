@@ -15,6 +15,7 @@ import { get, post, put } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Modal, Section } from "./common";
 import { CanvasLibrary, loadReferences, type LibraryTab, type UseOptions } from "./canvas-library";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
+import { useT } from "./i18n";
 import { CloseIcon, UploadIcon } from "./icons";
 import { FaceBadge } from "./pictures";
 import { uploadMedia } from "./upload";
@@ -132,6 +133,7 @@ type Settings = { adultContent: boolean };
 type Started = { job: Job; runner: string; painters: { ready: boolean; note?: string }; prompt: string };
 
 export function CanvasPage() {
+  const tr = useT();
   const [recipe, setRecipe] = useState<Recipe>(EMPTY);
   const [prefs, setPrefs] = useState<Prefs>({ kind: "portrait" });
   const [loaded, setLoaded] = useState(false);
@@ -321,8 +323,8 @@ export function CanvasPage() {
   };
 
   const uploadTo = async (file: File, target: UploadTarget) => {
-    if (!projectId) throw new Error("Pick a project first: uploads belong to a project");
-    if (!file.type.startsWith("image/")) throw new Error("Pick an image file (PNG, JPEG or WebP)");
+    if (!projectId) throw new Error(tr("Pick a project first: uploads belong to a project"));
+    if (!file.type.startsWith("image/")) throw new Error(tr("Pick an image file (PNG, JPEG or WebP)"));
     setUploading(target);
     try {
       const { assetId, url, faceCheck, faceError } = await uploadMedia(file, projectId);
@@ -349,7 +351,7 @@ export function CanvasPage() {
       const file = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith("image/"));
       if (!file || recipe.mode === "text") return;
       e.preventDefault();
-      if (count >= maxRefs) return setError(new Error(`${model.label} takes at most ${maxRefs} pictures per call`));
+      if (count >= maxRefs) return setError(new Error(tr("{model} takes at most {n} pictures per call", { model: model.label, n: maxRefs })));
       tryUpload(file, "extra");
     };
     window.addEventListener("paste", onPaste);
@@ -410,10 +412,10 @@ export function CanvasPage() {
   };
 
   const importOne = async (item: RefItem, opts: UseOptions): Promise<string> => {
-    if (!projectId) throw new Error("Pick a project first");
+    if (!projectId) throw new Error(tr("Pick a project first"));
     const { asset } = await post<{ asset: Asset }>(`/api/projects/${projectId}/canvas/import`, { id: item.id, depth: !!opts.depth, ...(opts.view ? { view: opts.view } : {}) });
     void reload();
-    return `${asset.handle ?? "Picture"} added to the project's Pictures`;
+    return tr("{handle} added to the project's Pictures", { handle: asset.handle ?? tr("Picture") });
   };
 
   const restore = async (asset: Asset) => {
@@ -448,10 +450,10 @@ export function CanvasPage() {
   const project = view?.project.id === projectId ? view?.project : undefined;
   const imaging = project?.imaging;
   const uploadedFaceAdult = uploadedFace && (nsfwInRecipe || !!adultLora);
-  const imagingWhy = !project ? "Pick a project" : !imaging?.enabled ? "Pictures are off for this project (Settings → Director)" : imaging.stoppedReason ? `Image generation stopped: ${imaging.stoppedReason}` : imaging.usedImages >= imaging.maxImages ? `Image quota used (${imaging.usedImages}/${imaging.maxImages})` : "";
-  const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? "Person A: pick a portrait, a costume or a character" : !personB ? "Person B: pick a portrait, a costume or a character" : "";
-  const textWhy = !textMode ? "" : !recipe.text?.trim() && !recipe.prompt?.trim() ? "Describe the picture" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "";
-  const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? "Pick at least one reference" : twoWhy ? twoWhy : count > maxRefs ? `${model.label} takes at most ${maxRefs} pictures` : hiddenInRecipe ? "The recipe holds an 18+ reference; show 18+ or replace it" : charadbOnUpload ? "CharaDB outfits cannot go on an uploaded photo" : adultLora && !adult ? `${adultLora.name} is 18+: show 18+ first` : "");
+  const imagingWhy = !project ? tr("Pick a project") : !imaging?.enabled ? tr("Pictures are off for this project (Settings → Director)") : imaging.stoppedReason ? tr("Image generation stopped: {reason}", { reason: imaging.stoppedReason }) : imaging.usedImages >= imaging.maxImages ? tr("Image quota used ({used}/{max})", { used: imaging.usedImages, max: imaging.maxImages }) : "";
+  const twoWhy = !recipe.two ? "" : !(castA || recipe.portrait || recipe.costume) ? tr("Person A: pick a portrait, a costume or a character") : !personB ? tr("Person B: pick a portrait, a costume or a character") : "";
+  const textWhy = !textMode ? "" : !recipe.text?.trim() && !recipe.prompt?.trim() ? tr("Describe the picture") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "";
+  const blocked = imagingWhy || (textMode ? textWhy : count === 0 ? tr("Pick at least one reference") : twoWhy ? twoWhy : count > maxRefs ? tr("{model} takes at most {n} pictures", { model: model.label, n: maxRefs }) : hiddenInRecipe ? tr("The recipe holds an 18+ reference; show 18+ or replace it") : charadbOnUpload ? tr("CharaDB outfits cannot go on an uploaded photo") : adultLora && !adult ? tr("{name} is 18+: show 18+ first", { name: adultLora.name }) : "");
   const results = (view?.assets ?? []).filter((a) => a.kind === "image" && a.meta.purpose === "canvas").sort((a, b) => b.createdAt - a.createdAt);
   const pending = Object.entries(jobs).filter(([, j]) => j.status === "queued" || j.status === "running");
   const failed = Object.entries(jobs).filter(([, j]) => j.status === "failed");
@@ -460,10 +462,10 @@ export function CanvasPage() {
   /* ---------- recipe slots (one person, or two) ---------- */
   const people = elements.filter((e) => e.kind === "character" && e.refAssetIds.length > 0);
   const castSelect = (who: Who) => (people.length ? (
-    <select className="st-select st-input--sm" style={{ width: 210 }} value={(who === "b" ? castB : castA) ?? ""} aria-label={`Person ${who.toUpperCase()}: a project character instead of a portrait`}
+    <select className="st-select st-input--sm" style={{ width: 210 }} value={(who === "b" ? castB : castA) ?? ""} aria-label={tr("Person {who}: a project character instead of a portrait", { who: who.toUpperCase() })}
       onChange={(e) => setRecipe((r) => ({ ...r, [who === "b" ? "characterB" : "characterA"]: e.target.value || undefined }))}>
-      <option value="">Face: the portrait slot</option>
-      {people.map((el) => <option key={el.id} value={el.id}>Character: {el.name}</option>)}
+      <option value="">{tr("Face: the portrait slot")}</option>
+      {people.map((el) => <option key={el.id} value={el.id}>{tr("Character: {name}", { name: el.name })}</option>)}
     </select>
   ) : null);
   const personHead = (who: Who) => {
@@ -471,8 +473,8 @@ export function CanvasPage() {
     const castName = elements.find((e) => e.id === (b ? castB : castA))?.name;
     return (
       <div className="st-row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button type="button" className="st-chip st-chip--btn" aria-pressed={filling === who} title="The library fills this person" onClick={() => setFillFor(who)}>{b ? "Person B · 人物B" : "Person A · 人物A"}</button>
-        <input className="st-input st-input--sm" style={{ width: 150 }} maxLength={40} placeholder={castName ?? (b ? "人物B" : "人物A")} aria-label={`Person ${who.toUpperCase()}'s name in the prompt`}
+        <button type="button" className="st-chip st-chip--btn" aria-pressed={filling === who} title={tr("The library fills this person")} onClick={() => setFillFor(who)}>{b ? "Person B · 人物B" : "Person A · 人物A"}</button>
+        <input className="st-input st-input--sm" style={{ width: 150 }} maxLength={40} placeholder={castName ?? (b ? "人物B" : "人物A")} aria-label={tr("Person {who}'s name in the prompt", { who: who.toUpperCase() })}
           value={(b ? recipe.nameB : recipe.nameA) ?? ""} onChange={(e) => { const v = e.target.value; setRecipe((r) => ({ ...r, [b ? "nameB" : "nameA"]: v || undefined })); }} />
         {castSelect(who)}
       </div>
@@ -511,12 +513,12 @@ export function CanvasPage() {
     <div className="st-page st-page--wide">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Canvas</h1>
-          <p className="st-subtitle">Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or MiniMax H3 Image on the GPU pod, draws it into a project, ready to become an element&apos;s look.</p>
+          <h1 className="st-title">{tr("Canvas")}</h1>
+          <p className="st-subtitle">{tr("Compose a character from a portrait, a costume and a pose — from the reference library or your own pictures. GPT Image, Qwen-Image 3.0 Pro (API), or MiniMax H3 Image on the GPU pod, draws it into a project, ready to become an element's look.")}</p>
         </div>
         <div className="st-row">
-          <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? "18+ references are shown; click to hide them" : "18+ references are hidden"} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
-            {adult ? "18+ shown" : "18+ hidden"}
+          <button type="button" className="st-chip st-chip--btn" aria-pressed={adult} title={adult ? tr("18+ references are shown; click to hide them") : tr("18+ references are hidden")} onClick={() => (adult ? void setAdult(false).catch(setError) : setAgeGate(true))}>
+            {adult ? tr("18+ shown") : tr("18+ hidden")}
           </button>
         </div>
       </div>
@@ -524,9 +526,9 @@ export function CanvasPage() {
 
       <div className="st-canvas">
         <aside className="st-canvas-recipe">
-          <Section title="Project">
+          <Section title={tr("Project")}>
             {projects && projects.length === 0 ? (
-              <Empty title="No project yet" hint="Canvas pictures belong to a project.">
+              <Empty title={tr("No project yet")} hint={tr("Canvas pictures belong to a project.")}>
                 <Button kind="primary" onClick={async () => {
                   try {
                     const { project: p } = await post<{ project: Project }>("/api/projects", { name: "Canvas" });
@@ -535,21 +537,21 @@ export function CanvasPage() {
                   } catch (e) {
                     setError(e);
                   }
-                }}>Create a Canvas project</Button>
+                }}>{tr("Create a Canvas project")}</Button>
               </Empty>
             ) : (
               <div className="st-stack" style={{ gap: 10 }}>
-                <select className="st-select" value={projectId ?? ""} onChange={(e) => setPrefs((p) => ({ ...p, projectId: e.target.value || undefined, attach: undefined }))} aria-label="Project">
-                  <option value="" disabled>Pick a project…</option>
+                <select className="st-select" value={projectId ?? ""} onChange={(e) => setPrefs((p) => ({ ...p, projectId: e.target.value || undefined, attach: undefined }))} aria-label={tr("Project")}>
+                  <option value="" disabled>{tr("Pick a project…")}</option>
                   {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
-                {!projectId && <span className="st-muted">Canvas pictures are kept in a project and count against its image limit. Pick the one they belong to.</span>}
+                {!projectId && <span className="st-muted">{tr("Canvas pictures are kept in a project and count against its image limit. Pick the one they belong to.")}</span>}
                 {project && (
                   imaging?.enabled ? (
-                    <span className="st-muted st-num">{projectImageModel(imaging).label} · {imaging.usedImages}/{imaging.maxImages} used · {imaging.quality}{imaging.stoppedReason ? ` · stopped: ${imaging.stoppedReason}` : ""}</span>
+                    <span className="st-muted st-num">{tr("{model} · {used}/{max} used · {quality}", { model: projectImageModel(imaging).label, used: imaging.usedImages, max: imaging.maxImages, quality: tr(`${imaging.quality}||quality`) })}{imaging.stoppedReason ? tr(" · stopped: {reason}", { reason: imaging.stoppedReason }) : ""}</span>
                   ) : (
                     <div className="st-alert st-alert--warn">
-                      <span>Image generation is off for this project. Turned on, pictures are drawn with {projectImageModel(imaging).label} (up to 100; the model and the limit are in Project settings → Director).</span>
+                      <span>{tr("Image generation is off for this project. Turned on, pictures are drawn with {model} (up to 100; the model and the limit are in Project settings → Director).", { model: projectImageModel(imaging).label })}</span>
                       <Button size="sm" onClick={async () => {
                         try {
                           await put(`/api/projects/${projectId}/imaging`, { enabled: true });
@@ -557,18 +559,18 @@ export function CanvasPage() {
                         } catch (e) {
                           setError(e);
                         }
-                      }}>Turn on</Button>
+                      }}>{tr("Turn on")}</Button>
                     </div>
                   )
                 )}
                 <div className="st-row" style={{ flexWrap: "nowrap" }}>
-                  <select className="st-select" value={prefs.attach?.elementId ?? ""} aria-label="Attach to element" onChange={(e) => setPrefs((p) => ({ ...p, attach: e.target.value ? { elementId: e.target.value, view: p.attach?.view ?? "full_body" } : undefined }))}>
-                    <option value="">Keep in Pictures only</option>
-                    {characters.map((el) => <option key={el.id} value={el.id}>Put on {el.name} ({el.kind})</option>)}
+                  <select className="st-select" value={prefs.attach?.elementId ?? ""} aria-label={tr("Attach to element")} onChange={(e) => setPrefs((p) => ({ ...p, attach: e.target.value ? { elementId: e.target.value, view: p.attach?.view ?? "full_body" } : undefined }))}>
+                    <option value="">{tr("Keep in Pictures only")}</option>
+                    {characters.map((el) => <option key={el.id} value={el.id}>{tr("Put on {name} ({kind})", { name: el.name, kind: tr(`${el.kind}||element kind`) })}</option>)}
                   </select>
                   {prefs.attach && (
-                    <select className="st-select" style={{ width: 150 }} value={prefs.attach.view} aria-label="As view" onChange={(e) => setPrefs((p) => ({ ...p, attach: p.attach && { ...p.attach, view: e.target.value as RefView } }))}>
-                      {REF_VIEWS.map((v) => <option key={v} value={v}>{v.replace("_", " ")}</option>)}
+                    <select className="st-select" style={{ width: 150 }} value={prefs.attach.view} aria-label={tr("As view")} onChange={(e) => setPrefs((p) => ({ ...p, attach: p.attach && { ...p.attach, view: e.target.value as RefView } }))}>
+                      {REF_VIEWS.map((v) => <option key={v} value={v}>{tr(`${v.replace("_", " ")}||ref view`)}</option>)}
                     </select>
                   )}
                 </div>
@@ -576,18 +578,18 @@ export function CanvasPage() {
             )}
           </Section>
 
-          <Section title="Recipe" aside={<span className="st-row" style={{ gap: 6 }}>{textMode ? <span className="st-muted">text to image</span> : <><span className="st-muted st-num">{count}/{maxRefs} pictures</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>Random</Button></>}<Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, mode: r.mode, style: r.style, size: r.size, quality: r.quality }))}>Clear</Button></span>}>
-            <div className="st-seg st-seg--sm" role="group" aria-label="How the picture is made">
-              <button type="button" aria-pressed={!textMode} title="Compose from a portrait, a costume, a pose and more pictures" onClick={() => setRecipe((r) => ({ ...r, mode: "refs" }))}>参考图 · References</button>
-              <button type="button" aria-pressed={textMode} title="Draw from a description alone, no picture" onClick={() => setRecipe((r) => ({ ...r, mode: "text" }))}>文生图 · Text</button>
+          <Section title={tr("Recipe")} aside={<span className="st-row" style={{ gap: 6 }}>{textMode ? <span className="st-muted">{tr("text to image")}</span> : <><span className="st-muted st-num">{tr("{n}/{max} pictures", { n: count, max: maxRefs })}</span><Button size="sm" kind="quiet" onClick={() => void randomizeAll()}>{tr("Random")}</Button></>}<Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...EMPTY, mode: r.mode, style: r.style, size: r.size, quality: r.quality }))}>{tr("Clear")}</Button></span>}>
+            <div className="st-seg st-seg--sm" role="group" aria-label={tr("How the picture is made")}>
+              <button type="button" aria-pressed={!textMode} title={tr("Compose from a portrait, a costume, a pose and more pictures")} onClick={() => setRecipe((r) => ({ ...r, mode: "refs" }))}>参考图 · References</button>
+              <button type="button" aria-pressed={textMode} title={tr("Draw from a description alone, no picture")} onClick={() => setRecipe((r) => ({ ...r, mode: "text" }))}>文生图 · Text</button>
             </div>
             {textMode ? (
-              <Field label="Describe the picture" hint="Who or what, where, the light and the framing; the style, size, model and LoRAs below still apply">
+              <Field label={tr("Describe the picture")} hint={tr("Who or what, where, the light and the framing; the style, size, model and LoRAs below still apply")}>
                 <textarea className="st-textarea" rows={5} maxLength={2000} placeholder="例：一位二十多岁的女孩坐在雨后的天台，霓虹倒映在积水里，半身，侧逆光" value={recipe.text ?? ""} onChange={(e) => { const v = e.target.value; setRecipe((r) => ({ ...r, text: v })); }} />
               </Field>
             ) : (<>
             <div className="st-row" style={{ gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <label className="st-row" style={{ gap: 8 }} title="Two people in one picture: a face and an outfit each (or a project character), in a two-person pose">
+              <label className="st-row" style={{ gap: 8 }} title={tr("Two people in one picture: a face and an outfit each (or a project character), in a two-person pose")}>
                 <input type="checkbox" checked={!!recipe.two} onChange={(e) => { const on = e.target.checked; setRecipe((r) => ({ ...r, two: on })); setFillFor("a"); }} />
                 <span>Two people · 双人</span>
               </label>
@@ -604,13 +606,13 @@ export function CanvasPage() {
                   {slotCard("costume", "b")}
                 </div>
                 {recipe.pose && (
-                  <Field label="Person A in the pose" hint="Which figure of the pose picture, as shown (after a flip), is person A; the other is person B">
-                    <div className="st-seg st-seg--sm" role="group" aria-label="Person A in the pose">
+                  <Field label={tr("Person A in the pose")} hint={tr("Which figure of the pose picture, as shown (after a flip), is person A; the other is person B")}>
+                    <div className="st-seg st-seg--sm" role="group" aria-label={tr("Person A in the pose")}>
                       {PLACES.map((pl) => <button key={pl} type="button" aria-pressed={(recipe.aIs ?? "left") === pl} onClick={() => setRecipe((r) => ({ ...r, aIs: pl }))}>{PLACE_ZH[pl].replace(/（.*）/, "")}</button>)}
                     </div>
                   </Field>
                 )}
-                <p className="st-muted">Library picks go to person {filling.toUpperCase()} (click a slot of the other person to switch). A character sheet stands for a face and an outfit in one picture and keeps the faces apart best. A picture of two people stays in Pictures.</p>
+                <p className="st-muted">{tr("Library picks go to person {who} (click a slot of the other person to switch). A character sheet stands for a face and an outfit in one picture and keeps the faces apart best. A picture of two people stays in Pictures.", { who: filling.toUpperCase() })}</p>
               </>
             ) : (
               <div className="st-slots">
@@ -623,16 +625,16 @@ export function CanvasPage() {
               onAdd={(f) => tryUpload(f, "extra")}
               onRemove={(i) => setRecipe((r) => ({ ...r, extras: r.extras.filter((_, j) => j !== i) }))}
               onRename={(i, name) => setRecipe((r) => ({ ...r, extras: r.extras.map((e, j) => (j === i ? { ...e, name } : e)) }))} />
-            {charadbOnUpload && <p className="st-danger">CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.</p>}
-            {hiddenInRecipe && <p className="st-warn">The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.</p>}
-            {uploadedFaceAdult && <p className="st-warn">With {adultLora ? adultLora.name : "18+ references"}, R18 pictures are drawn only from pictures tagged 模拟 (the library, uploads whose face check found a 3D render, an illustration or no face, Studio pictures drawn only from those). An upload tagged 真实 — a photograph or anything photorealistic — is refused for R18 and fine for everything else.</p>}
+            {charadbOnUpload && <p className="st-danger">{tr("CharaDB outfits cannot go on an uploaded photo: its author forbids depicting real people. Use a library portrait or another costume source.")}</p>}
+            {hiddenInRecipe && <p className="st-warn">{tr("The recipe holds an 18+ reference that is hidden now: show 18+ or replace it.")}</p>}
+            {uploadedFaceAdult && <p className="st-warn">{tr("With {what}, R18 pictures are drawn only from pictures tagged 模拟 (the library, uploads whose face check found a 3D render, an illustration or no face, Studio pictures drawn only from those). An upload tagged 真实 — a photograph or anything photorealistic — is refused for R18 and fine for everything else.", { what: adultLora ? adultLora.name : tr("18+ references") })}</p>}
             </>)}
           </Section>
 
-          <Section title="Picture">
+          <Section title={tr("Picture")}>
             <ModelPicker model={model} status={modelStatus.find((m) => m.id === model.id)} gpu={gpuStatus} resolved={resolved}
               loras={model.runtime === "pod" && library?.some((l) => l.baseModel === model.family) ? (
-                <Field label="LoRAs" hint="Picking one applies its card's settings" group>
+                <Field label={tr("LoRAs")} hint={tr("Picking one applies its card's settings")} group>
                   <LoraPicker compact family={model.family} adult={adult} value={(recipe.loras ?? []).filter((r) => library?.find((l) => l.id === r.id)?.baseModel === model.family)} onChange={(next) => setRecipe((r) => ({ ...r, loras: next }))} />
                 </Field>
               ) : null}
@@ -645,82 +647,82 @@ export function CanvasPage() {
                   setError(e);
                 }
               }} />
-            <Field label="Style">
+            <Field label={tr("Style")}>
               <select className="st-select" value={recipe.style} onChange={(e) => setRecipe((r) => ({ ...r, style: e.target.value }))}>
                 {CANVAS_STYLES.map((s) => <option key={s.id} value={s.id}>{s.label} · {s.zh}</option>)}
               </select>
             </Field>
             <div className="st-fields st-canvas-fields">
-              <Field label="Size">
+              <Field label={tr("Size")}>
                 <select className="st-select" value={recipe.size} onChange={(e) => setRecipe((r) => ({ ...r, size: e.target.value as Recipe["size"] }))}>
-                  {CANVAS_SIZES.map((s) => <option key={s} value={s}>{CANVAS_SIZE_LABEL[s]} · {s}</option>)}
+                  {CANVAS_SIZES.map((s) => <option key={s} value={s}>{tr(CANVAS_SIZE_LABEL[s])} · {s}</option>)}
                 </select>
               </Field>
               {!!model.resolutions?.length && (
-                <Field label="Resolution" hint={resolution ? `drawn at ${canvasOutputSize(recipe.size, resolution).replace("x", "×")}, not resized${resolution === "16mp" ? "; several times slower" : ""}` : "drawn at 4 MP, resized to the size"}>
+                <Field label={tr("Resolution")} hint={resolution ? tr("drawn at {size}, not resized", { size: canvasOutputSize(recipe.size, resolution).replace("x", "×") }) + (resolution === "16mp" ? tr("; several times slower") : "") : tr("drawn at 4 MP, resized to the size")}>
                   <select className="st-select" value={resolution ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, resolution: (e.target.value || undefined) as CanvasResolution | undefined }))}>
-                    <option value="">Standard · {recipe.size.replace("x", "×")}</option>
+                    <option value="">{tr("Standard · {size}", { size: recipe.size.replace("x", "×") })}</option>
                     {model.resolutions.map((x) => <option key={x} value={x}>{CANVAS_RESOLUTION_LABEL[x]} · {canvasOutputSize(recipe.size, x).replace("x", "×")}</option>)}
                   </select>
                 </Field>
               )}
-              <Field label="Prompt language" hint={recipe.lang ? (recipe.prompt !== undefined ? "the edited prompt stays as typed" : undefined) : `${model.label}'s own`}>
+              <Field label={tr("Prompt language")} hint={recipe.lang ? (recipe.prompt !== undefined ? tr("the edited prompt stays as typed") : undefined) : tr("{model}'s own", { model: model.label })}>
                 <select className="st-select" value={lang} onChange={(e) => setRecipe((r) => ({ ...r, lang: e.target.value as CanvasLang }))}>
-                  {CANVAS_LANGS.map((l) => <option key={l} value={l}>{CANVAS_LANG_LABEL[l]}{canvasLangFor(model) === l ? " · model default" : ""}</option>)}
+                  {CANVAS_LANGS.map((l) => <option key={l} value={l}>{tr(`${CANVAS_LANG_LABEL[l]}||prompt language`)}{canvasLangFor(model) === l ? tr(" · model default") : ""}</option>)}
                 </select>
               </Field>
               {takesQuality && (
-                <Field label="Quality">
+                <Field label={tr("Quality")}>
                   <select className="st-select" value={recipe.quality ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, quality: (e.target.value || undefined) as Recipe["quality"] }))}>
-                    <option value="">Project default{imaging ? ` (${imaging.quality})` : ""}</option>
-                    <option value="low">Low · draft</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
+                    <option value="">{imaging ? tr("Project default ({quality})", { quality: tr(`${imaging.quality}||quality`) }) : tr("Project default")}</option>
+                    <option value="low">{tr("Low · draft")}</option>
+                    <option value="medium">{tr("Medium||quality")}</option>
+                    <option value="high">{tr("High||quality")}</option>
                   </select>
                 </Field>
               )}
             </div>
             {model.options?.includes("prompt_extend") && (
-              <label className="st-toggle" title="prompt_extend: the vendor rewrites the prompt before drawing (the pose gallery turns it on; off keeps the 图1/图2/图3 roles exactly as composed)">
+              <label className="st-toggle" title={tr("prompt_extend: the vendor rewrites the prompt before drawing (the pose gallery turns it on; off keeps the 图1/图2/图3 roles exactly as composed)")}>
                 <input type="checkbox" checked={!!recipe.promptExtend} onChange={(e) => setRecipe((r) => ({ ...r, promptExtend: e.target.checked }))} /> 智能改写 · let Qwen rewrite the prompt
               </label>
             )}
             {model.options?.includes("negative_prompt") && (
-              <Field label="Negative prompt" hint="What the picture must not show, e.g. 多余的手指, 文字水印">
+              <Field label={tr("Negative prompt")} hint={tr("What the picture must not show, e.g. 多余的手指, 文字水印")}>
                 <input className="st-input" maxLength={500} value={recipe.negative ?? ""} onChange={(e) => setRecipe((r) => ({ ...r, negative: e.target.value }))} />
               </Field>
             )}
-            <Field label="Note" hint="Added to the prompt, e.g. 教室窗边逆光，微风吹拂发丝">
+            <Field label={tr("Note||canvas")} hint={tr("Added to the prompt, e.g. 教室窗边逆光，微风吹拂发丝")}>
               <textarea className="st-textarea" rows={2} maxLength={600} value={recipe.note} onChange={(e) => setRecipe((r) => ({ ...r, note: e.target.value }))} />
             </Field>
             <div className="st-stack st-stack--tight">
               <div className="st-row st-row--between">
-                <span className="st-label">Prompt {recipe.prompt !== undefined && <span className="st-chip st-chip--mono">edited</span>}</span>
+                <span className="st-label">{tr("Prompt")} {recipe.prompt !== undefined && <span className="st-chip st-chip--mono">{tr("edited")}</span>}</span>
                 <span className="st-row" style={{ gap: 6 }}>
                   {recipe.prompt === undefined ? (
-                    <Button size="sm" kind="quiet" disabled={!composed} onClick={() => setRecipe((r) => ({ ...r, prompt: composed }))}>Edit</Button>
+                    <Button size="sm" kind="quiet" disabled={!composed} onClick={() => setRecipe((r) => ({ ...r, prompt: composed }))}>{tr("Edit")}</Button>
                   ) : (
-                    <Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...r, prompt: undefined }))}>Back to composed</Button>
+                    <Button size="sm" kind="quiet" onClick={() => setRecipe((r) => ({ ...r, prompt: undefined }))}>{tr("Back to composed")}</Button>
                   )}
-                  <Button size="sm" kind="quiet" disabled={!prompt} onClick={() => void navigator.clipboard?.writeText(prompt)}>Copy</Button>
+                  <Button size="sm" kind="quiet" disabled={!prompt} onClick={() => void navigator.clipboard?.writeText(prompt)}>{tr("Copy")}</Button>
                 </span>
               </div>
               {recipe.prompt === undefined ? (
-                <pre className="st-pre st-canvas-prompt">{composed || "Pick a portrait, a costume or a pose."}</pre>
+                <pre className="st-pre st-canvas-prompt">{composed || tr("Pick a portrait, a costume or a pose.")}</pre>
               ) : (
                 <textarea className="st-textarea st-canvas-prompt" rows={10} maxLength={4000} value={recipe.prompt} onChange={(e) => setRecipe((r) => ({ ...r, prompt: e.target.value }))} />
               )}
             </div>
             <div className="st-row">
-              <Button kind="primary" busy={busy} disabled={!!blocked} title={blocked || undefined} onClick={() => void generate()}>Generate</Button>
+              <Button kind="primary" busy={busy} disabled={!!blocked} title={blocked || undefined} onClick={() => void generate()}>{tr("Generate")}</Button>
               {blocked && <span className="st-muted">{blocked}</span>}
             </div>
           </Section>
 
-          <Section title={`Results${results.length ? ` (${results.length})` : ""}`} aside={projectId ? <Link className="st-link" href={`/p/${projectId}/pictures`}>All pictures</Link> : undefined}>
-            {pending.map(([id, j]) => <div key={id} className="st-alert st-alert--info"><span className="st-lamp" data-state="running">Drawing…</span><span className="st-muted">{j.runner ?? (j.status === "queued" ? "queued for a painter" : "a painter is drawing it")}</span></div>)}
-            {failed.map(([id, j]) => <div key={id} className="st-alert"><span>Failed: {j.error ?? "no picture"}</span><button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label="Dismiss" onClick={() => setJobs((m) => { const n = { ...m }; delete n[id]; return n; })}><CloseIcon size={12} /></button></div>)}
-            {results.length === 0 && !pending.length ? <p className="st-muted">Generated characters appear here, and in the project&apos;s Pictures.</p> : (
+          <Section title={`${tr("Results")}${results.length ? ` (${results.length})` : ""}`} aside={projectId ? <Link className="st-link" href={`/p/${projectId}/pictures`}>{tr("All pictures")}</Link> : undefined}>
+            {pending.map(([id, j]) => <div key={id} className="st-alert st-alert--info"><span className="st-lamp" data-state="running">{tr("Drawing…")}</span><span className="st-muted">{j.runner ?? (j.status === "queued" ? tr("queued for a painter") : tr("a painter is drawing it"))}</span></div>)}
+            {failed.map(([id, j]) => <div key={id} className="st-alert"><span>{tr("Failed: {error}", { error: j.error ?? tr("no picture") })}</span><button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Dismiss")} onClick={() => setJobs((m) => { const n = { ...m }; delete n[id]; return n; })}><CloseIcon size={12} /></button></div>)}
+            {results.length === 0 && !pending.length ? <p className="st-muted">{tr("Generated characters appear here, and in the project's Pictures.")}</p> : (
               <div className="st-canvas-results">
                 {results.slice(0, 24).map((a) => (
                   <button key={a.id} type="button" className="st-ref-img" onClick={() => setResult(a)} title={a.name}>
@@ -733,7 +735,7 @@ export function CanvasPage() {
           </Section>
         </aside>
 
-        <section id="canvas-library" className="st-canvas-library" aria-label="Reference library">
+        <section id="canvas-library" className="st-canvas-library" aria-label={tr("Reference library")}>
           <CanvasLibrary kind={prefs.kind} onKind={(k) => setPrefs((p) => ({ ...p, kind: k }))} adultVersion={adultVersion} adult={adult} depth={recipe.depth} onDepth={(d) => setRecipe((r) => ({ ...r, depth: d }))} selected={selected} onUse={use} onImport={projectId ? importOne : undefined} />
         </section>
       </div>
@@ -747,23 +749,24 @@ export function CanvasPage() {
 /* ---------- the model ---------- */
 
 function ModelPicker({ model, status, gpu, resolved, loras, onModel, onStartGpu }: { model: ModelEntry; status?: ModelStatus; gpu: { status: string; configured: boolean } | null; resolved: Resolved; loras: React.ReactNode; onModel: (id: string) => void; onStartGpu: () => Promise<void> }) {
+  const tr = useT();
   const [starting, setStarting] = useState(false);
   const ready = status?.painters?.ready;
   const gpuDown = model.runtime === "pod" && gpu?.configured && !["running", "starting"].includes(gpu.status);
   return (
     <div className="st-stack st-stack--tight">
-      <Field label="Model">
+      <Field label={tr("Model")}>
         <select className="st-select" value={model.id} onChange={(e) => onModel(e.target.value)}>
-          {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.runtime === "pod" ? "GPU pod" : m.backend === "codex" ? "ChatGPT plan" : "API, per picture"}</option>)}
+          {IMAGE_MODELS.map((m) => <option key={m.id} value={m.id}>{m.label} · {m.runtime === "pod" ? tr("GPU pod") : m.backend === "codex" ? tr("ChatGPT plan") : tr("API, per picture")}</option>)}
         </select>
       </Field>
       {loras}
-      <span className="st-muted st-num">{describeParams(resolved.params) || "settings by the service"}{resolved.sources.length > 1 ? ` (from ${resolved.sources.slice(1).join(", ")})` : ""} · {`up to ${model.maxRefs ?? CANVAS_MAX_REFS} pictures`}{model.moderation === "openai" ? " · OpenAI moderation" : model.moderation === "alibaba" ? " · Alibaba Cloud moderation" : " · no content filter"}</span>
+      <span className="st-muted st-num">{describeParams(resolved.params) || tr("settings by the service")}{resolved.sources.length > 1 ? tr(" (from {list})", { list: resolved.sources.slice(1).join(", ") }) : ""} · {tr("up to {n} pictures", { n: model.maxRefs ?? CANVAS_MAX_REFS })} · {tr(model.moderation === "openai" ? "OpenAI moderation" : model.moderation === "alibaba" ? "Alibaba Cloud moderation" : "no content filter")}</span>
       {resolved.warnings.map((w) => <span key={w} className="st-warn">{w}</span>)}
-      {status?.painters && (ready ? <Lamp state="ok" label={`can draw now · ${status.painters.drawers.join(", ")}`} /> : (
+      {status?.painters && (ready ? <Lamp state="ok" label={tr("can draw now · {drawers}", { drawers: status.painters.drawers.join(", ") })} /> : (
         <div className="st-alert st-alert--warn">
-          <span>{status.painters.note}{gpu?.status === "starting" ? " The pod is starting; its painter reports once the model is loaded." : ""}</span>
-          {gpuDown && <Button size="sm" busy={starting} title="Bills per hour; stops by itself when idle" onClick={async () => { setStarting(true); try { await onStartGpu(); } finally { setStarting(false); } }}>Start GPU pod</Button>}
+          <span>{status.painters.note}{gpu?.status === "starting" ? tr(" The pod is starting; its painter reports once the model is loaded.") : ""}</span>
+          {gpuDown && <Button size="sm" busy={starting} title={tr("Bills per hour; stops by itself when idle")} onClick={async () => { setStarting(true); try { await onStartGpu(); } finally { setStarting(false); } }}>{tr("Start GPU pod")}</Button>}
         </div>
       ))}
       {model.commercial === false && <span className="st-warn">{model.license}</span>}
@@ -777,12 +780,13 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
   kind: SlotKind; label?: string; active?: boolean; recipe: Recipe; adult: boolean; uploading: boolean; canUpload: boolean;
   onBrowse: () => void; onClear: () => void; onRandom: (scope: "similar" | "any") => void; onUpload: (f: File | undefined) => void; onDepth: (d: boolean) => void; onMirror: (m: boolean) => void; onPosePicture: (p: PosePicture) => void; onView: (v: string) => void;
 }) {
+  const tr = useT();
   const slot = recipe[kind] as Slot<RefItem> | undefined;
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   const thumb = slot?.item ? referenceImage(slot.item, { depth: recipe.depth, view: kind === "costume" ? recipe.costume?.view : undefined }).thumb : slot?.upload?.url;
   const item = slot?.item;
-  const sub = item?.mine ? ["我的", ...(item.kind === "pose" && item.mine.picture ? [{ photo: "照片", mannequin: "白模", depth: "深度" }[item.mine.picture]] : []), ...item.mine.tags].join(" · ") : item?.kind === "portrait" ? `${item.section} · ${item.hairLength}` : item?.kind === "costume" ? `${item.category} · ${COSTUME_SOURCES.find((s) => s.id === item.source)?.label}` : item?.kind === "pose" ? `${item.category} · ${POSE_ANGLES.find((a) => a.id === item.angle)?.zh}` : slot?.upload ? "your picture" : "";
+  const sub = item?.mine ? ["我的", ...(item.kind === "pose" && item.mine.picture ? [{ photo: "照片", mannequin: "白模", depth: "深度" }[item.mine.picture]] : []), ...item.mine.tags].join(" · ") : item?.kind === "portrait" ? `${item.section} · ${item.hairLength}` : item?.kind === "costume" ? `${item.category} · ${COSTUME_SOURCES.find((s) => s.id === item.source)?.label}` : item?.kind === "pose" ? `${item.category} · ${POSE_ANGLES.find((a) => a.id === item.angle)?.zh}` : slot?.upload ? tr("your picture") : "";
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDrag(false);
@@ -791,42 +795,42 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
   return (
     <div className="st-slot" data-kind={kind} data-active={active ? "true" : undefined} data-drag={drag ? "true" : undefined} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
       <span className="st-label">{label ?? SLOT_LABEL[kind]}</span>
-      <button type="button" className="st-slot-pic" onClick={onBrowse} title={slot ? "Change it in the library" : "Pick from the library"}>
-        {thumb ? <img src={thumb} alt={slotName(slot)} referrerPolicy="no-referrer" data-mirror={kind === "pose" && recipe.mirror ? "true" : undefined} /> : <span className="st-muted">{uploading ? "Uploading…" : "Pick from the library, or drop a picture"}</span>}
+      <button type="button" className="st-slot-pic" onClick={onBrowse} title={slot ? tr("Change it in the library") : tr("Pick from the library")}>
+        {thumb ? <img src={thumb} alt={slotName(slot)} referrerPolicy="no-referrer" data-mirror={kind === "pose" && recipe.mirror ? "true" : undefined} /> : <span className="st-muted">{uploading ? tr("Uploading…") : tr("Pick from the library, or drop a picture")}</span>}
         {item?.nsfw && <span className="st-ref-badge">18+</span>}
       </button>
       <div className="st-slot-name" title={slotName(slot)}>{slotName(slot) || "—"}</div>
       {sub && <div className="st-muted st-slot-sub">{sub}</div>}
       {slot?.upload && slot.upload.face !== undefined && <div><FaceBadge verdict={slot.upload.face} error={slot.upload.faceError} /></div>}
       {item?.kind === "portrait" && item.mine && <div><FaceBadge verdict={item.mine.faceCheck ?? null} error={item.mine.faceCheckError} /></div>}
-      {item?.nsfw && !adult && <div className="st-warn st-slot-sub">hidden now</div>}
+      {item?.nsfw && !adult && <div className="st-warn st-slot-sub">{tr("hidden now")}</div>}
       {kind === "pose" && slot && (
         <div className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>
           {item && !item.mine && (
-            <div className="st-seg st-seg--sm" role="group" aria-label="Pose picture">
-              <button type="button" aria-pressed={!recipe.depth} title="Line art" onClick={() => onDepth(false)}>白模</button>
-              <button type="button" aria-pressed={recipe.depth} title="Depth map" onClick={() => onDepth(true)}>深度</button>
+            <div className="st-seg st-seg--sm" role="group" aria-label={tr("Pose picture")}>
+              <button type="button" aria-pressed={!recipe.depth} title={tr("Line art")} onClick={() => onDepth(false)}>白模</button>
+              <button type="button" aria-pressed={recipe.depth} title={tr("Depth map")} onClick={() => onDepth(true)}>深度</button>
             </div>
           )}
           {slot.upload && (
-            <div className="st-seg st-seg--sm" role="group" aria-label="What the uploaded pose picture is">
-              <button type="button" aria-pressed={(recipe.posePicture ?? "photo") === "photo"} title="A photo of a person: only the pose and framing are taken, not their looks or clothes" onClick={() => onPosePicture("photo")}>照片</button>
-              <button type="button" aria-pressed={recipe.posePicture === "mannequin"} title="A mannequin (白模) or line art" onClick={() => onPosePicture("mannequin")}>白模</button>
-              <button type="button" aria-pressed={recipe.posePicture === "depth"} title="A grey depth map" onClick={() => onPosePicture("depth")}>深度</button>
+            <div className="st-seg st-seg--sm" role="group" aria-label={tr("What the uploaded pose picture is")}>
+              <button type="button" aria-pressed={(recipe.posePicture ?? "photo") === "photo"} title={tr("A photo of a person: only the pose and framing are taken, not their looks or clothes")} onClick={() => onPosePicture("photo")}>照片</button>
+              <button type="button" aria-pressed={recipe.posePicture === "mannequin"} title={tr("A mannequin (白模) or line art")} onClick={() => onPosePicture("mannequin")}>白模</button>
+              <button type="button" aria-pressed={recipe.posePicture === "depth"} title={tr("A grey depth map")} onClick={() => onPosePicture("depth")}>深度</button>
             </div>
           )}
-          <button type="button" className="st-chip st-chip--btn" aria-pressed={!!recipe.mirror} title="Flip the pose left to right" onClick={() => onMirror(!recipe.mirror)}>⇋ 镜像</button>
+          <button type="button" className="st-chip st-chip--btn" aria-pressed={!!recipe.mirror} title={tr("Flip the pose left to right")} onClick={() => onMirror(!recipe.mirror)}>⇋ 镜像</button>
         </div>
       )}
       {kind === "costume" && item?.kind === "costume" && item.views && (
         <div className="st-chips">{item.views.map((v) => <button key={v.id} type="button" className="st-chip st-chip--btn" aria-pressed={(recipe.costume?.view ?? "front") === v.id} onClick={() => onView(v.id)}>{v.label}</button>)}</div>
       )}
       <div className="st-slot-actions">
-        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Random, like this one" aria-label={`Random ${kind}, like this one`} onClick={() => onRandom("similar")}>~</button>
-        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Random from everything" aria-label={`Random ${kind} from everything`} onClick={() => onRandom("any")}>?</button>
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title={tr("Random, like this one")} aria-label={tr("Random {kind}, like this one", { kind: tr(`${kind}||slot`) })} onClick={() => onRandom("similar")}>~</button>
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title={tr("Random from everything")} aria-label={tr("Random {kind} from everything", { kind: tr(`${kind}||slot`) })} onClick={() => onRandom("any")}>?</button>
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e: ChangeEvent<HTMLInputElement>) => { onUpload(e.target.files?.[0]); e.target.value = ""; }} />
-        <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!canUpload || uploading} title={canUpload ? "Upload your own picture" : "Pick a project first"} onClick={() => input.current?.click()} aria-label={`Upload a ${kind} picture`}><UploadIcon size={12} /></button>
-        {slot && <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Clear" aria-label={`Clear the ${kind}`} onClick={onClear}><CloseIcon size={12} /></button>}
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!canUpload || uploading} title={canUpload ? tr("Upload your own picture") : tr("Pick a project first")} onClick={() => input.current?.click()} aria-label={tr("Upload a {kind} picture", { kind: tr(`${kind}||slot`) })}><UploadIcon size={12} /></button>
+        {slot && <button type="button" className="st-btn st-btn--quiet st-btn--sm" title={tr("Clear||slot")} aria-label={tr("Clear the {kind}", { kind: tr(`${kind}||slot`) })} onClick={onClear}><CloseIcon size={12} /></button>}
       </div>
     </div>
   );
@@ -834,38 +838,40 @@ function SlotCard({ kind, label, active, recipe, adult, uploading, canUpload, on
 
 /** A project character in a person's face slot: its reference picture is the face, hair and (without a costume) outfit. */
 function CharacterCard({ label, element, picture, onClear }: { label: string; element: Element; picture?: Asset; onClear: () => void }) {
+  const tr = useT();
   const thumb = picture ? ((picture.meta.previewUrl as string | undefined) ?? picture.url) : undefined;
   return (
     <div className="st-slot" data-kind="character">
       <span className="st-label">{label}</span>
-      <div className="st-slot-pic">{thumb ? <img src={thumb} alt={element.name} /> : <span className="st-muted">no picture</span>}</div>
+      <div className="st-slot-pic">{thumb ? <img src={thumb} alt={element.name} /> : <span className="st-muted">{tr("no picture")}</span>}</div>
       <div className="st-slot-name" title={element.name}>{element.name}</div>
-      <div className="st-muted st-slot-sub">project character · its sheet</div>
+      <div className="st-muted st-slot-sub">{tr("project character · its sheet")}</div>
       <div className="st-slot-actions">
-        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title="Use the portrait slot instead" aria-label={`Take ${element.name} out`} onClick={onClear}><CloseIcon size={12} /></button>
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm" title={tr("Use the portrait slot instead")} aria-label={tr("Take {name} out", { name: element.name })} onClick={onClear}><CloseIcon size={12} /></button>
       </div>
     </div>
   );
 }
 
 function Extras({ recipe, canAdd, uploading, onAdd, onRemove, onRename }: { recipe: Recipe; canAdd: boolean; uploading: boolean; onAdd: (f: File | undefined) => void; onRemove: (i: number) => void; onRename: (i: number, name: string) => void }) {
+  const tr = useT();
   const input = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
   return (
     <div className="st-stack st-stack--tight">
-      <span className="st-label">More pictures <span className="st-muted">(props, accessories, a background — paste with ⌘V / Ctrl+V)</span></span>
+      <span className="st-label">{tr("More pictures")} <span className="st-muted">{tr("(props, accessories, a background — paste with ⌘V / Ctrl+V)")}</span></span>
       <div className="st-extras" data-drag={drag ? "true" : undefined} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); if (canAdd) onAdd(e.dataTransfer.files?.[0]); }}>
         {recipe.extras.map((x, i) => (
           <div key={x.assetId} className="st-extra">
             <img src={x.url} alt={x.name} />
             {x.face !== undefined && <FaceBadge verdict={x.face} error={x.faceError} />}
-            <input className="st-input st-input--sm" value={x.name} maxLength={60} aria-label="Name" onChange={(e) => onRename(i, e.target.value)} />
-            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={`Remove ${x.name}`} onClick={() => onRemove(i)}><CloseIcon size={12} /></button>
+            <input className="st-input st-input--sm" value={x.name} maxLength={60} aria-label={tr("Name")} onChange={(e) => onRename(i, e.target.value)} />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove {name}", { name: x.name })} onClick={() => onRemove(i)}><CloseIcon size={12} /></button>
           </div>
         ))}
         <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(e) => { onAdd(e.target.files?.[0]); e.target.value = ""; }} />
         <button type="button" className="st-extra-add" disabled={!canAdd || uploading} onClick={() => input.current?.click()}>
-          <UploadIcon size={12} /> {uploading ? "Uploading…" : canAdd ? "Add a picture" : "No room"}
+          <UploadIcon size={12} /> {uploading ? tr("Uploading…") : canAdd ? tr("Add a picture") : tr("No room")}
         </button>
       </div>
     </div>
@@ -875,18 +881,19 @@ function Extras({ recipe, canAdd, uploading, onAdd, onRemove, onRename }: { reci
 /* ---------- 18+ gate ---------- */
 
 function AgeGate({ onClose, onConfirm }: { onClose: () => void; onConfirm: () => Promise<void> }) {
+  const tr = useT();
   const [checked, setChecked] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   return (
-    <Modal title="Show 18+ references" onClose={onClose}>
+    <Modal title={tr("Show 18+ references")} onClose={onClose}>
       <div className="st-stack" style={{ gap: 12 }}>
-        <p>The library holds adult reference material: two pose systems (全身单人・性感系, 双人缠绵 — grey mannequins) and lingerie and sensual outfits (内衣・睡衣, 性感穿搭). It stays hidden — for you and for the director connected to this Studio — until you confirm you are an adult.</p>
-        <p className="st-muted">This is your own confirmation, not an age check. It is stored for your account; switch it off any time. Image models keep their own rules: GPT Image refuses sexual content, and repeated refusals can put the account it runs on at risk. CharaDB pictures are never used for minors or real people.</p>
-        <label className="st-toggle"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> I am 18 or older and want to see 18+ reference material</label>
+        <p>{tr("The library holds adult reference material: two pose systems (全身单人・性感系, 双人缠绵 — grey mannequins) and lingerie and sensual outfits (内衣・睡衣, 性感穿搭). It stays hidden — for you and for the director connected to this Studio — until you confirm you are an adult.")}</p>
+        <p className="st-muted">{tr("This is your own confirmation, not an age check. It is stored for your account; switch it off any time. Image models keep their own rules: GPT Image refuses sexual content, and repeated refusals can put the account it runs on at risk. CharaDB pictures are never used for minors or real people.")}</p>
+        <label className="st-toggle"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /> {tr("I am 18 or older and want to see 18+ reference material")}</label>
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         <div className="st-row" style={{ justifyContent: "flex-end" }}>
-          <Button kind="quiet" onClick={onClose}>Cancel</Button>
+          <Button kind="quiet" onClick={onClose}>{tr("Cancel")}</Button>
           <Button kind="primary" disabled={!checked} busy={busy} onClick={async () => {
             setBusy(true);
             try {
@@ -895,7 +902,7 @@ function AgeGate({ onClose, onConfirm }: { onClose: () => void; onConfirm: () =>
               setError(e);
               setBusy(false);
             }
-          }}>Show 18+ references</Button>
+          }}>{tr("Show 18+ references")}</Button>
         </div>
       </div>
     </Modal>
@@ -906,28 +913,29 @@ function AgeGate({ onClose, onConfirm }: { onClose: () => void; onConfirm: () =>
 
 function ResultModal({ asset, projectId, onClose, onRestore }: { asset: Asset; projectId: string; onClose: () => void; onRestore: () => void }) {
   const c = asset.meta.canvas as { refs?: Array<{ role: string; label: string; thumb: string; url: string }>; style?: string } | undefined;
+  const tr = useT();
   const [showPrompt, setShowPrompt] = useState(false);
   return (
     <Modal size="lg" onClose={onClose} title={<span>{asset.handle} <span className="st-muted">{asset.name}</span></span>}>
       <div className="st-ref-light">
         <div className="st-ref-light-pic"><img src={asset.url} alt={asset.name ?? "result"} /></div>
         <div className="st-stack" style={{ gap: 12 }}>
-          <span className="st-label">References</span>
+          <span className="st-label">{tr("References")}</span>
           <div className="st-canvas-refs">
             {(c?.refs ?? []).map((r, i) => (
               <a key={i} href={r.url} target="_blank" rel="noopener noreferrer" className="st-canvas-ref" title={r.label}>
                 <img src={r.thumb || r.url} alt={r.label} referrerPolicy="no-referrer" />
-                <span className="st-muted">{i + 1} · {r.role}</span>
+                <span className="st-muted">{i + 1} · {tr(`${r.role}||ref role`)}</span>
               </a>
             ))}
           </div>
-          {typeof asset.meta.review === "string" && <span className="st-muted">Review: {asset.meta.review}</span>}
+          {typeof asset.meta.review === "string" && <span className="st-muted">{tr("Review: {review}", { review: asset.meta.review })}</span>}
           <div className="st-row">
-            <Button kind="primary" onClick={onRestore}>Use this recipe again</Button>
-            <a className="st-btn" href={asset.url} target="_blank" rel="noopener noreferrer" download>Download</a>
-            <Link className="st-btn st-btn--quiet" href={`/p/${projectId}/pictures`}>Open in Pictures</Link>
+            <Button kind="primary" onClick={onRestore}>{tr("Use this recipe again")}</Button>
+            <a className="st-btn" href={asset.url} target="_blank" rel="noopener noreferrer" download>{tr("Download")}</a>
+            <Link className="st-btn st-btn--quiet" href={`/p/${projectId}/pictures`}>{tr("Open in Pictures")}</Link>
           </div>
-          <Button size="sm" kind="quiet" onClick={() => setShowPrompt((s) => !s)}>{showPrompt ? "Hide the prompt" : "Show the prompt"}</Button>
+          <Button size="sm" kind="quiet" onClick={() => setShowPrompt((s) => !s)}>{showPrompt ? tr("Hide the prompt") : tr("Show the prompt")}</Button>
           {showPrompt && <pre className="st-pre st-canvas-prompt">{String(asset.meta.prompt ?? "")}</pre>}
         </div>
       </div>

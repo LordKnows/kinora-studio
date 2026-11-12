@@ -10,6 +10,7 @@ import type { Asset, Project } from "@/studio/types";
 
 import { get, patch } from "./api";
 import { Button, Chips, ErrorBanner, Field, Lamp, UploadButton, useAction } from "./common";
+import { type T, useT } from "./i18n";
 import { StyleGallery } from "./library-page";
 import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
@@ -49,13 +50,23 @@ function useSave(run: () => Promise<void>) {
   return { ...action, saved };
 }
 
+/** planDurations' note (editing.ts writes it in English), in the interface language. */
+function planNote(t: T, note: string): string {
+  const even = /^(\d+) shots averaging ([\d.]+) s\. Give establishing and emotional beats the longer slots; montage beats the 5 s ones\.$/.exec(note);
+  if (even) return t("{n} shots averaging {avg} s. Give establishing and emotional beats the longer slots; montage beats the 5 s ones.", { n: even[1]!, avg: even[2]! });
+  const tiled = /^(\d+) s cannot be tiled with (\d+) shots of 5–15 s; the plan uses (\d+) shots\.$/.exec(note);
+  if (tiled) return t("{total} s cannot be tiled with {n} shots of 5–15 s; the plan uses {m} shots.", { total: tiled[1]!, n: tiled[2]!, m: tiled[3]! });
+  return note;
+}
+
 /** The head of every card: its title (and "unsaved" while it differs from what is saved), its buttons on the right. */
 function CardHead({ title, dirty, aside, children }: { title: string; dirty?: boolean; aside?: ReactNode; children?: ReactNode }) {
+  const t = useT();
   return (
     <div className="st-row st-row--between" style={{ flexWrap: "wrap", gap: 8 }}>
       <span className="st-row" style={{ gap: 8 }}>
-        <span className="st-h2">{title}</span>
-        {dirty && <span className="st-muted">unsaved</span>}
+        <span className="st-h2">{t(title)}</span>
+        {dirty && <span className="st-muted">{t("unsaved")}</span>}
         {aside}
       </span>
       <span className="st-row" style={{ gap: 6, flexWrap: "wrap" }}>{children}</span>
@@ -64,6 +75,7 @@ function CardHead({ title, dirty, aside, children }: { title: string; dirty?: bo
 }
 
 export function LookPage() {
+  const t = useT();
   const { projectId, view, reload } = useProjectContext();
   /* the running time is kept as typed (a number input that clamps on every key cannot be typed into) and clamped on blur and save */
   const [brief, setBrief] = useState<{ brief: string; targetSeconds: string } | null>(null);
@@ -116,7 +128,7 @@ export function LookPage() {
     const presetLoras = l.loras && l.loras.length && lorasKey(l.loras) !== lorasKey(loras) ? l.loras : null;
     if (presetLoras) setLoras(presetLoras);
     setPickingStyle(false);
-    setStyleNote(`Style filled from “${slug}”. Review the fields, then Save style.${presetLoras ? " The preset also set its LoRAs: save them in the LoRAs card." : ""} Apply the style to the Board once the shotlist exists.`);
+    setStyleNote(t("Style filled from “{slug}”. Review the fields, then Save style.{loras} Apply the style to the Board once the shotlist exists.", { slug, loras: presetLoras ? t(" The preset also set its LoRAs: save them in the LoRAs card.") : "" }));
   });
 
   const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
@@ -133,8 +145,8 @@ export function LookPage() {
     <div className="st-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Brief & style</h1>
-          <p className="st-subtitle">Tier 1. The brief and running time the director reads first, the style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from them. Each card saves on its own.</p>
+          <h1 className="st-title">{t("Brief & style")}</h1>
+          <p className="st-subtitle">{t("Tier 1. The brief and running time the director reads first, the style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from them. Each card saves on its own.")}</p>
         </div>
       </div>
       <ErrorBanner
@@ -145,64 +157,64 @@ export function LookPage() {
       <div className="st-stack" style={{ gap: 20 }}>
         <div className="st-card st-stack">
           <CardHead title="Brief" dirty={briefDirty}>
-            <Button size="sm" kind="primary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? "Saved" : "Save brief"}</Button>
+            <Button size="sm" kind="primary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? t("Saved") : t("Save brief")}</Button>
           </CardHead>
-          <Field label="The film, in your own words">
-            <textarea className="st-textarea" rows={6} value={brief.brief} onChange={(e) => setBrief({ ...brief, brief: e.target.value })} placeholder="A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…" />
+          <Field label={t("The film, in your own words")}>
+            <textarea className="st-textarea" rows={6} value={brief.brief} onChange={(e) => setBrief({ ...brief, brief: e.target.value })} placeholder={t("A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…")} />
           </Field>
           <div className="st-fields">
-            <Field label="Target running time (s)">
+            <Field label={t("Target running time (s)")}>
               <input className="st-input" type="number" inputMode="numeric" min={5} max={3600} step={1} value={brief.targetSeconds}
                 onChange={(e) => setBrief({ ...brief, targetSeconds: e.target.value })}
                 onBlur={() => { const s = clampSeconds(brief.targetSeconds); setBrief({ ...brief, targetSeconds: s === null ? "" : String(s) }); }} />
             </Field>
-            <Field label="Board vs target">
+            <Field label={t("Board vs target")}>
               <span className="st-row" style={{ minHeight: 36 }}>
-                {target !== undefined ? <Lamp state={boardSeconds === target ? "ok" : "warn"} label={`${boardSeconds} s of ${target} s on the Board`} /> : <span className="st-muted">set a target to compare</span>}
+                {target !== undefined ? <Lamp state={boardSeconds === target ? "ok" : "warn"} label={t("{board} s of {target} s on the Board", { board: boardSeconds, target })} /> : <span className="st-muted">{t("set a target to compare")}</span>}
               </span>
             </Field>
           </div>
-          {plan && <span className="st-muted st-num">Plan: {plan.shots} shots · {plan.durations.join(" + ")} s. {plan.note}</span>}
+          {plan && <span className="st-muted st-num">{t("Plan: {n} shots · {durations} s. {note}", { n: plan.shots, durations: plan.durations.join(" + "), note: planNote(t, plan.note) })}</span>}
         </div>
 
         <div className="st-card st-stack">
           <CardHead title="Style" dirty={styleDirty}>
-            <Button size="sm" onClick={() => setPickingStyle((v) => !v)}>{pickingStyle ? "Close presets" : style.style ? "Change preset" : "Choose a preset"}</Button>
-            <Button size="sm" kind="primary" busy={saveStyle.busy} onClick={() => void saveStyle.fire()}>{saveStyle.saved ? "Saved" : "Save style"}</Button>
+            <Button size="sm" onClick={() => setPickingStyle((v) => !v)}>{pickingStyle ? t("Close presets") : style.style ? t("Change preset") : t("Choose a preset")}</Button>
+            <Button size="sm" kind="primary" busy={saveStyle.busy} onClick={() => void saveStyle.fire()}>{saveStyle.saved ? t("Saved") : t("Save style")}</Button>
           </CardHead>
           {style.style ? (
             <div className="st-row">
               <span className="st-chip" aria-pressed="true">{style.style}</span>
-              <span className="st-muted">the preset compiled into the fields below; the Board’s “Apply style” fills each shot’s cinematography from it.</span>
+              <span className="st-muted">{t("the preset compiled into the fields below; the Board’s “Apply style” fills each shot’s cinematography from it.")}</span>
             </div>
           ) : (
-            <p className="st-muted">Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting, constraints and LoRAs; you can still edit everything.</p>
+            <p className="st-muted">{t("Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting, constraints and LoRAs; you can still edit everything.")}</p>
           )}
           {styleNote && (
             <div className="st-alert st-alert--info">
               <span>{styleNote}</span>
-              <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>Dismiss</Button>
+              <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>{t("Dismiss")}</Button>
             </div>
           )}
           {pickingStyle && (
             <div className="st-stack st-stack--tight">
-              <span className="st-muted">Click a preset to compile it into the fields below.</span>
+              <span className="st-muted">{t("Click a preset to compile it into the fields below.")}</span>
               <StyleGallery selected={style.style} onPick={(slug) => void compile.fire(slug)} />
             </div>
           )}
           <div className="st-fields">
-            <Field label="Genre and tone"><input className="st-input" value={style.genre} onChange={(e) => set("genre", e.target.value)} placeholder="neo-noir thriller" /></Field>
-            <Field label="Palette"><input className="st-input" value={style.palette} onChange={(e) => set("palette", e.target.value)} placeholder="teal and amber, crushed blacks" /></Field>
-            <Field label="Camera"><input className="st-input" value={style.camera} onChange={(e) => set("camera", e.target.value)} placeholder="Arri Alexa, anamorphic" /></Field>
-            <Field label="Lens"><input className="st-input" value={style.lens} onChange={(e) => set("lens", e.target.value)} placeholder="35mm, shallow depth of field" /></Field>
+            <Field label={t("Genre and tone")}><input className="st-input" value={style.genre} onChange={(e) => set("genre", e.target.value)} placeholder={t("neo-noir thriller")} /></Field>
+            <Field label={t("Palette")}><input className="st-input" value={style.palette} onChange={(e) => set("palette", e.target.value)} placeholder={t("teal and amber, crushed blacks")} /></Field>
+            <Field label={t("Camera")}><input className="st-input" value={style.camera} onChange={(e) => set("camera", e.target.value)} placeholder={t("Arri Alexa, anamorphic")} /></Field>
+            <Field label={t("Lens")}><input className="st-input" value={style.lens} onChange={(e) => set("lens", e.target.value)} placeholder={t("35mm, shallow depth of field")} /></Field>
           </div>
-          <Field label="Lighting"><input className="st-input" value={style.lighting} onChange={(e) => set("lighting", e.target.value)} placeholder="practical sources, hard key" /></Field>
-          <Field label="Constraints" group>
-            <Chips values={style.negative} onRemove={(i) => set("negative", style.negative.filter((_, j) => j !== i))} onAdd={(v) => style.negative.length < 10 && set("negative", [...style.negative, v])} placeholder="exactly two people in the room" />
-            <span className="st-muted">What the picture shows. H3 has no negative prompt: a word written here is drawn, so “blurry” or “no logos” work against you.</span>
+          <Field label={t("Lighting")}><input className="st-input" value={style.lighting} onChange={(e) => set("lighting", e.target.value)} placeholder={t("practical sources, hard key")} /></Field>
+          <Field label={t("Constraints")} group>
+            <Chips values={style.negative} onRemove={(i) => set("negative", style.negative.filter((_, j) => j !== i))} onAdd={(v) => style.negative.length < 10 && set("negative", [...style.negative, v])} placeholder={t("exactly two people in the room")} />
+            <span className="st-muted">{t("What the picture shows. H3 has no negative prompt: a word written here is drawn, so “blurry” or “no logos” work against you.")}</span>
             {style.negative.map(checkConstraint).filter((v) => v.kind !== "ok").map((v, i) => (
               <span key={`${v.text}-${i}`} className="st-muted">
-                “{v.text}” {v.inPrompt ? "is a ban and can add what it names" : "is left out of the prompt"}: {v.suggest}.
+                {t("“{text}” {what}: {suggest}.", { text: v.text, what: v.inPrompt ? t("is a ban and can add what it names") : t("is left out of the prompt"), suggest: v.suggest ? t(v.suggest) : "" })}
               </span>
             ))}
           </Field>
@@ -211,7 +223,7 @@ export function LookPage() {
         <div className="st-split">
           <div className="st-card st-stack">
             <CardHead title="Aspect ratio" dirty={ratio !== saved.aspectRatio}>
-              <Button size="sm" kind="primary" busy={saveRatio.busy} onClick={() => void saveRatio.fire()}>{saveRatio.saved ? "Saved" : "Save aspect ratio"}</Button>
+              <Button size="sm" kind="primary" busy={saveRatio.busy} onClick={() => void saveRatio.fire()}>{saveRatio.saved ? t("Saved") : t("Save aspect ratio")}</Button>
             </CardHead>
             <div className="st-ratios" role="group">
               {RATIOS.map((r) => {
@@ -225,14 +237,14 @@ export function LookPage() {
                 );
               })}
             </div>
-            <span className="st-muted">H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Finals page.</span>
+            <span className="st-muted">{t("H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Finals page.")}</span>
           </div>
           <div className="st-card st-stack">
             <CardHead title="LoRAs" dirty={lorasKey(loras) !== lorasKey(saved.loras)}>
-              <Button size="sm" kind="primary" busy={saveLoras.busy} onClick={() => void saveLoras.fire()}>{saveLoras.saved ? "Saved" : "Save LoRAs"}</Button>
+              <Button size="sm" kind="primary" busy={saveLoras.busy} onClick={() => void saveLoras.fire()}>{saveLoras.saved ? t("Saved") : t("Save LoRAs")}</Button>
             </CardHead>
             <LoraPicker value={loras} onChange={setLoras} />
-            <span className="st-muted">Project defaults for every shot; a shot can override them. A speed LoRA sets the step count; none means the base chain at 20 steps.</span>
+            <span className="st-muted">{t("Project defaults for every shot; a shot can override them. A speed LoRA sets the step count; none means the base chain at 20 steps.")}</span>
           </div>
         </div>
 
@@ -256,6 +268,7 @@ function styleFrameBlocker(p: Project): string | undefined {
    uploaded; the one chosen is a reference for every generated sheet and
    frame. Each candidate has its own delete button. */
 function StyleFrameCard() {
+  const t = useT();
   const { projectId, view, reload } = useProjectContext();
   const current = view?.project.look.styleFrameAssetId;
   const frames = (view?.assets ?? []).filter((a) => a.kind === "image" && (a.meta.purpose === "style_frame" || a.id === current)).sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
@@ -265,8 +278,9 @@ function StyleFrameCard() {
   });
   if (!view) return null;
   const full = frames.length >= STYLE_FRAME_MAX;
-  const notReady = styleFrameBlocker(view.project);
-  const fullWhy = `At most ${STYLE_FRAME_MAX} style frames: delete one first`;
+  const blocker = styleFrameBlocker(view.project);
+  const notReady = blocker && t(blocker);
+  const fullWhy = t("At most {n} style frames: delete one first", { n: STYLE_FRAME_MAX });
   return (
     <div className="st-card st-stack">
       <CardHead title="Style frame" aside={<span className="st-muted st-num">{frames.length}/{STYLE_FRAME_MAX}</span>}>
@@ -276,16 +290,16 @@ function StyleFrameCard() {
           purpose="style_frame"
           label="Upload"
           disabled={full}
-          title={full ? fullWhy : "Upload a picture as a style frame"}
+          title={full ? fullWhy : t("Upload a picture as a style frame")}
           onUploaded={async ({ assetId }) => {
             if (!current) await patch(`/api/projects/${projectId}/look`, { styleFrameAssetId: assetId });
             await reload();
           }}
         />
-        <ImageButton label="Generate" kind="primary" body={{ action: "style_frame" }} blocked={full ? fullWhy : notReady} title="Draw a style frame from the brief and the style" />
+        <ImageButton label={t("Generate")} kind="primary" body={{ action: "style_frame" }} blocked={full ? fullWhy : notReady} title={t("Draw a style frame from the brief and the style")} />
       </CardHead>
-      <span className="st-muted">One picture that sets the look. Generate it from the saved brief and style, or upload one; keep up to {STYLE_FRAME_MAX}. Click one to use it: every generated sheet and frame matches it.</span>
-      {notReady && !full && <span className="st-warn">{notReady}.</span>}
+      <span className="st-muted">{t("One picture that sets the look. Generate it from the saved brief and style, or upload one; keep up to {n}. Click one to use it: every generated sheet and frame matches it.", { n: STYLE_FRAME_MAX })}</span>
+      {notReady && !full && <span className="st-warn">{t("{why}.", { why: notReady })}</span>}
       <ErrorBanner error={choose.error} onDismiss={choose.dismiss} />
       {frames.length > 0 && (
         <div className="st-thumbs st-thumbs--named">
@@ -299,19 +313,20 @@ function StyleFrameCard() {
 }
 
 function StyleFrameTile({ asset, chosen, onChoose, onDeleted }: { asset: Asset; chosen: boolean; onChoose: () => void; onDeleted: () => Promise<void> }) {
+  const t = useT();
   const del = useDeletePictures(onDeleted);
   return (
     <div className="st-pic">
-      <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? "The style frame (click to clear)" : "Use as the style frame"}>
+      <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? t("The style frame (click to clear)") : t("Use as the style frame")}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
-        {chosen && <span className="st-thumb-tag">STYLE</span>}
+        {chosen && <span className="st-thumb-tag">{t("STYLE")}</span>}
       </button>
       <div className="st-row" style={{ gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
         <span style={{ flex: 1, minWidth: 0 }}>
           <PictureCaption asset={asset} />
         </span>
-        <Button size="sm" kind="quiet" busy={del.busy} onClick={() => void del.fire([asset.id])} title="Delete this style frame">Delete</Button>
+        <Button size="sm" kind="quiet" busy={del.busy} onClick={() => void del.fire([asset.id])} title={t("Delete this style frame")}>{t("Delete")}</Button>
       </div>
       <ErrorBanner error={del.error} onDismiss={del.dismiss} />
     </div>

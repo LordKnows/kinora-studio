@@ -12,6 +12,7 @@ import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
+import { plural, type T, useT } from "./i18n";
 import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
@@ -85,6 +86,7 @@ function useShotAddress() {
 
 function Board() {
   const { projectId, view, reload } = useProjectContext();
+  const tr = useT();
   const undoable = useUndoable(reload);
   const address = useShotAddress();
   const openId = address.openId;
@@ -122,7 +124,7 @@ function Board() {
     const style = view?.project.look.style;
     if (!style) return;
     const r = await post<{ warnings: LintWarning[] }>(`/api/projects/${projectId}/apply-style`, { style });
-    setStyleNote(`Style “${style}” applied to every shot${r.warnings.length ? `; ${r.warnings.length} note(s) in Lint` : ""}. The shotlist is back in draft until you approve it.`);
+    setStyleNote(tr("Style “{style}” applied to every shot{notes}. The shotlist is back in draft until you approve it.", { style, notes: r.warnings.length ? tr("; {n} note(s) in Lint", { n: r.warnings.length }) : "" }));
     await reload();
     await refreshLint();
   });
@@ -160,7 +162,7 @@ function Board() {
   });
   const editPalette = useAction(async (_c, scene: SceneView) => {
     const current = scene.palette ? `${scene.palette.colors.join(" ")}${scene.palette.note ? ` | ${scene.palette.note}` : ""}` : "";
-    const raw = window.prompt(`Colour script for "${scene.slug}": hex colours darkest first, then | and a note. Empty clears it.\nExample: #1d2430 #3b4a5c #d9c7a3 #b23a2b | warm practicals against a cold window; red only on the scarf`, current);
+    const raw = window.prompt(tr("Colour script for \"{slug}\": hex colours darkest first, then | and a note. Empty clears it.\nExample: #1d2430 #3b4a5c #d9c7a3 #b23a2b | warm practicals against a cold window; red only on the scarf", { slug: scene.slug }), current);
     if (raw === null) return;
     const [cols, note] = raw.split("|");
     const colors = (cols ?? "").match(/#[0-9a-fA-F]{6}/g) ?? [];
@@ -170,7 +172,7 @@ function Board() {
   const removeScene = useAction(async (_c, scene: SceneView) => {
     const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
-    undoable(trashId, `Deleted scene ${view ? view.scenes.indexOf(scene) + 1 : ""} · ${scene.slug}${scene.shots.length ? ` and its ${scene.shots.length} ${scene.shots.length === 1 ? "shot" : "shots"}` : ""}`);
+    undoable(trashId, tr("Deleted scene {i} · {slug}{shots}", { i: view ? view.scenes.indexOf(scene) + 1 : "", slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" }));
   });
 
   if (!view) return null;
@@ -183,36 +185,36 @@ function Board() {
     <div className="st-page st-page--wide">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Board</h1>
+          <h1 className="st-title">{tr("Board")}</h1>
           <p className="st-subtitle">
-            Checkpoint 2. Structural edits return the shotlist to draft. {view.canGenerate ? "Ready to render." : `Blocked: ${view.blockers.join(", ")}.`}
+            {tr("Checkpoint 2. Structural edits return the shotlist to draft.")} {view.canGenerate ? tr("Ready to render.") : tr("Blocked: {list}.", { list: view.blockers.join(", ") })}
           </p>
         </div>
         <div className="st-actions">
-          <Lamp state={approved ? "ok" : "warn"} label={approved ? (view.delegated?.shotlist ? "Shotlist approved by the director" : "Shotlist approved") : "Shotlist draft"} />
+          <Lamp state={approved ? "ok" : "warn"} label={approved ? (view.delegated?.shotlist ? tr("Shotlist approved by the director") : tr("Shotlist approved")) : tr("Shotlist draft")} />
           {shotCount > 0 && (
-            <Button kind="quiet" onClick={() => setSketchOpen(true)} title="Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes">
-              Sketch
+            <Button kind="quiet" onClick={() => setSketchOpen(true)} title={tr("Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes")}>
+              {tr("Sketch")}
             </Button>
           )}
           {shotCount > 0 && (
-            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title="Rhythm and craft lint of the shotlist">
-              Lint{lint ? ` · ${lint.counts.error + lint.counts.warn}` : ""}
+            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title={tr("Rhythm and craft lint of the shotlist")}>
+              {tr("Lint")}{lint ? ` · ${lint.counts.error + lint.counts.warn}` : ""}
             </Button>
           )}
           {shotCount > 0 && view.project.look.style && (
-            <Button busy={applyStyle.busy} onClick={() => void applyStyle.fire()} title={`Fill every shot's cinematography from the style “${view.project.look.style}”`}>
-              Apply style
+            <Button busy={applyStyle.busy} onClick={() => void applyStyle.fire()} title={tr("Fill every shot's cinematography from the style “{style}”", { style: view.project.look.style })}>
+              {tr("Apply style")}
             </Button>
           )}
           {!approved && (
             <Button kind="primary" busy={approve.busy} disabled={shotCount === 0} onClick={() => void approve.fire()}>
-              Approve shotlist
+              {tr("Approve shotlist")}
             </Button>
           )}
           {approved && (
-            <Button kind="tally" busy={plan.busy} onClick={() => void plan.fire()} title="Order the shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.">
-              Render batch
+            <Button kind="tally" busy={plan.busy} onClick={() => void plan.fire()} title={tr("Order the shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
+              {tr("Render batch")}
             </Button>
           )}
         </div>
@@ -221,12 +223,12 @@ function Board() {
       {styleNote && (
         <div className="st-alert st-alert--info" style={{ marginBottom: 16 }}>
           <span>{styleNote}</span>
-          <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>Dismiss</Button>
+          <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>{tr("Dismiss")}</Button>
         </div>
       )}
 
       {view.scenes.length === 0 && (
-        <Empty title="No scenes yet" hint="Ask the director agent to save_shotlist, or add a scene below and build shots by hand." />
+        <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene below and build shots by hand.")} />
       )}
 
       {view.scenes.map((scene) => (
@@ -236,25 +238,25 @@ function Board() {
               <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
               {scene.summary && <span className="st-scene-summary"> · {scene.summary}</span>}
               {scene.palette && (
-                <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? "scene palette"}>
+                <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? tr("scene palette")}>
                   {scene.palette.colors.map((c) => <span key={c} style={{ width: 12, height: 12, borderRadius: 0, background: c, display: "inline-block" }} />)}
                 </span>
               )}
             </div>
             <div className="st-row">
-              <Button size="sm" kind="quiet" onClick={() => void editPalette.fire(scene)} title="This scene's colour script; it compiles into every shot">
-                Palette
+              <Button size="sm" kind="quiet" onClick={() => void editPalette.fire(scene)} title={tr("This scene's colour script; it compiles into every shot")}>
+                {tr("Palette")}
               </Button>
               <Button size="sm" busy={addShot.busy} onClick={() => void addShot.fire(scene.id)}>
-                Add shot
+                {tr("Add shot")}
               </Button>
-              <Button size="sm" kind="quiet" onClick={() => void removeScene.fire(scene)} title="Delete scene">
-                Delete
+              <Button size="sm" kind="quiet" onClick={() => void removeScene.fire(scene)} title={tr("Delete scene")}>
+                {tr("Delete")}
               </Button>
             </div>
           </div>
           {scene.shots.length === 0 ? (
-            <Empty title="Empty scene" />
+            <Empty title={tr("Empty scene")} />
           ) : (
             <div className="st-shots">
               {scene.shots.map((shot, i) => (
@@ -276,41 +278,41 @@ function Board() {
       ))}
 
       <div className="st-section st-row">
-        <input className="st-input" style={{ maxWidth: 280 }} placeholder="New scene slug, e.g. alley-chase" value={newScene} onChange={(e) => setNewScene(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void addScene.fire()} />
+        <input className="st-input" style={{ maxWidth: 280 }} placeholder={tr("New scene slug, e.g. alley-chase")} value={newScene} onChange={(e) => setNewScene(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void addScene.fire()} />
         <Button busy={addScene.busy} disabled={!newScene.trim()} onClick={() => void addScene.fire()}>
-          Add scene
+          {tr("Add scene")}
         </Button>
       </div>
 
       {open && <ShotDrawer key={open.id} shot={open} onClose={() => setOpenId(null)} />}
       {sketchOpen && (
         <Drawer
-          title="Sketch · colour-block storyboard"
+          title={tr("Sketch · colour-block storyboard")}
           onClose={() => setSketchOpen(false)}
           head={
             <span className="st-row">
-              <Button size="sm" kind={sketchGray ? "default" : "quiet"} onClick={() => setSketchGray((g) => !g)} title="Black and white: does the subject separate from the background by value alone?">{sketchGray ? "Colour" : "Grayscale"}</Button>
-              <Button size="sm" kind="quiet" onClick={() => setSketchKey((k) => k + 1)}>Refresh</Button>
-              <a className="st-link" href={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}`} target="_blank" rel="noreferrer">Open</a>
+              <Button size="sm" kind={sketchGray ? "default" : "quiet"} onClick={() => setSketchGray((g) => !g)} title={tr("Black and white: does the subject separate from the background by value alone?")}>{sketchGray ? tr("Colour") : tr("Grayscale")}</Button>
+              <Button size="sm" kind="quiet" onClick={() => setSketchKey((k) => k + 1)}>{tr("Refresh")}</Button>
+              <a className="st-link" href={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}`} target="_blank" rel="noreferrer">{tr("Open")}</a>
             </span>
           }
         >
-          <p className="st-muted">Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.</p>
+          <p className="st-muted">{tr("Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.")}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt="Colour-block storyboard" style={{ width: "100%", height: "auto", borderRadius: 0 }} />
+          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt={tr("Colour-block storyboard")} style={{ width: "100%", height: "auto", borderRadius: 0 }} />
         </Drawer>
       )}
       {lintOpen && (
-        <Drawer title={`Lint · ${lint ? `${lint.counts.error} errors, ${lint.counts.warn} warnings, ${lint.counts.info} notes` : "…"}`} onClose={() => setLintOpen(false)}>
+        <Drawer title={lint ? tr("Lint · {e} errors, {w} warnings, {i} notes", { e: lint.counts.error, w: lint.counts.warn, i: lint.counts.info }) : tr("Lint · …")} onClose={() => setLintOpen(false)}>
           {!lint ? (
-            <span className="st-muted">Loading…</span>
+            <span className="st-muted">{tr("Loading…")}</span>
           ) : lint.warnings.length === 0 ? (
-            <Empty title="Nothing to fix" hint="Rhythm, variety, breath, links and cinematography all pass." />
+            <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass.")} />
           ) : (
             <div className="st-lint">
               {lint.warnings.map((w, i) => (
                 <div key={i} className="st-lint-row" data-severity={w.severity}>
-                  <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : "film"}</span>
+                  <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : tr("film")}</span>
                   <span>
                     <span className={w.severity === "error" ? "st-danger" : w.severity === "warn" ? "st-warn" : "st-muted"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginRight: 8 }}>{w.code}</span>
                     {w.message}
@@ -322,20 +324,20 @@ function Board() {
         </Drawer>
       )}
       {batchOpen && batch && (
-        <Drawer title="Render batch" onClose={() => setBatchOpen(false)}>
+        <Drawer title={tr("Render batch")} onClose={() => setBatchOpen(false)}>
           <div className="st-stack">
             <div className="st-card st-stack st-stack--tight">
               <div className="st-row st-row--between">
-                <span className="st-h2">{batch.order.length} shot{batch.order.length === 1 ? "" : "s"} to render · {batch.passes.length} pass{batch.passes.length === 1 ? "" : "es"}</span>
-                <span className="st-num" style={{ color: batch.withinCap ? "var(--tx)" : "var(--danger)" }}>≈ {usd(batch.totalEstimateUsd)} · {usd(batch.remainingCapUsd)} left</span>
+                <span className="st-h2">{plural(tr, batch.order.length, "1 shot to render", "{n} shots to render")} · {plural(tr, batch.passes.length, "1 pass", "{n} passes")}</span>
+                <span className="st-num" style={{ color: batch.withinCap ? "var(--tx)" : "var(--danger)" }}>{tr("≈ {estimate} · {left} left", { estimate: usd(batch.totalEstimateUsd), left: usd(batch.remainingCapUsd) })}</span>
               </div>
-              <span className="st-muted">R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.</span>
+              <span className="st-muted">{tr("R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.")}</span>
               {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
             </div>
             {batch.probe && batch.probe.shotIds.length > 0 && (
               <div className="st-card st-row st-row--between">
-                <span><strong>Probe first.</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
-                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>Render probe ({batch.probe.shotIds.length}) <span className="st-btn-price">· ≈ {usd(batch.probe.estimateUsd)}</span></Button>
+                <span><strong>{tr("Probe first.")}</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
+                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>{tr("Render probe ({n})", { n: batch.probe.shotIds.length })} <span className="st-btn-price">· ≈ {usd(batch.probe.estimateUsd)}</span></Button>
               </div>
             )}
             {batch.passes.map((pass, pi) => (
@@ -343,11 +345,11 @@ function Board() {
                 <table className="st-table">
                   <thead>
                     <tr>
-                      <th>Pass {pi + 1}</th>
-                      <th>Mode</th>
-                      <th>Link</th>
-                      <th title="Weak spots of AI video found in the shot (fragile.* in Lint)">Fragile</th>
-                      <th className="st-num">Est.</th>
+                      <th>{tr("Pass {n}", { n: pi + 1 })}</th>
+                      <th>{tr("Mode")}</th>
+                      <th>{tr("Link")}</th>
+                      <th title={tr("Weak spots of AI video found in the shot (fragile.* in Lint)")}>{tr("Fragile")}</th>
+                      <th className="st-num">{tr("Est.")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -357,9 +359,9 @@ function Board() {
                       return (
                         <tr key={id}>
                           <td>{sh?.label ?? id}</td>
-                          <td className="st-num">{sh?.mode}</td>
-                          <td className="st-num">{sh?.link ?? "cut"}</td>
-                          <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? " · careful" : ""}` : "—"}</td>
+                          <td className="st-num">{sh?.mode && tr(sh.mode)}</td>
+                          <td className="st-num">{tr(sh?.link ?? "cut")}</td>
+                          <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? tr(" · careful") : ""}` : "—"}</td>
                           <td className="st-num">{est ? `${usd(est.usd)}${est.source === "fallback" ? " ~" : ""}` : "—"}</td>
                         </tr>
                       );
@@ -368,11 +370,11 @@ function Board() {
                 </table>
               </div>
             ))}
-            {batch.deferred.length > 0 && <span className="st-muted">Waiting for an anchor: {batch.deferred.map((d) => d.shotId).join(", ")}</span>}
+            {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => d.shotId).join(", ") })}</span>}
             <div className="st-row st-row--between">
-              <span className="st-muted">Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.</span>
+              <span className="st-muted">{tr("Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.")}</span>
               <Button kind="tally" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
-                Render pass 1 ({batch.passes[0]?.length ?? 0}) <span className="st-btn-price">· ≈ {usd((batch.passes[0] ?? []).reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0))}</span>
+                {tr("Render pass 1 ({n})", { n: batch.passes[0]?.length ?? 0 })} <span className="st-btn-price">· ≈ {usd((batch.passes[0] ?? []).reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0))}</span>
               </Button>
             </div>
           </div>
@@ -390,9 +392,11 @@ function linkLabel(spec: ShotView["spec"]): string | null {
 }
 
 function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
+  const tr = useT();
   const latest = shot.takes[0];
   const cost = shot.takes.reduce((n, t) => n + (t.costUsd ?? 0), 0);
   const codes = cineCodes(shot.spec);
+  const link = linkLabel(shot.spec);
   const problems = lint.filter((w) => w.severity !== "info").length;
   return (
     <div className="st-shot" aria-pressed={open}>
@@ -400,33 +404,33 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
         {(() => {
           /* Poster order: the selected take, else the newest completed take, else the hero frame. */
           const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
-          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : "no take yet"}</div>;
+          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>;
         })()}
         <span className="st-shot-index">{slate ?? index + 1}</span>
         {latest && (
           <span className="st-shot-status">
-            <Lamp state={latest.status} label={statusLabel(latest.status)} />
+            <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
           </span>
         )}
       </button>
       <div className="st-shot-body">
         <div className="st-shot-tags">
-          {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">no cinematography</span>}
-          {linkLabel(shot.spec) && <span className="st-chip st-chip--mono" aria-pressed="true">{linkLabel(shot.spec)}</span>}
+          {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
+          {link && <span className="st-chip st-chip--mono" aria-pressed="true">{tr(link)}</span>}
           {problems > 0 && <span className="st-chip st-chip--mono st-chip--warn" title={lint.map((w) => w.message).join("\n")}>⚠ {problems}</span>}
         </div>
         <button type="button" className="st-shot-intent" onClick={onOpen} style={{ textAlign: "left" }}>
-          {shot.spec.intent || "Untitled shot"}
+          {shot.spec.intent || tr("Untitled shot")}
         </button>
         <div className="st-shot-facts">
-          {shot.spec.durationS} s · {shot.spec.mode} · {shot.spec.camera.move.replace("_", " ")}
-          {shot.takes.length > 0 && ` · ${shot.takes.length} take${shot.takes.length === 1 ? "" : "s"} · ${usd(cost)}`}
+          {tr("{d} s · {mode} · {move}", { d: shot.spec.durationS, mode: tr(shot.spec.mode), move: tr(shot.spec.camera.move.replace("_", " ")) })}
+          {shot.takes.length > 0 && plural(tr, shot.takes.length, " · 1 take · {cost}", " · {n} takes · {cost}", { cost: usd(cost) })}
         </div>
         <div className="st-row" style={{ gap: 4 }}>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onUp} onClick={onUp} aria-label="Move up">
+          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onUp} onClick={onUp} aria-label={tr("Move up")}>
             ↑
           </button>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onDown} onClick={onDown} aria-label="Move down">
+          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onDown} onClick={onDown} aria-label={tr("Move down")}>
             ↓
           </button>
         </div>
@@ -447,13 +451,14 @@ type Compiled = {
 
 function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) {
   const { projectId, view, reload } = useProjectContext();
+  const tr = useT();
   const address = useShotAddress();
   const TABS = ["edit", "compile", "frames", "takes"] as const;
   const tab = TABS.find((t) => t === address.tab) ?? (shot.takes.length ? "takes" : "edit");
   const setTab = (t: (typeof TABS)[number]) => address.setTab(t);
   const [draft, setDraft] = useState<ShotDraft>({ ...shot.spec, promptOverride: shot.promptOverride ?? shot.spec.promptOverride });
   const [dirty, setDirty] = useState(false);
-  const problems = useMemo(() => validateDraft(draft), [draft]);
+  const problems = useMemo(() => validateDraft(draft, tr), [draft, tr]);
 
   const save = useAction(async () => {
     await patch(`/api/shots/${shot.id}`, { ...draft, promptOverride: draft.promptOverride ?? null });
@@ -467,19 +472,19 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
     const { trashId } = await del<{ trashId?: string }>(`/api/shots/${shot.id}`);
     onClose();
     await reload();
-    undoable(trashId, `Deleted shot ${slate}${takes ? ` and its ${takes} ${takes === 1 ? "take" : "takes"}` : ""}`);
+    undoable(trashId, tr("Deleted shot {slate}{takes}", { slate, takes: takes ? plural(tr, takes, " and its 1 take", " and its {n} takes") : "" }));
   });
 
   const elements = view?.elements ?? [];
 
   return (
     <Drawer
-      title={`${view ? `${view.scenes.findIndex((sc) => sc.id === shot.sceneId) + 1}·${shot.index + 1}` : `Shot ${shot.index + 1}`} · ${shot.spec.intent || "untitled"}`}
+      title={`${view ? `${view.scenes.findIndex((sc) => sc.id === shot.sceneId) + 1}·${shot.index + 1}` : tr("Shot {n}", { n: shot.index + 1 })} · ${shot.spec.intent || tr("untitled")}`}
       onClose={onClose}
       head={
         <>
           <Button size="sm" kind="primary" busy={save.busy} disabled={!dirty || problems.length > 0} onClick={() => void save.fire()}>
-            Save
+            {tr("Save")}
           </Button>
         </>
       }
@@ -488,7 +493,7 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
         <div className="st-tabs" role="tablist">
           {(["edit", "compile", "frames", "takes"] as const).map((t) => (
             <button key={t} type="button" role="tab" className="st-tab" aria-selected={tab === t} onClick={() => setTab(t)}>
-              {t === "edit" ? "Edit" : t === "compile" ? "Compile" : t === "frames" ? "Frames" : `Takes${shot.takes.length ? ` (${shot.takes.length})` : ""}`}
+              {t === "edit" ? tr("Edit") : t === "compile" ? tr("Compile") : t === "frames" ? tr("Frames") : shot.takes.length ? tr("Takes ({n})", { n: shot.takes.length }) : tr("Takes")}
             </button>
           ))}
         </div>
@@ -512,8 +517,8 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
             />
             {/* deleting the shot is here, in its own place — never next to the frame buttons */}
             <div className="st-row st-row--between" style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
-              <span className="st-muted">Remove this shot from the board (its takes too). Pictures stay in Pictures.</span>
-              <Button size="sm" kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>Delete this shot</Button>
+              <span className="st-muted">{tr("Remove this shot from the board (its takes too). Pictures stay in Pictures.")}</span>
+              <Button size="sm" kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>{tr("Delete this shot")}</Button>
             </div>
           </>
         )}
@@ -527,6 +532,7 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
 
 function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
   const { projectId } = useProjectContext();
+  const tr = useT();
   const [steps, setSteps] = useState<number | null>(null);
   const [data, setData] = useState<Compiled | null>(null);
   const [basisGpu, setBasisGpu] = useState<string | null>(null);
@@ -548,30 +554,30 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
     <div className="st-stack">
       {dirty && (
         <div className="st-alert st-alert--info">
-          <span>Unsaved edits are not reflected here. Save first.</span>
+          <span>{tr("Unsaved edits are not reflected here. Save first.")}</span>
         </div>
       )}
       <div className="st-row st-row--between">
-        <Field label="Steps" hint="empty = auto: the model's and its speed LoRA's recommendation">
-          <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder="auto" value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Number(e.target.value) : null)} style={{ width: 90 }} />
+        <Field label={tr("Steps")} hint={tr("empty = auto: the model's and its speed LoRA's recommendation")}>
+          <input className="st-input st-input--sm" type="number" min={4} max={50} placeholder={tr("auto")} value={steps ?? ""} onChange={(e) => setSteps(e.target.value ? Number(e.target.value) : null)} style={{ width: 90 }} />
         </Field>
         {data && (
           <dl className="st-kv">
-            <dt>Workflow</dt>
+            <dt>{tr("Workflow")}</dt>
             <dd>{data.workflow}</dd>
-            <dt>Estimate</dt>
+            <dt>{tr("Estimate")}</dt>
             <dd>
-              {usd(data.estimate.usd)} · {Math.round(data.estimate.gpuSeconds)} GPU s
-              <span className="st-muted"> · {data.estimate.source === "measured" ? `measured on ${basisGpu ?? "your GPU"}` : "placeholder constants"}</span>
+              {tr("{cost} · {gpu} GPU s", { cost: usd(data.estimate.usd), gpu: Math.round(data.estimate.gpuSeconds) })}
+              <span className="st-muted"> · {data.estimate.source === "measured" ? tr("measured on {gpu}", { gpu: basisGpu ?? tr("your GPU") }) : tr("placeholder constants")}</span>
             </dd>
-            <dt>Settings</dt>
+            <dt>{tr("Settings")}</dt>
             <dd className="st-num">
-              {data.params ? describeParams(data.params) : `${data.estimate.steps} steps`}
-              {data.paramSources?.length ? <span className="st-muted"> · from {data.paramSources.join(" → ")}</span> : null}
+              {data.params ? describeParams(data.params) : tr("{n} steps", { n: data.estimate.steps })}
+              {data.paramSources?.length ? <span className="st-muted">{tr(" · from {sources}", { sources: data.paramSources.join(" → ") })}</span> : null}
             </dd>
             {data.input?.loras?.length ? (
               <>
-                <dt>LoRAs</dt>
+                <dt>{tr("LoRAs")}</dt>
                 <dd>{data.input.loras.map((l) => `${l.name} ×${l.strength}`).join(", ")}</dd>
               </>
             ) : null}
@@ -591,6 +597,7 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
 
 function TakesPanel({ shot }: { shot: ShotView }) {
   const { projectId, view, reload } = useProjectContext();
+  const tr = useT();
   const [n, setN] = useState(1);
   const [steps, setSteps] = useState<number | null>(null);
   /* the price goes on the button: what this shot compiles to, times the takes asked for */
@@ -622,25 +629,25 @@ function TakesPanel({ shot }: { shot: ShotView }) {
       <ErrorBanner error={generate.error} projectId={projectId} onConfirm={() => void generate.confirm()} onDismiss={generate.dismiss} />
       <div className="st-card st-row st-row--between">
         <div className="st-row">
-          <Field label="Takes">
+          <Field label={tr("Takes")}>
             <NumberInput className="st-input st-input--sm" min={1} max={4} value={n} onCommit={(v) => setN(v ?? 1)} style={{ width: 70 }} />
           </Field>
-          <Field label="Steps">
-            <NumberInput className="st-input st-input--sm" min={4} max={50} placeholder="auto" allowEmpty value={steps} onCommit={(v) => setSteps(v)} style={{ width: 70 }} />
+          <Field label={tr("Steps")}>
+            <NumberInput className="st-input st-input--sm" min={4} max={50} placeholder={tr("auto")} allowEmpty value={steps} onCommit={(v) => setSteps(v)} style={{ width: 70 }} />
           </Field>
         </div>
         <div className="st-stack st-stack--tight" style={{ alignItems: "flex-end" }}>
           <Button kind="tally" busy={generate.busy} onClick={() => void generate.fire()}>
-            Roll take{n > 1 ? `s ${next}–${next + n - 1}` : ` ${next}`}{est ? <span className="st-btn-price"> · ≈ {usd(est.usd * n)}</span> : null}
+            {n > 1 ? tr("Roll takes {a}–{b}", { a: next, b: next + n - 1 }) : tr("Roll take {n}", { n: next })}{est ? <span className="st-btn-price"> · ≈ {usd(est.usd * n)}</span> : null}
           </Button>
           <span className="st-muted st-num">
-            {est ? `${est.source === "measured" ? "from finished takes" : "placeholder constants, nothing measured yet"} · ${Math.round(est.gpuSeconds * n)} GPU s` : why ? `no estimate: ${why}` : "estimating…"}
-            {left !== undefined && est ? ` · ${usd(Math.max(0, left - est.usd * n))} left after` : ""}
+            {est ? tr("{basis} · {gpu} GPU s", { basis: est.source === "measured" ? tr("from finished takes") : tr("placeholder constants, nothing measured yet"), gpu: Math.round(est.gpuSeconds * n) }) : why ? tr("no estimate: {why}", { why }) : tr("estimating…")}
+            {left !== undefined && est ? tr(" · {left} left after", { left: usd(Math.max(0, left - est.usd * n)) }) : ""}
           </span>
         </div>
       </div>
       {shot.takes.length === 0 ? (
-        <Empty title="No takes yet" hint="Steps follow the LoRA: 8 with a turbo LoRA, 20 on the base chain. Leave it empty unless you want to override." />
+        <Empty title={tr("No takes yet")} hint={tr("Steps follow the LoRA: 8 with a turbo LoRA, 20 on the base chain. Leave it empty unless you want to override.")} />
       ) : (
         rows.map((row) => (row.kind === "take" || row.takes.length === 1 ? <TakeRow key={row.kind === "take" ? row.take.id : row.takes[0]!.id} take={row.kind === "take" ? row.take : row.takes[0]!} shot={shot} /> : <NgGroup key={row.takes[0]!.id} takes={row.takes} />))
       )}
@@ -651,6 +658,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
 /* Several takes that failed for one reason: said once, with what they cost together. */
 function NgGroup({ takes }: { takes: Take[] }) {
   const { projectId, reload } = useProjectContext();
+  const tr = useT();
   const newest = takes[0]!;
   const retry = useAction(async (confirm) => {
     await post(`/api/takes/${newest.id}/retry`, { confirm });
@@ -660,11 +668,11 @@ function NgGroup({ takes }: { takes: Take[] }) {
     <div className="st-take st-take--ng">
       <div className="st-take-ng-mark st-num">NG</div>
       <div className="st-stack st-stack--tight">
-        <strong>Takes {takes.map((t) => t.n).sort((a, b) => a - b).join(", ")} · the same failure</strong>
-        <span className="st-muted st-num">{newest.workflow} · {usd(takes.reduce((n, t) => n + (t.costUsd ?? 0), 0))} together</span>
-        <div className="st-alert"><span>{newest.error ?? "failed"}</span></div>
+        <strong>{tr("Takes {list} · the same failure", { list: takes.map((t) => t.n).sort((a, b) => a - b).join(", ") })}</strong>
+        <span className="st-muted st-num">{tr("{workflow} · {cost} together", { workflow: newest.workflow, cost: usd(takes.reduce((n, t) => n + (t.costUsd ?? 0), 0)) })}</span>
+        <div className="st-alert"><span>{newest.error ?? tr("failed")}</span></div>
         <ErrorBanner error={retry.error} projectId={projectId} onConfirm={() => void retry.confirm()} onDismiss={retry.dismiss} />
-        <div className="st-row"><Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>Retry take {newest.n}</Button></div>
+        <div className="st-row"><Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>{tr("Retry take {n}", { n: newest.n })}</Button></div>
       </div>
     </div>
   );
@@ -672,6 +680,7 @@ function NgGroup({ takes }: { takes: Take[] }) {
 
 function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   const { projectId, reload } = useProjectContext();
+  const tr = useT();
   const [notes, setNotes] = useState(take.review?.notes ?? "");
   const [score, setScore] = useState<number | undefined>(take.review?.score);
   const [faults, setFaults] = useState<TakeFault[]>(take.review?.faults ?? []);
@@ -717,19 +726,19 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           <video className="st-video" src={playUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
         ) : (
           <div className="st-video" style={{ display: "grid", placeItems: "center" }}>
-            <Lamp state={take.status} label={statusLabel(take.status)} />
+            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
           </div>
         )}
       </div>
       <div className="st-stack st-stack--tight">
         <div className="st-row st-row--between">
           <div className="st-row">
-            <strong className="st-num">Take {take.n}</strong>
-            <Lamp state={take.status} label={statusLabel(take.status)} />
-            {selected && <span className="st-chip" aria-pressed="true">Selected</span>}
+            <strong className="st-num">{tr("Take {n}", { n: take.n })}</strong>
+            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
+            {selected && <span className="st-chip" aria-pressed="true">{tr("Selected")}</span>}
           </div>
           <span className="st-muted st-num">
-            {take.workflow} · seed {take.seed ?? "—"} · {usd(take.costUsd)}
+            {tr("{workflow} · seed {seed} · {cost}", { workflow: take.workflow, seed: take.seed ?? "—", cost: usd(take.costUsd) })}
             {take.executionMs ? ` · ${Math.round(take.executionMs / 1000)}s` : ""}
           </span>
         </div>
@@ -744,13 +753,13 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           <div className="st-row" style={{ flexWrap: "wrap", gap: 8 }}>
             {up?.status === "completed" && up.url ? (
               <>
-                <span className="st-chip" aria-pressed={show2k}>{up.resolution.toUpperCase()} ready{up.costUsd ? ` · ${usd(up.costUsd)}` : ""}</span>
-                <Button kind="quiet" size="sm" onClick={() => setShow2k((v) => !v)}>{show2k ? "Show 768p" : `Show ${up.resolution.toUpperCase()}`}</Button>
+                <span className="st-chip" aria-pressed={show2k}>{tr("{res} ready", { res: up.resolution.toUpperCase() })}{up.costUsd ? ` · ${usd(up.costUsd)}` : ""}</span>
+                <Button kind="quiet" size="sm" onClick={() => setShow2k((v) => !v)}>{tr("Show {res}", { res: show2k ? "768p" : up.resolution.toUpperCase() })}</Button>
               </>
             ) : upActive ? (
               <>
-                <span className="st-muted st-num">Regenerate {up!.resolution.toUpperCase()}: {up!.status}{up!.progress?.stage ? ` · ${STAGE_LABEL[up!.progress.stage] ?? up!.progress.stage}` : ""}{up!.progress?.stage === "sampling" && up!.progress.total ? ` ${up!.progress.step ?? 0}/${up!.progress.total}` : ""}</span>
-                <Button kind="quiet" size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire()}>Cancel</Button>
+                <span className="st-muted st-num">{tr("Regenerate {res}: {status}", { res: up!.resolution.toUpperCase(), status: tr(up!.status) })}{up!.progress?.stage ? ` · ${tr(STAGE_LABEL[up!.progress.stage] ?? up!.progress.stage)}` : ""}{up!.progress?.stage === "sampling" && up!.progress.total ? ` ${up!.progress.step ?? 0}/${up!.progress.total}` : ""}</span>
+                <Button kind="quiet" size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire()}>{tr("Cancel")}</Button>
               </>
             ) : (
               <>
@@ -761,10 +770,10 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
                 </select>
                 <label className="st-row" style={{ gap: 4 }}>
                   <input type="checkbox" checked={closeToDraft} onChange={(e) => setCloseToDraft(e.target.checked)} />
-                  <span className="st-muted">stay close to the draft</span>
+                  <span className="st-muted">{tr("stay close to the draft")}</span>
                 </label>
-                <Button size="sm" busy={regen.busy} onClick={() => void regen.fire()} title="Open-H3-Regenerate-2K: three refine steps on the pod">Regenerate {resolution.toUpperCase()}</Button>
-                {up?.status === "failed" && <span className="st-danger">{up.error ?? "regeneration failed"}</span>}
+                <Button size="sm" busy={regen.busy} onClick={() => void regen.fire()} title={tr("Open-H3-Regenerate-2K: three refine steps on the pod")}>{tr("Regenerate {res}", { res: resolution.toUpperCase() })}</Button>
+                {up?.status === "failed" && <span className="st-danger">{up.error ?? tr("regeneration failed")}</span>}
               </>
             )}
           </div>
@@ -778,64 +787,64 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
         )}
         <div className="st-row">
           <Stars value={score} onChange={setScore} />
-          <input className="st-input st-input--sm" style={{ flex: 1, minWidth: 120 }} placeholder="Review notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <input className="st-input st-input--sm" style={{ flex: 1, minWidth: 120 }} placeholder={tr("Review notes")} value={notes} onChange={(e) => setNotes(e.target.value)} />
           <Button size="sm" busy={review.busy} disabled={!score} onClick={() => void review.fire()}>
-            Save review
+            {tr("Save review")}
           </Button>
         </div>
         {take.status === "completed" && (
           <details>
-            <summary className="st-muted">What went wrong (feeds the retro){faults.length ? ` · ${faults.length}` : ""}</summary>
+            <summary className="st-muted">{tr("What went wrong (feeds the retro)")}{faults.length ? ` · ${faults.length}` : ""}</summary>
             <div className="st-chips" style={{ marginTop: 6 }}>
               {TAKE_FAULTS.map((f) => (
                 <button key={f} type="button" className="st-chip" aria-pressed={faults.includes(f)} onClick={() => setFaults((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}>
-                  {f.replaceAll("_", " ")}
+                  {tr(f.replaceAll("_", " "))}
                 </button>
               ))}
             </div>
             <label className="st-row" style={{ gap: 6, marginTop: 6 }}>
               <input type="checkbox" checked={audioOk === false} onChange={(e) => setAudioOk(e.target.checked ? false : true)} />
-              <span className="st-muted">Sound unusable — mute this take's own audio on the timeline</span>
+              <span className="st-muted">{tr("Sound unusable — mute this take's own audio on the timeline")}</span>
             </label>
           </details>
         )}
         {take.review && (
           <span className="st-muted">
-            Reviewed {take.review.score}/5 by {take.review.by}
+            {tr("Reviewed {score}/5 by {by}", { score: take.review.score, by: tr(`${take.review.by}||reviewer`) })}
             {take.review.notes ? ` — ${take.review.notes}` : ""}
-            {take.review.faults?.length ? ` · ${take.review.faults.join(", ").replaceAll("_", " ")}` : ""}
-            {take.review.audioOk === false ? " · audio muted" : ""}
-            {take.review.basis ? ` · basis: ${take.review.basis}` : ""}
+            {take.review.faults?.length ? ` · ${take.review.faults.map((f) => tr(f.replaceAll("_", " "))).join(", ")}` : ""}
+            {take.review.audioOk === false ? tr(" · audio muted") : ""}
+            {take.review.basis ? tr(" · basis: {basis}", { basis: take.review.basis }) : ""}
           </span>
         )}
         {take.workflow === "REMAKE" && typeof take.input.studio_remake === "object" && take.input.studio_remake ? (
-          <span className="st-muted">Remake ({String((take.input.studio_remake as { mode?: string }).mode)}) of take #{String((take.input.studio_remake as { sourceN?: number }).sourceN ?? "?")}</span>
+          <span className="st-muted">{tr("Remake ({mode}) of take #{n}", { mode: tr(String((take.input.studio_remake as { mode?: string }).mode)), n: String((take.input.studio_remake as { sourceN?: number }).sourceN ?? "?") })}</span>
         ) : null}
         {remakeOpen && take.status === "completed" && <RemakePanel take={take} onClose={() => setRemakeOpen(false)} />}
         <div className="st-row">
           {take.status === "completed" && !remakeOpen && (
-            <Button size="sm" kind="quiet" onClick={() => setRemakeOpen(true)} title="Viggle Remake: fix props, wardrobe, a face or the background from painted frames, keeping the motion">
-              Fix with Remake
+            <Button size="sm" kind="quiet" onClick={() => setRemakeOpen(true)} title={tr("Viggle Remake: fix props, wardrobe, a face or the background from painted frames, keeping the motion")}>
+              {tr("Fix with Remake")}
             </Button>
           )}
           {take.status === "completed" && !selected && (
             <Button size="sm" kind="primary" busy={select.busy} onClick={() => void select.fire()}>
-              Use this take
+              {tr("Use this take")}
             </Button>
           )}
           {active && (
             <Button size="sm" kind="quiet" busy={cancel.busy} onClick={() => void cancel.fire()}>
-              Cancel
+              {tr("Cancel")}
             </Button>
           )}
           {(take.status === "failed" || take.status === "timeout") && (
             <Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>
-              Retry
+              {tr("Retry")}
             </Button>
           )}
           {take.resultUrl && (
             <a className="st-btn st-btn--quiet st-btn--sm" href={take.resultUrl} download target="_blank" rel="noreferrer">
-              Download
+              {tr("Download")}
             </a>
           )}
         </div>
@@ -850,9 +859,9 @@ const STAGE_LABEL: Record<string, string> = {
   decoding: "decoding video", finishing: "finishing", uploading: "uploading to R2", error: "error", interrupted: "interrupted",
 };
 
-function eta(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)} s`;
-  return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+function eta(seconds: number, tr: T): string {
+  if (seconds < 60) return tr("{s} s", { s: Math.round(seconds) });
+  return tr("{m} min {s} s", { m: Math.floor(seconds / 60), s: Math.round(seconds % 60) });
 }
 
 /* Where a running take is: the pod reports stage and sampling step through
@@ -860,6 +869,7 @@ function eta(seconds: number): string {
    also asks /api/takes/:id itself every few seconds (that call refreshes the
    take from the pod), so the bar does not depend on the event stream. */
 function TakeProgressBar({ take: fromView }: { take: Take }) {
+  const tr = useT();
   const [live, setLive] = useState<Take>(fromView);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => setLive(fromView), [fromView]);
@@ -880,18 +890,18 @@ function TakeProgressBar({ take: fromView }: { take: Take }) {
   const take = live;
   const p = take.progress;
   const ageS = p?.at ? Math.max(0, Math.round(now / 1000 - p.at)) : undefined;
-  if (take.status === "queued" && !take.requestId) return <p className="st-muted">Waiting for the GPU pod</p>;
-  if (!p) return <p className="st-muted">{take.status === "queued" ? "Queued on the pod" : "Running (no progress reported yet)"}</p>;
+  if (take.status === "queued" && !take.requestId) return <p className="st-muted">{tr("Waiting for the GPU pod")}</p>;
+  if (!p) return <p className="st-muted">{take.status === "queued" ? tr("Queued on the pod") : tr("Running (no progress reported yet)")}</p>;
   const percent = p.stage === "sampling" ? (p.percent ?? 0) : p.stage === "decoding" ? 92 : p.stage === "finishing" || p.stage === "uploading" ? 97 : p.stage === "loading" ? 5 : 2;
   const detail = p.stage === "sampling" && p.total
-    ? `step ${p.step ?? 0}/${p.total}${p.secondsPerStep ? ` · ${p.secondsPerStep} s/step` : ""}${p.etaSeconds !== undefined ? ` · ~${eta(p.etaSeconds)} left` : ""}`
+    ? `${tr("step {a}/{b}", { a: p.step ?? 0, b: p.total })}${p.secondsPerStep ? tr(" · {s} s/step", { s: p.secondsPerStep }) : ""}${p.etaSeconds !== undefined ? tr(" · ~{eta} left", { eta: eta(p.etaSeconds, tr) }) : ""}`
     : "";
   return (
     <div className="st-stack st-stack--tight">
       <div className="st-progress" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
         <div className="st-progress__fill" style={{ width: `${percent}%` }} data-indeterminate={p.stage !== "sampling" ? "true" : undefined} />
       </div>
-      <span className="st-muted st-num">{STAGE_LABEL[p.stage] ?? p.stage}{detail ? ` · ${detail}` : ""}{ageS !== undefined && ageS > 20 ? ` · updated ${ageS} s ago` : ""}</span>
+      <span className="st-muted st-num">{tr(STAGE_LABEL[p.stage] ?? p.stage)}{detail ? ` · ${detail}` : ""}{ageS !== undefined && ageS > 20 ? tr(" · updated {s} s ago", { s: ageS }) : ""}</span>
     </div>
   );
 }
