@@ -4076,3 +4076,69 @@ button.st-pill {
 .studio .cut-row .st-field:first-child {
   flex: 1 1 96px;
 }
+
+/* ---------- Director: who decides what ---------- */
+
+.studio .dir-status {
+  font-size: 12px;
+}
+.studio .dir-cols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px 40px;
+  align-items: flex-start;
+}
+.studio .dir-col {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.studio .dir-col--wide {
+  flex: 1.4 1 400px;
+}
+.studio .dir-none {
+  padding-top: 10px;
+}
+.studio .dir-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.studio .dir-warn .sc-bang {
+  margin: 2px 0 0;
+}
+.studio .dir-warn > div {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.studio .dir-warn strong {
+  display: block;
+  font-weight: 600;
+}
+.studio .dir-warn .st-num {
+  display: block;
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--tx2);
+}
+.studio .dir-warn .st-link {
+  white-space: nowrap;
+}
+.studio .dir-notes-cap {
+  margin-top: 18px;
+}
+.studio .dir-notes td,
+.studio .dir-notes th {
+  padding: 7px 10px 7px 0;
+  vertical-align: top;
+  font-size: 12.5px;
+}
+.studio .dir-notes td.st-num {
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.studio .dir-places a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

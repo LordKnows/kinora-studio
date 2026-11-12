@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 
 import { del, get, patch, put } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
-import { DirectorPanel } from "./director-panel";
 import { useProjectContext } from "./shell";
 
 /* Project settings: what belongs to this film only. The pod, the library
@@ -36,7 +35,7 @@ export function SettingsPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">Project settings</h1>
-          <p className="st-subtitle">Name, budget, and what the director keeps for you. The GPU, the library and the director connection live under Machine, Library and Connect.</p>
+          <p className="st-subtitle">Name, budget and who sees the film. What the director may do is on the Director page; the GPU, the library and the connection live under Machine, Library and Connect.</p>
         </div>
       </div>
       <ErrorBanner error={save.error ?? remove.error} onDismiss={() => { save.dismiss(); remove.dismiss(); }} />
@@ -55,10 +54,10 @@ export function SettingsPage() {
         </div>
       </div>
       <SharingCard />
-      <DirectorPanel projectId={projectId} />
       <div className="st-card st-stack" style={{ marginTop: 20 }}>
         <span className="st-h2">Elsewhere</span>
         <div className="st-row">
+          <Link className="st-btn" href={`/p/${projectId}/director`}>Director</Link>
           <Link className="st-btn" href="/machine">Machine</Link>
           <Link className="st-btn" href="/library">Library</Link>
           <Link className="st-btn" href="/connect">Connect</Link>

@@ -106,17 +106,25 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
     await patch(`/api/notes/${id}`, { status });
     await refresh();
   });
+  const [newReq, setNewReq] = useState("");
+  const addReq = useAction(async () => {
+    const text = newReq.trim();
+    if (!text) return;
+    await post(`/api/projects/${projectId}/notes`, { text });
+    setNewReq("");
+    await refresh();
+  });
   const overturn = useAction(async (_c, id: string) => {
     const reason = window.prompt("Why overturn this decision? The director reads it.") ?? "";
     await post(`/api/notes/${id}/overturn`, { reason });
     await refresh();
   });
-  const error = grant.error ?? revoke.error ?? setReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
+  const error = grant.error ?? revoke.error ?? setReq.error ?? addReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
 
   return (
-    <div className="st-card st-stack" style={{ marginTop: 20 }}>
-      <span className="st-h2">Director</span>
-      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />
+    <div className="st-card st-stack">
+      <span className="st-h2">What the director may do, and what it has decided</span>
+      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />
 
       <div className="st-stack st-stack--tight">
         <strong>Image generation</strong>
@@ -285,7 +293,11 @@ export function DirectorPanel({ projectId }: { projectId: string }) {
 
       <div className="st-stack st-stack--tight">
         <strong>Requirements {notes ? `· ${notes.requirements.filter((r) => r.status === "open").length} open` : ""}</strong>
-        {notes?.requirements.length === 0 && <span className="st-muted">The director records what you ask for here (add_requirements).</span>}
+        {notes?.requirements.length === 0 && <span className="st-muted">A requirement is a sentence the film is held to at every review. The director records what you ask for here; you can add one yourself.</span>}
+        <form className="st-row" onSubmit={(e) => { e.preventDefault(); void addReq.fire(); }}>
+          <input className="st-input" style={{ flex: 1, minWidth: 160 }} aria-label="A requirement in your own words" placeholder="In your own words, e.g. the cat never looks into the camera" maxLength={500} value={newReq} onChange={(e) => setNewReq(e.target.value)} />
+          <Button type="submit" busy={addReq.busy} disabled={!newReq.trim()}>Add</Button>
+        </form>
         {notes?.requirements.map((r) => (
           <div key={r.id} className="st-row st-row--between">
             <span style={{ textDecoration: r.status === "dropped" ? "line-through" : undefined }}>{r.status === "met" ? "✓ " : ""}{String(r.body.text)}</span>
