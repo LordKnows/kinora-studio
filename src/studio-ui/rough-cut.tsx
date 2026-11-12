@@ -6,6 +6,7 @@ import type { ProjectView } from "@/studio/orchestrator";
 import type { TimelineInput } from "@/studio/schemas";
 
 import { Button } from "./common";
+import { useT } from "./i18n";
 
 /* A rough cut in the browser: the timeline's clips played back to back from
    their R2 files, honouring in/out points and repeats, with hard cuts only.
@@ -15,6 +16,7 @@ import { Button } from "./common";
 type Segment = { url: string; inS: number; outS: number; shotId: string; label: string };
 
 export function RoughCut({ timeline, view }: { timeline: TimelineInput; view: ProjectView }) {
+  const t = useT();
   const takes = useMemo(() => {
     const map = new Map<string, { url?: string; shotIndex: number; intent: string }>();
     for (const scene of view.scenes) for (const shot of scene.shots) for (const take of shot.takes) map.set(take.id, { url: take.resultUrl, shotIndex: shot.index, intent: shot.spec.intent });
@@ -64,7 +66,7 @@ export function RoughCut({ timeline, view }: { timeline: TimelineInput; view: Pr
     }
   };
 
-  if (segments.length === 0) return <p className="st-muted">Nothing to preview yet: the timeline needs clips whose takes have finished.</p>;
+  if (segments.length === 0) return <p className="st-muted">{t("Nothing to preview yet: the timeline needs clips whose takes have finished.")}</p>;
   const seg = segments[index]!;
   return (
     <div className="st-roughcut">
@@ -72,13 +74,13 @@ export function RoughCut({ timeline, view }: { timeline: TimelineInput; view: Pr
       <div className="st-row st-row--between" style={{ marginTop: 8 }}>
         <div className="st-row">
           <Button size="sm" kind="primary" onClick={() => { if (playing) { video.current?.pause(); setPlaying(false); } else { setPlaying(true); void video.current?.play(); } }}>
-            {playing ? "Pause" : index === 0 && position === 0 ? "Play rough cut" : "Play"}
+            {playing ? t("Pause") : index === 0 && position === 0 ? t("Play rough cut") : t("Play")}
           </Button>
-          <Button size="sm" kind="quiet" onClick={() => { setIndex(0); setPosition(0); setPlaying(false); video.current?.pause(); }}>Restart</Button>
-          <Button size="sm" kind="quiet" disabled={index === 0} onClick={() => setIndex(Math.max(0, index - 1))}>Prev</Button>
-          <Button size="sm" kind="quiet" disabled={index + 1 >= segments.length} onClick={() => setIndex(index + 1)}>Next</Button>
+          <Button size="sm" kind="quiet" onClick={() => { setIndex(0); setPosition(0); setPlaying(false); video.current?.pause(); }}>{t("Restart||playback")}</Button>
+          <Button size="sm" kind="quiet" disabled={index === 0} onClick={() => setIndex(Math.max(0, index - 1))}>{t("Prev")}</Button>
+          <Button size="sm" kind="quiet" disabled={index + 1 >= segments.length} onClick={() => setIndex(index + 1)}>{t("Next")}</Button>
         </div>
-        <span className="st-muted st-num">{position.toFixed(1)} / {total.toFixed(1)} s · clip {index + 1}/{segments.length}</span>
+        <span className="st-muted st-num">{t("{pos} / {total} s · clip {i}/{n}", { pos: position.toFixed(1), total: total.toFixed(1), i: index + 1, n: segments.length })}</span>
       </div>
       <div className="st-roughcut-strip" aria-hidden>
         {segments.map((s, i) => (
@@ -86,7 +88,7 @@ export function RoughCut({ timeline, view }: { timeline: TimelineInput; view: Pr
         ))}
       </div>
       <div className="st-muted" style={{ marginTop: 4 }}>{seg.label}</div>
-      <p className="st-muted" style={{ marginTop: 6 }}>Hard cuts only; dissolves, music and subtitles appear in the exported file.</p>
+      <p className="st-muted" style={{ marginTop: 6 }}>{t("Hard cuts only; dissolves, music and subtitles appear in the exported file.")}</p>
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { filmShots } from "./film";
 import { needsOf, type LintWarning } from "./needs";
 import { NeedsYou } from "./score-page";
 import { useProjectContext } from "./shell";
-import { useT } from "./i18n";
+import { plural, useT, type T } from "./i18n";
 import { useLint } from "./use-lint";
 
 /* The director's desk: who decides what. On the left what waits for the
@@ -42,13 +42,13 @@ export function DirectorPage() {
     <div className="st-page dir-page">
       <div className="st-page-head">
         <div>
-          <h1 className="st-title">Who decides what</h1>
-          <p className="st-subtitle">What waits for you, what the checks found, and what the director may do without asking.</p>
+          <h1 className="st-title">{t("Who decides what")}</h1>
+          <p className="st-subtitle">{t("What waits for you, what the checks found, and what the director may do without asking.")}</p>
         </div>
         <div className="dir-status">
           {rolling.length > 0
-            ? <span className="st-lamp" data-state="running">{rolling.length} {rolling.length === 1 ? "take is" : "takes are"} rolling</span>
-            : <span className="st-lamp" data-state="draft">Nothing is rolling · last change {when(view.project.updatedAt)}</span>}
+            ? <span className="st-lamp" data-state="running">{plural(t, rolling.length, "1 take is rolling", "{n} takes are rolling")}</span>
+            : <span className="st-lamp" data-state="draft">{t("Nothing is rolling · last change {when}", { when: when(view.project.updatedAt) })}</span>}
         </div>
       </div>
 
@@ -58,22 +58,22 @@ export function DirectorPage() {
           <RecentlyDeleted projectId={projectId} onRestored={reload} />
         </div>
 
-        <section className="dir-col dir-col--wide" id="problems" aria-label="Problems">
+        <section className="dir-col dir-col--wide" id="problems" aria-label={t("Problems")}>
           <div className="cut-h-row">
-            <h2 className="cut-h">Problems</h2>
-            <span className="st-num">{lint ? `${lint.counts.error} ${lint.counts.error === 1 ? "error" : "errors"} · ${lint.counts.warn} ${lint.counts.warn === 1 ? "warning" : "warnings"} · ${lint.counts.info} notes` : "checking…"}</span>
+            <h2 className="cut-h">{t("Problems")}</h2>
+            <span className="st-num">{lint ? `${plural(t, lint.counts.error, "1 error", "{n} errors")} · ${plural(t, lint.counts.warn, "1 warning", "{n} warnings")} · ${t("{n} notes", { n: lint.counts.info })}` : t("checking…")}</span>
           </div>
-          {lint && loud.length === 0 && <p className="st-muted dir-none">No errors and no warnings.</p>}
+          {lint && loud.length === 0 && <p className="st-muted dir-none">{t("No errors and no warnings.")}</p>}
           {loudGroups.map((g) => {
             const first = g.items[0]!;
             const places = g.items.map(slateOf).filter((x): x is { label: string; href: string } => Boolean(x));
-            const open = first.code.startsWith("seam.") ? { label: "Open in Cut", href: `${base}/timeline#seams` } : first.code.startsWith("treatment") ? { label: "Open Script", href: `${base}/script` } : first.code.startsWith("look.") ? { label: "Open Brief & style", href: `${base}/look` } : places[0] ? { label: `Open ${places[0].label}`, href: places[0].href } : undefined;
+            const open = first.code.startsWith("seam.") ? { label: t("Open in Cut"), href: `${base}/timeline#seams` } : first.code.startsWith("treatment") ? { label: t("Open Script"), href: `${base}/script` } : first.code.startsWith("look.") ? { label: t("Open Brief & style"), href: `${base}/look` } : places[0] ? { label: t("Open {s}", { s: places[0].label }), href: places[0].href } : undefined;
             return (
               <div key={g.key} className="dir-warn" data-severity={first.severity}>
                 <i className="sc-bang">{first.severity === "error" ? "×" : "!"}</i>
                 <div>
-                  <strong>{g.items.length > 1 ? sameMessage(g.items) : first.message}</strong>
-                  <span className="st-num">{first.code}{g.items.length > 1 ? ` × ${g.items.length}` : ""}{places.length ? ` · ${places.map((p) => p.label).join(", ")}` : first.scene ? ` · ${first.scene}` : " · film"}</span>
+                  <strong>{g.items.length > 1 ? sameMessage(g.items, t) : first.message}</strong>
+                  <span className="st-num">{first.code}{g.items.length > 1 ? ` × ${g.items.length}` : ""}{places.length ? ` · ${places.map((p) => p.label).join(", ")}` : first.scene ? ` · ${first.scene}` : t(" · film")}</span>
                 </div>
                 {open && <Link className="st-link" href={open.href}>{open.label}</Link>}
               </div>
@@ -81,10 +81,10 @@ export function DirectorPage() {
           })}
           {noteGroups.length > 0 && (
             <>
-              <span className="sc-cap dir-notes-cap">Notes · {notes.length}, by kind</span>
+              <span className="sc-cap dir-notes-cap">{t("Notes · {n}, by kind", { n: notes.length })}</span>
               <div className="st-table-scroll">
                 <table className="st-table dir-notes">
-                  <thead><tr><th>Check</th><th>n</th><th>Where and what</th></tr></thead>
+                  <thead><tr><th>{t("Check||lint")}</th><th>n</th><th>{t("Where and what")}</th></tr></thead>
                   <tbody>
                     {noteGroups.map((g) => {
                       const places = g.items.map(slateOf).filter((x): x is { label: string; href: string } => Boolean(x));
@@ -121,7 +121,7 @@ function groupBy<T>(items: T[], key: (x: T) => string): Array<{ key: string; ite
 }
 
 /* several warnings of one kind: their message when it is the same, else the first with a count */
-function sameMessage(items: LintWarning[]): string {
+function sameMessage(items: LintWarning[], t: T): string {
   const first = items[0]!.message;
-  return items.every((w) => w.message === first) ? first : `${first} (and ${items.length - 1} more like it)`;
+  return items.every((w) => w.message === first) ? first : t("{first} (and {n} more like it)", { first, n: items.length - 1 });
 }
