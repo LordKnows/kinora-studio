@@ -52,7 +52,8 @@ export function Button({
 }: {
   children: ReactNode;
   onClick?: () => void;
-  kind?: "default" | "primary" | "quiet" | "danger";
+  /** tally: the one red button of a page — the next step, or a spend */
+  kind?: "default" | "primary" | "quiet" | "danger" | "tally";
   size?: "sm";
   busy?: boolean;
   disabled?: boolean;

@@ -22,8 +22,8 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large", "max-snippet": -1, "max-video-preview": -1 } },
 };
 
-/* One look, pinned dark, so the browser chrome follows the studio ground. */
-export const viewport: Viewport = { colorScheme: "dark", themeColor: STUDIO_BG };
+/* Lights up by default (the grey card), so the browser chrome follows the studio ground. */
+export const viewport: Viewport = { colorScheme: "light", themeColor: STUDIO_BG };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

@@ -1,26 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { createContext, useContext, type ReactNode } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { createContext, Suspense, useContext, useMemo, type ReactNode } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 
 import { usd } from "./api";
 import { Lamp, Skeleton, usePopover } from "./common";
+import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
 import { MenuIcon } from "./icons";
 import { useProject } from "./use-project";
 
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
    pill, the global pages (folded into a menu on phones). ProjectShell adds
-   the left rail with the six steps of a film in working order and the
-   budget (on phones the steps are the bottom tab bar, and the rest of the
-   rail — budget, readiness, Project settings — heads the menu); GlobalShell
-   is the plain
-   frame for the home, Canvas, Library, Machine and Connect pages. Pages read the
-   shared project view through ProjectContext so one SSE subscription serves
-   the whole project. */
+   the project bar under it: the stages of a film as one row of words, the
+   budget, and the line — the whole film to scale, one segment a shot, which
+   is how you move through a project (there is no side rail). GlobalShell is
+   the plain frame for the home, Canvas, Library, Machine and Connect pages.
+   Pages read the shared project view through ProjectContext so one SSE
+   subscription serves the whole project. The Screening page is lights down:
+   the shell turns dark around it and leaves the bar out, since that page
+   carries its own strip of the film. */
 
 type Ctx = { projectId: string; view: ProjectView | null; error: string | null; loading: boolean; reload: () => Promise<void> };
 
@@ -32,14 +34,16 @@ export function useProjectContext(): Ctx {
   return ctx;
 }
 
-export const PROJECT_NAV: Array<{ slug: string; label: string; step: string }> = [
-  { slug: "look", label: "Brief & style", step: "1" },
-  { slug: "script", label: "Script", step: "2" },
-  { slug: "elements", label: "Elements", step: "3" },
-  { slug: "board", label: "Board", step: "4" },
-  { slug: "pictures", label: "Pictures", step: "·" },
-  { slug: "finals", label: "Finals", step: "5" },
-  { slug: "timeline", label: "Timeline", step: "6" },
+/** The stages of a film in working order. An empty slug is the Score, the project's home. */
+export const PROJECT_NAV: Array<{ slug: string; label: string }> = [
+  { slug: "", label: "Score" },
+  { slug: "look", label: "Brief & style" },
+  { slug: "script", label: "Script" },
+  { slug: "elements", label: "Elements" },
+  { slug: "board", label: "Board" },
+  { slug: "pictures", label: "Pictures" },
+  { slug: "timeline", label: "Cut" },
+  { slug: "director", label: "Director" },
 ];
 
 const GLOBAL_NAV: Array<{ href: string; label: string }> = [
@@ -117,11 +121,13 @@ export function GlobalShell({ children, crumb }: { children: ReactNode; crumb?: 
 export function ProjectShell({ projectId, children }: { projectId: string; children: ReactNode }) {
   const { view, error, loading, reload } = useProject(projectId);
   const pathname = usePathname();
+  const base = `/p/${projectId}`;
+  const lightsDown = pathname === `${base}/screening`;
   const spent = view?.project.spentUsd ?? 0;
   const cap = view?.project.budgetCapUsd ?? 0;
-  const pct = cap > 0 ? Math.min(100, (spent / cap) * 100) : 0;
   const target = view?.project.targetSeconds;
-  const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
+  const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
+  const boardSeconds = filmSeconds(shots);
   const lampFor = (slug: string): { state: string; label: string } | null => {
     if (!view) return null;
     if (slug === "script") {
@@ -134,91 +140,106 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
     }
     return null;
   };
-  const settingsHref = `/p/${projectId}/settings`;
+  const settingsHref = `${base}/settings`;
   const name = view?.project.name ?? (loading ? "…" : "Project");
-  /* the rail's head on wide screens, the menu's head on phones */
   const meter = (
     <>
-      <div className="st-rail-name" title={view?.project.name}>{name}</div>
-      <div className="st-rail-budget">
-        <span>Spent</span>
-        <span className="st-num">{usd(spent)} / {usd(cap)}</span>
-      </div>
-      <div className="st-rail-bar" data-over={spent > cap ? "true" : "false"}>
-        <span style={{ width: `${pct}%` }} />
-      </div>
-      {target !== undefined && (
-        <div className="st-rail-target st-num" data-match={boardSeconds === target ? "true" : "false"}>
-          board {boardSeconds} s · target {target} s
-        </div>
-      )}
+      <span className="st-num" data-over={cap > 0 && spent > cap ? "true" : undefined}>{usd(spent)} / {usd(cap)}</span>
+      {target !== undefined && <span className="st-num" data-match={boardSeconds === target ? "true" : "false"}>board {boardSeconds} s · target {target} s</span>}
     </>
   );
-  const readiness = view && (view.canGenerate ? <Lamp state="ok" label="Ready to render" /> : <span>{view.blockers.join(" · ")}</span>);
+  const readiness = view && (view.canGenerate ? <Lamp state="ok" label="Ready to render" /> : <Lamp state="warn" label={view.blockers.join(" · ")} />);
+  /* phones: the bar's meter and the way to Project settings head the menu */
   const menuHead = (
     <nav className="st-nav-menu-project" aria-label="Project">
       <div className="st-nav-menu-meter">
-        {meter}
+        <div className="st-rail-name" title={view?.project.name}>{name}</div>
+        <div className="sc-meter">{meter}</div>
         {readiness && <div className="st-nav-menu-ready">{readiness}</div>}
       </div>
       <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Project settings</Link>
     </nav>
   );
   const items = PROJECT_NAV.map((item) => {
-    const href = `/p/${projectId}/${item.slug}`;
-    return { ...item, href, current: pathname === href || pathname?.startsWith(`${href}/`), lamp: lampFor(item.slug) };
+    const href = item.slug ? `${base}/${item.slug}` : base;
+    const current = item.slug ? pathname === href || pathname?.startsWith(`${href}/`) : pathname === base;
+    return { ...item, href, current, lamp: lampFor(item.slug) };
   });
+  const body = (
+    <>
+      <TopBar crumb={<><span>/</span><strong title={view?.project.name}>{name}</strong></>} menuHead={menuHead} />
+      {!lightsDown && (
+        <div className="sc-bar">
+          <div className="sc-bar-row">
+            <nav className="sc-stages" aria-label="Project">
+              {items.map((item) => (
+                <Link key={item.slug} href={item.href} aria-current={item.current ? "page" : undefined}>
+                  {item.label}
+                  {item.lamp && <span className="st-lamp" data-state={item.lamp.state} title={item.lamp.label} aria-label={item.lamp.label} />}
+                </Link>
+              ))}
+            </nav>
+            <div className="sc-meter">
+              {meter}
+              {readiness}
+              <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Settings</Link>
+            </div>
+          </div>
+          {shots.length > 0 && (
+            <Suspense fallback={<div className="sc-line" />}>
+              <FilmLine projectId={projectId} shots={shots} />
+            </Suspense>
+          )}
+        </div>
+      )}
+      <main className="st-main">
+        {error && !view ? (
+          <div className="st-page">
+            <div className="st-alert" role="alert">
+              <span>{error}</span>
+            </div>
+          </div>
+        ) : !view && loading ? (
+          <div className="st-page st-stack">
+            <Skeleton height={28} />
+            <Skeleton height={220} />
+            <Skeleton height={220} />
+          </div>
+        ) : (
+          children
+        )}
+      </main>
+    </>
+  );
   return (
     <ProjectContext.Provider value={{ projectId, view, error, loading, reload }}>
-      <TopBar crumb={<><span>/</span><strong title={view?.project.name}>{name}</strong></>} menuHead={menuHead} />
-      <div className="st-shell">
-        <nav className="st-rail" aria-label="Project">
-          <div className="st-rail-head">
-            <Link className="st-rail-brand" href="/">← All projects</Link>
-            {meter}
-          </div>
-          <div className="st-rail-nav">
-            {items.map((item) => (
-              <Link key={item.slug} href={item.href} aria-current={item.current ? "page" : undefined}>
-                <span className="st-row" style={{ gap: 10, flexWrap: "nowrap" }}>
-                  <span className="st-step">{item.step}</span>
-                  <span>{item.label}</span>
-                </span>
-                {item.lamp && <Lamp state={item.lamp.state} label={item.lamp.label} />}
-              </Link>
-            ))}
-          </div>
-          <div className="st-rail-foot">
-            {readiness}
-            <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>Project settings</Link>
-          </div>
-        </nav>
-        <main className="st-main">
-          {error && !view ? (
-            <div className="st-page">
-              <div className="st-alert" role="alert">
-                <span>{error}</span>
-              </div>
-            </div>
-          ) : !view && loading ? (
-            <div className="st-page st-stack">
-              <Skeleton height={28} />
-              <Skeleton height={220} />
-              <Skeleton height={220} />
-            </div>
-          ) : (
-            children
-          )}
-        </main>
-      </div>
-      <nav className="st-tabsbar" aria-label="Project pages">
-        {items.map((item) => (
-          <Link key={item.slug} href={item.href} aria-current={item.current ? "page" : undefined}>
-            <span className="st-step">{item.step}</span>
-            <span>{item.label.split(" ")[0]}</span>
-          </Link>
-        ))}
-      </nav>
+      {lightsDown ? <div className="st-lightsdown sc-room">{body}</div> : body}
     </ProjectContext.Provider>
+  );
+}
+
+/* The line: the film to scale. A gap before a segment is a cut, none is a
+   continuous join; a heavier edge starts a scene. The shot in the address
+   (?shot=) is where you are, and is the red one. */
+export function FilmLine({ projectId, shots }: { projectId: string; shots: FilmShot[] }) {
+  const here = useSearchParams().get("shot");
+  const total = filmSeconds(shots);
+  return (
+    <nav className="sc-line" aria-label="Film">
+      <div className="sc-line-track">
+        {shots.map((s) => {
+          const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
+          const state = s.shot.id === here ? "here" : rolling ? "rolling" : s.picked ? "picked" : s.shot.takes.some((t) => t.status === "completed") ? "taken" : "planned";
+          return (
+            <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
+              data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
+              title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || "Untitled shot"}`}>
+              {s.slate}
+            </Link>
+          );
+        })}
+      </div>
+      <span className="sc-line-end st-num">{tc(total)}</span>
+    </nav>
   );
 }

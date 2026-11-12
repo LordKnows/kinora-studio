@@ -19,7 +19,6 @@
     "@vercel/blob": "^2.8.0",
     "aws4fetch": "^1.0.20",
     "better-sqlite3": "^13.0.3",
-    "geist": "^1.9.1",
     "jose": "^6.2.15",
     "next": "^16.0.0",
     "react": "^19.2.0",
