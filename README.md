@@ -42,7 +42,7 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   the first render, shows status/uptime/cost in the rail, and stops it after
   idling. "暂时没资源" when none of the allowed GPUs has capacity.
 - **Every take is a data point.** Completed takes record their GPU type,
-  hourly price and output seconds; the Settings page ranks GPU types by USD
+  hourly price and output seconds; the Machine page ranks GPU types by USD
   per second of video, estimates switch to measured speed, and
   `RUNPOD_GPU_PRIORITY=cost` orders the allow-list by that ledger.
 - **LoRAs are a library.** `/loras` holds speed and style LoRAs with their
@@ -67,8 +67,8 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   lint flags the pictures AI video gets wrong; the batch renders the most
   fragile shots first; a retro counts what went wrong for the next film.
 - **Pictures before takes, with the model the user picks.** With the
-  per-project switch on (Settings → Director → *Allow image generation by
-  agent*), character sheets, first and last frames, region edits and style
+  per-project switch on (the project's Director page → *Allow image
+  generation by agent*), character sheets, first and last frames, region edits and style
   frames are drawn with the project's image model — the same models as
   Canvas. GPT Image (Codex on the user's ChatGPT plan, device-code login
   from the Machine page, or the images API) and Qwen-Image 3.0 Pro (API) are
@@ -178,7 +178,7 @@ claude mcp add --transport http studio http://localhost:3000/mcp --header "Autho
   `workers/h3-runpod/workflows/` and fill `mapping.json`.
 - If the model volume is a *global* network volume, the REST API cannot
   attach it yet. Create the first pod in the RunPod console with the values
-  from Settings → GPU pod → "Show what to paste into RunPod", then adopt
+  from Machine → "Adopt a pod created by hand", then adopt
   it by id; the studio runs it but never terminates or replaces it.
 - Serverless endpoints (`RUNPOD_MODE=serverless`) are still supported in
   code but are a TODO, not the default.
@@ -279,21 +279,50 @@ installs the node packs and downloads the ~21 GB of weights at boot
 
 ## The pages
 
-Top bar on every surface (project crumb, GPU pill, Projects / Canvas / Library /
-Machine / Connect). Inside a project the rail follows the order of work:
-**1 Brief & style** (brief and running time; the style, a preset compiled
-into its fields; aspect ratio; LoRAs; up to three style frames, generated or
-uploaded — each card saves on its own), **2 Script** (versions, rendered
-markdown, approval), **3 Elements**, **4 Board** (shot cards with cinematography codes, link and lint badges; Lint,
-Apply style and Render batch in the toolbar; the shot drawer), **5 Finals**
-(the pick per shot at the size it was rendered at; all picks regenerated at
-1080p / 2K / 4K in one go), **6 Timeline** (every selected take from 0 s at
-full length by default, Reset to rebuild; rough cut, beat grid, audio mix,
-subtitles check, export). Pictures lists every picture; editing a region of
-one happens there. Global pages: Canvas
-(compose a character from the reference library, below), Library
-(styles + LoRAs), Machine (the pod), Connect (MCP). Geist Sans / Geist Mono,
-one accent reserved for the primary action, the selection and "running".
+Top bar on every surface (project crumb, GPU pill, EN / 中, Projects / Canvas /
+Library / Machine / Connect). Inside a project there is no side rail: under the
+top bar sit the stages as one row of words — **Score**, Brief & style, Script,
+Elements, Board, Pictures, **Cut**, **Director** — the budget, and *the line*:
+the whole film to scale, one segment a shot (a gap is a cut, a dotted join is
+continuous, red is where you are), each linking to that shot.
+
+- **Score** (`/p/:id`, the project's home): one time axis with the film's
+  layers as staves — scenes, script, the board's frames, every take as a pip
+  (circled = in the cut, NG = failed), sound, the cut, what the lint found at
+  the second it is about, and what each shot cost. Above it, *Needs you*: the
+  approvals, reviews and choices that are the person's, and one red button for
+  the next step. Below it, the shot under the playhead.
+- **Brief & style**, **Elements**: as before.
+- **Script**: versions and approval; a version can be read, laid **beside the
+  board** (its sections next to their scenes, the time each heading states
+  against the board's seconds) or compared with the version before it.
+- **Board**: shot cards with slates (2·3), cinematography codes, link and lint
+  badges; the shot drawer, whose shot and tab are in the address
+  (`?shot=…&tab=…`). The buttons that spend show their estimate; takes that
+  failed for one reason are one NG row.
+- **Screening** (`/p/:id/screening`, lights down): a shot's takes side by
+  side, played in step; score, faults, save, and on to the next circled take
+  without a review. All by keyboard: 1–5, Ctrl/⌘+Enter, Space, C, ←/→, ↑/↓,
+  Enter, N.
+- **Pictures**: every picture by handle; filters (awaiting review, listed
+  twice, …) and the open picture are in the address; Pass / Fail with what is
+  wrong is recorded as a frame review.
+- **Cut** (`/p/:id/timeline`): tracks on one time axis (titles, picture, the
+  takes' sound, narration, music, silences); drag a clip to move it, an edge to
+  trim it, Ctrl/⌘+Z to undo; J/L-cut, held frame, speed, repeat, mute per clip;
+  the seams of continuous joins and a one-step fix; export, and the
+  full-resolution pass of every pick (what Finals was).
+- **Director** (`/p/:id/director`): *Needs you* in full, every check in one
+  list, and what the director may do — image and voice permissions, the spend
+  envelope, delegated approval, requirements (the user can add one), decisions,
+  reviews.
+- **Settings**: name, budget cap, sharing, delete.
+
+Global pages: Canvas (compose a character from the reference library, below),
+Library (styles + LoRAs), Machine (the pod), Connect (MCP). The look is
+"Score": a neutral grey card with ink on it, a dark room for Screening, square
+corners, Archivo and IBM Plex Mono (self-hosted, SIL OFL), and one tally red
+that means only *here*, *rolling* and *the next step*.
 
 ## Director layer (`packages/director`)
 
@@ -355,8 +384,8 @@ Two prompt experiments, off by default and recorded on the take:
   its start frame with `MiniMaxH3AddGuide` (`workflows/I2VA_GUIDE.json`), so
   the picture follows a given voice.
 
-**The voice API.** With *Allow voice API use by agent* on (Settings →
-Director, per project, web only) the director makes and uses voices through
+**The voice API.** With *Allow voice API use by agent* on (the project's
+Director page, web only) the director makes and uses voices through
 TokenSail's audio endpoints, with the Worker's `TOKENSAIL_API_KEY` (the key the
 face check and Qwen-Image already use). The user picks the TTS model there
 (Qwen Audio 3.0 TTS Plus by default; Flash; CosyVoice 3.5 Plus / Flash) and a
@@ -499,8 +528,8 @@ picture that will be shown large, printed or cropped, not for a reference.
 A reference picture over 4096 px is scaled to 4096 before it is sent to any
 model, and an edit of a large picture by a model that draws small comes
 back at most 4096 px on its long side (edit it with MiniMax H3 Image to
-keep its pixels). Choose it per project in Settings →
-Director (the director's sheets, frames and edits) or per picture in Canvas.
+keep its pixels). Choose it per project on the Director page
+(the director's sheets, frames and edits) or per picture in Canvas.
 The model expects a detailed English description of the whole picture: the
 director's sectioned prompts fit; MiniMax's API expands short prompts first
 (H3-Image-Context-IR / MiniMax-H3-Image-PE), a step not run here, so
@@ -540,7 +569,7 @@ Qwen-Image-Edit 2509 (the pose gallery's ComfyUI workflow) ran on the GPU pod
 until 2026-11-12 and are gone: their registry entries, graphs, download lists
 and `QWEN_IMAGE` / `QWEN_IMAGE_BASE` / `QWEN_EDIT_2509` switches. A project
 that had picked one draws with GPT Image · Codex until another model is
-chosen (Settings → Director). Their weights (≈55 GB) are deleted from the
+chosen (the project's Director page). Their weights (≈55 GB) are deleted from the
 models directory — the network volume — at the pod's next boot, before the
 download chain: `workers/h3-runpod/retired-models.txt` names the files and
 `remove_retired_models.sh` removes them, with whatever a cut-off download

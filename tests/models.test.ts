@@ -229,7 +229,7 @@ describe("MiniMax H3 Image: the open weights on the GPU pod", () => {
     expect(H3I.files!.every((f) => f.url.startsWith("https://huggingface.co/Comfy-Org/"))).toBe(true);
     const pod = readFileSync(join(__dirname, "../workers/h3-runpod/models.txt"), "utf8");
     expect(pod).toContain(H3I.files!.find((f) => f.dir === "text_encoders")!.url);
-    /* the director may draw with it (Settings → Director) */
+    /* the director may draw with it (the project's Director page) */
     expect(AGENT_IMAGE_MODELS.map((m) => m.id)).toContain("minimax-h3-image");
   });
 

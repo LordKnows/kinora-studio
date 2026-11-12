@@ -345,7 +345,7 @@ describe("Canvas MCP tools", () => {
   });
 });
 
-describe("Agent use Canvas (Settings → Director)", () => {
+describe("Agent use Canvas (the project's Director page)", () => {
   const owner: Actor = { user: "agent-canvas@local", via: "web" };
   const director: Actor = { user: "agent-canvas@local", via: "mcp" };
   const portrait = () => listReferences("portrait", false).items[3]!;

@@ -721,7 +721,7 @@ export async function updateVoiceCard(id: string, patch: Partial<z.input<typeof 
   return getVoiceCard(id);
 }
 
-/** A project's voice-API settings (Settings → Director); undefined until the user sets them. */
+/** A project's voice-API settings (the project's Director page); undefined until the user sets them. */
 export async function getVoicing(projectId: string): Promise<Voicing | undefined> {
   const row = await (await voiceCardsDb()).get("SELECT data_json FROM voice_settings WHERE project_id = ?", [projectId]);
   return row ? json<Voicing | undefined>(row.data_json, undefined) : undefined;

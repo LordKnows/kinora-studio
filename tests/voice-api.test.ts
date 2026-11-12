@@ -72,7 +72,7 @@ describe("the voice API switch", () => {
     expect(status.enabled).toBe(false);
     expect(status.model).toBe("qwen-audio-3.0-tts-plus");
     expect(status.keyReady).toBe(true);
-    await expect(voiceApi.speak(project.id, { text: "你好", voiceCardId: card.id }, user)).rejects.toThrow(/Settings → Director/);
+    await expect(voiceApi.speak(project.id, { text: "你好", voiceCardId: card.id }, user)).rejects.toThrow(/Director page/);
     expect(calls).toEqual([]);
   });
 

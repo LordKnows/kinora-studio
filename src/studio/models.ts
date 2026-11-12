@@ -156,10 +156,10 @@ export function imageModelOfBackend(backend: string): ModelEntry | undefined {
   return IMAGE_MODELS.find((m) => m.backend === backend);
 }
 
-/** Image models the director may draw with (Settings → Director): every one Canvas offers. */
+/** Image models the director may draw with (the project's Director page): every one Canvas offers. */
 export const AGENT_IMAGE_MODELS = IMAGE_MODELS;
 
-/** The model a project's pictures are drawn with: the one chosen in Settings, else the GPT Image
+/** The model a project's pictures are drawn with: the one chosen on the Director page, else the GPT Image
     backend the project had before models could be chosen (codex / api). */
 export function projectImageModel(imaging?: { model?: string; backend?: string } | null): ModelEntry {
   const chosen = imaging?.model ? AGENT_IMAGE_MODELS.find((m) => m.id === imaging.model) : undefined;

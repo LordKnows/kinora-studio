@@ -589,7 +589,7 @@ export function manualPodRecipe(): { image: string; ports: string[]; containerDi
       "Paste the env vars exactly; STUDIO_BUNDLE_URL carries the worker token.",
       "runpod/comfyui has ENTRYPOINT /start.sh, which ignores a start command: the boot script must be the pod's entrypoint. Letting the studio create the pod (Start) sets it; by hand, the template needs an entrypoint override, which the console may not offer.",
       "When you adopt the pod the studio tries to set the entrypoint and env itself; if RunPod refuses, the pod card says so and the pod has to be recreated by the studio.",
-      "After the pod is created, paste its id into Settings → GPU pod → Adopt.",
+      "After the pod is created, paste its id into Machine → Adopt a pod created by hand.",
     ],
   };
 }
