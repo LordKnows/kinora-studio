@@ -4260,3 +4260,74 @@ button.st-pill {
   background: var(--line);
   color: var(--tx2);
 }
+
+/* ---------- notices ---------- */
+
+.studio .nt-region {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 90;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(560px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.studio .nt {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 6px 6px 6px 14px;
+  background: #121212;
+  color: #f4f4f2;
+  font-size: 13px;
+  box-shadow: var(--shadow-2);
+  animation: st-rise 0.22s var(--ease);
+}
+.studio .nt::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid #f4f4f2;
+}
+.studio .nt[data-mark="done"]::before {
+  background: #f4f4f2;
+}
+.studio .nt[data-mark="ng"]::before {
+  border-radius: 0;
+  background: #f4f4f2;
+}
+.studio .nt[data-mark="undo"]::before {
+  display: none;
+}
+.studio .nt-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.studio .nt-action {
+  flex: none;
+  padding: 0 8px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  color: #f4f4f2;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.studio .nt-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  color: #a8a8a4;
+  font-size: 18px;
+}
+.studio .nt-close:hover {
+  color: #f4f4f2;
+}

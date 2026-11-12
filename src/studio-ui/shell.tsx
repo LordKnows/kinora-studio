@@ -11,6 +11,7 @@ import { Lamp, Skeleton, usePopover } from "./common";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
 import { MenuIcon } from "./icons";
+import { NoticeProvider, useTakeNotices } from "./notices";
 import { useProject } from "./use-project";
 
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
@@ -213,9 +214,17 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   );
   return (
     <ProjectContext.Provider value={{ projectId, view, error, loading, reload }}>
-      {lightsDown ? <div className="st-lightsdown sc-room">{body}</div> : body}
+      <NoticeProvider>
+        <TakeWatch view={view} base={base} />
+        {lightsDown ? <div className="st-lightsdown sc-room">{body}</div> : body}
+      </NoticeProvider>
     </ProjectContext.Provider>
   );
+}
+
+function TakeWatch({ view, base }: { view: ProjectView | null; base: string }) {
+  useTakeNotices(view, base);
+  return null;
 }
 
 /* The line: the film to scale. A gap before a segment is a cut, none is a

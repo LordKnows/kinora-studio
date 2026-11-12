@@ -10,6 +10,7 @@ import { get, post, put, usd, when } from "./api";
 import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton } from "./common";
 import { clipSeconds, filmShots, seamTrims, takePicture, tc, type FilmShot } from "./film";
 import { RoughCut } from "./rough-cut";
+import { useNotify } from "./notices";
 import { useProjectContext } from "./shell";
 import { useLint } from "./use-lint";
 
@@ -50,6 +51,7 @@ export function TimelinePage() {
   const [resolution, setResolution] = useState<"1080p" | "2k" | "4k">("2k");
   const [closeToDraft, setCloseToDraft] = useState(true);
   const lint = useLint(projectId, view);
+  const notify = useNotify();
 
   useEffect(() => {
     if (view && !timeline) setTimeline(view.timeline);
@@ -229,7 +231,12 @@ export function TimelinePage() {
             {selected && (
               <ClipInspector key={`${selected.takeId}-${selIndex}`} clip={selected} index={selIndex} count={clips.length} info={takes.get(selected.takeId)} seam={seams.find((s) => s.clipIndex === selIndex)}
                 base={`/p/${projectId}`} onPatch={(c) => patchClip(selIndex, c)} onMove={(d) => move(selIndex, selIndex + d)}
-                onRemove={() => { set({ ...timeline, clips: clips.filter((_, j) => j !== selIndex) }); setSel(Math.max(0, selIndex - 1)); }}
+                onRemove={() => {
+                  const gone = takes.get(selected.takeId);
+                  set({ ...timeline, clips: clips.filter((_, j) => j !== selIndex) });
+                  setSel(Math.max(0, selIndex - 1));
+                  notify({ text: `Removed ${gone ? `${gone.s.slate} take ${gone.take.n}` : "the clip"} from the cut`, mark: "undo", ttlMs: 12_000, action: { label: "Undo", run: undo } });
+                }}
                 onFixSeam={(s) => fixSeams([s])} />
             )}
 
