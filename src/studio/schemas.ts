@@ -443,6 +443,7 @@ export const ProjectInput = z.object({
   budgetCapUsd: z.number().min(0).max(100000).optional(),
   brief: z.string().max(8000).default("").describe("Tier 1: the user's own words for the film"),
   targetSeconds: z.number().int().min(5).max(3600).optional().describe("Target running time"),
+  visibility: z.enum(["shared", "private"]).optional().describe("private: only you (the signed-in user) see it; default shared"),
 });
 
 export const ProjectPatch = z.object({

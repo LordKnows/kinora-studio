@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { del, patch } from "./api";
+import { del, get, patch, put } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 import { DirectorPanel } from "./director-panel";
 import { useProjectContext } from "./shell";
@@ -54,6 +54,7 @@ export function SettingsPage() {
           <Button kind="primary" busy={save.busy} onClick={() => void save.fire()}>Save</Button>
         </div>
       </div>
+      <SharingCard />
       <DirectorPanel projectId={projectId} />
       <div className="st-card st-stack" style={{ marginTop: 20 }}>
         <span className="st-h2">Elsewhere</span>
@@ -70,6 +71,45 @@ export function SettingsPage() {
           <Button kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>Delete project</Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+type Me = { user: string; admin: boolean };
+
+/* Who sees this project. Only its owner switches it, here (never the
+   director); a project from before private projects is claimed by an admin. */
+function SharingCard() {
+  const { projectId, view, reload } = useProjectContext();
+  const [me, setMe] = useState<Me | null>(null);
+  useEffect(() => {
+    void get<Me>("/api/me").then(setMe).catch(() => setMe(null));
+  }, []);
+  const change = useAction(async (_confirm, visibility: "shared" | "private") => {
+    if (visibility === "shared" && !window.confirm("Share this project? Every signed-in user of this studio will see its script, pictures, takes and exports, and can change them.")) return;
+    await put(`/api/projects/${projectId}/sharing`, { visibility });
+    await reload();
+  });
+  if (!view) return null;
+  const p = view.project;
+  const mine = !!me && !!p.owner && p.owner === me.user;
+  const canChange = !!me && (mine || (!p.owner && me.admin));
+  return (
+    <div className="st-card st-stack" style={{ marginTop: 20 }}>
+      <span className="st-h2">Sharing</span>
+      <ErrorBanner error={change.error} onDismiss={change.dismiss} />
+      <div className="st-seg" role="group" aria-label="Who sees it" style={{ alignSelf: "flex-start" }}>
+        <button type="button" aria-pressed={p.visibility !== "private"} disabled={!canChange || change.busy} onClick={() => void change.fire("shared")}>
+          Shared<small>every signed-in user</small>
+        </button>
+        <button type="button" aria-pressed={p.visibility === "private"} disabled={!canChange || change.busy} onClick={() => void change.fire("private")}>
+          Private<small>only {mine || !p.owner ? "you" : "its owner"}</small>
+        </button>
+      </div>
+      <p className="st-muted">
+        {p.owner ? <>Owner: {mine ? "you" : p.owner}. </> : <>This project is from before private projects and has no owner{me?.admin ? ": making it private makes it yours." : "; an admin can make it private."} </>}
+        A private project is hidden from everyone else, on the web and through their director connectors. The GPU pod, the painters and the libraries stay shared: other users see that the pod is busy, not with what. Picture links (/media/…) work for whoever has them.
+      </p>
     </div>
   );
 }

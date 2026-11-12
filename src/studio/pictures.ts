@@ -114,7 +114,7 @@ export async function deletePictures(projectId: string, refs: string[], actor: A
       for (const url of urls) {
         const key = keyOfPublicUrl(url);
         if (!key || !(key.startsWith(`projects/${projectId}/`) || key.startsWith("uploads/"))) continue;
-        if (left.some((x) => x.url === url || x.meta.previewUrl === url) || takeUrls.has(url) || takeInputs.some((i) => i.includes(url))) {
+        if (left.some((x) => x.url === url || x.meta.previewUrl === url) || takeUrls.has(url) || takeInputs.some((i) => i.includes(url)) || (await repo.assetFileInUse(url))) {
           keptFiles.push(key);
           continue;
         }

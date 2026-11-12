@@ -21,7 +21,7 @@ export function LibraryPage() {
           <h1 className="st-title">Library</h1>
           <p className="st-subtitle">Style presets the director compiles into a Look, the LoRAs a project can switch on, and the models the Studio runs with the settings they recommend. Shared across projects.</p>
         </div>
-        <div className="st-tabs" role="tablist" style={{ width: 360 }}>
+        <div className="st-tabs" role="tablist" style={{ width: 360, maxWidth: "100%" }}>
           {(["styles", "loras", "models"] as const).map((t) => (
             <button key={t} type="button" role="tab" className="st-tab" aria-selected={tab === t} onClick={() => setTab(t)}>
               {t === "styles" ? "Styles" : t === "loras" ? "LoRAs" : "Models"}

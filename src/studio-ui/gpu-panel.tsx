@@ -84,8 +84,8 @@ export function GpuMenu() {
     await post("/api/gpu/start", { confirm });
     await reload();
   });
-  const stop = useAction(async () => {
-    await post("/api/gpu/stop");
+  const stop = useAction(async (confirm) => {
+    await post("/api/gpu/stop", { confirm });
     await reload();
   });
   const live = !!state && (state.status === "running" || state.status === "starting" || state.status === "creating");
@@ -122,7 +122,7 @@ export function GpuMenu() {
           </div>
           {state && (
             <div className="st-gpu-menu-foot">
-              <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
+              <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : stop.error ? () => void stop.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
               <div className="st-row">
                 {!state.configured ? (
                   <span className="st-muted">RunPod is not configured</span>
@@ -195,7 +195,7 @@ export function GpuStatsTable() {
       {rows.length === 0 ? (
         <p className="st-muted">No completed takes yet.</p>
       ) : (
-        <table className="st-table">
+        <div className="st-table-scroll"><table className="st-table">
           <thead>
             <tr>
               <th>GPU type</th>
@@ -223,7 +223,7 @@ export function GpuStatsTable() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
       <span className="st-muted">Sorted by USD per second of video. Set RUNPOD_GPU_PRIORITY=cost to order the allow-list by this column when a pod is created.</span>
     </div>
@@ -236,8 +236,8 @@ export function GpuRailCard() {
     await post("/api/gpu/start", { confirm });
     await reload();
   });
-  const stop = useAction(async () => {
-    await post("/api/gpu/stop");
+  const stop = useAction(async (confirm) => {
+    await post("/api/gpu/stop", { confirm });
     await reload();
   });
   if (!state) return null;
@@ -258,7 +258,7 @@ export function GpuRailCard() {
       )}
       {state.pendingTakes > 0 && <div className="st-gpu-line">{state.pendingTakes} take(s) waiting for the GPU</div>}
       {state.status === "unavailable" && <div className="st-gpu-line st-danger">{state.message}</div>}
-      <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
+      <ErrorBanner error={start.error ?? stop.error} onConfirm={start.error ? () => void start.confirm() : stop.error ? () => void stop.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); }} />
       <div className="st-row">
         {!state.configured ? (
           <span className="st-muted">not configured</span>
@@ -284,8 +284,8 @@ export function GpuSection() {
     await post("/api/gpu/start", { confirm });
     await reload();
   });
-  const stop = useAction(async () => {
-    await post("/api/gpu/stop");
+  const stop = useAction(async (confirm) => {
+    await post("/api/gpu/stop", { confirm });
     await reload();
   });
   const terminate = useAction(async () => {
@@ -310,7 +310,7 @@ export function GpuSection() {
   const on = state.status === "running" || state.status === "starting" || state.status === "creating";
   return (
     <div className="st-stack">
-      <ErrorBanner error={start.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
+      <ErrorBanner error={start.error ?? stop.error ?? terminate.error ?? repair.error} onConfirm={start.error ? () => void start.confirm() : stop.error ? () => void stop.confirm() : undefined} onDismiss={() => { start.dismiss(); stop.dismiss(); terminate.dismiss(); repair.dismiss(); }} />
       <dl className="st-dl">
         <dt>Mode</dt>
         <dd>{state.mode === "pod" ? "RunPod pod (Secure Cloud)" : "RunPod serverless (TODO)"}</dd>
@@ -365,7 +365,7 @@ export function GpuSection() {
       </div>
       {typesError && <p className="st-danger">{typesError}</p>}
       {types && (
-        <table className="st-table">
+        <div className="st-table-scroll"><table className="st-table">
           <thead>
             <tr>
               <th>GPU</th>
@@ -384,7 +384,7 @@ export function GpuSection() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );

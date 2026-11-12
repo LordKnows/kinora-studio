@@ -82,7 +82,7 @@ export function ScriptPage() {
       </div>
       <ErrorBanner error={save.error ?? approve.error} onDismiss={() => { save.dismiss(); approve.dismiss(); }} />
 
-      <div className="st-split" style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.4fr)" }}>
+      <div className="st-split st-split--wide-right">
         <div className="st-stack">
           <div className="st-card st-stack">
             <span className="st-label">New version</span>
