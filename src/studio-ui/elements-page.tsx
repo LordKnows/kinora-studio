@@ -10,6 +10,7 @@ import { detailTargets, sheetStage } from "@/studio/sheet";
 import { del, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
 import { useProjectContext } from "./shell";
+import { useUndoable } from "./notices";
 import { ImageButton, useImagingOn } from "./image-tools";
 import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 
@@ -183,10 +184,12 @@ function ElementEditor({
     await onSaved();
   });
 
+  const undoable = useUndoable(async () => { await onDeleted?.(); });
   const remove = useAction(async () => {
-    if (!element || !window.confirm(`Delete ${element.name}?`)) return;
-    await del(`/api/elements/${element.id}`);
+    if (!element) return;
+    const { trashId } = await del<{ trashId?: string }>(`/api/elements/${element.id}`);
     await onDeleted?.();
+    undoable(trashId, `Deleted ${element.name}`);
   });
 
   const promote = useAction(async () => {

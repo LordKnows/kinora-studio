@@ -23,11 +23,11 @@ import type { Actor, ProjectVisibility } from "@/studio/types";
 
 const KIND: Record<string, string> = {
   prj: "project", scr: "script", ast: "asset", ele: "element", scn: "scene", sht: "shot", tke: "take", exp: "export",
-  job: "job", vc: "voice card", rev: "review", req: "requirement", dec: "decision", vot: "vote",
+  job: "job", vc: "voice card", rev: "review", req: "requirement", dec: "decision", vot: "vote", trs: "deleted item",
 };
 
 /** A Studio id of something that belongs to a project: prefix, "_", 12 of [0-9a-z] (ids.ts). */
-const PROJECT_ID = /^(prj|scr|ast|ele|scn|sht|tke|exp|job|vc|rev|req|dec|vot)_[0-9a-z]{12}$/;
+const PROJECT_ID = /^(prj|scr|ast|ele|scn|sht|tke|exp|job|vc|rev|req|dec|vot|trs)_[0-9a-z]{12}$/;
 
 /** Users that are not a person: they own nothing and see shared projects only. */
 const NOBODY = new Set(["anonymous", "mcp-static"]);

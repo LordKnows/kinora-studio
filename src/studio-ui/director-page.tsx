@@ -5,6 +5,7 @@ import { useMemo } from "react";
 
 import { when } from "./api";
 import { DirectorPanel } from "./director-panel";
+import { RecentlyDeleted } from "./recently-deleted";
 import { filmShots } from "./film";
 import { needsOf, type LintWarning } from "./needs";
 import { NeedsYou } from "./score-page";
@@ -19,7 +20,7 @@ import { useLint } from "./use-lint";
    decided. It used to be a card at the bottom of Project settings. */
 
 export function DirectorPage() {
-  const { projectId, view } = useProjectContext();
+  const { projectId, view, reload } = useProjectContext();
   const lint = useLint(projectId, view);
   const t = useT();
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
@@ -54,6 +55,7 @@ export function DirectorPage() {
       <div className="dir-cols">
         <div className="dir-col">
           <NeedsYou needs={needs} base={base} full />
+          <RecentlyDeleted projectId={projectId} onRestored={reload} />
         </div>
 
         <section className="dir-col dir-col--wide" id="problems" aria-label="Problems">

@@ -12,6 +12,7 @@ import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
+import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
 
@@ -84,6 +85,7 @@ function useShotAddress() {
 
 function Board() {
   const { projectId, view, reload } = useProjectContext();
+  const undoable = useUndoable(reload);
   const address = useShotAddress();
   const openId = address.openId;
   const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
@@ -166,9 +168,9 @@ function Board() {
     await reload();
   });
   const removeScene = useAction(async (_c, scene: SceneView) => {
-    if (!window.confirm(`Delete scene "${scene.slug}" and its ${scene.shots.length} shots?`)) return;
-    await del(`/api/scenes/${scene.id}`);
+    const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
+    undoable(trashId, `Deleted scene ${view ? view.scenes.indexOf(scene) + 1 : ""} · ${scene.slug}${scene.shots.length ? ` and its ${scene.shots.length} ${scene.shots.length === 1 ? "shot" : "shots"}` : ""}`);
   });
 
   if (!view) return null;
@@ -458,12 +460,14 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
     setDirty(false);
     await reload();
   });
+  const undoable = useUndoable(reload);
   const remove = useAction(async () => {
     const takes = shot.takes.length;
-    if (!window.confirm(`Delete shot ${shot.index + 1} ("${shot.spec.intent || "untitled"}")${takes ? ` and its ${takes} take${takes > 1 ? "s" : ""}` : ""}? The shot leaves the board. Its pictures stay in Pictures.`)) return;
-    await del(`/api/shots/${shot.id}`);
+    const slate = view ? `${view.scenes.findIndex((sc) => sc.id === shot.sceneId) + 1}·${shot.index + 1}` : `${shot.index + 1}`;
+    const { trashId } = await del<{ trashId?: string }>(`/api/shots/${shot.id}`);
     onClose();
     await reload();
+    undoable(trashId, `Deleted shot ${slate}${takes ? ` and its ${takes} ${takes === 1 ? "take" : "takes"}` : ""}`);
   });
 
   const elements = view?.elements ?? [];

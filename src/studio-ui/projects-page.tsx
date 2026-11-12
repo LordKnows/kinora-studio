@@ -7,6 +7,7 @@ import type { Project, ProjectVisibility } from "@/studio/types";
 
 import { get, post, usd, when } from "./api";
 import { Button, Empty, ErrorBanner, Field, Skeleton } from "./common";
+import { RecentlyDeleted } from "./recently-deleted";
 
 type ListedProject = Project & { mine: boolean };
 
@@ -103,6 +104,10 @@ export function ProjectsPage() {
             ))}
           </>
         )}
+      </div>
+
+      <div className="st-section">
+        <RecentlyDeleted onRestored={reload} />
       </div>
 
       <div className="st-section">

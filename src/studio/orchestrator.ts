@@ -10,6 +10,7 @@ import { paletteContrastWarnings } from "./sketch";
 import { StudioError } from "./errors";
 import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
+import * as trash from "./trash";
 import * as styles from "./styles";
 import * as treatments from "./treatment";
 import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
@@ -168,10 +169,40 @@ export async function addShot(sceneId: string, spec: ShotInput): Promise<Shot> {
   return shot;
 }
 
-export async function removeShot(shotId: string): Promise<void> {
+/* Deletes keep what they remove in the trash first (trash.ts), so the web can
+   offer Undo and the Director page can put a thing back for TRASH_DAYS. */
+
+export async function removeShot(shotId: string, by?: string): Promise<{ trashId: string }> {
   const shot = await repo.getShot(shotId);
+  const scenes = await repo.listScenes(shot.projectId);
+  const sceneNo = scenes.findIndex((s) => s.id === shot.sceneId) + 1;
+  const trashId = await trash.put({ projectId: shot.projectId, kind: "shot", label: `shot ${sceneNo}·${shot.index + 1} · ${shot.spec.intent || "untitled"}`, by }, await trash.snapshot("shot", shotId));
   await repo.deleteShot(shotId);
   await repo.setShotlistApproval(shot.projectId, "draft");
+  return { trashId };
+}
+
+export async function removeScene(sceneId: string, by?: string): Promise<{ trashId: string }> {
+  const scene = await repo.getScene(sceneId);
+  const shots = (await repo.listSceneShots(sceneId)).length;
+  const trashId = await trash.put({ projectId: scene.projectId, kind: "scene", label: `scene ${scene.index + 1} · ${scene.slug}${shots ? ` and its ${shots} ${shots === 1 ? "shot" : "shots"}` : ""}`, by }, await trash.snapshot("scene", sceneId));
+  await repo.deleteScene(sceneId);
+  await repo.setShotlistApproval(scene.projectId, "draft");
+  return { trashId };
+}
+
+export async function removeElement(elementId: string, by?: string): Promise<{ trashId: string }> {
+  const el = await repo.getElement(elementId);
+  const trashId = await trash.put({ projectId: el.projectId, kind: "element", label: `${el.kind} · ${el.name}`, by }, await trash.snapshot("element", elementId));
+  await repo.deleteElement(elementId);
+  return { trashId };
+}
+
+export async function removeProject(projectId: string, by?: string): Promise<{ trashId: string }> {
+  const project = await repo.getProject(projectId);
+  const trashId = await trash.put({ projectId, kind: "project", label: project.name, by }, await trash.snapshot("project", projectId));
+  await repo.deleteProject(projectId);
+  return { trashId };
 }
 
 /* ---------- compile ---------- */
@@ -830,6 +861,8 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
       gpuStatus = `refresh failed: ${caught instanceof Error ? caught.message : caught}`;
     }
   }
+  /* what was deleted more than TRASH_DAYS ago goes for good, with its picture files */
+  await trash.purgeExpired().catch(() => undefined);
   const [takes, exports, upscales] = await Promise.all([repo.listActiveTakes(), repo.listActiveExports(), repo.listActiveUpscales()]);
   for (const take of upscales.slice(0, 20)) {
     try {

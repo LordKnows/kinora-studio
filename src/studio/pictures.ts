@@ -2,7 +2,8 @@ import { config } from "./config";
 import { StudioError } from "./errors";
 import { getProjectView, type ProjectView } from "./orchestrator";
 import * as repo from "./repo";
-import { deleteObject, keyOfPublicUrl } from "./storage/r2";
+import * as trash from "./trash";
+import { keyOfPublicUrl } from "./storage/r2";
 import type { Actor, Asset } from "./types";
 
 /*
@@ -62,7 +63,11 @@ export async function renamePicture(projectId: string, ref: string, name: string
   return repo.renameAsset(asset.id, name);
 }
 
-export type DeletePlan = { deleted: Array<{ id: string; handle?: string; name?: string }>; detached: Array<PictureUse & { picture: string }>; keptFiles: string[]; inUse?: Array<{ id: string; handle?: string; uses: PictureUse[] }> };
+export type DeletePlan = {
+  deleted: Array<{ id: string; handle?: string; name?: string }>; detached: Array<PictureUse & { picture: string }>; keptFiles: string[]; inUse?: Array<{ id: string; handle?: string; uses: PictureUse[] }>;
+  /** The trash entry that can put them back (and re-attach them) until it expires; their files are removed then. */
+  trashId?: string;
+};
 
 /**
  * Delete pictures. Without confirm, pictures that are in use stop it with
@@ -83,27 +88,34 @@ export async function deletePictures(projectId: string, refs: string[], actor: A
   if (inUse.length && !opts.confirm) {
     throw new StudioError("needs_confirm", `${inUse.length} of ${assets.length} picture${assets.length > 1 ? "s are" : " is"} in use; deleting takes ${inUse.length > 1 ? "them" : "it"} out of those places`, { inUse });
   }
-  /* take them out of where they are used */
+  /* take them out of where they are used, noting each place so a restore can put them back */
   const detached: DeletePlan["detached"] = [];
   const ids = new Set(assets.map((a) => a.id));
+  const kept = await trash.snapshotAssets([...ids]);
+  const reattach: trash.Reattach[] = [];
   for (const s of view.scenes) {
     for (const sh of s.shots) {
       const patch: { heroAssetId?: null; endAssetId?: null } = {};
-      if (sh.heroAssetId && ids.has(sh.heroAssetId)) patch.heroAssetId = null;
-      if (sh.endAssetId && ids.has(sh.endAssetId)) patch.endAssetId = null;
+      if (sh.heroAssetId && ids.has(sh.heroAssetId)) { patch.heroAssetId = null; reattach.push({ kind: "shot_frame", shotId: sh.id, field: "hero_asset_id", assetId: sh.heroAssetId }); }
+      if (sh.endAssetId && ids.has(sh.endAssetId)) { patch.endAssetId = null; reattach.push({ kind: "shot_frame", shotId: sh.id, field: "end_asset_id", assetId: sh.endAssetId }); }
       if (Object.keys(patch).length) await repo.updateShot(sh.id, patch);
     }
   }
   for (const e of view.elements) {
     if (!e.refAssetIds.some((r) => ids.has(r))) continue;
+    e.refAssetIds.forEach((r, index) => { if (ids.has(r)) reattach.push({ kind: "element_ref", elementId: e.id, assetId: r, index, ...(e.refViews?.[r] !== undefined ? { view: e.refViews[r] } : {}) }); });
     const refViews = Object.fromEntries(Object.entries(e.refViews ?? {}).filter(([k]) => !ids.has(k)));
     await repo.updateElement(e.id, { refAssetIds: e.refAssetIds.filter((r) => !ids.has(r)), refViews });
   }
-  if (view.project.look.styleFrameAssetId && ids.has(view.project.look.styleFrameAssetId)) await repo.setProjectLook(projectId, { ...view.project.look, styleFrameAssetId: undefined });
+  if (view.project.look.styleFrameAssetId && ids.has(view.project.look.styleFrameAssetId)) {
+    reattach.push({ kind: "style_frame", projectId, assetId: view.project.look.styleFrameAssetId });
+    await repo.setProjectLook(projectId, { ...view.project.look, styleFrameAssetId: undefined });
+  }
   for (const u of inUse) for (const x of u.uses) if (x.kind !== "take") detached.push({ ...x, picture: u.handle ?? u.id });
   await repo.deleteAssets([...ids]);
   /* files: ours (under projects/ or uploads/), not shared with another asset or a take */
   const keptFiles: string[] = [];
+  const filesToRemove: string[] = [];
   if (config.r2Configured()) {
     const left = await repo.listAssets(projectId);
     const takes = view.scenes.flatMap((s) => s.shots.flatMap((sh) => sh.takes));
@@ -118,10 +130,12 @@ export async function deletePictures(projectId: string, refs: string[], actor: A
           keptFiles.push(key);
           continue;
         }
-        await deleteObject(key).catch(() => keptFiles.push(key));
+        /* removed from storage when the trash entry expires, so Undo gets the file back too */
+        filesToRemove.push(key);
       }
     }
   }
+  const trashId = await trash.put({ projectId, kind: "pictures", label: assets.length === 1 ? `picture ${assets[0]!.handle ?? assets[0]!.id}${assets[0]!.name ? ` · ${assets[0]!.name}` : ""}` : `${assets.length} pictures: ${assets.map((a) => a.handle ?? a.id).slice(0, 6).join(", ")}${assets.length > 6 ? "…" : ""}`, by: actor.user }, { ...kept, reattach, files: filesToRemove });
   await repo.insertNote(projectId, "decision", "standing", { decision: `deleted ${assets.length} picture${assets.length > 1 ? "s" : ""}: ${assets.map((a) => a.handle ?? a.id).join(", ")}`, why: detached.length ? `taken out of: ${detached.map((d) => d.label).join("; ")}` : "", by: actor.via === "mcp" ? "agent" : actor.user, confidence: actor.via === "mcp" ? "medium" : "user" });
-  return { deleted: assets.map((a) => ({ id: a.id, handle: a.handle, name: a.name })), detached, keptFiles };
+  return { deleted: assets.map((a) => ({ id: a.id, handle: a.handle, name: a.name })), detached, keptFiles, trashId };
 }

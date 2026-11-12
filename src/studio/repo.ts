@@ -101,7 +101,7 @@ export async function projectAccessRows(ids: string[]): Promise<Map<string, { ow
 /** Tables whose rows belong to a project, by the prefix of their ids (ids.ts). */
 export const PROJECT_TABLE_OF_PREFIX = {
   scr: "scripts", ast: "assets", ele: "elements", scn: "scenes", sht: "shots", tke: "takes", exp: "export_jobs",
-  job: "jobs", vc: "voice_cards", rev: "reviews", req: "director_notes", dec: "director_notes", vot: "eval_votes",
+  job: "jobs", vc: "voice_cards", rev: "reviews", req: "director_notes", dec: "director_notes", vot: "eval_votes", trs: "trash",
 } as const;
 
 /** The project of each of these rows (null: a library row, in no project); unknown ids are left out. */

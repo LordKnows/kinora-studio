@@ -15,7 +15,4 @@ export const PATCH = route(["web", "mcp"], async (req, { params }) => {
   return { shot: await patchShot(params.id!, patch) };
 });
 
-export const DELETE = route(["web"], async (_req, { params }) => {
-  await removeShot(params.id!);
-  return { ok: true };
-});
+export const DELETE = route(["web"], async (_req, { params, actor }) => ({ ok: true, ...(await removeShot(params.id!, actor.user)) }));

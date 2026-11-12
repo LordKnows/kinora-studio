@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { body, route } from "@/api/http";
+import { removeScene } from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 
 export const PATCH = route(["web", "mcp"], async (req, { params }) => {
@@ -8,9 +9,4 @@ export const PATCH = route(["web", "mcp"], async (req, { params }) => {
   return { scene: await repo.updateScene(params.id!, patch) };
 });
 
-export const DELETE = route(["web"], async (_req, { params }) => {
-  const scene = await repo.getScene(params.id!);
-  await repo.deleteScene(params.id!);
-  await repo.setShotlistApproval(scene.projectId, "draft");
-  return { ok: true };
-});
+export const DELETE = route(["web"], async (_req, { params, actor }) => ({ ok: true, ...(await removeScene(params.id!, actor.user)) }));

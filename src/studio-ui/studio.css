@@ -4351,3 +4351,43 @@ button.st-pill {
   background: var(--tx);
   color: var(--bg);
 }
+
+/* ---------- recently deleted ---------- */
+
+.studio .rd {
+  margin-top: 28px;
+}
+.studio .rd-none {
+  padding-top: 10px;
+}
+.studio .rd-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  grid-template-areas: "kind label button" "kind when button";
+  align-items: center;
+  gap: 0 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.studio .rd-kind {
+  grid-area: kind;
+  align-self: start;
+  padding-top: 2px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--tx3);
+}
+.studio .rd-label {
+  grid-area: label;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.studio .rd-when {
+  grid-area: when;
+  font-size: 11.5px;
+  color: var(--tx2);
+}
+.studio .rd-row .st-btn {
+  grid-area: button;
+}

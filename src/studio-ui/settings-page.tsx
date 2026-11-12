@@ -26,7 +26,7 @@ export function SettingsPage() {
     await reload();
   });
   const remove = useAction(async () => {
-    if (!window.confirm(`Delete "${view?.project.name}" and everything in it? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete "${view?.project.name}" and everything in it? For 14 days it can be put back from the Projects page (Recently deleted).`)) return;
     await del(`/api/projects/${projectId}`);
     router.push("/");
   });
@@ -65,7 +65,7 @@ export function SettingsPage() {
       </div>
       <div className="st-card st-card--quiet st-stack" style={{ marginTop: 20 }}>
         <span className="st-h2">Danger zone</span>
-        <p className="st-muted">Deleting the project removes its script, elements, shotlist, takes and exports. Files already on R2 are not reclaimed automatically.</p>
+        <p className="st-muted">Deleting the project removes its script, elements, shotlist, takes and exports. For 14 days it can be put back from the Projects page (Recently deleted); after that it is gone. Files already on R2 are not reclaimed automatically.</p>
         <div>
           <Button kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>Delete project</Button>
         </div>

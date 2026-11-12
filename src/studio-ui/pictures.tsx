@@ -11,6 +11,7 @@ import { CheckIcon } from "./icons";
 import { describeVerdict, faceLabel, pictureTag, type FaceVerdict } from "@/studio/face-verdict";
 
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
+import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
 
 /* Pictures as things to talk about and tidy up: every picture shows its
@@ -76,19 +77,22 @@ export function SelectMark({ on }: { on: boolean }) {
 /** Delete the selected pictures; in-use ones are listed and confirmed first. */
 export function useDeletePictures(onDone: () => Promise<void> | void) {
   const { projectId } = useProjectContext();
+  const undoable = useUndoable(onDone);
   return useAction(async (_c, refs: string[]) => {
     if (!refs.length) return;
-    if (!window.confirm(`Delete ${refs.length} picture${refs.length > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    let plan: { trashId?: string; deleted: unknown[] };
     try {
-      await post(`/api/projects/${projectId}/pictures/delete`, { refs });
+      plan = await post(`/api/projects/${projectId}/pictures/delete`, { refs });
     } catch (caught) {
       if (!(caught instanceof ApiError) || caught.code !== "needs_confirm") throw caught;
+      /* in use: say where they are taken out of (Undo puts them back there too) */
       const inUse = (caught.details?.inUse as Array<{ handle?: string; id: string; uses: Use[] }> | undefined) ?? [];
       const lines = inUse.map((u) => `${u.handle ?? u.id}: ${u.uses.map((x) => x.label).join("; ")}`);
-      if (!window.confirm(`These are in use and will be taken out of those places:\n\n${lines.join("\n")}\n\nDelete anyway?`)) return;
-      await post(`/api/projects/${projectId}/pictures/delete`, { refs, confirm: true });
+      if (!window.confirm(`These are in use and will be taken out of those places:\n\n${lines.join("\n")}\n\nDelete anyway? Undo puts them back.`)) return;
+      plan = await post(`/api/projects/${projectId}/pictures/delete`, { refs, confirm: true });
     }
     await onDone();
+    undoable(plan.trashId, `Deleted ${plan.deleted.length} ${plan.deleted.length === 1 ? "picture" : "pictures"}`);
   });
 }
 

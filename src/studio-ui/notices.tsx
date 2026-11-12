@@ -5,6 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 
 import type { ProjectView } from "@/studio/orchestrator";
 
+import { describe, post } from "./api";
 import { filmShots } from "./film";
 
 /* Notices: a short line at the bottom of the screen with at most one action —
@@ -84,4 +85,21 @@ export function useTakeNotices(view: ProjectView | null, base: string) {
       }
     }
   }, [view, base, notify]);
+}
+
+/** After a delete: a notice whose Undo puts the thing back from the trash. */
+export function useUndoable(after: () => Promise<void> | void) {
+  const notify = useNotify();
+  return useCallback((trashId: string | undefined, text: string) => {
+    if (!trashId) return;
+    notify({
+      text, mark: "undo", ttlMs: 15_000,
+      action: {
+        label: "Undo",
+        run: () => {
+          void post(`/api/trash/${trashId}/restore`).then(() => after(), (caught) => notify({ text: `Could not put it back: ${describe(caught)}`, mark: "ng" }));
+        },
+      },
+    });
+  }, [notify, after]);
 }

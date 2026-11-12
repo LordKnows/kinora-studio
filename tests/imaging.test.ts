@@ -11,6 +11,7 @@ import * as painter from "@/studio/painter";
 import * as pictures from "@/studio/pictures";
 import { remakeFrames, remakePrompt, remakeTake } from "@/studio/remake";
 import * as repo from "@/studio/repo";
+import * as trash from "@/studio/trash";
 import { ShotInput, ShotlistInput } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -340,6 +341,10 @@ describe("picture names and batch delete", () => {
       await expect(pictures.deletePictures(p.id, [hero.handle!, draft.handle!], mcp, { confirm: true, allowInUse: false })).rejects.toMatchObject({ code: "forbidden" });
       const unused = await pictures.deletePictures(p.id, [draft.handle!], mcp, { confirm: true, allowInUse: false });
       expect(unused.deleted.map((d) => d.handle)).toEqual([draft.handle]);
+      /* the files stay while the delete can still be undone, and go when its trash entry expires */
+      expect(unused.trashId).toBeTruthy();
+      expect(deleted.some((k) => k.endsWith("/draft.png"))).toBe(false);
+      await trash.purgeExpired(Date.now() + (trash.TRASH_DAYS + 1) * 86_400_000);
       expect(deleted.some((k) => k.endsWith("/draft.png")) && deleted.some((k) => k.endsWith("/draft.preview.jpg"))).toBe(true);
       /* the web: in-use ones ask first */
       await expect(pictures.deletePictures(p.id, [hero.id, sheet.id, style.id], web)).rejects.toMatchObject({ code: "needs_confirm" });

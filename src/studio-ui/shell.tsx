@@ -128,10 +128,10 @@ function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode
 
 export function GlobalShell({ children, crumb }: { children: ReactNode; crumb?: ReactNode }) {
   return (
-    <>
+    <NoticeProvider>
       <TopBar crumb={crumb} />
       <main className="st-main">{children}</main>
-    </>
+    </NoticeProvider>
   );
 }
 

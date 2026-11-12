@@ -28,6 +28,7 @@ import projectOwner from "./migrations/0020_project_owner";
 import userStyles from "./migrations/0021_user_styles";
 import sceneSound from "./migrations/0022_scene_sound";
 import dropQwenLoras from "./migrations/0023_drop_qwen_loras";
+import trash from "./migrations/0024_trash";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -53,6 +54,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0021_user_styles", sql: userStyles },
   { name: "0022_scene_sound", sql: sceneSound },
   { name: "0023_drop_qwen_loras", sql: dropQwenLoras },
+  { name: "0024_trash", sql: trash },
 ];
 
 export async function migrate(db: Db): Promise<void> {
