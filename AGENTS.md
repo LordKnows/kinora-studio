@@ -40,3 +40,4 @@ Edit the source, then run the emitter; the generated files are committed.
 - **Shot length and quality are unmeasured.** The 5 s default for action shots is a default from cost. Do not cite it as a finding until the length A/B (12 s against 6 + 6 `continuous`) has been run.
 - **There are two guides.** `agent/director.md` is what the MCP serves as the director guide; `packages/director/docs/` are the director layer's own. A rule changed in one must be changed in the other.
 - **The model draws no text.** Titles, captions, signs and on-screen displays are added by the assembler.
+- **A plan that is only prose is not held to.** The treatment (kept with the script version), the scenes' sound design rows and the timeline are structured so the lint, the story review and the export can compare them. A new planning rule goes into one of those, not only into a guide.

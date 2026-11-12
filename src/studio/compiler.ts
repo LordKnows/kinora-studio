@@ -668,8 +668,10 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
 
   /* SOUND */
   const sfx = spec.sound.sfx.length ? spec.sound.sfx.join("; ") : "only what the action makes";
-  blocks.push(`SOUND\nSFX: ${sfx}\nAmbience: ${spec.sound.ambience || "natural room tone"}\nMusic: ${spec.sound.music || "N/A"}`);
-  out.sound = { sfx, ambience: spec.sound.ambience || "natural room tone", music: spec.sound.music || "N/A" };
+  /* A shot with no ambience of its own takes its scene's row of the sound design table. */
+  const ambience = spec.sound.ambience || ctx.scene?.sound?.ambience || "natural room tone";
+  blocks.push(`SOUND\nSFX: ${sfx}\nAmbience: ${ambience}\nMusic: ${spec.sound.music || "N/A"}`);
+  out.sound = { sfx, ambience, music: spec.sound.music || "N/A" };
 
   /* CONSTRAINTS */
   const seen = new Set<string>();

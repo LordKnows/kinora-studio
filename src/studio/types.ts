@@ -1,5 +1,5 @@
 import type { InferenceParams } from "./models";
-import type { ElementVoice, VoiceState, FixedFeature, LookSettings, RefView, ScenePalette, ShotInput, TakeFault, TimelineInput } from "./schemas";
+import type { ElementVoice, VoiceState, FixedFeature, LookSettings, RefView, ScenePalette, SceneSound, ShotInput, TakeFault, TimelineInput } from "./schemas";
 
 export type Approval = "draft" | "approved";
 
@@ -163,6 +163,8 @@ export type Scene = {
   summary: string;
   locationElementId?: string;
   palette?: ScenePalette;
+  /** This scene's row of the sound design table. */
+  sound?: SceneSound;
   createdAt: number;
 };
 
@@ -201,7 +203,7 @@ export type StageReview = {
 };
 
 /** The requirements list (everything the user asked for) and the decision log. */
-export type NoteKind = "requirement" | "decision";
+export type NoteKind = "requirement" | "decision" | "treatment";
 export type DirectorNote = {
   id: string; projectId: string; kind: NoteKind; status: string;
   body: Record<string, unknown>; createdAt: number; updatedAt: number;

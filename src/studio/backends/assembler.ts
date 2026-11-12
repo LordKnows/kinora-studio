@@ -1,3 +1,5 @@
+import { checkLines } from "@/director";
+
 import type { LookSettings, TimelineInput } from "../schemas";
 import type { Shot, Take } from "../types";
 
@@ -23,7 +25,8 @@ export type AssemblerInput = {
     music_url?: string;
     mix_db: { dialogue: number; sfx: number; music: number };
     music_duck_under_dialogue: boolean;
-    narration?: Array<{ url: string; at_s: number; gain_db?: number }>;
+    /** With `text`, the assembler writes a subtitle cue as long as the line's audio. */
+    narration?: Array<{ url: string; at_s: number; gain_db?: number; text?: string }>;
     silences?: Array<{ at_s: number; duration_s: number }>;
     /** Absent leaves the mix as it is. */
     loudness_lufs?: number;
@@ -53,11 +56,15 @@ export function buildAssemblerInput(args: {
   musicUrl?: string;
   /** Asset id → url, for the narration lines. */
   audioUrls?: Map<string, string>;
+  /** Asset id → what the audio says (a line made with speak keeps its text). */
+  audioTexts?: Map<string, string>;
   burnIn: boolean;
   videoSize: string;
 }): AssemblerInput {
   const clips: AssemblerClip[] = [];
   const srtCues: Array<{ start: number; end: number; text: string }> = [];
+  /* What the narration track says, so the same line is not captioned twice. */
+  const narrated = new Set((args.timeline.narration ?? []).map((n) => sameText(args.audioTexts?.get(n.assetId) ?? "")).filter(Boolean));
   let cursor = 0;
   for (const clip of args.timeline.clips) {
     const take = args.takes.get(clip.takeId);
@@ -87,17 +94,19 @@ export function buildAssemblerInput(args: {
       ...(clip.audioTrailS ? { audio_trail_s: clip.audioTrailS } : {}),
       ...(clip.freezeS ? { freeze_s: clip.freezeS } : {}),
     });
-    /* Dialogue lines are spread evenly across the clip; good enough for a
-       first SRT the editor can nudge. */
-    const lines = shot.spec.dialogue;
+    /* A line with its own time window (startS / endS inside the shot) sits
+       there; the rest are spread evenly across the clip, good enough for a
+       first SRT the editor can nudge. A line that is voiced on the narration
+       track gets its cue from that audio instead, as long as it really is. */
+    const lines = shot.spec.dialogue.filter((line) => !(line.kind !== "onscreen" && narrated.has(sameText(line.text))));
     if (lines.length) {
       const slice = len / lines.length;
       lines.forEach((line, i) => {
-        srtCues.push({
-          start: cursor + i * slice,
-          end: cursor + (i + 1) * slice - 0.05,
-          text: `${args.elementNames.get(line.speaker) ?? line.speaker}: ${line.text}`,
-        });
+        const windowed = line.startS !== undefined && line.endS !== undefined && line.endS > line.startS;
+        const start = windowed ? clamp((line.startS! - clip.inS) / speed, 0, len) : i * slice;
+        const end = windowed ? clamp((line.endS! - clip.inS) / speed, 0, len) : (i + 1) * slice - 0.05;
+        if (end - start < 0.2) return; // the cut trimmed the line away
+        srtCues.push({ start: cursor + start, end: cursor + end, text: `${args.elementNames.get(line.speaker) ?? line.speaker}: ${line.text}` });
       });
     }
     cursor += len * repeat + (clip.freezeS ?? 0);
@@ -105,7 +114,8 @@ export function buildAssemblerInput(args: {
   const tl = args.timeline;
   const narration = (tl.narration ?? []).flatMap((n) => {
     const url = args.audioUrls?.get(n.assetId);
-    return url ? [{ url, at_s: n.atS, ...(n.gainDb !== undefined ? { gain_db: n.gainDb } : {}) }] : [];
+    const text = args.audioTexts?.get(n.assetId)?.trim();
+    return url ? [{ url, at_s: n.atS, ...(n.gainDb !== undefined ? { gain_db: n.gainDb } : {}), ...(text ? { text } : {}) }] : [];
   });
   const titles: AssemblerTitle[] = (tl.titles ?? []).map((t) => ({
     text: t.text, at_s: t.atS, duration_s: t.durationS, kind: t.kind,
@@ -131,6 +141,15 @@ export function buildAssemblerInput(args: {
     subtitles: { srt: toSrt(srtCues), burn_in: args.burnIn },
     output: { key: `projects/${args.projectId}/exports/${args.exportId}.${args.preset}.mp4` },
   };
+}
+
+function clamp(x: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, x));
+}
+
+/** Two wordings of one line: spaces and punctuation aside. */
+function sameText(text: string): string {
+  return text.replace(/[\s\p{P}]+/gu, "").toLowerCase();
 }
 
 export function toSrt(cues: Array<{ start: number; end: number; text: string }>): string {
@@ -162,7 +181,7 @@ function covered(range: number[], windows: number[][]): boolean {
  * and missing sound are findings only where nothing on the timeline put them
  * there (a fade, a title card, a fade through black, a silence).
  */
-export function exportFindings(input: AssemblerInput, output: { duration_s?: number; cuts_s?: number[]; checks?: ExportChecks; warnings?: string[] }): string[] {
+export function exportFindings(input: AssemblerInput, output: { duration_s?: number; cuts_s?: number[]; checks?: ExportChecks; warnings?: string[]; subtitles?: Array<{ start_s: number; end_s: number; text: string }> }): string[] {
   const out: string[] = [...(output.warnings ?? [])];
   const checks = output.checks ?? {};
   const duration = output.duration_s ?? 0;
@@ -195,5 +214,12 @@ export function exportFindings(input: AssemblerInput, output: { duration_s?: num
     if (target === undefined && (checks.lufs < -24 || checks.lufs > -10)) out.push(`loudness is ${checks.lufs} LUFS (web platforms play at about -14); set loudnessLufs on the timeline to level it`);
   }
   if (typeof checks.true_peak_db === "number" && checks.true_peak_db > -0.5) out.push(`true peak is ${checks.true_peak_db} dBFS: the mix clips`);
+
+  /* The subtitles as they were written into the file: long enough to read, and one at a time. */
+  const cues = (output.subtitles ?? []).map((c, i) => ({ id: `cue ${i + 1}`, text: c.text.replace(/^[^:：]{1,24}[:：]\s*/, ""), t0: c.start_s, t1: c.end_s }));
+  const short = checkLines(cues);
+  if (short.length) {
+    out.push(`${short.length} subtitle cue(s) cannot be read in the time they have: ${short.slice(0, 4).map((x) => `${x.id} at ${cues.find((c) => c.id === x.id)!.t0.toFixed(1)} s (${x.message})`).join("; ")}${short.length > 4 ? " …" : ""}. Give the line more time (a longer clip, a time window on the line) or fewer words`);
+  }
   return out;
 }

@@ -50,6 +50,8 @@ Before writing anything, pick one or two reference works that set the bar for th
 7. at least two silences and two audio bridges (J-cut, L-cut) for films over 30 s;
 8. the turns: problem, solution, reaction, and why it can happen; and the structure (episodic or continuous).
 
+Send it with the script: `save_script(text, treatment)`. The Studio keeps it beside that script version and holds the film to it. The story reviewer reads it after the script and says where the two disagree; `lint_project` warns while there is none; the export names every planned silence and sound bridge that is not on the timeline; the user reads it on the Script page.
+
 The script the user approves is this treatment plus the dialogue.
 
 ## 5. Prove the look
@@ -85,6 +87,7 @@ Everyone wants something different: brand colours, a character, the tone of a ch
 ## 6. Sound is half the film
 
 - **Every visible action has a sound, and no sound without a visible cause**: fill `sfx` per shot from the style's foley list; match the material.
+- **The sound design table.** One row a scene, set with the shotlist (`sound` on the scene, or `set_scene_sound`): the ambience bed, the main foley by material, the state of the music, where the scene goes silent. A shot with no ambience of its own takes its scene's row, so the bed holds across cuts. The music and the silence are promises to the timeline: at export the Studio names a scene that was given a score while the timeline has no music, and a planned silence that is not there.
 - **Three layers**: `ambience` (room, wind, city), `sfx` (tied to beats) and music. The model renders the first two with the picture; the Studio's assembler adds the music (ducked under the clips and the narration), the narration lines and the silences, and lands the mix on −14 LUFS.
 - **At least two real silences** before the turn or the peak; the first sound after a silence is one of the most important in the film.
 - **Use sound as a transition** at least twice: a J-cut (`audioLeadS`: the next clip's sound leads its picture) or an L-cut (`audioTrailS`: this clip's sound runs on) on the timeline. The sound is the take's own outside the clip's in and out points, so trim the picture to leave it there.

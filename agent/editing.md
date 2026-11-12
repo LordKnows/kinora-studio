@@ -46,4 +46,5 @@ Every shot carries `link: { type, anchor?, anchorShotId? }`. The type names the 
 - Freeze: `freezeS` on a clip holds its last frame, in silence.
 - Narration: `narration` lays audio assets (off-screen and inner lines from `speak`, a recording) at their times; the music ducks under them.
 - Silence: `silences` takes the whole mix out for a stretch. Put one before the turn and one before the peak.
+- Subtitles: written by the export from the on-screen lines (at their `startS` / `endS` when given) and from narration lines made with `speak`, each as long as its audio. Burn them in with `export_project` `burnInSubtitles`.
 - Loudness: the export lands on -14 LUFS unless `loudnessLufs` says otherwise (`null` leaves the mix alone). After an export, `get_export` lists what the assembler measured on the file: loudness, black picture and missing sound the timeline does not explain.

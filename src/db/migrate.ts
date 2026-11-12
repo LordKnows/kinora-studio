@@ -26,6 +26,7 @@ import userReferences from "./migrations/0018_user_references";
 import voiceCards from "./migrations/0019_voice_cards";
 import projectOwner from "./migrations/0020_project_owner";
 import userStyles from "./migrations/0021_user_styles";
+import sceneSound from "./migrations/0022_scene_sound";
 
 const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0001_init", sql: init },
@@ -49,6 +50,7 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
   { name: "0019_voice_cards", sql: voiceCards },
   { name: "0020_project_owner", sql: projectOwner },
   { name: "0021_user_styles", sql: userStyles },
+  { name: "0022_scene_sound", sql: sceneSound },
 ];
 
 export async function migrate(db: Db): Promise<void> {

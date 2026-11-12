@@ -324,3 +324,31 @@ def test_narration_is_laid_at_its_time_and_ducks_the_music(tmp_path):
     assert level(result, 2.2, 3.3, 880) > level(result, 0.5, 1.5, 880) + 25
     # and the music is lower under it than before it
     assert level(result, 2.4, 3.3, 220) < level(result, 0.5, 1.5, 220) - 3
+
+
+def test_narration_with_text_becomes_a_subtitle_cue_as_long_as_its_audio(tmp_path):
+    a = make_clip(tmp_path / "a.mp4", 6.0, audio=False)
+    voice = tmp_path / "voice.wav"
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=880:duration=1.7", str(voice)], check=True)
+    out, _ = export(
+        tmp_path, [{"url": f"file://{a}", "in_s": 0, "out_s": 6.0}],
+        audio={"keep_clip_audio": True, "narration": [
+            {"url": f"file://{voice}", "at_s": 3.0, "text": "那一年，河水涨了十二米。"},
+            {"url": f"file://{voice}", "at_s": 5.0, "text": "runs past the end"},
+            {"url": f"file://{voice}", "at_s": 0.2},  # no text: heard, not captioned
+        ]},
+        subtitles={"srt": "1\n00:00:00,500 --> 00:00:02,000\nMara: Not tonight.\n", "burn_in": False},
+    )
+    cues = out["subtitles"]
+    assert [c["text"] for c in cues] == ["Mara: Not tonight.", "那一年，河水涨了十二米。", "runs past the end"]
+    assert abs(cues[1]["start_s"] - 3.0) < 0.01 and abs(cues[1]["end_s"] - 4.7) < 0.1
+    assert cues[2]["end_s"] <= out["duration_s"] + 0.05  # clipped to the film
+    assert out["srt_url"].endswith(".srt")
+
+
+def test_srt_round_trip_and_odd_blocks():
+    srt = "1\n00:00:01,000 --> 00:00:02,500\nA\nB\n\nnot a cue\n\n7\n00:01:00.250 --> 00:01:01,000\nC\n"
+    cues = h.parse_srt(srt)
+    assert cues == [(1.0, 2.5, "A\nB"), (60.25, 61.0, "C")]
+    assert h.format_srt(cues).startswith("1\n00:00:01,000 --> 00:00:02,500\nA\nB\n\n2\n00:01:00,250 --> 00:01:01,000\nC\n")
+    assert h.merge_narration_cues("", [(2.0, 1.0, "x"), (0.5, 1.0, "")], 10) == [(2.0, 3.0, "x")]

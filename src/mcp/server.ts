@@ -4,6 +4,7 @@ import { z } from "zod";
 import { assertVisible } from "@/auth/scope";
 import * as director from "@/director";
 import * as styles from "@/studio/styles";
+import * as treatments from "@/studio/treatment";
 import directorGuide from "@/mcp/guide";
 import { CINEMA } from "@/studio/cinematography";
 import { cinematographyGuide, editingGuide, filmPlan } from "@/studio/director-guides";
@@ -31,7 +32,7 @@ import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
 import * as sharing from "@/studio/sharing";
 import {
-  ElementInput, ElementPatch, ExportRequest, VoiceCardInput, VoiceCardPatch, LookPatch, LoraInput, LoraPatch, PresignRequest, ProjectInput, PromptExperiments, MAX_ELEMENT_REFS, REF_VIEWS, ReviewInput, ScenePalette, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
+  ElementInput, ElementPatch, ExportRequest, VoiceCardInput, VoiceCardPatch, LookPatch, LoraInput, LoraPatch, PresignRequest, ProjectInput, PromptExperiments, MAX_ELEMENT_REFS, REF_VIEWS, ReviewInput, ScenePalette, SceneSound, ShotInput, ShotPatch, ShotlistInput, TakeRequest, TimelineInput, UpscaleRequest,
 } from "@/studio/schemas";
 import type { Actor } from "@/studio/types";
 
@@ -231,8 +232,25 @@ export function createStudioServer(actor: Actor): McpServer {
     return { capUsd: p.budgetCapUsd, spentUsd: p.spentUsd, remainingUsd: Math.max(0, p.budgetCapUsd - p.spentUsd) };
   });
 
-  tool("save_script", "Save a new script version (returns to draft; the user approves on the Script page).", z.object({ projectId: id, text: z.string().min(1).max(200_000) }), async ({ projectId, text }) => ({ script: await repo.createScript(projectId, text) }));
-  tool("get_script", "Latest script and its approval state.", z.object({ projectId: id }), async ({ projectId }) => ({ script: await repo.latestScript(projectId) ?? null }));
+  tool("save_script", "Save a new script version (returns to draft; the user approves on the Script page). Send the treatment with it: the structured object validate_treatment checks (logline, arc, three candidate structures and the chosen one, benchmark, hook, signature shot, native move, sequences with paces, sound design, silences, sound bridges). It is checked and kept beside this version; the lint, the story review, the export and the Script page read it. Without one the answer warns, and so does lint_project until one is sent.", z.object({
+    projectId: id, text: z.string().min(1).max(200_000),
+    treatment: z.any().optional().describe("The treatment object, as validate_treatment takes it"),
+    style: z.string().optional().describe("Style slug or name, to check the treatment's native move against; default: the project's style"),
+  }), async ({ projectId, text, treatment, style }) => {
+    const project = await repo.getProject(projectId);
+    const script = await repo.createScript(projectId, text);
+    if (treatment === undefined || treatment === null) {
+      const kept = await treatments.currentTreatment(projectId);
+      return { script, treatment: kept ? { kept: false, note: `no treatment sent; the one written for script v${kept.scriptVersion} still stands. Send it again if the film's shape changed` } : { kept: false }, warnings: kept ? [] : [treatments.missingTreatmentWarning()] };
+    }
+    const saved = await treatments.saveTreatment(projectId, script.version, treatment, style ?? project.look.style);
+    return { script, treatment: { kept: saved.kept, ...(saved.kept ? {} : { note: "the treatment has errors and was not kept; the script was saved. Fix them and send the treatment again with the same text" }) }, warnings: saved.warnings };
+  });
+  tool("get_script", "Latest script and its approval state, with the treatment kept for the project (which script version it was written for, its own warnings).", z.object({ projectId: id }), async ({ projectId }) => {
+    const script = (await repo.latestScript(projectId)) ?? null;
+    const treatment = await treatments.currentTreatment(projectId);
+    return { script, treatment: treatment ?? null, warnings: treatments.treatmentLint(treatment, script?.version) };
+  });
 
   tool("list_elements", "Characters, locations and props of the project (and the global library when includeLibrary).", z.object({ projectId: id, includeLibrary: z.boolean().default(false) }), async ({ projectId, includeLibrary }) => {
     const elements = await repo.listElements(projectId, includeLibrary);
@@ -281,6 +299,7 @@ export function createStudioServer(actor: Actor): McpServer {
     const featuresById = await byId(features);
     return { element: await repo.updateElement(elementId, { refAssetIds: ids, ...(viewsById ? { refViews: viewsById } : {}), ...(featuresById ? { refFeatures: featuresById } : {}) }) };
   });
+  tool("set_scene_sound", "Set a scene's row of the sound design table: the ambience bed under the whole scene, its main foley, the state of the music (none, enters at the turn, cut dead) and where it goes silent. A shot with no ambience of its own takes the scene's; the music and the silence are held against the timeline at export (a score with no music asset, a planned silence that is not on the timeline). Also settable per scene in save_shotlist (sound). null clears it.", z.object({ sceneId: id, sound: SceneSound.nullable() }), async ({ sceneId, sound }) => ({ scene: await repo.updateScene(sceneId, { sound }) }));
   tool("set_scene_palette", "Set a scene's colour script (2–6 hex colours, darkest first, one accent at most, and a note). It compiles into every shot of the scene; lint_project flags palettes whose subject and background merge in black and white. null clears it.", z.object({ sceneId: id, palette: ScenePalette.nullable() }), async ({ sceneId, palette }) => ({ scene: await repo.updateScene(sceneId, { palette }) }));
 
   tool("save_shotlist", "Merge the whole shotlist: scenes match by slug, shots by position, so existing takes and hero frames are kept. Refuses to drop shots that already have takes. Resets the shotlist approval; the user approves on the Board. Every shot should carry its Tier 2 link and Tier 3 cinematography (size, angle, lens, lighting, grade at least); the answer's warnings name the shots that do not.", z.object({ projectId: id }).extend(ShotlistInput.shape), async ({ projectId, scenes }) => {
@@ -310,6 +329,14 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("select_end_frame", "Choose an end frame (asset id or handle like IMG-12) for a keyframe shot; null clears it.", z.object({ shotId: id, assetId: id.nullable() }), async ({ shotId, assetId }) => ({ shot: await repo.updateShot(shotId, { endAssetId: await shotPicture(shotId, assetId) }) }));
 
   tool("generate_take", "Render takes for a shot on the H3 worker (costs money; confirm). Requires approved script and shotlist, and a passing shot review of this exact prompt and these frames (review_packet stage shot → record_review); skipReview with a reason renders without one, on the record.", z.object({ shotId: id }).extend(TakeRequest.shape), async ({ shotId, ...req }) => orch.createTakes(shotId, req, actor));
+  tool("generate_takes", "Render a batch of shots on ONE confirmation (costs money). Without confirm it spends nothing and answers needs_confirm with one total for the shots that can render now, in the plan's order (R2VA first), plus the ones that cannot yet and why: tell the user that single figure, then call again with confirm: true. Default: every shot without a take that does not wait for an anchor. A shot renders only with a passing shot review of its exact prompt and frames, as with generate_take; the others are named and left. Linked shots come in the next call, once their anchors' takes are picked. Use plan_project_batch first to see the passes and the probe.", z.object({
+    projectId: id,
+    shotIds: z.array(id).max(60).optional().describe("Leave out for every shot that can render now; give ids to re-take or to render a subset (e.g. the probe)"),
+    n: z.number().int().min(1).max(4).default(1),
+    steps: z.number().int().min(4).max(50).optional(),
+    confirm: z.boolean().default(false).describe("Must be true to spend budget"),
+    skipReview: z.string().min(8).max(300).optional().describe("Render the shots without a passing shot review too, on the record; give the reason (the user's words when they asked for it)"),
+  }), async ({ projectId, ...req }) => orch.createTakeBatch(projectId, req, actor));
   tool("get_take", "One take in full: status, video url, last frame, thumbnails, cost, review, the compiled prompt and the worker input.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.refreshTake(takeId) }));
   tool("list_takes", "All takes of a shot, one summary each (status, steps, LoRAs, cost, urls, review); get_take has the prompt, input and thumbnails of one.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: (await repo.listShotTakes(shotId)).map(compactTake) }));
   tool("cancel_take", "Cancel a queued or running take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));

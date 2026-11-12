@@ -5,6 +5,7 @@ import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
+import * as treatments from "./treatment";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
 /*
@@ -115,6 +116,7 @@ async function storyPacket(projectId: string): Promise<ReviewPacket> {
   const script = await repo.latestScript(projectId);
   if (!script) throw new StudioError("validation", "no script yet; save_script first");
   const subjectHash = hashOf(script.text);
+  const stored = await treatments.currentTreatment(projectId);
   const reviewerPrompt = [
     "You are reading a short film's script for the first time. You only find faults; you change nothing.",
     project.targetSeconds ? `Running time: ${project.targetSeconds} s.` : "",
@@ -125,14 +127,18 @@ async function storyPacket(projectId: string): Promise<ReviewPacket> {
     "4. Does the opening hook in the first three seconds? Is the most striking picture near the start?",
     "5. Do the other people react like real people — one after another, not in unison, with bodies that flinch back when startled?",
     `6. Which moments will an AI video model get wrong? (${FRAGILE_LIST})`,
+    stored
+      ? "7. The director's treatment is below. Read it only after you have written your own three sentences. Does the script deliver its logline, its turn and its ending? Does the hook it names open the film? Is the chosen structure the one on the page, or one of the two it set aside? Where the script and the treatment disagree, that is a finding."
+      : "7. There is no treatment with this script: nobody wrote down what the film is for or which structure was chosen over which. Say so as a finding.",
     "",
     "For each finding write: where (scene / line), the problem, a suggested fix. Mark uncertain findings as 'maybe'.",
     "End with exactly one word on its own line: PASS or FAIL.",
     "",
     "--- SCRIPT ---",
     script.text,
+    ...(stored ? ["", `--- TREATMENT (written for script v${stored.scriptVersion}) ---`, director.treatmentToMarkdown(stored.treatment)] : []),
   ].filter((l) => l !== undefined).join("\n");
-  return { stage: "story", subjectHash, current: (await reviewState(projectId, "story", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { scriptVersion: script.version, targetSeconds: project.targetSeconds } };
+  return { stage: "story", subjectHash, current: (await reviewState(projectId, "story", subjectHash)).state, howToRun: HOW_TO_RUN, reviewerPrompt, materials: { scriptVersion: script.version, targetSeconds: project.targetSeconds, treatment: stored ? { scriptVersion: stored.scriptVersion, warnings: stored.warnings.filter((w) => w.severity !== "info") } : null } };
 }
 
 /* ---- shot: everything that is about to be sent to the GPU ---- */

@@ -333,11 +333,22 @@ export const ScenePalette = z.object({
 });
 export type ScenePalette = z.infer<typeof ScenePalette>;
 
+/* The sound design table: one row a scene. What the audience hears under the
+   whole sequence, decided before any shot is written. */
+export const SceneSound = z.object({
+  ambience: z.string().max(200).default("").describe("The bed under the whole scene: room tone, wind, rain, a city at night. A shot with no ambience of its own takes this one"),
+  foley: z.string().max(200).default("").describe("The scene's main physical sounds, by material: oars on water, chalk on slate"),
+  music: z.string().max(200).default("").describe("The state of the score in this scene: 'none', 'enters at the turn', 'full, then cut dead'. The model is not asked for score; the timeline's music carries it"),
+  silence: z.string().max(200).optional().describe("Where the scene goes quiet, if it does: 'before the door opens'. Becomes a silence on the timeline"),
+});
+export type SceneSound = z.infer<typeof SceneSound>;
+
 export const SceneInput = z.object({
   slug: z.string().min(1).max(60).describe("Short handle, e.g. 'alley-chase'"),
   summary: z.string().max(400).default(""),
   location: z.string().optional().describe("Element id"),
   palette: ScenePalette.optional().describe("This scene's colour script, set before any frame is drawn; compiles into every shot of the scene"),
+  sound: SceneSound.optional().describe("This scene's row of the sound design table: ambience, foley, the state of the music. Left out, the row already set is kept"),
   shots: z.array(ShotInput).min(1),
 });
 

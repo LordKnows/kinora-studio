@@ -5,13 +5,13 @@ Input (from `src/studio/backends/assembler.ts`, `AssemblerInput`):
     clips: [{url, in_s, out_s, transition_in: cut|dissolve|fade_black|fade_white|iris|wipe,
              transition_s?, repeat?, speed?, mute?, audio_lead_s?, audio_trail_s?, freeze_s?}],
     audio: {keep_clip_audio, music_url?, mix_db: {dialogue, sfx, music}, music_duck_under_dialogue,
-            narration?: [{url, at_s, gain_db?}], silences?: [{at_s, duration_s}], loudness_lufs?},
+            narration?: [{url, at_s, gain_db?, text?}], silences?: [{at_s, duration_s}], loudness_lufs?},
     picture?: {fade_in_s?, fade_out_s?, titles?: [{text, at_s, duration_s, kind: card|overlay|caption,
                position?, color?, background?, size?}]},
     subtitles: {srt, burn_in},
     output: {key}
 
-Output: {url, srt_url?, cut_sheet_url?, cuts_s, duration_s, size_bytes, checks, warnings}
+Output: {url, srt_url?, cut_sheet_url?, cuts_s, duration_s, size_bytes, subtitles, checks, warnings}
 
 Steps: download → normalise each clip (size, 24 fps, h264/aac, trim, retime,
 freeze, BT.709 colour) → concat (cuts) or an xfade chain (the other
@@ -126,6 +126,8 @@ class Narration:
     url: str
     at_s: float
     gain_db: float = 0.0
+    # What is said. With it, the line gets a subtitle cue as long as its audio.
+    text: str = ""
 
 
 @dataclass
@@ -193,7 +195,10 @@ def validate_input(raw: Any) -> Params:
     for i, n in enumerate(audio.get("narration") or []):
         if not isinstance(n, dict) or not isinstance(n.get("url"), str):
             raise JobError(f"narration {i} needs a url")
-        narration.append(Narration(n["url"], bounded(n.get("at_s", 0), 0, 36000, f"narration {i}: at_s"), bounded(n.get("gain_db", 0), -60, 24, f"narration {i}: gain_db")))
+        narration.append(Narration(
+            n["url"], bounded(n.get("at_s", 0), 0, 36000, f"narration {i}: at_s"), bounded(n.get("gain_db", 0), -60, 24, f"narration {i}: gain_db"),
+            str(n.get("text") or "").strip()[:500],
+        ))
     silences: list[tuple[float, float]] = []
     for i, sil in enumerate(audio.get("silences") or []):
         if not isinstance(sil, dict):
@@ -476,6 +481,48 @@ def add_narration(video: Path, lines: list[tuple[Path, Narration]], dst: Path, p
          "-c:v", "copy", "-c:a", "aac", "-b:a", p.audio_bitrate, "-ar", str(AUDIO_RATE), str(dst)])
 
 
+# ---------- subtitles ----------
+
+SRT_TIME = re.compile(r"(\d+):(\d\d):(\d\d)[,.](\d{1,3})\s*-->\s*(\d+):(\d\d):(\d\d)[,.](\d{1,3})")
+
+
+def parse_srt(srt: str) -> list[tuple[float, float, str]]:
+    """(start, end, text) for every cue; blocks that are not cues are skipped."""
+    cues: list[tuple[float, float, str]] = []
+    for block in re.split(r"\n\s*\n", srt.replace("\r", "").strip()):
+        lines = [x for x in block.split("\n") if x.strip()]
+        at = next((k for k, x in enumerate(lines) if SRT_TIME.search(x)), None)
+        if at is None:
+            continue
+        g = [int(x) for x in SRT_TIME.search(lines[at]).groups()]  # type: ignore[union-attr]
+        start = g[0] * 3600 + g[1] * 60 + g[2] + g[3] / 1000
+        end = g[4] * 3600 + g[5] * 60 + g[6] + g[7] / 1000
+        text = "\n".join(lines[at + 1:]).strip()
+        if text and end > start:
+            cues.append((start, end, text))
+    return cues
+
+
+def srt_stamp(seconds: float) -> str:
+    ms = int(round(max(0.0, seconds) * 1000))
+    return f"{ms // 3600000:02d}:{ms % 3600000 // 60000:02d}:{ms % 60000 // 1000:02d},{ms % 1000:03d}"
+
+
+def format_srt(cues: list[tuple[float, float, str]]) -> str:
+    return "\n".join(f"{i + 1}\n{srt_stamp(a)} --> {srt_stamp(b)}\n{text}\n" for i, (a, b, text) in enumerate(cues))
+
+
+def merge_narration_cues(srt: str, spoken: list[tuple[float, float, str]], duration: float) -> list[tuple[float, float, str]]:
+    """The dialogue cues the Studio wrote plus one cue for every narration line
+    that came with its text, as long as its audio really is. In time order."""
+    cues = parse_srt(srt)
+    for at, length, text in spoken:
+        end = min(at + length, duration) if duration > 0 else at + length
+        if text and end > at:
+            cues.append((at, end, text))
+    return sorted(cues, key=lambda c: (c[0], c[1]))
+
+
 # ---------- loudness ----------
 
 LOUDNORM_TP = -1.5
@@ -730,11 +777,15 @@ def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloade
         relay_audio(current, entries, total, relaid, p)
         current = relaid
 
+    narrated: list[tuple[float, float, str]] = []
     if p.narration:
         lines = [(downloader(line.url, workdir / f"narration{k}.bin"), line) for k, line in enumerate(p.narration)]
         spoken = workdir / "narration.mp4"
         add_narration(current, lines, spoken, p)
         current = spoken
+        for path, line in lines:
+            if line.text:
+                narrated.append((line.at_s, probe(path)["duration"], line.text))
 
     if p.music_url:
         music = downloader(p.music_url, workdir / "music.bin")
@@ -746,10 +797,12 @@ def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloade
     if finish_audio(current, levelled, p):
         current = levelled
 
+    # The dialogue cues from the Studio, plus the narration that was really laid, measured.
+    cues = merge_narration_cues(p.srt, narrated, total)
     srt_path: Path | None = None
-    if p.srt.strip():
+    if cues:
         srt_path = workdir / "subs.srt"
-        srt_path.write_text(p.srt, encoding="utf-8")
+        srt_path.write_text(format_srt(cues), encoding="utf-8")
     burn = srt_path if p.burn_in else None
     finished = workdir / ("burned.mp4" if burn else "finished.mp4")
     warnings += finish_picture(current, finished, p, probe(current)["duration"], burn, workdir)
@@ -779,6 +832,7 @@ def assemble(p: Params, workdir: Path, uploader: Uploader, downloader: Downloade
         "cuts_s": cuts,
         "duration_s": round(info["duration"], 3),
         "size_bytes": info["size"],
+        "subtitles": [{"start_s": round(a, 3), "end_s": round(b, 3), "text": text} for a, b, text in cues[:400]],
         "checks": checks,
         "warnings": warnings,
         "execution_ms": int((time.monotonic() - started) * 1000),
