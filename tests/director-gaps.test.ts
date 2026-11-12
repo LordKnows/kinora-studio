@@ -255,3 +255,51 @@ describe("a batch of takes on one confirmation", () => {
     expect(runs).toHaveLength(3);
   });
 });
+
+describe("a style's suggested LoRA is a lint hint, never a default", () => {
+  it("hints while the LoRA would act on a shot and nobody has decided", async () => {
+    const project = await repo.createProject({ name: "Cel", budgetCapUsd: 20 });
+    const hints = async () => (await orch.lintProject(project.id)).warnings.filter((w) => w.code === "style.lora");
+    // only text shots: the anime-motion LoRA is for image-to-video, so there is nothing to say
+    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot({ intent: "The city at night" })] }] }));
+    await orch.applyStyleToProject(project.id, "cel-anime-80s");
+    expect(await hints()).toEqual([]);
+
+    // a keyframe shot: now it would act on one shot of three
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot({ intent: "The city at night" }), shot({ mode: "keyframe", intent: "She turns to the window" })] }] }));
+    const [hint] = await hints();
+    expect(hint).toMatchObject({ code: "style.lora", severity: "info" });
+    expect(hint!.message).toContain("lora_prithiv_anime_motion");
+    expect(hint!.message).toContain("1 of this film's 3 shot(s)");
+    // it is not applied: the Look is as it was
+    expect((await repo.getProject(project.id)).look.loras.map((l) => l.id)).not.toContain("lora_prithiv_anime_motion");
+
+    // the user said no: a decision naming it drops the hint; overturned, the hint is back
+    const no = await craft.logDecision(project.id, { decision: "not using lora_prithiv_anime_motion", why: "the user wants the plain look for this film", confidence: "high" }, mcp);
+    expect(await hints()).toEqual([]);
+    await repo.updateNote(no.id, { status: "overturned" });
+    expect(await hints()).toHaveLength(1);
+
+    // on one shot, or in the Look: nothing left to hint
+    await orch.patchShot(view.scenes[0]!.shots[2]!.id, { loras: [{ id: "lora_prithiv_anime_motion", strength: 0.8 }] });
+    expect(await hints()).toEqual([]);
+    await orch.patchShot(view.scenes[0]!.shots[2]!.id, { loras: [] });
+    expect(await hints()).toHaveLength(1);
+    const look = (await repo.getProject(project.id)).look;
+    await repo.setProjectLook(project.id, { ...look, loras: [...look.loras, { id: "lora_prithiv_anime_motion", strength: 0.8 }] });
+    expect(await hints()).toEqual([]);
+  });
+
+  it("says nothing for a style with no suggestion, or a project with no style", async () => {
+    const project = await repo.createProject({ name: "Ink", budgetCapUsd: 20 });
+    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot({ mode: "keyframe" })] }] }));
+    expect((await orch.lintProject(project.id)).warnings.some((w) => w.code === "style.lora")).toBe(false);
+    await orch.applyStyleToProject(project.id, "ink-wash");
+    expect((await orch.lintProject(project.id)).warnings.some((w) => w.code === "style.lora")).toBe(false);
+    // a realism LoRA with no workflow limit acts on every shot of a newsreel
+    await orch.applyStyleToProject(project.id, "newsreel");
+    const [hint] = (await orch.lintProject(project.id)).warnings.filter((w) => w.code === "style.lora");
+    expect(hint!.message).toContain("lora_fal_realism_people");
+    expect(hint!.message).toContain("1 of this film's 1 shot(s)");
+  });
+});
