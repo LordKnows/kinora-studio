@@ -89,7 +89,7 @@
       "lens": "normal, flat cartoon depth",
       "lighting": "flat; tone separates figure and ground"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour", "no realistic anatomy", "no 3D"],
+    "negative": ["no colour", "no realistic anatomy", "no 3D"],
     "cinematography": { "animation": "flat2d", "grade": "mono", "texture": "16mm", "lens": "normal", "dof": "deep", "lighting": ["highkey"], "pace": "brisk" },
     "bySize": { "cu": { "pace": "steady" } },
     "loras": [],

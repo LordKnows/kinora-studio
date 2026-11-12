@@ -107,9 +107,6 @@ A menu: use the ones your story needs.
     "aspectRatio": "16:9"
   },
   "negative": [
-    "no on-screen text",
-    "no logos",
-    "no subtitles",
     "no gradients inside cels",
     "no moe faces",
     "no 3D rendering"

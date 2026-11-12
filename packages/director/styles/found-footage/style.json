@@ -90,7 +90,7 @@
       "lens": "camcorder wide, auto-focus and auto-exposure failing",
       "lighting": "fluorescent panels, some dead; flicker"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no monsters", "no gore", "no people"],
+    "negative": ["no monsters", "no gore", "no people"],
     "cinematography": { "grade": "muted", "texture": "vhs", "lens": "wide", "angle": "pov", "dof": "deep", "lighting": ["practicals"], "pace": "still" },
     "bySize": { "insert": { "lens": "normal" } },
     "loras": [],

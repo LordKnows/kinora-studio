@@ -100,7 +100,7 @@
       "lens": "normal, deep focus, painted flatness",
       "lighting": "no cast light; value carries depth, pale far and dark near"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour except one vermilion", "no photoreal faces", "no outlines"],
+    "negative": ["no colour except one vermilion", "no photoreal faces", "no outlines"],
     "cinematography": { "animation": "inkwash", "grade": "mono", "texture": "halftone", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "slow" },
     "bySize": {
       "cu": { "lens": "portrait", "dof": "medium" },

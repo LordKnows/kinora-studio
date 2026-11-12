@@ -89,7 +89,7 @@
       "lens": "flat graphic, no perspective",
       "lighting": "none; flat fields, halftone shadows"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no gradients", "no 3D shading", "no realistic faces"],
+    "negative": ["no gradients", "no 3D shading", "no realistic faces"],
     "cinematography": { "animation": "flat2d", "grade": "muted", "texture": "halftone", "lens": "normal", "dof": "deep", "lighting": ["highkey"], "pace": "steady" },
     "bySize": { "insert": { "lens": "macro" } },
     "loras": [],

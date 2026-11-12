@@ -89,7 +89,7 @@
       "lens": "normal to macro, moderate depth",
       "lighting": "soft studio light with one warm key, matte surfaces"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no hands", "no glossy plastic"],
+    "negative": ["no hands", "no glossy plastic"],
     "cinematography": { "animation": "claymation", "grade": "pastel", "texture": "digital", "lens": "normal", "dof": "medium", "lighting": ["highkey", "golden"], "pace": "steady" },
     "bySize": { "cu": { "lens": "macro", "dof": "shallow" } },
     "loras": [],

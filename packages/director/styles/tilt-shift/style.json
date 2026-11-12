@@ -90,7 +90,7 @@
       "lens": "tilt-shift, thin horizontal sharp band, heavy blur above and below",
       "lighting": "harsh sunny high-key, short shadows; dusk for light trails"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no close-up faces", "no UI"],
+    "negative": ["no close-up faces", "no UI"],
     "cinematography": { "grade": "vivid", "texture": "digital", "lens": "tele", "angle": "high", "dof": "tiltshift", "vfx": ["timelapse"], "lighting": ["harshsun"], "pace": "brisk" },
     "bySize": { "els": { "angle": "high" }, "cu": { "vfx": ["speedramp"], "pace": "slow" } },
     "loras": [],

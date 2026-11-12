@@ -89,7 +89,7 @@
       "lens": "normal, deep focus, period glass",
       "lighting": "flat daylight or arc-lamp stage light, pale skies"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour", "no modern haircuts or clothes", "no spoken dialogue"],
+    "negative": ["no colour", "no modern haircuts or clothes", "no spoken dialogue"],
     "cinematography": { "grade": "mono", "texture": "8mm", "lens": "normal", "dof": "deep", "lighting": ["highkey"], "pace": "brisk" },
     "bySize": { "cu": { "pace": "slow" }, "els": { "lens": "wide" } },
     "loras": [],

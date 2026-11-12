@@ -1,3 +1,5 @@
+import { promptConstraints } from "@director/lint/constraints";
+
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
@@ -213,6 +215,10 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   if (loras.length > MAX_TAKE_LORAS) throw new CompileError(`this shot would load ${loras.length} LoRAs (${loras.map((l) => l.name).join(", ")}); a take takes at most ${MAX_TAKE_LORAS} — drop some from the Look or override the shot's loras`);
   const speed = loras.find((l) => l.kind === "speed");
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type, audios);
+  if (!shot.promptOverride?.trim()) {
+    const left = promptConstraints(look.negative).dropped;
+    if (left.length) warnings.push(`Look constraints left out of the prompt (H3 has no negative prompt, the words would be drawn): ${left.map((v) => `"${v.text.trim()}"`).join(", ")} — lint_project says what to write instead`);
+  }
   if (prompt.length > MAX_PROMPT_CHARS) warnings.push(`prompt is ${prompt.length} chars; H3 caps around ${MAX_PROMPT_CHARS}`);
   /* The settings follow the model and its speed LoRA (models.ts): the turbo
      LoRA's chain is the one the graphs carry (euler/simple, shift 6/3, 8
@@ -240,7 +246,8 @@ export function compileShot(ctx: CompileContext): CompiledJob {
     steps,
     ...(sampling ? { sampling } : {}),
     ...(ctx.seed !== undefined ? { seed: ctx.seed } : {}),
-    negative: look.negative.join(", "),
+    /* H3 has no negative input (mapping.json: negative null); the Look's constraints are in the prompt */
+    negative: "",
     loras: loras.map((l) => ({ name: l.name, file: l.filename, strength: l.strength, ...(l.hfUrl ? { hf_url: l.hfUrl } : {}), kind: l.kind })),
   };
   const effectiveSeconds = h3EffectiveSeconds(spec.durationS);
@@ -667,7 +674,10 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
     ? ["Only the people and objects already in the first frame appear, throughout"] : [];
   const unvoiced = spec.dialogue.length > onscreen.length;
   const speechRule = onscreen.length ? "No extra dialogue beyond the lines above" : unvoiced ? "No one in the frame speaks; every mouth stays closed" : "No dialogue";
-  const constraints = [...castLine, ...look.negative, speechRule, "No subtitles"].filter((c) => {
+  /* H3 has no negative prompt (cfg 1, no negative branch): whatever stands here is drawn. The Look's
+     constraints go in as statements; a bare negative-prompt word and a ban on text are left out
+     (lint/constraints.ts), and the compiler adds no ban of its own. */
+  const constraints = [...castLine, ...promptConstraints(look.negative).keep, speechRule].filter((c) => {
     const key = c.trim().toLowerCase().replace(/[.\s]+$/, "");
     if (!key || seen.has(key)) return false;
     seen.add(key);

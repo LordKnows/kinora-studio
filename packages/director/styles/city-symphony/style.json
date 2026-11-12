@@ -91,7 +91,7 @@
       "lens": "wide to tele, deep focus",
       "lighting": "natural: dawn, noon, blue hour, sodium night"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no close-up faces", "no handheld shake"],
+    "negative": ["no close-up faces", "no handheld shake"],
     "cinematography": { "grade": "muted", "texture": "35mm", "lens": "wide", "dof": "deep", "vfx": ["timelapse"], "lighting": ["blue"], "pace": "brisk" },
     "bySize": { "cu": { "vfx": ["slowmo"], "pace": "still", "lens": "portrait" }, "els": { "angle": "high" } },
     "loras": [],

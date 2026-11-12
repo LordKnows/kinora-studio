@@ -91,7 +91,7 @@
       "lens": "macro to portrait, shallow focus",
       "lighting": "long strip lights behind and beside the object, mirror floor, no fill"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no real products", "no coloured background", "no hands"],
+    "negative": ["no real products", "no coloured background", "no hands"],
     "cinematography": { "grade": "muted", "texture": "digital", "lens": "macro", "dof": "shallow", "lighting": ["rim", "lowkey"], "pace": "slow", "animation": "cgi" },
     "bySize": { "els": { "lens": "normal", "dof": "medium" }, "ls": { "lens": "portrait" } },
     "loras": [],

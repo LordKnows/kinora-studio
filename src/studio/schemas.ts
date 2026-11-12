@@ -99,7 +99,8 @@ const LOOK_FIELDS = {
   aspectRatio: z.enum(ASPECT_RATIOS),
   resolution: z.literal("768p").describe("Self-hosted H3-Base renders 768p only"),
   upscale: z.boolean().describe("Upscale at export time (master-upscaled preset)"),
-  negative: z.array(z.string().max(80)).max(10),
+  /* stored as `negative` since the first schema; H3 has no negative prompt, so these are constraints in the prompt */
+  negative: z.array(z.string().max(80)).max(10).describe("Constraints, each a statement of what the picture shows ('exactly two people in the room', 'the street is empty'). H3 has no negative prompt: a bare word ('blurry') or a ban on text is left out of the prompt, and a 'no X' ban can add X; lint_project gives the positive form"),
   loras: z.array(LoraRef).max(6).describe("Project-wide LoRAs (speed LoRA goes here); shots may override. Leave it out to keep the current set (a new project gets the speed LoRAs); [] renders on the base chain at 20 steps, about 2.5× the time"),
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
   experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
@@ -112,7 +113,7 @@ export const LookSettings = z.object({
   aspectRatio: LOOK_FIELDS.aspectRatio.default("9:16"),
   resolution: LOOK_FIELDS.resolution.default("768p"),
   upscale: LOOK_FIELDS.upscale.default(false),
-  negative: LOOK_FIELDS.negative.default(["no on-screen text", "no logos", "no subtitles"]),
+  negative: LOOK_FIELDS.negative.default([]),
   loras: LOOK_FIELDS.loras.default([]),
   dialogueLanguage: LOOK_FIELDS.dialogueLanguage.default("zh"),
 });

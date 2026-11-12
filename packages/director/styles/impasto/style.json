@@ -89,7 +89,7 @@
       "lens": "normal to portrait, painted depth",
       "lighting": "raking warm key from one side so every paint ridge has a lit and a shadow side"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no smooth photoreal surfaces", "no thin paint"],
+    "negative": ["no smooth photoreal surfaces", "no thin paint"],
     "cinematography": { "animation": "ghibli", "grade": "vivid", "lens": "normal", "dof": "medium", "lighting": ["rim", "practicals"], "pace": "slow" },
     "bySize": { "cu": { "lens": "portrait" }, "els": { "lens": "wide", "dof": "deep" } },
     "loras": [],

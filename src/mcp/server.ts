@@ -113,7 +113,7 @@ export function createStudioServer(actor: Actor): McpServer {
     hits: z.array(z.object({ id: z.string(), section: z.string(), bar: z.number(), beat: z.number(), what: z.string() })).default([]),
     silences: z.array(z.object({ t: z.number(), durationS: z.number(), why: z.string() })).optional(),
   });
-  tool("list_styles", "Every style preset: slug, names, category, uses, one line. Styles compile into Look, negatives, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
+  tool("list_styles", "Every style preset: slug, names, category, uses, one line. Styles compile into Look, constraints, per-shot cinematography defaults, allowed camera moves, transitions and sound defaults.", z.object({}), async () =>
     director.loadStyles().map(({ style: s, origin }) => ({ slug: s.slug, en: s.en, cn: s.cn, category: s.category, uses: s.uses, line: s.line, line_cn: s.line_cn, origin })));
   tool("suggest_styles", "Two or three styles that fit a topic, with why. Then ask the user to pick by name.", z.object({ topic: z.string().min(2), n: z.number().int().min(1).max(5).default(3) }), async ({ topic, n }) =>
     director.suggestStyles(topic, n).map((r) => ({ slug: r.style.slug, en: r.style.en, cn: r.style.cn, score: r.score, why: r.why, line: r.style.line })));
@@ -122,10 +122,10 @@ export function createStudioServer(actor: Actor): McpServer {
     if (!s) throw new StudioError("not_found", `no style matches "${style}"`, { available: director.loadStyles().map((x) => x.style.slug) });
     return format === "json" ? s.style : director.styleToMarkdown(s.style);
   });
-  tool("compile_look", "Style → the look object for start_film / update_look (genre, palette, camera, lens, lighting, negatives, LoRAs), plus the style's beat suffix, cinematography defaults, allowed camera moves, transitions and duration guide.", z.object({
+  tool("compile_look", "Style → the look object for start_film / update_look (genre, palette, camera, lens, lighting, constraints, LoRAs), plus the style's beat suffix, cinematography defaults, allowed camera moves, transitions and duration guide.", z.object({
     style: z.string().min(1),
     aspectRatio: z.enum(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
-    negative: z.array(z.string().max(80)).optional().describe("extra negatives from the brief"),
+    negative: z.array(z.string().max(80)).optional().describe("extra constraints from the brief, each a statement of what the picture shows (H3 has no negative prompt)"),
     loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).optional(),
     genreSuffix: z.string().max(80).optional(),
     paletteSuffix: z.string().max(80).optional(),
@@ -188,7 +188,11 @@ export function createStudioServer(actor: Actor): McpServer {
   tool("list_projects", "List projects.", z.object({}), async () => ({ projects: await repo.listProjects() }));
   tool("create_project", "Create a project with an optional Look draft.", ProjectInput, async (input) => ({ project: await repo.createProject(input) }));
   tool("get_project", "Aggregate view: look, budget, approvals, the project's elements, scenes, shots (full spec) with their takes and frames as one-line summaries, timeline, blockers, and counts of the assets. For detail: get_take (a take's prompt, input, thumbnails), list_assets (the pictures), list_elements with includeLibrary (the library).", z.object({ projectId: id }), async ({ projectId }) => agentProjectView(await orch.getProjectView(projectId)));
-  tool("update_look", "Patch the project-level Look (genre, palette, camera, lens, lighting, aspect ratio, negatives, LoRAs). Only the keys you pass change; the rest of the Look stays as it is.", z.object({ projectId: id, look: LookPatch }), async ({ projectId, look }) => ({ project: await repo.setProjectLook(projectId, look) }));
+  tool("update_look", "Patch the project-level Look (genre, palette, camera, lens, lighting, aspect ratio, constraints, LoRAs). Only the keys you pass change; the rest of the Look stays as it is. `negative` holds the constraints: statements of what the picture shows, since H3 has no negative prompt; `lint` in the answer names a bare word or a ban and its positive form.", z.object({ projectId: id, look: LookPatch }), async ({ projectId, look }) => {
+    const project = await repo.setProjectLook(projectId, look);
+    const lint = director.lintConstraints(project.look.negative ?? []);
+    return { project, ...(lint.length ? { lint } : {}) };
+  });
   tool("gpu_status", "The GPU pod: status (none/starting/running/stopped/unavailable), GPU type, cost per hour, uptime, session cost, allowed GPU types, pending takes. 'unavailable' means none of the allowed GPU types has capacity right now; try again later.", z.object({}), async () => {
     try {
       await gpu.refreshGpu();

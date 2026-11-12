@@ -89,7 +89,7 @@
       "lens": "normal, deep painted focus",
       "lighting": "soft daylight read as unpainted paper; no cast shadows harder than a wash"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no black outlines", "no opaque paint", "no photoreal textures"],
+    "negative": ["no black outlines", "no opaque paint", "no photoreal textures"],
     "cinematography": { "animation": "watercolor", "grade": "pastel", "lens": "normal", "dof": "deep", "lighting": ["overcast"], "pace": "slow" },
     "bySize": { "insert": { "lens": "macro", "dof": "shallow" }, "els": { "lens": "wide" } },
     "loras": [],

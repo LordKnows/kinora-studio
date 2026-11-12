@@ -89,7 +89,7 @@
       "lens": "normal, deep focus, period glass",
       "lighting": "daylight actuality, arc-lamp interiors"
     },
-    "negative": ["no on-screen text", "no logos", "no subtitles", "no colour", "no modern clothes or cars", "no handheld"],
+    "negative": ["no colour", "no modern clothes or cars", "no handheld"],
     "cinematography": { "grade": "mono", "texture": "16mm", "lens": "normal", "dof": "deep", "lighting": ["harshsun"], "pace": "brisk" },
     "bySize": { "els": { "lens": "wide" } },
     "loras": [],
