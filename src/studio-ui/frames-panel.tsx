@@ -248,7 +248,7 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
           {base ? (
             <span className="st-row" style={{ gap: 8 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={(base.meta.previewUrl as string | undefined) ?? base.url} alt="" style={{ width: 72, height: 72, objectFit: "contain", background: "#000", borderRadius: 6 }} />
+              <img src={(base.meta.previewUrl as string | undefined) ?? base.url} alt="" style={{ width: 72, height: 72, objectFit: "contain", background: "#000", borderRadius: 0 }} />
               <span>Starting from <strong>{pictureTitle(base)}</strong></span>
             </span>
           ) : (
@@ -371,7 +371,7 @@ function FrameCheck({ first, last, aspect }: { first: string; last: string; aspe
         </span>
       }
     >
-      <div style={{ position: "relative", width: "100%", maxHeight: 420, aspectRatio: aspect, background: "#000", borderRadius: 6, overflow: "hidden" }}>
+      <div style={{ position: "relative", width: "100%", maxHeight: 420, aspectRatio: aspect, background: "#000", borderRadius: 0, overflow: "hidden" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={first} alt="first frame" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "contain" }} />
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -389,7 +389,7 @@ function PhoneCheck({ url, aspect }: { url: string; aspect: string }) {
     <Section title="Phone size">
       <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt="the frame at phone size" style={{ width: aspect.startsWith("9") || aspect.startsWith("3 /") ? 110 : 180, aspectRatio: aspect, objectFit: "contain", background: "#000", borderRadius: 4 }} />
+        <img src={url} alt="the frame at phone size" style={{ width: aspect.startsWith("9") || aspect.startsWith("3 /") ? 110 : 180, aspectRatio: aspect, objectFit: "contain", background: "#000", borderRadius: 0 }} />
         <span className="st-muted">The first frame at the size it plays in a feed. Faces and props that matter should still read here.</span>
       </div>
     </Section>

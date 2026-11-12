@@ -321,7 +321,7 @@ function ElementEditor({
                       return (
                         <div key={id} className="st-row">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {a && <img src={a.url} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4 }} />}
+                          {a && <img src={a.url} alt="" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 0 }} />}
                           <span className="st-muted st-num">#{k + 1}</span>
                           <select className="st-select st-input--sm" value={views[id] ?? ""} onChange={(e) => setViews({ ...views, [id]: e.target.value as RefView })}>
                             <option value="">view —</option>

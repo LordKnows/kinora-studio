@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { Asset } from "@/studio/types";
 
@@ -133,6 +134,7 @@ const FILTERS: Array<{ key: string; label: string; test: (a: Listed) => boolean 
   { key: "canvas", label: "Canvas", test: (a) => a.meta.purpose === "canvas" || !!a.meta.reference },
   { key: "takes", label: "From takes", test: (a) => a.source === "frame-extract" },
   { key: "uploads", label: "Uploads & imports", test: (a) => a.source === "upload" || !!a.meta.importedFrom },
+  { key: "review", label: "Awaiting review", test: (a) => a.meta.review === "pending" },
   { key: "unused", label: "Unused", test: (a) => a.uses.length === 0 },
   { key: "flagged", label: "Flagged", test: (a) => a.meta.review === "fail" || (a.meta.autoReview as { verdict?: string } | undefined)?.verdict === "fail" || ((a.meta.checks as Array<{ level: string }> | undefined) ?? []).some((c) => c.level === "fail") },
 ];
@@ -148,10 +150,31 @@ function checkChip(a: Asset): string | undefined {
 
 /** The project's pictures, all in one place. */
 export function PicturesPage() {
+  return (
+    <Suspense fallback={null}>
+      <Pictures />
+    </Suspense>
+  );
+}
+
+/* The filter and the open picture are in the address (?show=review&pic=…),
+   so "7 pictures await review" can link straight to them. */
+function Pictures() {
   const { projectId, view, reload: reloadProject } = useProjectContext();
   const [pictures, setPictures] = useState<Listed[] | null>(null);
-  const [filter, setFilter] = useState("all");
-  const [open, setOpen] = useState<string | null>(null);
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const filter = FILTERS.some((f) => f.key === params.get("show")) || params.get("show") === "twice" ? params.get("show")! : "all";
+  const open = params.get("pic");
+  const address = (change: { show?: string; pic?: string | null }) => {
+    const q = new URLSearchParams(params.toString());
+    if (change.show !== undefined) { if (change.show === "all") q.delete("show"); else q.set("show", change.show); }
+    if (change.pic !== undefined) { if (change.pic === null) q.delete("pic"); else q.set("pic", change.pic); }
+    router.replace(q.size ? `${pathname}?${q}` : pathname, { scroll: false });
+  };
+  const setFilter = (key: string) => address({ show: key });
+  const setOpen = (id: string | null) => address({ pic: id });
   const [editing, setEditing] = useState<string | null>(null);
   const imaging = useImagingOn();
   const [error, setError] = useState<unknown>(null);
@@ -173,7 +196,27 @@ export function PicturesPage() {
     await reloadProject();
   }, [load, reloadProject]);
   const rename = useRenamePicture(after);
-  const shown = useMemo(() => (pictures ?? []).filter(FILTERS.find((f) => f.key === filter)!.test).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)), [pictures, filter]);
+  /* one file listed under two handles: the later ones are the copies */
+  const twins = useMemo(() => {
+    const first = new Map<string, Listed>();
+    const map = new Map<string, Listed>();
+    for (const a of [...(pictures ?? [])].sort((x, y) => (x.seq ?? 0) - (y.seq ?? 0))) {
+      const original = first.get(a.url);
+      if (original) map.set(a.id, original);
+      else first.set(a.url, a);
+    }
+    return map;
+  }, [pictures]);
+  const shown = useMemo(() => (pictures ?? []).filter(filter === "twice" ? (a) => twins.has(a.id) : FILTERS.find((f) => f.key === filter)!.test).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)), [pictures, filter, twins]);
+  const verdict = useAction(async (_c, asset: Listed, v: "pass" | "fail", problem: string) => {
+    await post(`/api/projects/${projectId}/pictures/${encodeURIComponent(asset.id)}/review`, { verdict: v, ...(problem.trim() ? { problem: problem.trim() } : {}) });
+    /* on to the next one that waits, oldest first, as a sheet is drawn */
+    const waiting = (pictures ?? []).filter((a) => a.meta.review === "pending" && a.id !== asset.id).sort((x, y) => (x.seq ?? 0) - (y.seq ?? 0));
+    if (filter === "review") setOpen(waiting[0]?.id ?? null);
+    await after();
+  });
+  const [problem, setProblem] = useState("");
+  useEffect(() => setProblem(""), [open]);
   const current = shown.find((a) => a.id === open) ?? pictures?.find((a) => a.id === open);
   return (
     <div className="st-page">
@@ -184,7 +227,7 @@ export function PicturesPage() {
         </div>
         <SelectBar sel={sel} all={shown.map((a) => a.id)} onDeleted={after} label="Select to delete" />
       </div>
-      <ErrorBanner error={error ?? rename.error} onDismiss={() => { setError(null); rename.dismiss(); }} />
+      <ErrorBanner error={error ?? rename.error ?? verdict.error} onDismiss={() => { setError(null); rename.dismiss(); verdict.dismiss(); }} />
       <div className="st-row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {FILTERS.map((f) => {
           const n = (pictures ?? []).filter(f.test).length;
@@ -194,6 +237,7 @@ export function PicturesPage() {
             </Button>
           );
         })}
+        {twins.size > 0 && <Button size="sm" kind={filter === "twice" ? "primary" : "quiet"} onClick={() => setFilter("twice")} title="The same file under more than one handle">Listed twice {twins.size}</Button>}
       </div>
       {!pictures ? (
         <Skeleton />
@@ -212,7 +256,7 @@ export function PicturesPage() {
                   {sel.selecting && <SelectMark on={on} />}
                   {a.uses.length > 0 && <span className="st-thumb-tag">IN USE</span>}
                 </button>
-                <PictureCaption asset={a} extra={reviewChip(a) || chip ? <span className={chip?.includes("fail") ? "st-warn" : "st-muted"}>{[reviewChip(a), chip].filter(Boolean).join(" · ")}</span> : undefined} />
+                <PictureCaption asset={a} extra={reviewChip(a) || chip || twins.has(a.id) ? <span className={chip?.includes("fail") ? "st-warn" : "st-muted"}>{[reviewChip(a), chip, twins.has(a.id) ? `= ${twins.get(a.id)!.handle ?? "another"}` : undefined].filter(Boolean).join(" · ")}</span> : undefined} />
               </div>
             );
           })}
@@ -238,7 +282,18 @@ export function PicturesPage() {
             </>
           ) : (
             /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 8 }} />
+            <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 0 }} />
+          )}
+          {current.kind === "image" && editing !== current.id && (
+            <div className="pic-verdict">
+              <span className="sc-cap">Your verdict{current.meta.review === "pending" ? " · it waits for one" : current.meta.review ? ` · now ${String(current.meta.review)}${current.meta.reviewedBy === "human" ? " by you" : current.meta.reviewedBy ? " by the director" : ""}` : ""}</span>
+              <div className="st-row">
+                <input className="st-input" style={{ flex: 1, minWidth: 180 }} aria-label="What is wrong, if anything" placeholder="What is wrong, if anything" maxLength={500} value={problem} onChange={(e) => setProblem(e.target.value)} />
+                <Button kind="primary" busy={verdict.busy} onClick={() => void verdict.fire(current, "pass", problem)}>Pass</Button>
+                <Button busy={verdict.busy} onClick={() => void verdict.fire(current, "fail", problem)} title="A failed picture is not used for takes; have it redrawn or edit a region">Fail</Button>
+              </div>
+              {twins.has(current.id) && <span className="st-muted">This is the same file as {twins.get(current.id)!.handle ?? "another picture"}; a verdict on one does not mark the other.</span>}
+            </div>
           )}
           <PictureFacts asset={current} uses={current.uses} projectId={projectId} onChanged={after} />
         </div>

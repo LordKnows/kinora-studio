@@ -235,7 +235,7 @@ function Board() {
               {scene.summary && <span className="st-scene-summary"> · {scene.summary}</span>}
               {scene.palette && (
                 <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? "scene palette"}>
-                  {scene.palette.colors.map((c) => <span key={c} style={{ width: 12, height: 12, borderRadius: 2, background: c, display: "inline-block" }} />)}
+                  {scene.palette.colors.map((c) => <span key={c} style={{ width: 12, height: 12, borderRadius: 0, background: c, display: "inline-block" }} />)}
                 </span>
               )}
             </div>
@@ -294,7 +294,7 @@ function Board() {
         >
           <p className="st-muted">Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt="Colour-block storyboard" style={{ width: "100%", height: "auto", borderRadius: 8 }} />
+          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt="Colour-block storyboard" style={{ width: "100%", height: "auto", borderRadius: 0 }} />
         </Drawer>
       )}
       {lintOpen && (
@@ -719,7 +719,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
         {take.thumbUrls.length > 0 && (
           <div className="st-row" style={{ gap: 4 }}>
             {take.thumbUrls.map((u) => (
-              <img key={u} src={u} alt="" style={{ width: 64, aspectRatio: "16 / 9", objectFit: "contain", background: "#000", borderRadius: 4 }} />
+              <img key={u} src={u} alt="" style={{ width: 64, aspectRatio: "16 / 9", objectFit: "contain", background: "#000", borderRadius: 0 }} />
             ))}
           </div>
         )}

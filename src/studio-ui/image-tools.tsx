@@ -120,7 +120,7 @@ export function RegionPicker({ src, value, onChange, height = 480 }: { src: stri
     <div className="st-stack st-stack--tight">
       <div
         ref={ref}
-        style={{ position: "relative", width: `min(100%, ${Math.round((height * size.w) / size.h)}px)`, aspectRatio: `${size.w} / ${size.h}`, margin: "0 auto", borderRadius: 6, overflow: "hidden", background: "#000", touchAction: "none", cursor: "crosshair" }}
+        style={{ position: "relative", width: `min(100%, ${Math.round((height * size.w) / size.h)}px)`, aspectRatio: `${size.w} / ${size.h}`, margin: "0 auto", borderRadius: 0, overflow: "hidden", background: "#000", touchAction: "none", cursor: "crosshair" }}
         onPointerDown={(e) => { (e.target as HTMLElement).setPointerCapture(e.pointerId); start.current = at(e); setDraft(undefined); }}
         onPointerMove={(e) => { if (start.current) setDraft(box(start.current, at(e))); }}
         onPointerUp={(e) => { if (!start.current) return; const b = box(start.current, at(e)); start.current = null; const ok = b.w > 0.01 && b.h > 0.01; setDraft(ok ? b : undefined); onChange(ok ? b : undefined); }}

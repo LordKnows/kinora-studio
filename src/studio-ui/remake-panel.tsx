@@ -56,7 +56,7 @@ export function RemakePanel({ take, onClose }: { take: Take; onClose: () => void
               <div key={a.id} className="st-stack st-stack--tight" style={{ width: 200 }}>
                 <span style={{ position: "relative", display: "block", cursor: sel.selecting ? "pointer" : undefined }} onClick={sel.selecting ? () => sel.toggle(a.id) : undefined}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={a.name ?? ""} style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 4 }} />
+                  <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={a.name ?? ""} style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 0 }} />
                   {sel.selecting && <SelectMark on={sel.selected.includes(a.id)} />}
                 </span>
                 <span className="st-muted st-num">{label(a)}{reviewChip(a) ? ` · ${reviewChip(a)}` : ""}</span>

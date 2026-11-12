@@ -4142,3 +4142,13 @@ button.st-pill {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* ---------- Pictures: the verdict ---------- */
+
+.studio .pic-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 2px solid var(--line-3);
+}
