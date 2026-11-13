@@ -19,6 +19,8 @@ import { useProjectContext } from "./shell";
 import { EDIT_GRAMMAR } from "@/studio/editing";
 
 import { ShotEditor, validateDraft, type ShotDraft } from "./shot-editor";
+import { useLoraLibrary } from "./lora-picker";
+import { shotLoraChips } from "./shot-loras-field";
 
 type LintWarning = { code: string; message: string; scene?: string; shot?: number; severity: "error" | "warn" | "info" };
 type LintReport = { warnings: LintWarning[]; counts: { error: number; warn: number; info: number } };
@@ -406,6 +408,8 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
   const codes = cineCodes(shot.spec);
   const link = linkLabel(shot.spec);
   const problems = lint.filter((w) => w.severity !== "info").length;
+  const { loras: library } = useLoraLibrary();
+  const loraChips = shotLoraChips(shot.spec, library);
   return (
     <div className="st-shot" aria-pressed={open}>
       <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
@@ -425,6 +429,11 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
         <div className="st-shot-tags">
           {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
           {link && <span className="st-chip st-chip--mono" aria-pressed="true">{tr(link)}</span>}
+          {loraChips.map((c) => (
+            <span key={c.key} className="st-chip st-chip--lora" data-off={c.off ? "true" : undefined} data-turbo={c.key === "turbo" ? "off" : undefined} title={c.title ? `${c.label}: ${c.title}` : c.key === "turbo" ? tr("Use turbo is off: the base chain, about 2.5× the render time") : tr("Use LoRA is off")}>
+              {c.key === "turbo" ? tr("no turbo") : c.label}
+            </span>
+          ))}
           {problems > 0 && <span className="st-chip st-chip--mono st-chip--warn" title={lint.map((w) => lintLine(lang, w).text).join("\n")}>⚠ {problems}</span>}
         </div>
         <button type="button" className="st-shot-intent" onClick={onOpen} style={{ textAlign: "left" }}>

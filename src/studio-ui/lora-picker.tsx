@@ -10,17 +10,29 @@ import type { Lora } from "@/studio/types";
 import { describe, get } from "./api";
 import { useT } from "./i18n";
 
-/* The library, loaded once per mount, for pickers on the Look page and in the
-   shot editor. Checked LoRAs carry a strength that defaults to the library's. */
+/* The library, loaded once per page and shared by every reader (the Board's
+   shot cards, the shot editor, the image settings' picker). The LoRAs page
+   drops the copy when it changes the library. Checked LoRAs in a picker carry
+   a strength that defaults to the library's. */
+
+let shared: Promise<Lora[]> | null = null;
+
+export function invalidateLoraLibrary(): void {
+  shared = null;
+}
 
 export function useLoraLibrary() {
   const [loras, setLoras] = useState<Lora[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    get<{ loras: Lora[] }>("/api/loras")
-      .then((r) => live && setLoras(r.loras))
-      .catch((caught) => live && setError(describe(caught)));
+    shared ??= get<{ loras: Lora[] }>("/api/loras").then((r) => r.loras);
+    shared
+      .then((r) => live && setLoras(r))
+      .catch((caught) => {
+        shared = null;
+        if (live) setError(describe(caught));
+      });
     return () => {
       live = false;
     };

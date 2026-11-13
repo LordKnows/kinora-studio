@@ -456,29 +456,39 @@ describe("gpu stats and loras", () => {
     expect(plain.clips[0]!.url).toBe("https://r2/x.mp4");
   });
 
-  it("applies project LoRAs, shot overrides, trigger words and the speed LoRA's step hint", async () => {
-    const speed = await repo.createLora({ name: "H3 lightx2v 8-step", kind: "speed", filename: "h3_lightx2v_8step.safetensors", hfUrl: "https://huggingface.co/o/r/blob/main/h3_lightx2v_8step.safetensors", triggerWords: "", defaultStrength: 1, stepsHint: 8, workflows: [], notes: "" });
+  it("loads the turbo LoRA for the workflow and the shot's assigned LoRAs, as the shot's two switches say", async () => {
+    const library = await repo.listLoras();
+    const turboT2V = library.find((l) => l.kind === "speed" && l.workflows.includes("T2VA"))!;
+    const turboR2V = library.find((l) => l.kind === "speed" && l.workflows.includes("R2VA"))!;
+    expect(turboT2V.workflows).toContain("I2VA");
     const style = await repo.createLora({ name: "Neon noir", kind: "style", filename: "neon_noir.safetensors", triggerWords: "neon noir, wet asphalt", defaultStrength: 0.7, workflows: ["T2VA"], notes: "" });
-    const project = await repo.createProject({ name: "Lora film", look: { loras: [{ id: speed.id }, { id: style.id, strength: 0.5 }] } });
+    const project = await repo.createProject({ name: "Lora film" });
     const script = await repo.createScript(project.id, "x");
     await repo.approveScript(script.id);
     const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "s", shots: [shot(), shot()] }] }));
     const [a, b] = view.scenes[0]!.shots;
+    await orch.assignLoras(project.id, [{ shotId: a!.id, loras: [{ id: style.id, strength: 0.5, why: "the wet night street" }] }]);
 
+    /* both switches on (the default): one turbo LoRA, the one for T2VA, and the assigned one */
     const ca = await orch.compileForShot(a!.id);
     expect(ca.input.loras).toEqual([
-      { name: "H3 lightx2v 8-step", file: "h3_lightx2v_8step.safetensors", strength: 1, hf_url: "https://huggingface.co/o/r/blob/main/h3_lightx2v_8step.safetensors", kind: "speed" },
+      { name: turboT2V.name, file: turboT2V.filename, strength: turboT2V.defaultStrength, ...(turboT2V.hfUrl ? { hf_url: turboT2V.hfUrl } : {}), kind: "speed" },
       { name: "Neon noir", file: "neon_noir.safetensors", strength: 0.5, kind: "style" },
     ]);
     expect(ca.input.steps).toBe(8);
     expect(ca.input.sampling).toBeUndefined();
     expect(ca.prompt).toContain("neon noir, wet asphalt");
 
-    /* no speed LoRA: the base chain and 20 steps, unless the caller sets steps */
-    await orch.patchShot(b!.id, { loras: [] });
+    /* use LoRA off: the turbo LoRA alone, and no trigger words */
+    await orch.patchShot(a!.id, { useLoras: false });
+    const off = await orch.compileForShot(a!.id);
+    expect(off.input.loras.map((l) => l.name)).toEqual([turboT2V.name]);
+    expect(off.prompt).not.toContain("neon noir");
+
+    /* use turbo off: the base chain and 20 steps, unless the caller sets steps */
+    await orch.patchShot(b!.id, { useTurbo: false });
     const cb = await orch.compileForShot(b!.id);
     expect(cb.input.loras).toEqual([]);
-    expect(cb.prompt).not.toContain("neon noir");
     expect(cb.input.steps).toBe(20);
     expect(cb.input.sampling).toEqual({ sampler: "res_multistep", scheduler: "simple", shift_video: 12, shift_audio: 3 });
     expect(cb.warnings.some((w) => w.includes("base sampling chain"))).toBe(true);
@@ -486,11 +496,18 @@ describe("gpu stats and loras", () => {
     expect(cb8.input.steps).toBe(8);
     expect(cb8.warnings.some((w) => w.includes("wants about 20 steps"))).toBe(true);
 
-    /* a style LoRA scoped to T2VA is dropped on other workflows */
+    /* a keyframe shot: the turbo LoRA for I2VA; the T2VA-only style LoRA stays out, and the compiler says so */
     const hero = await repo.createAsset({ projectId: project.id, url: "https://r2/h.png", kind: "image", source: "upload" });
-    await orch.patchShot(a!.id, { mode: "keyframe", heroAssetId: hero.id });
+    await orch.patchShot(a!.id, { useLoras: true, mode: "keyframe", heroAssetId: hero.id });
     const ck = await orch.compileForShot(a!.id);
     expect(ck.workflow).toBe("I2VA");
-    expect(ck.input.loras.map((l) => l.name)).toEqual(["H3 lightx2v 8-step"]);
+    expect(ck.input.loras.map((l) => l.name)).toEqual([turboT2V.name]);
+    expect(ck.warnings.some((w) => w.includes("Neon noir is not trained for I2VA"))).toBe(true);
+
+    /* a reference shot: the ref2v turbo LoRA, never two */
+    await orch.patchShot(b!.id, { useTurbo: true, mode: "reference", heroAssetId: hero.id });
+    const cr = await orch.compileForShot(b!.id);
+    expect(cr.workflow).toBe("R2VA");
+    expect(cr.input.loras.map((l) => l.name)).toEqual([turboR2V.name]);
   });
 });

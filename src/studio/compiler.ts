@@ -5,6 +5,7 @@ import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
 import { CAMERA_MOVES, FIGURE_VIEWS, type Blocking, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
+import { H3_FAMILY, trainedFor, turboFor } from "./shot-loras";
 import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
@@ -78,8 +79,12 @@ export type CompileContext = {
   anchorFrameUrl?: string;
   anchorLabel?: string;
   sourceTake?: Take;
-  /** Resolved LoRAs (shot override or project default) with final strengths. */
+  /** The LoRAs on offer with final strengths: the library's speed LoRAs while the
+      shot's use-turbo switch is on (the compiler loads the one for the workflow)
+      and the LoRAs assigned to the shot while use LoRA is on. */
   loras?: ActiveLora[];
+  /** The shot asked for the turbo LoRA (use turbo): say so when none fits the workflow. */
+  turbo?: boolean;
   steps?: number;
   seed?: number;
   /** How the sections are serialised for the model; defaults to H3_PROMPT_FORMAT. */
@@ -212,11 +217,19 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   const guide = audioGuide(ctx, workflow, warnings);
   dialogueWarnings(spec, warnings);
 
-  /* only LoRAs trained for H3 load into its graphs (an image model's LoRA in the library is skipped) */
-  const loras = (ctx.loras ?? []).filter((l) => (l.baseModel ?? "minimax-h3") === H3_MODEL.family && (l.workflows.length === 0 || l.workflows.includes(workflow)));
+  /* One turbo LoRA, the one trained for this workflow, and the shot's assigned
+     LoRAs that are trained for H3 and for it (shot-loras.ts). */
+  const offered = ctx.loras ?? [];
+  const speed = turboFor(offered.filter((l) => l.kind === "speed"), workflow);
+  const assigned = offered.filter((l) => l.kind !== "speed");
+  const fitting = assigned.filter((l) => trainedFor(l, workflow));
+  for (const l of assigned.filter((x) => !fitting.includes(x))) {
+    warnings.push(`LoRA ${l.name} is not trained for ${(l.baseModel ?? H3_FAMILY) === H3_FAMILY ? `${workflow} (only ${l.workflows.join(", ")})` : `H3 (${l.baseModel})`}: left out of this take`);
+  }
+  if (ctx.turbo && !speed) warnings.push(`use turbo is on, but the library has no speed LoRA for ${workflow}`);
+  const loras = [...(speed ? [speed] : []), ...fitting];
   /* the pod chains them behind the graph's one slot, up to MAX_TAKE_LORAS (workers/h3-runpod/handler.py MAX_LORAS) */
-  if (loras.length > MAX_TAKE_LORAS) throw new CompileError(`this shot would load ${loras.length} LoRAs (${loras.map((l) => l.name).join(", ")}); a take takes at most ${MAX_TAKE_LORAS} — drop some from the Look or override the shot's loras`);
-  const speed = loras.find((l) => l.kind === "speed");
+  if (loras.length > MAX_TAKE_LORAS) throw new CompileError(`this shot would load ${loras.length} LoRAs (${loras.map((l) => l.name).join(", ")}); a take takes at most ${MAX_TAKE_LORAS} — assign fewer to the shot (assign_loras)`);
   const prompt = shot.promptOverride?.trim() || buildPrompt(ctx, images, workflow, loras, link.type, audios);
   if (!shot.promptOverride?.trim()) {
     const left = promptConstraints(look.negative).dropped;

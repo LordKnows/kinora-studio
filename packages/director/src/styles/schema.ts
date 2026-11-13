@@ -124,7 +124,7 @@ export const StyleSchema = z.object({
     cinematography: Cinematography,
     /** Extra per-shot defaults by size, e.g. close-ups get `portrait` lens. */
     bySize: z.partialRecord(z.enum(SIZE), Cinematography).optional(),
-    /** The LoRA ids a style wants beyond the speed LoRA (none exist yet in the library). */
+    /** Older field: LoRA ids the style wants on every shot. LoRAs are per shot now, so these are offered with the suggestions below. */
     loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).default([]),
     /**
      * Style LoRAs from the Studio's library that may suit this style. Not

@@ -69,31 +69,28 @@ describe("the Look is patched, never reset", () => {
     expect(LookPatch.parse({ aspectRatio: "16:9" })).toEqual({ aspectRatio: "16:9" });
     expect(LookPatch.parse({})).toEqual({});
     /* the full Look still has its defaults */
-    expect(LookSettings.parse({ genre: "", palette: "", camera: "", lens: "", lighting: "" })).toMatchObject({ aspectRatio: "9:16", loras: [], dialogueLanguage: "zh" });
+    expect(LookSettings.parse({ genre: "", palette: "", camera: "", lens: "", lighting: "" })).toMatchObject({ aspectRatio: "9:16", dialogueLanguage: "zh" });
   });
 
-  it("update_look keeps the LoRAs, negatives and language it was not given", async () => {
-    const speed = (await repo.listLoras()).filter((l) => l.kind === "speed").map((l) => l.id);
-    expect(speed.length).toBeGreaterThan(0);
+  it("update_look keeps the negatives and language it was not given, and holds no LoRAs", async () => {
     const { data } = await call("start_film", { name: "Look", brief: "a courier crosses a square at dawn", totalSeconds: 10, look: { genre: "quiet drama", negative: ["no rain", "no crowd"], dialogueLanguage: "en" } });
     const projectId = data.project.id as string;
-    /* a Look draft that names no LoRAs still gets the speed LoRAs */
-    expect(data.project.look.loras.map((l: { id: string }) => l.id).sort()).toEqual([...speed].sort());
+    /* LoRAs are per shot: the Look has none */
+    expect(data.project.look).not.toHaveProperty("loras");
 
     const after = (await call("update_look", { projectId, look: { aspectRatio: "16:9" } })).data.project.look;
     expect(after.aspectRatio).toBe("16:9");
-    expect(after.loras.map((l: { id: string }) => l.id).sort()).toEqual([...speed].sort());
     expect(after.negative).toEqual(["no rain", "no crowd"]);
     expect(after.dialogueLanguage).toBe("en");
     expect(after.genre).toBe("quiet drama");
 
     /* the web's Look page patches one field at a time through the same schema */
     const web1 = await repo.setProjectLook(projectId, LookPatch.parse({ palette: "teal and amber" }));
-    expect(web1.look.loras).toHaveLength(speed.length);
+    expect(web1.look.negative).toEqual(["no rain", "no crowd"]);
 
-    /* an empty list is still a choice: the base chain */
-    const none = (await call("update_look", { projectId, look: { loras: [] } })).data.project.look;
-    expect(none.loras).toEqual([]);
+    /* a Look patch that still names LoRAs leaves them out */
+    const none = (await call("update_look", { projectId, look: { loras: [{ id: "lora_h3_turbo_fl2v" }] } })).data.project.look;
+    expect(none).not.toHaveProperty("loras");
     expect(none.negative).toEqual(["no rain", "no crowd"]);
   });
 });

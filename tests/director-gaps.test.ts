@@ -256,50 +256,88 @@ describe("a batch of takes on one confirmation", () => {
   });
 });
 
-describe("a style's suggested LoRA is a lint hint, never a default", () => {
-  it("hints while the LoRA would act on a shot and nobody has decided", async () => {
+describe("LoRAs are the director's to assign, shot by shot", () => {
+  it("the lint asks for the pass, naming what the style suggests; assign_loras answers it", async () => {
     const project = await repo.createProject({ name: "Cel", budgetCapUsd: 20 });
-    const hints = async () => (await orch.lintProject(project.id)).warnings.filter((w) => w.code === "style.lora");
-    // only text shots: the anime-motion LoRA is for image-to-video, so there is nothing to say
-    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot({ intent: "The city at night" })] }] }));
-    await orch.applyStyleToProject(project.id, "cel-anime-80s");
-    expect(await hints()).toEqual([]);
-
-    // a keyframe shot: now it would act on one shot of three
+    const lint = async (code: string) => (await orch.lintProject(project.id)).warnings.filter((w) => w.code === code);
     const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot({ intent: "The city at night" }), shot({ mode: "keyframe", intent: "She turns to the window" })] }] }));
-    const [hint] = await hints();
-    expect(hint).toMatchObject({ code: "style.lora", severity: "info" });
-    expect(hint!.message).toContain("lora_prithiv_anime_motion");
-    expect(hint!.message).toContain("1 of this film's 3 shot(s)");
-    // it is not applied: the Look is as it was
-    expect((await repo.getProject(project.id)).look.loras.map((l) => l.id)).not.toContain("lora_prithiv_anime_motion");
+    await orch.applyStyleToProject(project.id, "cel-anime-80s");
+    const [ask] = await lint("lora.unassigned");
+    expect(ask).toMatchObject({ severity: "info" });
+    expect(ask!.message).toContain("3 of the film's 3 shot(s)");
+    expect(ask!.message).toContain("lora_prithiv_anime_motion");
+    /* nothing is applied for the user: the shots have no LoRAs until the director assigns them */
+    expect((await repo.listShots(project.id)).every((sh) => sh.spec.loras === undefined)).toBe(true);
 
-    // the user said no: a decision naming it drops the hint; overturned, the hint is back
-    const no = await craft.logDecision(project.id, { decision: "not using lora_prithiv_anime_motion", why: "the user wants the plain look for this film", confidence: "high" }, mcp);
-    expect(await hints()).toEqual([]);
-    await repo.updateNote(no.id, { status: "overturned" });
-    expect(await hints()).toHaveLength(1);
+    const [a, b, c] = view.scenes[0]!.shots;
+    await repo.setShotlistApproval(project.id, "approved");
+    /* a speed LoRA is the use-turbo switch's; a LoRA must be trained for the shot's workflow; a refused call writes nothing */
+    await expect(orch.assignLoras(project.id, [{ shotId: c!.id, loras: [{ id: "lora_h3_turbo_fl2v", why: "faster" }] }])).rejects.toMatchObject({ code: "validation" });
+    await expect(orch.assignLoras(project.id, [{ shotId: c!.id, loras: [{ id: "lora_prithiv_anime_motion", why: "anime" }] }, { shotId: a!.id, loras: [{ id: "lora_prithiv_anime_motion", why: "anime" }] }])).rejects.toMatchObject({ code: "validation" });
+    expect((await repo.getShot(c!.id)).spec.loras).toBeUndefined();
 
-    // on one shot, or in the Look: nothing left to hint
-    await orch.patchShot(view.scenes[0]!.shots[2]!.id, { loras: [{ id: "lora_prithiv_anime_motion", strength: 0.8 }] });
-    expect(await hints()).toEqual([]);
-    await orch.patchShot(view.scenes[0]!.shots[2]!.id, { loras: [] });
-    expect(await hints()).toHaveLength(1);
-    const look = (await repo.getProject(project.id)).look;
-    await repo.setProjectLook(project.id, { ...look, loras: [...look.loras, { id: "lora_prithiv_anime_motion", strength: 0.8 }] });
-    expect(await hints()).toEqual([]);
+    const done = await orch.assignLoras(project.id, [
+      { shotId: c!.id, loras: [{ id: "lora_prithiv_anime_motion", strength: 0.8, why: "a keyframe shot that animates a drawn hero frame" }] },
+      { shotId: a!.id, loras: [] },
+      { shotId: b!.id, loras: [] },
+    ]);
+    expect(done.shots[0]).toMatchObject({ slate: "1·3", useTurbo: true, useLoras: true, loras: [{ id: "lora_prithiv_anime_motion", strength: 0.8, why: expect.stringContaining("hero frame") }] });
+    expect(await lint("lora.unassigned")).toEqual([]);
+    /* not structural: the approval stands */
+    expect((await repo.getProject(project.id)).shotlistApproval).toBe("approved");
+
+    /* the shot becomes a text shot: what it was given can no longer load */
+    await orch.patchShot(c!.id, { mode: "text" });
+    expect((await lint("lora.workflow"))[0]).toMatchObject({ severity: "warn", scene: "a", shot: 3 });
   });
 
-  it("says nothing for a style with no suggestion, or a project with no style", async () => {
-    const project = await repo.createProject({ name: "Ink", budgetCapUsd: 20 });
-    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot({ mode: "keyframe" })] }] }));
-    expect((await orch.lintProject(project.id)).warnings.some((w) => w.code === "style.lora")).toBe(false);
-    await orch.applyStyleToProject(project.id, "ink-wash");
-    expect((await orch.lintProject(project.id)).warnings.some((w) => w.code === "style.lora")).toBe(false);
-    // a realism LoRA with no workflow limit acts on every shot of a newsreel
+  it("list_loras with a project gives each shot its workflows, switches and what could load on it", async () => {
+    const project = await repo.createProject({ name: "News", budgetCapUsd: 20 });
+    await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot({ mode: "keyframe" }), shot()] }] }));
     await orch.applyStyleToProject(project.id, "newsreel");
-    const [hint] = (await orch.lintProject(project.id)).warnings.filter((w) => w.code === "style.lora");
-    expect(hint!.message).toContain("lora_fal_realism_people");
-    expect(hint!.message).toContain("1 of this film's 1 shot(s)");
+    const plan = await orch.loraPlan(project.id);
+    expect(plan.styleSuggests.map((x) => x.id)).toEqual(["lora_fal_realism_people"]);
+    expect(plan.shots[0]).toMatchObject({ slate: "1·1", workflows: ["I2VA", "FL2VA"], useTurbo: true, useLoras: true, state: "unassigned" });
+    expect(plan.shots[0]!.canLoad).toContain("lora_prithiv_anime_motion");
+    expect(plan.shots[1]!.canLoad).not.toContain("lora_prithiv_anime_motion");
+    expect(plan.shots.every((s) => !s.canLoad.some((id) => id.startsWith("lora_h3_turbo")))).toBe(true);
+  });
+
+  it("a re-saved shotlist keeps the user's switches and the director's assignment", async () => {
+    const project = await repo.createProject({ name: "Keep", budgetCapUsd: 20 });
+    const list = ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot()] }] });
+    const [s1] = (await orch.saveShotlist(project.id, list)).scenes[0]!.shots;
+    await orch.assignLoras(project.id, [{ shotId: s1!.id, loras: [{ id: "lora_fal_realism_people", why: "faces must read as photographed" }] }]);
+    await orch.patchShot(s1!.id, { useTurbo: false });
+    await orch.saveShotlist(project.id, list);
+    const spec = (await repo.getShot(s1!.id)).spec;
+    expect(spec.useTurbo).toBe(false);
+    expect(spec.loras?.map((l) => l.id)).toEqual(["lora_fal_realism_people"]);
+  });
+
+  it("an old project's Look LoRAs move onto its shots, once", async () => {
+    const { getDb } = await import("@/db");
+    const d = await getDb();
+    const project = await repo.createProject({ name: "Old", budgetCapUsd: 20 });
+    const [inherits, override, none] = (await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot(), shot()] }] }))).scenes[0]!.shots;
+    /* the old model: speed + a style LoRA in the Look; one shot overrides with its own, one with none */
+    const look = { ...(await repo.getProject(project.id)).look, loras: [{ id: "lora_h3_turbo_fl2v" }, { id: "lora_h3_turbo_ref2v" }, { id: "lora_fal_realism_people", strength: 0.6 }] };
+    await d.run("UPDATE projects SET look_json = ? WHERE id = ?", [JSON.stringify(look), project.id]);
+    const old = (id: string, loras?: unknown[]) => repo.getShot(id).then((sh) => { const spec: Record<string, unknown> = { ...sh.spec }; delete spec.useTurbo; if (loras) spec.loras = loras; else delete spec.loras; return d.run("UPDATE shots SET spec_json = ? WHERE id = ?", [JSON.stringify(spec), id]); });
+    await old(inherits!.id);
+    await old(override!.id, [{ id: "lora_h3_turbo_fl2v" }, { id: "lora_jojocodex_physics", strength: 0.4 }]);
+    await old(none!.id, []);
+
+    await repo.carryLookLorasNow();
+    const a = (await repo.getShot(inherits!.id)).spec;
+    expect(a).toMatchObject({ useTurbo: true, loras: [{ id: "lora_fal_realism_people", strength: 0.6, why: expect.stringContaining("Look") }] });
+    expect((await repo.getShot(override!.id)).spec).toMatchObject({ useTurbo: true, loras: [{ id: "lora_jojocodex_physics", strength: 0.4 }] });
+    expect((await repo.getShot(none!.id)).spec).toMatchObject({ useTurbo: false, loras: [] });
+    const row = await d.get("SELECT look_json FROM projects WHERE id = ?", [project.id]);
+    expect(JSON.parse(String(row!.look_json))).not.toHaveProperty("loras");
+
+    /* run again: nothing changes */
+    await repo.carryLookLorasNow();
+    expect((await repo.getShot(inherits!.id)).spec).toEqual(a);
   });
 });

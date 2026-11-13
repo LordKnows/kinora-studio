@@ -109,9 +109,10 @@ export const global: Record<string, string> = {
   "Close": "关闭", "Could not load this style.": "无法加载这个风格。", "Loading…": "加载中…",
 
   /* Library: LoRAs */
-  "Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on the Design page (Look tab); a shot can override.":
-    "加速 LoRA 减少步数；风格和特效 LoRA 塑造画面。每个 LoRA 都带着它模型卡推荐的设置——选中加速 LoRA 会设定步数、采样器、调度和 shift。项目在美术页的「风格」里选默认 LoRA；单个镜头可以覆盖。",
-  "Delete {name} from the library? Projects that reference it will simply skip it.": "从素材库删除 {name}？引用它的项目会直接跳过它。",
+  "Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends. Nobody picks them per project: every shot has Use turbo (the speed LoRA for its workflow) and Use LoRA (the style and effect LoRAs the director assigned it, from their notes) on the Board.":
+    "加速 LoRA 减少步数；风格和特效 LoRA 塑造画面。每个 LoRA 都带着它模型卡推荐的设置。不用按项目挑选：分镜里每个镜头都有“使用加速”（按它的生成方式用对应的加速 LoRA）和“使用 LoRA”（导演根据说明分配给它的风格、特效 LoRA）。",
+  "What it suits and what to watch for: the director reads this when it assigns LoRAs to shots.": "适合什么、要注意什么：导演给镜头分配 LoRA 时会读这里。",
+  "Delete {name} from the library? Shots it was assigned to will simply skip it.": "从素材库删除 {name}？分配了它的镜头会直接跳过它。",
   "Add LoRA": "添加 LoRA", "No LoRAs yet": "还没有 LoRA", "Add the acceleration LoRA first (e.g. lightx2v 8-step), then any style or effect LoRAs you use.": "先添加加速 LoRA（例如 lightx2v 8-step），再添加你要用的风格或特效 LoRA。",
   "{kind} LoRAs": "{kind} LoRA", "Speed||LoRA kind": "加速", "Style||LoRA kind": "风格", "Effect||LoRA kind": "特效",
   "File": "文件", "Recommended": "推荐设置", "Trigger words": "触发词", "Workflows": "工作流", "all||workflows": "全部", "on the volume": "在存储卷上",

@@ -13,7 +13,6 @@ export interface Look {
   resolution?: "768p";
   upscale?: boolean;
   negative?: string[];
-  loras?: { id: string; strength?: number }[];
 }
 
 export interface Beat {
@@ -90,7 +89,8 @@ export interface Shot {
   link?: Link;
   linkToPrev?: "cut" | "continuous";
   cinematography?: Cinematography;
-  loras?: { id: string; strength?: number }[];
+  /** Style / effect LoRAs assigned to the shot once the board is designed (the Studio's assign_loras), each with why. */
+  loras?: { id: string; strength?: number; why?: string }[];
   promptOverride?: string;
   blocking?: Blocking[];
   motion?: MotionSource[];

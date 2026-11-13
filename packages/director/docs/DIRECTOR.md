@@ -124,6 +124,7 @@ Everyone wants something different: brand colours, a character, the tone of a ch
 
 - `plan_batch` orders takes (R2VA first, then the fl2va family, linked shots after their anchors) and sums one estimate against the cap: tell the user once, then confirm the batch.
 - Previz at the LoRA's step count, one take per shot. Raise steps or upscale only after the user is happy.
+- LoRAs are per shot, and yours to assign once the board is designed, never the user's to pick: `assign_loras` gives each shot the style / effect LoRAs whose notes (and the style's suggestions) suit its style, size, effect or motion, each with a one-line why, or `[]` when none suits. Each shot shows two switches the user turns: use turbo (the speed LoRA for its workflow, on by default) and use LoRA (what you assigned, on by default). Few and sure: none of the style LoRAs is measured on H3 yet.
 - Before any take: the shot review (`review_packet` stage shot → fresh reviewer → `record_review`). It checks every sentence of the prompt against the frames, the element sheets, the palette and the neighbouring shots. Most rerolls are prompt mistakes, not model failures.
 - Probe first: `plan_project_batch` names the one or two most fragile shots; render those, and only then the rest.
 - Review is human-only: the user cherry-picks takes on the Board and tags what went wrong. You see stills, never motion or sound: say so whenever you judge a take.

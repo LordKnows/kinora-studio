@@ -99,7 +99,8 @@ The director package renders the same timeline with ffmpeg from take files on di
 
 ## LoRAs and GPUs
 
-- `list_loras`: the two speed LoRAs (fl2v and ref2v turbo, 8 steps). Put them in the Look; a style preset's `loras` are appended by `compile_look`.
+- LoRAs are per shot, never in the Look and never the user's to pick. Each shot has two switches, both on by default and turned by the user on the Board: **use turbo** loads the speed LoRA for the shot's workflow (fl2v or ref2v turbo, 8 steps on its chain; off = the base chain at 20 steps, about 2.5× the time) and **use LoRA** loads the style / effect LoRAs the director assigned.
+- Once the board is designed: `list_loras` with `projectId` (per shot: workflows, size, vfx, animation, what could load, the style's suggestions), then `assign_loras`, each LoRA with a one-line `why` the user reads on the shot, `[]` where none suits, at most 3 per shot, never a speed LoRA. A style's `loraSuggestions` name the shots they are for: assign them to those only. `lint_project`: `lora.unassigned` asks for the pass, `lora.workflow` flags an assignment the shot can no longer load.
 - `gpu_status` before a batch; `gpu_stats` says which GPU type renders a second cheapest. The pod starts itself on the first `generate_take`.
 
 ## Budget

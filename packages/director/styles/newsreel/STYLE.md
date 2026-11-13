@@ -127,7 +127,7 @@ A menu: use the ones your story needs.
 }
 ```
 
-Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+Style LoRAs that may suit it (not in the look: once the board is designed the director assigns each to the shots it suits, with why; the user sees them on the shot and can switch them off):
 
 - `lora_fal_realism_people` at 0.6: medium shots of a demonstrator or a crowd where faces must read as photographed people. Lower than its card's 0.8 because it stacks on the turbo LoRA.
 

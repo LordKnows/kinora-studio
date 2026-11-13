@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadStyles, findStyle, suggestStyles } from "./styles/index.js";
 import { styleToMarkdown } from "./styles/markdown.js";
-import { compileLook, applyStyle } from "./compile/look.js";
+import { compileLook, applyStyle, styleLoraSuggestions } from "./compile/look.js";
 import { validateTreatment, treatmentToMarkdown } from "./treatment.js";
 import { lintShotlist } from "./lint/shotlist.js";
 import { checkCueMap, cutOnBeats, hitTimes, type CueMap } from "./sound/cuemap.js";
@@ -58,19 +58,18 @@ server.registerTool("get_style", {
 });
 
 server.registerTool("compile_look", {
-  description: "Style → the `look` object for start_film / update_look (genre, palette, camera, lens, lighting, constraints, LoRAs). Pass the project's speed LoRAs in `loras`.",
+  description: "Style → the `look` object for start_film / update_look (genre, palette, camera, lens, lighting, constraints). LoRAs are not in the look: they are per shot; the style's LoRA suggestions come back beside it, for assign_loras once the board is designed.",
   inputSchema: {
     style: z.string().min(1),
     aspectRatio: z.enum(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]).optional(),
     negative: z.array(z.string().max(80)).optional().describe("extra constraints from the brief, each a statement of what the picture shows (H3 has no negative prompt)"),
-    loras: z.array(z.object({ id: z.string(), strength: z.number().min(0).max(2).optional() })).optional(),
     genreSuffix: z.string().max(80).optional(),
     paletteSuffix: z.string().max(80).optional(),
   },
 }, async ({ style, ...o }) => {
   const s = findStyle(style);
   if (!s) return text({ error: `no style matches "${style}"` });
-  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(s.style.engine.loraSuggestions.length ? { loraSuggestions: { note: "Not in the look: no take has been rendered with them on this style. Offer them to the user; if they agree, render one probe shot with and one without (revise_shot loras) and keep it only if the picture is better.", loras: s.style.engine.loraSuggestions } } : {}) });
+  return text({ look: compileLook(s.style, o), beatSuffix: s.style.engine.beatSuffix, cinematographyDefaults: s.style.engine.cinematography, allowedCameraMoves: s.style.camera.grammar.map((g) => g.move), transitions: s.style.camera.transitions, durationGuide: s.style.engine.durations, ...(styleLoraSuggestions(s.style).length ? { loraSuggestions: { note: "Not in the look: LoRAs are per shot. Once the board is designed, give the shots each suits that LoRA with assign_loras, each with why (the size or motion the suggestion names); the user sees them on the shot and can switch them off.", loras: styleLoraSuggestions(s.style) } } : {}) });
 });
 
 const ShotlistSchema = z.object({ scenes: z.array(z.object({ slug: z.string(), summary: z.string().optional(), location: z.string().optional(), shots: z.array(z.any()) })) });

@@ -10,7 +10,7 @@ import type { Lora } from "@/studio/types";
 import { del, describe, get, patch, post } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, NumberInput, Section, Skeleton, useAction } from "./common";
 import { useT } from "./i18n";
-import { LORA_KIND_LABEL } from "./lora-picker";
+import { invalidateLoraLibrary, LORA_KIND_LABEL } from "./lora-picker";
 
 /* The global LoRA library: speed LoRAs (fewer steps), style and effect LoRAs.
    Files live in the pod's models/loras; a HuggingFace link lets the pod fetch
@@ -48,6 +48,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
 
   const reload = useCallback(async () => {
     try {
+      invalidateLoraLibrary();
       setLoras((await get<{ loras: Lora[] }>("/api/loras")).loras);
       setError(null);
     } catch (caught) {
@@ -60,7 +61,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
   }, [reload]);
 
   const remove = useAction(async (_confirm, lora: Lora) => {
-    if (!window.confirm(t("Delete {name} from the library? Projects that reference it will simply skip it.", { name: lora.name }))) return;
+    if (!window.confirm(t("Delete {name} from the library? Shots it was assigned to will simply skip it.", { name: lora.name }))) return;
     await del(`/api/loras/${lora.id}`);
     await reload();
   });
@@ -70,7 +71,7 @@ export function LorasPage({ embedded = false }: { embedded?: boolean } = {}) {
       <div className="st-page-head" style={embedded ? { marginBottom: 4 } : undefined}>
         <div>
           {!embedded && <h1 className="st-title">{t("LoRAs")}</h1>}
-          <p className="st-subtitle">{t("Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends — picking a speed LoRA sets the steps, sampler, schedule and shift. Projects pick defaults on the Design page (Look tab); a shot can override.")}</p>
+          <p className="st-subtitle">{t("Speed LoRAs cut the step count; style and effect LoRAs shape the look. Each carries the settings its card recommends. Nobody picks them per project: every shot has Use turbo (the speed LoRA for its workflow) and Use LoRA (the style and effect LoRAs the director assigned it, from their notes) on the Board.")}</p>
         </div>
         <div className="st-actions">
           <Button kind="primary" onClick={() => setEditing("new")}>
@@ -268,7 +269,7 @@ function LoraEditor({ lora, onClose, onSaved, onDelete }: { lora?: Lora; onClose
             ))}
           </div>
         </Field>
-        <Field label={t("Notes")}>
+        <Field label={t("Notes")} hint={t("What it suits and what to watch for: the director reads this when it assigns LoRAs to shots.")}>
           <textarea className="st-textarea" rows={3} value={draft.notes} onChange={(e) => set("notes", e.target.value)} />
         </Field>
       </div>

@@ -25,9 +25,9 @@ pnpm --filter @kinora/director test
 The repo's `.mcp.json` registers the server as `director` (stdio). With the Studio MCP connected too, the flow is:
 
 1. `get_guide('director')`; `suggest_styles(topic)` → the user picks a style by name.
-2. `compile_look(style, loras)` → `start_film({ brief, totalSeconds, look })`.
+2. `compile_look(style)` → `start_film({ brief, totalSeconds, look })`. LoRAs are not in the look: once the board is designed the Studio's `assign_loras` gives each shot the ones that suit it.
 3. Write the treatment; `validate_treatment` → `save_script(markdown + dialogue)`.
-4. Write sequences and shots; `apply_style(style, shotlist)` → `lint_shotlist` → `save_shotlist`. Fix errors and warnings before asking for approval.
+4. Write sequences and shots; `apply_style(style, shotlist)` → `lint_shotlist` → `save_shotlist`. Fix errors and warnings before asking for approval. Then the LoRA pass: `list_loras(projectId)` → `assign_loras`, each shot its LoRAs with why (or none).
 5. `check_cue_map` / `cut_on_beats` for the music grid; `plan_batch` → one confirmation → `generate_take` in that order.
 6. `auto_timeline` → finish it (transitions, J/L cuts, titles, narration, music, silences) → `check_timeline` → `save_timeline(timeline)` → `export_project` → `get_export` for what was measured on the file. `assemble_local` renders the same timeline from take files on disk.
 

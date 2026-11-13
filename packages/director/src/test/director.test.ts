@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { loadStyles, findStyle, suggestStyles } from "../styles/index.js";
 import { styleToMarkdown } from "../styles/markdown.js";
-import { compileLook, applyStyle } from "../compile/look.js";
+import { compileLook, applyStyle, styleLoraSuggestions } from "../compile/look.js";
 import { validateTreatment, treatmentToMarkdown } from "../treatment.js";
 import { lintShotlist, hasBreath } from "../lint/shotlist.js";
 import { beatTime, cutOnBeats, checkCueMap, snapToGrid, type CueMap } from "../sound/cuemap.js";
@@ -33,15 +33,15 @@ test("findStyle by slug, English and Chinese", () => {
   assert.ok(suggestStyles("a product launch for a glass speaker")[0].style.slug === "glass-product");
 });
 
-test("compileLook merges negatives, keeps the Studio limits and appends style LoRAs", () => {
+test("compileLook merges negatives, keeps the Studio limits and carries no LoRAs", () => {
   const s = findStyle("ink-wash")!.style;
-  const look = compileLook(s, { negative: ["no cars", "no outlines"], loras: [{ id: "lora_h3_turbo_fl2v" }], aspectRatio: "9:16" });
+  const look = compileLook(s, { negative: ["no cars", "no outlines"], aspectRatio: "9:16" });
   assert.equal(look.aspectRatio, "9:16");
   assert.equal(look.resolution, "768p");
   assert.ok(look.negative!.length <= 10);
   assert.equal(new Set(look.negative).size, look.negative!.length);
   assert.ok(look.negative!.includes("no cars"));
-  assert.equal(look.loras![0].id, "lora_h3_turbo_fl2v");
+  assert.equal("loras" in look, false);
   for (const k of ["genre", "palette", "camera", "lens", "lighting"] as const) assert.ok(look[k]!.length <= 200);
 });
 
@@ -343,12 +343,15 @@ test("a style of your own: three groups, a fork, what changed and what it costs"
   assert.ok(checkFork(undefined, { ...mine, slug: "Bad Slug" }, taken).warnings.some((w) => w.code === "style.slug"));
 });
 
-test("style LoRA suggestions are offered, never applied", () => {
+test("style LoRA suggestions are for the director to assign per shot, never in the look", () => {
   const cel = findStyle("cel-anime-80s")!.style;
   assert.equal(cel.engine.loraSuggestions[0].id, "lora_prithiv_anime_motion");
-  const look = compileLook(cel, { loras: [{ id: "lora_h3_turbo_fl2v" }] });
-  assert.deepEqual(look.loras, [{ id: "lora_h3_turbo_fl2v" }]);
-  assert.match(styleToMarkdown(cel), /not applied by default/);
+  assert.equal("loras" in compileLook(cel), false);
+  assert.deepEqual(styleLoraSuggestions(cel).map((x) => x.id), ["lora_prithiv_anime_motion"]);
+  /* an older style's own LoRAs are offered the same way */
+  const older = { ...cel, engine: { ...cel.engine, loraSuggestions: [], loras: [{ id: "lora_x", strength: 0.5 }] } };
+  assert.deepEqual(styleLoraSuggestions(older).map((x) => [x.id, x.strength]), [["lora_x", 0.5]]);
+  assert.match(styleToMarkdown(cel), /not in the look: once the board is designed the director assigns/);
   assert.deepEqual(findStyle("ink-wash")!.style.engine.loraSuggestions, []);
 });
 

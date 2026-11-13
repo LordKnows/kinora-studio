@@ -47,3 +47,26 @@ describe("what waits for you", () => {
     }
   });
 });
+
+describe("LoRAs are per shot", () => {
+  it("the Look tab picks none; the shot editor shows the two switches and what the director assigned", async () => {
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync("src/studio-ui/look-page.tsx", "utf8")).not.toMatch(/LoraPicker|loras/);
+    const editor = readFileSync("src/studio-ui/shot-editor.tsx", "utf8");
+    expect(editor).toContain("<ShotLorasField");
+    expect(editor).not.toContain("LoraPicker");
+    const field = readFileSync("src/studio-ui/shot-loras-field.tsx", "utf8");
+    for (const s of ['"Use turbo"', '"Use LoRA"', "useTurbo", "useLoras"]) expect(field).toContain(s);
+  });
+
+  it("a shot card names the LoRAs it loads, strikes them while use LoRA is off, and says when turbo is off", async () => {
+    const { shotLoraChips } = await import("@/studio-ui/shot-loras-field");
+    const library = [
+      { id: "t", name: "Turbo", kind: "speed", workflows: ["T2VA"] },
+      { id: "r", name: "Realism", kind: "style", workflows: [] },
+    ] as never;
+    const spec = { mode: "text" as const, loras: [{ id: "r", why: "faces" }, { id: "t" }] };
+    expect(shotLoraChips(spec, library)).toEqual([{ key: "r", label: "Realism", off: false, title: "faces" }]);
+    expect(shotLoraChips({ ...spec, useLoras: false, useTurbo: false }, library)).toEqual([{ key: "turbo", label: "no turbo" }, { key: "r", label: "Realism", off: true, title: "faces" }]);
+  });
+});

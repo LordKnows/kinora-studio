@@ -138,7 +138,7 @@ A menu: use the ones your story needs.
 }
 ```
 
-Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):
+Style LoRAs that may suit it (not in the look: once the board is designed the director assigns each to the shots it suits, with why; the user sees them on the shot and can switch them off):
 
 - `lora_prithiv_anime_motion` at 0.8: keyframe shots (I2VA / FL2VA) that animate a drawn hero frame: genre-typical anime movement. The compiler leaves it off reference and text shots.
 

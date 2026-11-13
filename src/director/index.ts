@@ -9,7 +9,7 @@ import { StyleSchema, type Style } from "@director/styles/schema";
 
 import { STYLE_LIBRARY_RAW } from "./generated";
 
-export { compileLook, applyStyle } from "@director/compile/look";
+export { compileLook, applyStyle, styleLoraSuggestions } from "@director/compile/look";
 export { validateTreatment, treatmentToMarkdown, TreatmentSchema, type Treatment } from "@director/treatment";
 export { lintShotlist } from "@director/lint/shotlist";
 export { lintCraft, shotFragility, fragileInText, screenDirection, type Fragility } from "@director/lint/craft";

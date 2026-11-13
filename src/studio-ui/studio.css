@@ -1074,6 +1074,29 @@ button.st-pill {
   border-color: var(--tx);
   background: var(--tx);
 }
+/* a LoRA the director assigned the shot, by name; struck while use LoRA is off; "no turbo" dashed */
+.studio .st-chip--lora {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11px;
+  max-width: 180px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  display: inline-block;
+  line-height: 20px;
+  color: var(--tx2);
+}
+.studio .st-chip--lora[data-off="true"] {
+  color: var(--tx3);
+  text-decoration: line-through;
+}
+.studio .st-chip--lora[data-turbo="off"] {
+  border-style: dashed;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 .studio .st-chip--ok {
   color: var(--tx);
   border-color: var(--tx);
@@ -4787,4 +4810,68 @@ button.st-pill {
     width: 100vw;
     border-left: 0;
   }
+}
+
+/* the shot editor's two LoRA switches and what the director assigned */
+.studio .sl-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.studio .sl-switch input {
+  margin-top: 2px;
+  flex: none;
+}
+.studio .sl-switch[data-disabled="true"] {
+  cursor: default;
+}
+.studio .sl-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  min-width: 0;
+}
+.studio .sl-switch-text strong {
+  font-weight: 600;
+  color: var(--tx);
+}
+.studio .sl-assigned {
+  list-style: none;
+  margin: 0 0 0 25px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.studio .sl-assigned li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line-2);
+}
+.studio .sl-assigned[data-off="true"] li {
+  opacity: 0.55;
+}
+.studio .sl-assigned-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.studio .sl-assigned-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.studio .sl-assigned-why {
+  font-size: 12px;
+  color: var(--tx2);
+}
+.studio .sl-assigned .st-warn {
+  font-size: 12px;
+}
+.studio .sl-settings {
+  font-size: 12px;
 }

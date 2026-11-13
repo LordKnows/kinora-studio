@@ -322,10 +322,11 @@ Serverless 模式仍在代码里（`RUNPOD_MODE=serverless`），暂不维护，
   "measured"）。把 `RUNPOD_GPU_PRIORITY` 设为 `cost`，起 Pod 时白名单会按"每秒视频
   美元"从低到高排序。agent 用 `gpu_stats` 读同一份数据。
 - **LoRA**：`/loras` 页面是全局库，每条记录文件名、HuggingFace 链接、类型（speed /
-  style / effect）、默认强度、触发词、推荐步数、适用工作流。项目的 Design 页（Look 标签）选默认 LoRA
-  （加速 LoRA 放这里），镜头编辑器可覆盖或关闭。编译时把 LoRA 写进 worker 输入，触发词
-  进 LOOK 块，加速 LoRA 的推荐步数作为默认步数。**不用加速 LoRA 时**（项目和镜头都没选 speed
-  LoRA），编译器自动切到交接文档 §3 的原版采样链：`res_multistep`，调度 `simple`（R2VA 用 `beta`），
+  style / effect）、默认强度、触发词、推荐步数、适用工作流。LoRA 不在项目层面选：
+  分镜定下来后，导演按每个镜头的风格、景别、特效给它分配合适的风格 / 特效 LoRA（带理由，`assign_loras`）；
+  分镜里每个镜头有两个勾选框：“使用加速”（按镜头的生成方式用对应的加速 LoRA，默认开）和“使用 LoRA”
+  （导演分配的那些，默认开）。编译时把 LoRA 写进 worker 输入，触发词进 LOOK 块，加速 LoRA 的推荐步数
+  作为默认步数。**不用加速 LoRA 时**（镜头关掉了“使用加速”），编译器自动切到交接文档 §3 的原版采样链：`res_multistep`，调度 `simple`（R2VA 用 `beta`），
   Sigma shift 关掉（1.0），步数默认 `H3_BASE_STEPS=20`，耗时约为 turbo 的 2.5 倍。Board 的 Steps
   留空就是自动；填了数字才覆盖。Pod 上缺文件时 handler 按 HF 链接下载到
   `LORA_DIR`（默认是镜像 ComfyUI 的 `models/loras`；受限仓库在 Pod 环境变量里设

@@ -8,18 +8,16 @@ export interface LookOverrides {
   aspectRatio?: Look["aspectRatio"];
   /** Extra constraints, e.g. from the brief: statements of what the picture shows (H3 has no negative prompt). */
   negative?: string[];
-  /** The speed LoRAs the project uses; the style's own LoRAs are appended. */
-  loras?: Look["loras"];
   /** Append a phrase to genre / palette, e.g. the user's brand words. */
   genreSuffix?: string;
   paletteSuffix?: string;
 }
 
-/** Style → the `look` object `start_film` / `update_look` take. */
+/** Style → the `look` object `start_film` / `update_look` take. LoRAs are not in it:
+    they are per shot (the Studio's assign_loras); a style's LoRAs are suggestions. */
 export function compileLook(style: Style, o: LookOverrides = {}): Look {
   const e = style.engine;
   const negative = Array.from(new Set([...e.negative, ...(o.negative ?? [])])).slice(0, 10);
-  const loras = [...(o.loras ?? []), ...e.loras];
   return {
     genre: clip(e.look.genre + (o.genreSuffix ? `, ${o.genreSuffix}` : "")),
     palette: clip(e.look.palette + (o.paletteSuffix ? `, ${o.paletteSuffix}` : "")),
@@ -30,8 +28,17 @@ export function compileLook(style: Style, o: LookOverrides = {}): Look {
     resolution: "768p",
     upscale: false,
     negative,
-    loras,
   };
+}
+
+/** The LoRAs a style suggests, for the director to assign per shot: its
+    suggestions, and the LoRAs an older style wanted on every shot. */
+export function styleLoraSuggestions(style: Style): Array<{ id: string; strength?: number; when: string }> {
+  const listed = new Set(style.engine.loraSuggestions.map((x) => x.id));
+  return [
+    ...style.engine.loraSuggestions,
+    ...style.engine.loras.filter((x) => !listed.has(x.id)).map((x) => ({ ...x, when: "every shot it can load on (the style wanted it everywhere)." })),
+  ];
 }
 
 function clip(s: string): string {

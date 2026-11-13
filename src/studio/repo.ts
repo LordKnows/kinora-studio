@@ -9,7 +9,8 @@ import type {
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, ProjectVisibility, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
   Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, Voicing,
 } from "./types";
-import type { FixedFeature, RefView, ScenePalette, SceneSound } from "./schemas";
+import type { FixedFeature, LoraRef, RefView, ScenePalette, SceneSound } from "./schemas";
+import { carryLookLoras, keepShotLoras } from "./shot-loras";
 import { isAdultLora, loraParams, type InferenceParams } from "./models";
 import { DROP_QWEN_LORA_SEED, DROP_QWEN_LORA_SQL } from "@/db/migrations/0023_drop_qwen_loras";
 
@@ -30,7 +31,40 @@ const json = <T>(v: unknown, fallback: T): T => {
 };
 
 async function db(): Promise<Db> {
-  return getDb();
+  const d = await getDb();
+  lorasCarried ??= carryLookLorasToShots(d).catch((caught) => {
+    lorasCarried = undefined;
+    throw caught;
+  });
+  await lorasCarried;
+  return d;
+}
+
+/* LoRAs moved from the Look to the shots (shot-loras.ts). A project whose
+   Look still lists LoRAs is rewritten once, on first use of the database:
+   each shot gets use turbo where a speed LoRA loaded and, as its assignment,
+   the style / effect LoRAs that loaded on it; then the Look loses the list.
+   Shot by shot it is idempotent (a moved shot carries useTurbo), so an
+   isolate that stops halfway is finished by the next. */
+let lorasCarried: Promise<void> | undefined;
+/** The same move, run now (tests write an old project and call it). */
+export async function carryLookLorasNow(): Promise<void> {
+  await carryLookLorasToShots(await getDb());
+}
+async function carryLookLorasToShots(d: Db): Promise<void> {
+  const projects = await d.all("SELECT id, look_json FROM projects WHERE instr(look_json, '\"loras\"') > 0");
+  if (projects.length === 0) return;
+  const kinds = new Map((await d.all("SELECT id, kind FROM loras")).map((r) => [str(r.id), str(r.kind)]));
+  for (const p of projects) {
+    const look = json<Record<string, unknown>>(p.look_json, {});
+    const lookLoras = Array.isArray(look.loras) ? (look.loras as LoraRef[]) : [];
+    for (const row of await d.all("SELECT id, spec_json FROM shots WHERE project_id = ?", [str(p.id)])) {
+      const next = carryLookLoras(json<Record<string, unknown>>(row.spec_json, {}), lookLoras, (id) => kinds.get(id));
+      if (next) await d.run("UPDATE shots SET spec_json = ? WHERE id = ?", [JSON.stringify(next), str(row.id)]);
+    }
+    delete look.loras;
+    await d.run("UPDATE projects SET look_json = ? WHERE id = ?", [JSON.stringify(look), str(p.id)]);
+  }
 }
 
 /* ---------- projects ---------- */
@@ -244,10 +278,8 @@ export async function getProject(id: string): Promise<Project> {
 export async function createProject(input: { name: string; look?: Partial<LookSettings>; budgetCapUsd?: number; brief?: string; targetSeconds?: number; owner?: string; visibility?: ProjectVisibility }): Promise<Project> {
   const now = Date.now();
   const id = newId("prj");
-  /* A new project renders with every speed LoRA in the library unless the
-     caller chose its own set; the compiler scopes them per workflow. */
-  const speed = input.look?.loras === undefined ? (await listLoras()).filter((l) => l.kind === "speed").map((l) => ({ id: l.id })) : undefined;
-  const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}), ...(speed ? { loras: speed } : {}) });
+  /* LoRAs are not in the Look: each shot has use turbo (on by default) and the LoRAs the director assigns it (shot-loras.ts) */
+  const look = LookSettings.parse({ ...DEFAULT_LOOK, ...(input.look ?? {}) });
   if (input.visibility === "private" && !input.owner) throw new Error("a private project needs an owner");
   await (await projectsDb()).run(
     "INSERT INTO projects (id, name, look_json, budget_cap_usd, spent_usd, shotlist_approval, brief, target_seconds, owner, visibility, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'draft', ?, ?, ?, ?, ?, ?)",
@@ -912,7 +944,7 @@ export async function mergeShotlist(
     for (const [i, spec] of incoming.shots.entries()) {
       const match = current[i];
       if (match) {
-        await updateShot(match.id, { spec, promptOverride: spec.promptOverride ?? match.promptOverride ?? null });
+        await updateShot(match.id, { spec: keepShotLoras(match.spec, spec), promptOverride: spec.promptOverride ?? match.promptOverride ?? null });
         await d.run("UPDATE shots SET idx = ? WHERE id = ?", [i, match.id]);
         result.updated++;
       } else {

@@ -86,7 +86,7 @@ export function styleToMarkdown(s: Style): string {
   p("```");
   p("");
   if (s.engine.loraSuggestions.length) {
-    p("Style LoRAs that may suit it (not applied by default; none has been rendered with this preset, so try one probe take with and without):");
+    p("Style LoRAs that may suit it (not in the look: once the board is designed the director assigns each to the shots it suits, with why; the user sees them on the shot and can switch them off):");
     p("");
     for (const l of s.engine.loraSuggestions) p(`- \`${l.id}\` at ${l.strength}: ${l.when}`);
     p("");

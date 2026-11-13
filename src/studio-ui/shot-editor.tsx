@@ -8,7 +8,7 @@ import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field, NumberInput } from "./common";
 import { translate, type T, useT } from "./i18n";
-import { LoraPicker } from "./lora-picker";
+import { ShotLorasField } from "./shot-loras-field";
 import { useProjectContext } from "./shell";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
@@ -421,26 +421,7 @@ export function ShotEditor({
         </Field>
       </div>
 
-      <div className="st-card st-stack">
-        <div className="st-row st-row--between">
-          <span className="st-label" style={{ marginBottom: 0 }}>{tr("LoRAs")}</span>
-          <select
-            className="st-select st-input--sm"
-            value={value.loras === undefined ? "inherit" : value.loras.length === 0 ? "none" : "override"}
-            onChange={(e) => set("loras", e.target.value === "inherit" ? undefined : e.target.value === "none" ? [] : value.loras?.length ? value.loras : [])}
-            aria-label={tr("LoRA mode")}
-          >
-            <option value="inherit">{tr("inherit project LoRAs")}</option>
-            <option value="override">{tr("override")}</option>
-            <option value="none">{tr("none")}</option>
-          </select>
-        </div>
-        {value.loras === undefined ? (
-          <span className="st-muted">{tr("Uses the project Look’s LoRAs.")}</span>
-        ) : (
-          <LoraPicker compact value={value.loras} onChange={(v) => set("loras", v)} />
-        )}
-      </div>
+      <ShotLorasField value={value} onChange={(patch) => onChange({ ...value, ...patch })} />
 
       <Field label={tr("Prompt override")} hint={tr("Replaces the compiled prompt entirely. Leave empty to let the compiler write it.")}>
         <textarea className="st-textarea" rows={4} value={value.promptOverride ?? ""} onChange={(e) => set("promptOverride", e.target.value || undefined)} />

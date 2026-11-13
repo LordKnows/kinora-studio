@@ -52,9 +52,13 @@ Design: [docs/cinema-studio-h3-design.md](docs/cinema-studio-h3-design.md).
   hourly price and output seconds; the Machine page ranks GPU types by USD
   per second of video, estimates switch to measured speed, and
   `RUNPOD_GPU_PRIORITY=cost` orders the allow-list by that ledger.
-- **LoRAs are a library.** `/loras` holds speed and style LoRAs with their
-  HuggingFace links; projects pick defaults in the Look, shots can override,
-  and the pod downloads a missing file before rendering.
+- **LoRAs are a library, used per shot.** `/loras` holds speed, style and
+  effect LoRAs with their HuggingFace links and notes on what each suits.
+  Nobody picks them per project: once the board is designed the director
+  assigns each shot the style / effect LoRAs that suit it, with a reason
+  (`assign_loras`), and every shot carries two switches on the Board, use
+  turbo (the speed LoRA for its workflow) and use LoRA (what was assigned);
+  the settings follow. The pod downloads a missing file before rendering.
 - **The director has three tiers.** `start_film` takes the brief and the
   running time and returns the plan: Tier 2 is an edit grammar (cut,
   continuous, bridge, insert/return, shot/reverse, match cut, jump cut,

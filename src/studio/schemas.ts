@@ -42,6 +42,15 @@ export const LoraRef = z.object({
 });
 export type LoraRef = z.infer<typeof LoraRef>;
 
+/** Style / effect LoRAs one shot can be given; with the turbo LoRA a take loads at most four (compiler.ts MAX_TAKE_LORAS). */
+export const MAX_SHOT_LORAS = 3;
+
+/* A LoRA the director gave one shot after the board, and why it suits it. */
+export const ShotLora = LoraRef.extend({
+  why: z.string().trim().max(300).optional().describe("Why it suits this shot: the style, size, effect or motion it serves, from the LoRA's notes or the style's suggestion"),
+});
+export type ShotLora = z.infer<typeof ShotLora>;
+
 /* Recommended inference settings (src/studio/models.ts): a base model's, or a LoRA's own. */
 export const InferenceParamsInput = z.object({
   steps: z.number().int().min(1).max(100).optional(),
@@ -101,7 +110,6 @@ const LOOK_FIELDS = {
   upscale: z.boolean().describe("Upscale at export time (master-upscaled preset)"),
   /* stored as `negative` since the first schema; H3 has no negative prompt, so these are constraints in the prompt */
   negative: z.array(z.string().max(80)).max(10).describe("Constraints, each a statement of what the picture shows ('exactly two people in the room', 'the street is empty'). H3 has no negative prompt: a bare word ('blurry') or a ban on text is left out of the prompt, and a 'no X' ban can add X; lint_project gives the positive form"),
-  loras: z.array(LoraRef).max(6).describe("Project-wide LoRAs (speed LoRA goes here); shots may override. Leave it out to keep the current set (a new project gets the speed LoRAs); [] renders on the base chain at 20 steps, about 2.5× the time"),
   style: z.string().max(60).optional().describe("Slug of the director-layer style preset this Look was compiled from (apply_style uses it)"),
   experiments: PromptExperiments.optional().describe("Project default for the prompt A/B switches; a take request overrides it"),
   styleFrameAssetId: z.string().optional().describe("The approved style frame (asset id): every generated sheet and frame takes it as a reference for the look"),
@@ -114,7 +122,6 @@ export const LookSettings = z.object({
   resolution: LOOK_FIELDS.resolution.default("768p"),
   upscale: LOOK_FIELDS.upscale.default(false),
   negative: LOOK_FIELDS.negative.default([]),
-  loras: LOOK_FIELDS.loras.default([]),
   dialogueLanguage: LOOK_FIELDS.dialogueLanguage.default("zh"),
 });
 export type LookSettings = z.infer<typeof LookSettings>;
@@ -290,7 +297,9 @@ export const ShotBase = z.object({
     sourceTakeId: z.string().optional().describe("edit mode: the take being revised"),
     editInstruction: z.string().max(600).optional().describe("edit mode: only what changes"),
     promptOverride: z.string().max(7000).optional().describe("Replace the compiled prompt entirely"),
-    loras: z.array(LoraRef).max(6).optional().describe("Override the project LoRAs for this shot; [] = none"),
+    loras: z.array(ShotLora).max(MAX_SHOT_LORAS).optional().describe("The style / effect LoRAs the director assigned to this shot once the board is designed (assign_loras), each with why. [] = considered, none suits; left out = not considered yet. The turbo LoRA is not listed: that is useTurbo"),
+    useTurbo: z.boolean().optional().describe("Load the turbo (speed) LoRA for the shot's workflow, with its settings (8 steps, euler/simple). Default on; off renders on the base chain (about 20 steps, about 2.5× the time). The user's switch on the shot"),
+    useLoras: z.boolean().optional().describe("Load the LoRAs assigned in loras, with their settings. Default on. The user's switch on the shot"),
     blocking: z.array(Blocking).max(6).optional().describe("Who moves where, in screen terms (frame left / right). Compiles to screen-direction lines and lets the lint check the axis across cuts."),
     motion: z.array(z.enum(MOTION_SOURCES)).max(4).optional().describe("What moves in the picture: camera, subject, focus, light, foreground (something crosses the lens), background (passers-by), weather, prop. At least one; a static camera with nothing moving is a dead frame."),
     composition: Composition.optional().describe("Where the subject sits; compiles to a composition line"),

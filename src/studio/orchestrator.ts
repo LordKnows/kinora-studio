@@ -12,13 +12,15 @@ import { realnessOfDrawing } from "./provenance";
 import * as repo from "./repo";
 import * as trash from "./trash";
 import { coverage, openText } from "./coverage";
+import { assignedRefs, assignmentState, fitsShot, shotSwitches, shotWorkflows } from "./shot-loras";
 import * as styles from "./styles";
 import * as treatments from "./treatment";
 import { buildAssemblerInput, clipSeconds, exportFindings, type AssemblerInput, type ExportChecks } from "./backends/assembler";
 import { RunPodBackend, signHookUrl } from "./backends/runpod";
 import * as gpu from "./gpu";
 import type { BackendStatus, GenerationBackend } from "./backends/types";
-import type { ExportRequest, PromptExperiments, ShotInput, ShotPatch, ShotlistInput, TakeFault, TakeRequest, TimelineInput } from "./schemas";
+import type { ExportRequest, PromptExperiments, ShotInput, ShotLora, ShotPatch, ShotlistInput, TakeFault, TakeRequest, TimelineInput } from "./schemas";
+import { MAX_SHOT_LORAS } from "./schemas";
 import { ShotInput as ShotInputSchema, ShotlistInput as ShotlistInputSchema, UpscaleRequest } from "./schemas";
 import type { Actor, Asset, Element, ExportJob, Project, Scene, Script, Shot, Take, Timeline } from "./types";
 
@@ -163,6 +165,69 @@ export async function patchShot(shotId: string, patch: ShotPatch & { heroAssetId
   return updated;
 }
 
+/**
+ * The director's LoRA pass, once the board is designed: each listed shot gets
+ * the style / effect LoRAs that suit it, each with why, or [] when none does.
+ * The user never picks them; the shot shows them under its use-LoRA switch.
+ * A speed LoRA is not assigned: the shot's use-turbo switch loads the one for
+ * its workflow. Everything is checked before anything is written.
+ */
+export async function assignLoras(projectId: string, items: Array<{ shotId: string; loras: ShotLora[] }>): Promise<{ shots: Array<{ shotId: string; slate: string; loras: Array<{ id: string; name: string; kind: string; strength: number; why?: string }>; useLoras: boolean; useTurbo: boolean }> }> {
+  const library = new Map((await repo.listLoras()).map((l) => [l.id, l]));
+  const scenes = await repo.listScenes(projectId);
+  const checked: Array<{ shot: Shot; slate: string; loras: ShotLora[] }> = [];
+  for (const item of items) {
+    const shot = await repo.getShot(item.shotId);
+    if (shot.projectId !== projectId) throw new StudioError("validation", `shot ${item.shotId} is not in this project`, { shotId: item.shotId });
+    const slate = `${scenes.findIndex((sc) => sc.id === shot.sceneId) + 1}·${shot.index + 1}`;
+    if (item.loras.length > MAX_SHOT_LORAS) throw new StudioError("validation", `shot ${slate}: at most ${MAX_SHOT_LORAS} LoRAs (the turbo LoRA makes ${MAX_SHOT_LORAS + 1})`, { shotId: shot.id });
+    const seen = new Set<string>();
+    for (const r of item.loras) {
+      const lora = library.get(r.id);
+      if (!lora) throw new StudioError("validation", `shot ${slate}: no LoRA ${r.id} in the library (list_loras)`, { shotId: shot.id });
+      if (lora.kind === "speed") throw new StudioError("validation", `shot ${slate}: ${lora.name} is a speed LoRA; the shot's use-turbo switch loads the one for its workflow, it is not assigned`, { shotId: shot.id });
+      if (!fitsShot(lora, shot.spec)) throw new StudioError("validation", `shot ${slate}: ${lora.name} is trained for ${(lora.baseModel ?? "minimax-h3") === "minimax-h3" ? lora.workflows.join(", ") : lora.baseModel}, and this ${shot.spec.mode} shot renders ${shotWorkflows(shot.spec).join(" / ")}`, { shotId: shot.id });
+      if (seen.has(r.id)) throw new StudioError("validation", `shot ${slate}: ${lora.name} is listed twice`, { shotId: shot.id });
+      seen.add(r.id);
+    }
+    checked.push({ shot, slate, loras: item.loras });
+  }
+  const out = [];
+  for (const { shot, slate, loras } of checked) {
+    const saved = await patchShot(shot.id, { loras });
+    const on = shotSwitches(saved.spec);
+    out.push({
+      shotId: shot.id, slate, useLoras: on.loras, useTurbo: on.turbo,
+      loras: loras.map((r) => { const l = library.get(r.id)!; return { id: l.id, name: l.name, kind: l.kind, strength: r.strength ?? l.defaultStrength, ...(r.why ? { why: r.why } : {}) }; }),
+    });
+  }
+  return { shots: out };
+}
+
+/** What the director reads before assign_loras: per shot, its workflows, the
+    switches, what is assigned and which LoRAs could load on it; and what the
+    project's style suggests. */
+export async function loraPlan(projectId: string) {
+  const view = await getProjectView(projectId);
+  const library = await repo.listLoras();
+  const byId = new Map(library.map((l) => [l.id, l]));
+  const style = view.project.look.style ? (await styles.resolveStyle(view.project.look.style))?.style : undefined;
+  const candidates = library.filter((l) => l.kind !== "speed" && (l.baseModel ?? "minimax-h3") === "minimax-h3");
+  return {
+    styleSuggests: (style ? director.styleLoraSuggestions(style) : []).filter((x) => byId.has(x.id)).map((x) => ({ id: x.id, name: byId.get(x.id)!.name, strength: x.strength ?? byId.get(x.id)!.defaultStrength, when: x.when })),
+    shots: view.scenes.flatMap((sc, si) => sc.shots.map((sh) => {
+      const on = shotSwitches(sh.spec);
+      return {
+        shotId: sh.id, slate: `${si + 1}·${sh.index + 1}`, scene: sc.slug, intent: sh.spec.intent, mode: sh.spec.mode, workflows: shotWorkflows(sh.spec),
+        size: sh.spec.cinematography?.size, vfx: sh.spec.cinematography?.vfx, animation: sh.spec.cinematography?.animation,
+        useTurbo: on.turbo, useLoras: on.loras, state: assignmentState(sh.spec),
+        assigned: assignedRefs(sh.spec, (id) => byId.get(id)?.kind).map((r) => ({ id: r.id, name: byId.get(r.id)?.name ?? r.id, strength: r.strength ?? byId.get(r.id)?.defaultStrength, why: r.why })),
+        canLoad: candidates.filter((l) => fitsShot(l, sh.spec)).map((l) => l.id),
+      };
+    })),
+  };
+}
+
 export async function addShot(sceneId: string, spec: ShotInput): Promise<Shot> {
   const scene = await repo.getScene(sceneId);
   const shot = await repo.createShot(scene.projectId, sceneId, spec);
@@ -251,13 +316,20 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     }
   }
   const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
-  const refs = shot.spec.loras ?? project.look.loras;
-  const loraRows = await repo.getLoras(refs.map((r) => r.id));
-  const loras = refs.flatMap((r) => {
-    const lora = loraRows.get(r.id);
-    return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
-  });
-  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, steps: opts?.steps, seed: opts?.seed, experiments };
+  /* the shot's two switches (shot-loras.ts): every speed LoRA while use turbo is
+     on (the compiler loads the one for the workflow), the assigned LoRAs while
+     use LoRA is on */
+  const library = await repo.listLoras();
+  const byId = new Map(library.map((l) => [l.id, l]));
+  const on = shotSwitches(shot.spec);
+  const loras = [
+    ...(on.turbo ? library.filter((l) => l.kind === "speed").map((l) => ({ ...l, strength: l.defaultStrength })) : []),
+    ...(on.loras ? assignedRefs(shot.spec, (id) => byId.get(id)?.kind).flatMap((r) => {
+      const lora = byId.get(r.id);
+      return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
+    }) : []),
+  ];
+  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, turbo: on.turbo, steps: opts?.steps, seed: opts?.seed, experiments };
 }
 
 export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }): Promise<CompiledJob & { estimate: Estimate }> {
@@ -1019,7 +1091,7 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
   const unplanned = view.scenes.filter((s) => !s.sound);
   if (unplanned.length) warnings.push({ code: "sound.table", severity: "info", message: `${unplanned.length} scene(s) have no row in the sound design table (${unplanned.slice(0, 4).map((s) => s.slug).join(", ")}): set the ambience, the foley and the state of the music with set_scene_sound or save_shotlist` });
   for (const finding of treatments.soundPlanFindings(view.scenes, view.timeline, treatment)) warnings.push({ code: "sound.plan", severity: "warn", message: finding });
-  warnings.push(...(await styleLoraHints(view)));
+  warnings.push(...(await loraHints(view)));
   warnings.push(...(await checkSeams(projectId)));
   const open = (await repo.listNotes(projectId, "requirement")).filter((n) => n.status === "open");
   if (open.length) warnings.push({ code: "requirements.open", severity: "info", message: `${open.length} requirement(s) from the user still open: ${open.slice(0, 5).map((n) => String(n.body.text)).join("; ")}${open.length > 5 ? " …" : ""}` });
@@ -1028,38 +1100,42 @@ export async function lintProject(projectId: string, opts?: { totalSeconds?: num
   return { warnings, counts };
 }
 
-/* Which H3 workflows a shot can render on: a LoRA trained for some of them does nothing on the others. */
-function workflowsOf(spec: { mode: string; link?: { type: string } }): string[] {
-  if (spec.link?.type === "match_cut" || spec.mode === "reference") return ["R2VA"];
-  if (spec.mode === "keyframe") return ["I2VA", "FL2VA"];
-  return ["T2VA"];
-}
-
 /**
- * A style may name style LoRAs that could suit it. They are never applied
- * for the user: nobody has rendered them with that style. The lint says so
- * once per LoRA, while it would act on a shot of this film, is in neither
- * the Look nor a shot, and no decision in the log names it.
+ * LoRAs are the director's to assign, per shot, once the board is designed
+ * (assign_loras). The lint asks for that pass while shots have no decision
+ * and the library has a style / effect LoRA that could load on them (naming
+ * what the project's style suggests), and flags an assigned LoRA the shot can
+ * no longer load (its mode changed since).
  */
-export async function styleLoraHints(view: ProjectView): Promise<LintWarning[]> {
-  const style = (await styles.resolveStyle(view.project.look.style ?? ""))?.style;
-  if (!view.project.look.style || !style || style.engine.loraSuggestions.length === 0) return [];
-  const shots = view.scenes.flatMap((s) => s.shots);
-  const used = new Set([...view.project.look.loras.map((l) => l.id), ...shots.flatMap((sh) => (sh.spec.loras ?? []).map((l) => l.id))]);
-  const decided = JSON.stringify((await repo.listNotes(view.project.id, "decision")).filter((n) => n.status !== "overturned").map((n) => n.body));
-  const library = await repo.getLoras(style.engine.loraSuggestions.map((l) => l.id));
+export async function loraHints(view: ProjectView): Promise<LintWarning[]> {
+  const shots = view.scenes.flatMap((sc) => sc.shots.map((sh) => ({ sc, sh })));
+  if (shots.length === 0) return [];
+  const library = await repo.listLoras();
+  const byId = new Map(library.map((l) => [l.id, l]));
   const out: LintWarning[] = [];
-  for (const suggestion of style.engine.loraSuggestions) {
-    const lora = library.get(suggestion.id);
-    if (!lora || used.has(suggestion.id) || decided.includes(suggestion.id)) continue;
-    const fits = shots.filter((sh) => lora.workflows.length === 0 || workflowsOf(sh.spec).some((w) => lora.workflows.includes(w as never))).length;
-    if (fits === 0) continue;
+  for (const { sc, sh } of shots) {
+    for (const r of assignedRefs(sh.spec, (id) => byId.get(id)?.kind)) {
+      const lora = byId.get(r.id);
+      if (!lora) out.push({ code: "lora.missing", severity: "warn", scene: sc.slug, shot: sh.index + 1, message: `the LoRA ${r.id} assigned to this shot is not in the library any more; assign_loras again` });
+      else if (!fitsShot(lora, sh.spec)) out.push({ code: "lora.workflow", severity: "warn", scene: sc.slug, shot: sh.index + 1, message: `the LoRA ${lora.name} assigned to this shot is not trained for its workflow (${lora.workflows.join(", ") || lora.baseModel}, the shot renders ${shotWorkflowsLabel(sh.spec)}): it will not load. assign_loras again for this shot` });
+    }
+  }
+  const candidates = library.filter((l) => l.kind !== "speed");
+  const open = shots.filter(({ sh }) => assignmentState(sh.spec) === "unassigned" && candidates.some((l) => fitsShot(l, sh.spec)));
+  if (open.length) {
+    const style = view.project.look.style ? (await styles.resolveStyle(view.project.look.style))?.style : undefined;
+    const suggests = (style ? director.styleLoraSuggestions(style) : []).filter((x) => byId.has(x.id)).map((x) => `The ${style!.en} style suggests ${byId.get(x.id)!.name} (${x.id}) at ${x.strength ?? byId.get(x.id)!.defaultStrength}, for ${x.when}`);
+    const where = open.slice(0, 8).map(({ sc, sh }) => `${sc.slug} ${sh.index + 1}`).join(", ") + (open.length > 8 ? " …" : "");
     out.push({
-      code: "style.lora", severity: "info",
-      message: `the ${style.en} style suggests the LoRA ${lora.name} (${suggestion.id}) at ${suggestion.strength}, for ${suggestion.when} It would act on ${fits} of this film's ${shots.length} shot(s) and is not in the Look. Nobody has rendered it with this style yet: ask the user; with their yes, render one probe shot with it and one without (revise_shot loras) and keep it only if the picture is better (update_look loras). To drop this hint without using it, log_decision naming ${suggestion.id}.`,
+      code: "lora.unassigned", severity: "info",
+      message: `${open.length} of the film's ${shots.length} shot(s) have no LoRA decision yet (${where}). Once the board is designed, assign_loras: give each shot the LoRAs from list_loras whose notes suit its style, size, effect or motion, each with why; an empty list records that none suits. They load while the shot's use-LoRA switch is on.${suggests.length ? ` ${suggests.join(" ")}` : ""}`,
     });
   }
   return out;
+}
+
+function shotWorkflowsLabel(spec: { mode: string; link?: { type: string } }): string {
+  return shotWorkflows(spec).join(" / ");
 }
 
 /** First / last frame checks that need the assets: same size, the render's

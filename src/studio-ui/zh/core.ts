@@ -87,7 +87,7 @@ export const core: Record<string, string> = {
   "Look": "风格",
   "What the film is and how long; the treatment and the screenplay. You approve it.": "片子讲什么、多长；处理稿和剧本。由你批准。",
   "One of the 16 looks; characters, places and props with reference images.": "16 种风格选一种；角色、场景和道具，配参考图。",
-  "Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from the brief and the style. Each card saves on its own.": "第一层。每个镜头都继承的风格（预设编译成各字段）、画幅比例和 LoRA，以及据简报和风格画出的风格图。每张卡片单独保存。",
+  "Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio, and the style frame drawn from the brief and the style. Each card saves on its own. LoRAs are per shot, on the Board.": "第一层。每个镜头都继承的风格（预设编译成各字段）、画幅比例，以及据简报和风格画出的风格图。每张卡片单独保存。LoRA 按镜头设置，在分镜里。",
   "The brief, the script and its treatment. The script is checkpoint 1: every new version returns to draft; nothing renders until the latest version is approved.": "简报、剧本和处理稿。剧本是第一个检查点：每个新版本都回到草稿；最新版本批准之前，什么都不会渲染。",
   "Approved under delegated approval; overturn it in the Director panel, under Decisions": "按代为批准通过的；可在导演面板的“决定”里推翻",
   "Name, budget, who sees the film and what the director may do without asking. What it was asked and what it decided are in the Director panel; the GPU, the library and the connection live under Machine, Library and Connect.": "名称、预算、谁能看到这部片子，以及导演不用问就能做什么。对它提的要求和它做的决定在导演面板里；GPU、素材库和连接分别在机器、素材库和连接页。",

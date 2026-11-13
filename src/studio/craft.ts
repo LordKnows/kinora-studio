@@ -447,7 +447,7 @@ export async function buildRetro(projectId: string): Promise<string> {
   L.push(`- Shot reviews: ${reviewedShots} of ${rendered} rendered shot(s) had one (${independent(shotReviews)} of ${shotReviews.length} by a fresh reviewer)${skipped ? `; ${skipped} render(s) skipped the review on the record` : ""}.`);
   L.push(`- Story reviews: ${byStage("story").length} (${independent(byStage("story"))} independent). Film reviews: ${byStage("film").length} (${independent(byStage("film"))} independent). Frame reviews: ${byStage("frame").length} (${independent(byStage("frame"))} independent).`);
   if (pictures.length) L.push(`- Pictures drawn: ${pictures.length} for ${shotsAll.length} shot(s), ${edits} of them edits${checked.length ? `; the self-check failed ${failedCheck} of ${checked.length}` : ""}.`);
-  if (noSpeed.length) L.push(`- ${noSpeed.length} take(s) rendered without a speed LoRA (base chain), ${avg(noSpeed).toFixed(3)} USD each${withSpeed.length ? ` against ${avg(withSpeed).toFixed(3)} USD with one` : ""}. If nobody chose that, the Look lost its LoRAs: check look.loras.`);
+  if (noSpeed.length) L.push(`- ${noSpeed.length} take(s) rendered without a speed LoRA (base chain), ${avg(noSpeed).toFixed(3)} USD each${withSpeed.length ? ` against ${avg(withSpeed).toFixed(3)} USD with one` : ""}. If nobody chose that, check those shots' use-turbo switch on the Board.`);
   if (requirements.length) L.push(`- Requirements: ${open} of ${requirements.length} still open.`);
   L.push("");
 

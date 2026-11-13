@@ -5,14 +5,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { checkConstraint } from "@director/lint/constraints";
 
 import { planDurations } from "@/studio/editing";
-import type { LookSettings, LoraRef } from "@/studio/schemas";
+import type { LookSettings } from "@/studio/schemas";
 import type { Asset, Project } from "@/studio/types";
 
 import { get, patch } from "./api";
 import { Button, Chips, ErrorBanner, Field, Lamp, UploadButton, useAction } from "./common";
 import { type T, useT } from "./i18n";
 import { StyleGallery } from "./library-page";
-import { LoraPicker } from "./lora-picker";
 import { useProjectContext } from "./shell";
 import { PictureCaption, pictureTitle, useDeletePictures } from "./pictures";
 import { ImageButton } from "./image-tools";
@@ -38,7 +37,6 @@ type CompiledStyle = { look: Partial<LookSettings>; cinematographyDefaults?: Rec
 type StyleDraft = Pick<LookSettings, "style" | "genre" | "palette" | "camera" | "lens" | "lighting" | "negative">;
 const styleOf = (l: StyleDraft): StyleDraft => ({ style: l.style, genre: l.genre, palette: l.palette, camera: l.camera, lens: l.lens, lighting: l.lighting, negative: l.negative });
 const sameStyle = (a: StyleDraft, b: StyleDraft) => JSON.stringify(styleOf(a)) === JSON.stringify(styleOf(b));
-const lorasKey = (v: LoraRef[]) => v.map((r) => `${r.id}:${r.strength ?? ""}`).join("|");
 
 /** A save button that says "Saved" for a moment after it worked. */
 function useSave(run: () => Promise<void>) {
@@ -128,7 +126,6 @@ export function LookPage() {
   const { projectId, view, reload } = useProjectContext();
   const [style, setStyle] = useState<StyleDraft | null>(null);
   const [ratio, setRatio] = useState<LookSettings["aspectRatio"] | null>(null);
-  const [loras, setLoras] = useState<LoraRef[] | null>(null);
   const [pickingStyle, setPickingStyle] = useState(false);
   const [styleNote, setStyleNote] = useState<string | null>(null);
 
@@ -136,8 +133,7 @@ export function LookPage() {
     if (!view) return;
     if (!style) setStyle(styleOf(view.project.look));
     if (!ratio) setRatio(view.project.look.aspectRatio);
-    if (!loras) setLoras(view.project.look.loras);
-  }, [view, style, ratio, loras]);
+  }, [view, style, ratio]);
 
   const saveStyle = useSave(async () => {
     if (!style) return;
@@ -149,13 +145,8 @@ export function LookPage() {
     await patch(`/api/projects/${projectId}/look`, { aspectRatio: ratio });
     await reload();
   });
-  const saveLoras = useSave(async () => {
-    if (!loras) return;
-    await patch(`/api/projects/${projectId}/look`, { loras });
-    await reload();
-  });
   const compile = useAction(async (_c, slug: string) => {
-    if (!style || !ratio || !loras) return;
+    if (!style || !ratio) return;
     const r = await get<CompiledStyle>(`/api/styles/${slug}?aspectRatio=${encodeURIComponent(ratio)}`);
     const l = r.look;
     setStyle({
@@ -164,13 +155,11 @@ export function LookPage() {
       genre: l.genre ?? style.genre, palette: l.palette ?? style.palette, camera: l.camera ?? style.camera, lens: l.lens ?? style.lens, lighting: l.lighting ?? style.lighting,
       negative: l.negative ?? style.negative,
     });
-    const presetLoras = l.loras && l.loras.length && lorasKey(l.loras) !== lorasKey(loras) ? l.loras : null;
-    if (presetLoras) setLoras(presetLoras);
     setPickingStyle(false);
-    setStyleNote(t("Style filled from “{slug}”. Review the fields, then Save style.{loras} Apply the style to the Board once the shotlist exists.", { slug, loras: presetLoras ? t(" The preset also set its LoRAs: save them in the LoRAs card.") : "" }));
+    setStyleNote(t("Style filled from “{slug}”. Review the fields, then Save style. Apply the style to the Board once the shotlist exists.", { slug }));
   });
 
-  if (!view || !style || !ratio || !loras) return null;
+  if (!view || !style || !ratio) return null;
   const saved = view.project.look;
   const styleDirty = !sameStyle(style, styleOf(saved));
   const set = <K extends keyof StyleDraft>(key: K, value: StyleDraft[K]) => setStyle({ ...style, [key]: value });
@@ -180,12 +169,12 @@ export function LookPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Look")}</h1>
-          <p className="st-subtitle">{t("Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio and LoRAs, and the style frame drawn from the brief and the style. Each card saves on its own.")}</p>
+          <p className="st-subtitle">{t("Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio, and the style frame drawn from the brief and the style. Each card saves on its own. LoRAs are per shot, on the Board.")}</p>
         </div>
       </div>
       <ErrorBanner
-        error={saveStyle.error ?? saveRatio.error ?? saveLoras.error ?? compile.error}
-        onDismiss={() => { saveStyle.dismiss(); saveRatio.dismiss(); saveLoras.dismiss(); compile.dismiss(); }}
+        error={saveStyle.error ?? saveRatio.error ?? compile.error}
+        onDismiss={() => { saveStyle.dismiss(); saveRatio.dismiss(); compile.dismiss(); }}
       />
 
       <div className="st-stack" style={{ gap: 20 }}>
@@ -250,13 +239,6 @@ export function LookPage() {
               })}
             </div>
             <span className="st-muted">{t("H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Cut page, in its export panel.")}</span>
-          </div>
-          <div className="st-card st-stack">
-            <CardHead title="LoRAs" dirty={lorasKey(loras) !== lorasKey(saved.loras)}>
-              <Button size="sm" kind="primary" busy={saveLoras.busy} onClick={() => void saveLoras.fire()}>{saveLoras.saved ? t("Saved") : t("Save LoRAs")}</Button>
-            </CardHead>
-            <LoraPicker value={loras} onChange={setLoras} />
-            <span className="st-muted">{t("Project defaults for every shot; a shot can override them. A speed LoRA sets the step count; none means the base chain at 20 steps.")}</span>
           </div>
         </div>
 
