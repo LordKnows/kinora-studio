@@ -4,8 +4,8 @@ Scope and method. Sources are the repository at `/home/user/open-higgsfield-serv
 
 Caveats that apply to everything below:
 - The git clone is shallow: 89 commits (67 non-merge), 2026-11-09 to 2026-11-13, the earliest visible being the merge of PR #27 (`git log`, `git rev-parse --is-shallow-repository` = true). PRs #1–26 are not visible.
-- Production records are small: 12 projects, 6 with any spend; 83 takes in total across their retros, of which only 11 carry a take review, and only 2 projects have fault tags (see section 5).
-- Two of the projects with spend are adult-content projects (`prj_u21g51xfupdx`, `prj_z56v3lc7o3nb`, `prj_plv4q89rgvnp`); they are cited by id and by their counts only.
+- Production records are small: 11 projects (`list_projects()`), 6 with any spend; 83 takes in total across their retros (79 finished), of which only 11 carry a take review, and only 2 projects have fault tags (see section 5).
+- Three projects are adult-content projects (`prj_u21g51xfupdx`, `prj_z56v3lc7o3nb`, `prj_plv4q89rgvnp`; only the first has spend); they are cited by id and by their counts only.
 
 ---
 
@@ -120,7 +120,7 @@ Classification is mine; code lists are from the source.
 **Picture-level (frames) — ≈ 5 lint codes + 8 + 9 + 9 review items + 5 pixel checks**
 - `frames.missing` — `craft.ts:139`; `frames.aspect`, `frames.size`, `frames.pushin` — `orchestrator.ts:1155-1162`; `palette.contrast` — `orchestrator.ts:1093`.
 - Shot review part A "The frames", 8 checks — `src/studio/craft.ts:188-196`: everything the action uses is in the first frame; reactions staged in the first frame; no shared pose; room for the action; wind and cloth agree; readable at phone size; stray things; first/last frame identical where nothing should change.
-- Frame review, 9 codes (anatomy, count/extra, identity/wardrobe, feature_side, text, framing/aspect, style/background, edit_scope, prompt_mismatch) — `src/studio/craft.ts:88-96`.
+- Frame review, 9 codes (anatomy, count/extra, identity/wardrobe, feature_side, text, framing/aspect, style/background, edit_scope, prompt_mismatch) — `src/studio/craft.ts:89-97`.
 - Painter: 5 pixel checks (blank, borders, crop amount, sheet backdrop, edit scope) and a 9-rule auto-review by a fresh Codex session — `docs/picture-quality.md:50-51`.
 
 **Edit/sound-level — ≈ 31 codes + export measurements + film review**
@@ -128,11 +128,11 @@ Classification is mine; code lists are from the source.
 - `check_timeline`, 18 codes — `packages/director/src/timeline/extended.ts:92-159` (`clip.range`, `clip.long`, `clip.speed`, `clip.speed.visible`, `clip.jl*` × 4, `clip.freeze.loop`, `clip.dissolve.first`, `title.outside`, `title.short`, `timeline.jl`, `timeline.silence`, `studio.gain`, `studio.title.place`, `studio.narration`, `studio.subtitles`).
 - `check_cue_map`, 8 codes — `packages/director/src/sound/cuemap.ts:93-110`.
 - `sound.table`, `sound.plan` — `orchestrator.ts:1099-1100`; `duration.handles` — `craft.ts:144`.
-- Export measurements (loudness, true peak, black picture, silent stretches, subtitle reading time) — `TECHNIQUE-H3.md:88, 91`. Film review, 6 items — `src/studio/craft.ts:236-244`.
+- Export measurements (loudness, true peak, black picture, silent stretches, subtitle reading time) — `TECHNIQUE-H3.md:88, 91`. Film review, 6 items — `src/studio/craft.ts:235-253`.
 
 **Render configuration** — `lora.missing`, `lora.workflow`, `lora.unassigned` (`orchestrator.ts:1126-1137`); `not_reviewed` gate (`orchestrator.ts:1235`).
 
-- Only six lint codes are errors that block approval, all planning/structure: `empty`, `duration.range`, `beats.tile`, `beats.gap`, `beats.cuts`, `link.anchor` — `shotlist.ts:28-63`. `approve_shotlist` requires "no lint errors" — `agent/director.md:132`.
+- In `lintShotlist` / `lintCraft` only six codes have severity `error`, all planning/structure: `empty`, `duration.range`, `beats.tile`, `beats.gap`, `beats.cuts`, `link.anchor` — `shotlist.ts:28-63`. `approve_shotlist` requires "no lint errors" — `agent/director.md:132`.
 
 ### Inferences
 - The lint budget follows what can be checked on structured text: allocation of time, links, variety, coverage. Prompt wording gets only regex-level checks (negation, loose direction, bare negative words), consistent with the agent not writing the prompt.
@@ -148,7 +148,7 @@ Classification is mine; code lists are from the source.
 ## 5. Recorded failures: what failed, at which stage, and what the fix was
 
 ### Takeaway
-In the two projects with tagged takes, the 20 fault tags are led by `action_wrong` (4) and `identity_drift` (4); of the eight fault-to-fix chains the retros record, none was fixed by a prompt rewrite alone on an identity fault, and the fixes that held were a changed frame, a changed mode (R2VA → first frame), a re-timed/re-split shot, or a Viggle Remake. The one fresh-reader story review on record failed the first script with four blockers, all planning-level, before any GPU spend.
+In the two projects with tagged takes, the 20 fault tags are led by `action_wrong` (4) and `identity_drift` (4); in the eight fault-to-fix chains the retros record, no identity or prop fault was fixed by rewording, and the fixes that held were a changed frame, a changed mode (R2VA → first frame), a re-timed and lengthened shot, or a Viggle Remake. The one fresh-reader story review on record failed the first script with four blockers, all planning-level, before any GPU spend.
 
 ### Cited Findings
 
@@ -203,7 +203,7 @@ In the two projects with tagged takes, the 20 fault tags are led by `action_wron
 - Infrastructure / access / deploy / housekeeping: ≈ 6 (`5ba6668`, `22f0070`, `87d88e3`, `153ef21`, `f8c9450`, `9be940d`).
 
 ### Inferences
-- By stage, the eight recorded fault chains split roughly: picture/frame/mode cause or fix in 5 (chains 2, 3, 4–5, 7, 8), prompt-versus-frame contradiction in 1 (chain 1), time allocation in 2 (chains 2, 6). No chain was resolved by rewording a beat alone; in chain 5 the record says so explicitly. This contradicts, on a very small sample, the guide's assertion "Most rerolls are prompt mistakes, not model failures" (`DIRECTOR.md:128`), unless "prompt mistakes" is read broadly as "spec inconsistent with the frames".
+- By stage, the eight recorded fault chains split roughly (a chain can sit in two classes): a picture, frame or mode cause or fix in 6 (chains 2, 3, 4, 5, 7, 8); a prompt that contradicted its frames in 1 (chain 1); time allocation in 2 (chains 2, 6). The one chain the retro marks as "changed: prompt" only (chain 2) was a re-timing of the beats and a longer shot, not new wording; where rewording was tried on an identity fault (chain 4) the record says "Prompt wording did not fix it". This sits badly, on a very small sample, with the guide's assertion "Most rerolls are prompt mistakes, not model failures" (`DIRECTOR.md:128`), unless "prompt mistakes" is read broadly as "spec inconsistent with the frames".
 - Identity and prop faults were fixed by pictures (new end frame, first frame instead of references, Remake); action and timing faults were fixed by re-allocating time or accepted after retries. The project's own fix order encodes this: trim → timeline → Remake for picture faults → only then revise wording (`agent/director.md:82`), and "a re-render of the same input usually fails the same way".
 - The take in chain 4–5 contained three negated phrasings about the very feature that drifted ("eyes that never widen", "never big round anime eyes", "no double eyelid crease") in a model where "a ban is drawn as the thing it bans" (`AGENTS.md:43`). The records do not test whether the negations caused the drift; it is consistent with the project's own rule and with the `wording.negation` lint (`craft.ts:120`).
 - The only independent story review on record caught an overloaded shot, a four-hands close-up, an in-shot light change and a missing story premise at zero GPU cost; the later take faults in that project (simultaneous motion, action timing) are the same family as the minor findings it flagged as "watch whether the catch lands". That is one case, not a rate.
@@ -253,7 +253,7 @@ The project marks shot length versus quality, dialogue accuracy, every prompt ex
 ## 7. Cost and time per take, and what a retake costs relative to planning
 
 ### Takeaway
-A take costs roughly 0.05–0.23 USD and 2.5–9.5 minutes of GPU wall time; a second of video costs about 0.015–0.020 USD at 8 steps. Text-stage work (script, treatment, shotlist, lint, reviews) costs no GPU money, and in the reviewed projects 31–59 % of takes were retakes of a shot that already had one.
+A take in the records costs roughly 0.05–0.23 USD and 2.5–9.5 minutes of GPU wall time; a second of video costs about 0.015–0.020 USD on average. Text-stage work (script, treatment, shotlist, lint, reviews) costs no GPU money, and across the five projects with more than one take 62 % of takes (50–71 % per project) were second or later takes of a shot.
 
 ### Cited Findings
 - `gpu_stats()` (2026-11-13): RTX 5090 — 45 takes, 12,172 generation seconds, 265.1 video seconds, 45.92 GPU-s per output second, 1.19 USD/h, 0.0152 USD per video second. RTX PRO 6000 Blackwell — 34 takes, 5,803 s, 198.3 video seconds, 29.26 GPU-s per output second, 2.49 USD/h, 0.0202 USD per video second. [measured]
