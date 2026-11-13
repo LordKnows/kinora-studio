@@ -129,9 +129,10 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 | 文件 | 内容 |
 |---|---|
 | `src/brand.ts` | 名字、颜色、标志的几何、`markSvg()` 和 `faviconSvg()`。改名或改标志只改这里 |
+| `src/app/manifest.ts`、`src/mcp/server.ts` | 安装的应用和 MCP server（`studioServerInfo()`，initialize 时报给客户端的名字、网址和图标）列的是同一批图标文件：`src/brand.ts` 里的 `BRAND_ICONS` |
 | `src/studio-ui/brand-mark.tsx` | 界面里用的图标（`BrandMark`，`ground` 为 `ink` 或 `night`）和字标（`BrandWord`） |
-| `scripts/build-brand-assets.mjs` | 从 `src/brand.ts` 生成 `src/app/icon.svg`、`public/icon-*.png`、`src/app/apple-icon.png` 和 `public/og.png`（`node scripts/build-brand-assets.mjs`，需要 Node 22.18 以上和一个 Chromium） |
-| `tests/brand.test.ts` | favicon 和 `src/brand.ts` 一致；三张卡、一张红；界面里没有旧名字 |
+| `scripts/build-brand-assets.mjs` | 从 `src/brand.ts` 生成 `src/app/icon.svg`、`src/app/favicon.ico`（16、32、48 三帧，给不读 `<link>`、直接要 `/favicon.ico` 的客户端，比如 MCP 客户端的连接器列表）、`public/icon-*.png`、`src/app/apple-icon.png` 和 `public/og.png`（`node scripts/build-brand-assets.mjs`，需要 Node 22.18 以上和一个 Chromium） |
+| `tests/brand.test.ts` | favicon 和 `src/brand.ts` 一致；`favicon.ico` 每个尺寸一帧；三张卡、一张红；界面里没有旧名字；manifest 和 MCP server 列的图标都是生成出来的文件 |
 
 ## 没有改名的东西
 
@@ -142,7 +143,9 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 - RunPod 上的 GPU 机器 `cinema-studio-h3*` 和绘图机 `cinema-studio-painter*`：Studio 靠这些名字认领已有的机器。
 - 数据库迁移文件里的注释（已经执行过的迁移不改）。
 - `docs/cinema-studio-h3-design.md`：最初复刻 Higgsfield Cinema Studio 的设计稿，保留原文。
-- GitHub 仓库名 `open-higgsfield-server`：要改的话在 GitHub 仓库的 Settings → General → Repository name 里改，
-  旧地址会自动跳转；改完把 Cloudflare Workers Builds 里连接的仓库确认一下。
+
+GitHub 仓库已经从 `open-higgsfield-server` 改名为 `LordKnows/kinora-studio`，旧地址会自动跳转。
+Cloudflare Workers Builds 不会跟着改名，要在 Worker 的构建设置里断开 Git 再连上新仓库，步骤见
+[deploy-cloudflare.md](deploy-cloudflare.md) 第 3 节。
 
 导演包的自定义风格目录改成了 `~/.kinora/my-styles`；只有旧目录 `~/.openhiggsfield/my-styles` 存在时仍然读旧目录，不用手动搬。

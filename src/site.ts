@@ -1,25 +1,19 @@
-/* One source of truth for the site's identity and its canonical origin.
-   Server-only by intent: VERCEL_PROJECT_PRODUCTION_URL is not exposed to the
-   browser, so importing SITE_URL into a client component would resolve
-   differently on each side. Keep this module out of "use client" files. */
+/* One source of truth for the site's identity and its canonical origin,
+   for the metadata, robots.txt and the sitemap. Server-side: keep it out of
+   "use client" files. */
 
 import { BRAND } from "./brand";
 
 function resolveOrigin(): string {
   const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
   if (explicit) return explicit.replace(/\/+$/, "");
-
-  const vercel = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
-  if (vercel) return `https://${vercel.replace(/^https?:\/\//, "").replace(/\/+$/, "")}`;
-
   return "http://localhost:3000";
 }
 
 export const SITE_URL = resolveOrigin();
 
 export const SITE_NAME = BRAND.name;
-export const SITE_DESCRIPTOR = BRAND.descriptor;
-export const SITE_TITLE = `${SITE_NAME} ${BRAND.zh} — ${SITE_DESCRIPTOR}`;
+export const SITE_TITLE = `${SITE_NAME} ${BRAND.zh} — ${BRAND.descriptor}`;
 
 export const SITE_DESCRIPTION =
   "An AI film studio on a self-hosted open video model. A director you talk to writes the script and the shotlist; the whole film sits on one score, every shot, take and cut in its place.";

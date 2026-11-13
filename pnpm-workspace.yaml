@@ -14,3 +14,11 @@ minimumReleaseAgeExclude:
   - rollup
   - next
   - "@next/*"
+
+# glob and minimatch reach the tree only through the OpenNext build tools, which ask for
+# releases with open advisories (GHSA-5j98-mcp5-4vw2, GHSA-3g3m-2fjr-6pw4, GHSA-g3hv-75wg-m249)
+# and have no release that asks for a patched one. Pinned to patched versions a week old;
+# drop these when @opennextjs/cloudflare depends on glob 14 itself.
+overrides:
+  "glob@<14.0.2": 14.0.4
+  "glob>minimatch": 11.0.5

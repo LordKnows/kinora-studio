@@ -1,30 +1,31 @@
 import type { MetadataRoute } from "next";
 
-import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, STUDIO_BG } from "@/site";
+import { BRAND, BRAND_COLORS, BRAND_ICONS } from "@/brand";
+
+/* The installed app (Add to Home Screen / Install). It opens on the
+   projects, in the Studio's own grey, with the three-card K that
+   scripts/build-brand-assets.mjs draws from src/brand.ts. */
+
+const ICONS: MetadataRoute.Manifest["icons"] = [
+  ...BRAND_ICONS.map((icon) => ({ src: icon.src, type: icon.type, sizes: icon.size, purpose: "any" as const })),
+  /* the mark inside the safe circle, for launchers that crop to a shape */
+  { src: "/icon-maskable-512.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
+];
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: SITE_TITLE,
-    short_name: SITE_NAME,
-    description: SITE_DESCRIPTION,
+    id: "/",
+    name: `${BRAND.name} ${BRAND.zh}`,
+    short_name: "Kinora",
+    description: `${BRAND.descriptor}. ${BRAND.tagline}`,
+    lang: "en",
     start_url: "/",
     scope: "/",
     display: "standalone",
-    /* Installed, the app opens straight into the studio, so both colors are
-       the studio ground rather than the marketing chrome's. */
-    background_color: STUDIO_BG,
-    theme_color: STUDIO_BG,
-    categories: ["productivity", "graphics", "photo"],
-    icons: [
-      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-      {
-        src: "/icon-maskable-512.png",
-        sizes: "512x512",
-        type: "image/png",
-        purpose: "maskable",
-      },
-    ],
+    orientation: "any",
+    background_color: BRAND_COLORS.card,
+    theme_color: BRAND_COLORS.card,
+    categories: ["entertainment", "productivity", "photo"],
+    icons: ICONS,
   };
 }

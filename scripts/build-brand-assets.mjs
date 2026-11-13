@@ -1,7 +1,7 @@
 /* Builds every brand asset from the one mark in src/brand.ts.
 
-   The favicon (src/app/icon.svg) is written as SVG; Apple, the web app
-   manifest and Open Graph need rasters, so this script draws the same
+   The favicon (src/app/icon.svg) is written as SVG; favicon.ico, Apple, the
+   web app manifest and Open Graph need rasters, so this script draws the same
    64-unit field in a headless Chromium and screenshots it at each size.
 
      node scripts/build-brand-assets.mjs
@@ -12,11 +12,11 @@
    not on every build. docs/brand.md describes the mark. */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { BRAND, BRAND_COLORS, MARK, faviconSvg, markSvg } from "../src/brand.ts";
+import { BRAND, BRAND_COLORS, FAVICON_SIZES, MARK, faviconSvg, markSvg } from "../src/brand.ts";
 
 const { ink: INK, card: CARD, tally: TALLY } = BRAND_COLORS;
 
@@ -99,6 +99,36 @@ const shell = (body, bg = "transparent") =>
 console.log("favicon");
 writeFileSync(join(ROOT, "src/app/icon.svg"), `${faviconSvg()}\n`);
 console.log("  src/app/icon.svg");
+
+/* favicon.ico, for whoever asks the origin for it and reads no <link>: an MCP
+   client's list of connectors, a feed reader, a favicon service. PNG frames
+   in an ICO directory. It is the ink plate at every size: an .ico cannot
+   follow the colour scheme, which is why browsers are still given the SVG. */
+function ico(out, sizes) {
+  const frames = sizes.map((size) => {
+    const png = join(WORK, `favicon-${size}.png`);
+    shoot(png, shell(markSvg({ size })), size, size, { transparent: true });
+    return { size, data: readFileSync(png) };
+  });
+  const head = Buffer.alloc(6 + 16 * frames.length);
+  head.writeUInt16LE(1, 2); // an icon
+  head.writeUInt16LE(frames.length, 4);
+  let offset = head.length;
+  frames.forEach(({ size, data }, i) => {
+    const at = 6 + 16 * i;
+    head.writeUInt8(size, at);
+    head.writeUInt8(size, at + 1);
+    head.writeUInt16LE(1, at + 4); // colour planes
+    head.writeUInt16LE(32, at + 6); // bits per pixel
+    head.writeUInt32LE(data.length, at + 8);
+    head.writeUInt32LE(offset, at + 12);
+    offset += data.length;
+  });
+  writeFileSync(out, Buffer.concat([head, ...frames.map((f) => f.data)]));
+  console.log(`  ${out.replace(`${ROOT}/`, "")}  ${sizes.join(", ")}`);
+}
+
+ico(join(ROOT, "src/app/favicon.ico"), FAVICON_SIZES);
 
 /* ---------- app icons ---------- */
 

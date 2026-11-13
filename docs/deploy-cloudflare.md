@@ -89,7 +89,7 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 
 **Workers & Pages → Create → Workers → Import a repository**
 
-- 授权 GitHub，选择仓库 `LordKnows/open-higgsfield-server`。
+- 授权 GitHub，选择仓库 `LordKnows/kinora-studio`（原名 `open-higgsfield-server`）。
 - **Project name**：`cinema-studio`（必须和 `wrangler.jsonc` 里的 `name` 一致）。
 - **Production branch**：你要部署的分支（现在代码在 `claude/happy-ride-ui9t0n`；
   合并到 `main` 后改成 `main`）。
@@ -99,6 +99,19 @@ Workers & Pages 左侧 **Storage & Databases → D1 SQL Database → Create**
 
 第一次构建会读取仓库里的 `wrangler.jsonc`，自动绑定 D1（`DB`）和 R2（`TAKES`），
 并写入 `vars` 里的非敏感变量。构建完成后 Worker 会有一个 `*.workers.dev` 地址。
+
+**仓库改名之后**（Workers Builds 不会跟着改名，推送后不再触发构建）：
+
+1. 先把 **Settings → Build** 里的设置记下来：构建命令、部署命令、根目录、生产分支、
+   构建变量，以及部署钩子（Deploy Hooks）。
+2. GitHub → Settings → Applications → Installed GitHub Apps → **Cloudflare Workers and Pages** →
+   Configure：如果只授权了部分仓库，确认列表里有改名后的仓库。
+3. Worker `cinema-studio` → **Settings → Build → Git repository → Disconnect**，再 **Connect**，
+   选新仓库和 `main`，把第 1 步记下的设置填回去。断开 Git 不会删 Worker，也不动它的变量、
+   密钥、域名和 D1 / R2 绑定。
+4. 部署钩子如果没了，重建一个（旧的钩子地址作废）。`cinema-studio-cron` 是在线编辑器部署的，
+   没连 Git，不受影响。
+5. 推一个提交或手动触发一次构建，确认它从新仓库拉代码。
 
 ## 4. 绑定你的子域名
 
