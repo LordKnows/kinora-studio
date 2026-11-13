@@ -3,7 +3,7 @@
 # pinned versions shadow anything older the image carries, without touching ComfyUI's environment.
 # qwen-tts itself is installed with --no-deps: it pins these two and also asks for gradio, which only
 # its demo uses.
-transformers==4.57.3
+transformers==5.10.1
 accelerate==1.12.0
 huggingface_hub==0.36.2
 einops==0.8.2
