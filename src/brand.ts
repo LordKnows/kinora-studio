@@ -42,6 +42,9 @@ export const BRAND_ICONS = [
   { src: "/icon.svg", type: "image/svg+xml", size: "any" },
 ] as const;
 
+/** The frames inside src/app/favicon.ico, in pixels: what an origin answers when asked for /favicon.ico. */
+export const FAVICON_SIZES = [16, 32, 48] as const;
+
 /* The mark on a 64-unit field: three rounded cards make a K. The upright one
    is the spindle, the lower one leans on it, and the red one is the card
    flicking past the stop. */

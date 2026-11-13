@@ -3,13 +3,25 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { BRAND, MARK, faviconSvg, markSvg } from "@/brand";
+import { BRAND, FAVICON_SIZES, MARK, faviconSvg, markSvg } from "@/brand";
 
 /* The name and the mark come from src/brand.ts; docs/brand.md says why. */
 
 describe("the brand", () => {
   it("draws the favicon from the one mark (node scripts/build-brand-assets.mjs)", () => {
     expect(readFileSync("src/app/icon.svg", "utf8")).toBe(`${faviconSvg()}\n`);
+  });
+
+  it("answers /favicon.ico with the mark too, one PNG frame at each size", () => {
+    const ico = readFileSync("src/app/favicon.ico");
+    expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([0, 1, FAVICON_SIZES.length]);
+    FAVICON_SIZES.forEach((size, i) => {
+      const at = 6 + 16 * i;
+      const png = ico.subarray(ico.readUInt32LE(at + 12), ico.readUInt32LE(at + 12) + ico.readUInt32LE(at + 8));
+      expect([ico.readUInt8(at), ico.readUInt8(at + 1)], `${size}`).toEqual([size, size]);
+      expect(png.subarray(0, 8).toString("latin1"), `${size}`).toBe("\x89PNG\r\n\x1a\n");
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], `${size}`).toEqual([size, size]);
+    });
   });
 
   it("is three cards, one red, on every ground", () => {
