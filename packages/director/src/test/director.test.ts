@@ -424,7 +424,8 @@ test("faults: every route starts with the fix that fits the fault's class", asyn
 });
 
 test("plan_ab: two arms that differ in one thing, the same seeds in both", async () => {
-  const { planAb, splitShot, splitPoint, abFits } = await import("../ab.js");
+  const { planAb, abFits, AB_TESTS } = await import("../ab.js");
+  const { splitShot, splitPoint } = await import("../split.js");
   const shot = {
     durationS: 12, mode: "keyframe" as const, intent: "She crosses the yard and opens the gate", characters: ["mia"],
     beats: [{ from: 0, to: 6, action: "Mia crosses the yard" }, { from: 6, to: 12, action: "Mia lifts the latch and opens the gate" }],
@@ -440,7 +441,10 @@ test("plan_ab: two arms that differ in one thing, the same seeds in both", async
   assert.deepEqual(planAb("restate_frame", shot).arms[1].experiments, { restateFrame: true });
   assert.match(abFits("restate_frame", { ...shot, mode: "reference" })!, /keyframe mode/);
 
-  /* length: the same action as 6 + 6, the second from the first's last frame */
+  /* shot length is not a test: long action as two chained shots is the user's decision */
+  assert.deepEqual([...AB_TESTS], ["format", "restate_frame", "steps"]);
+
+  /* split_shot: the same action as 6 + 6, the second from the first's last frame */
   assert.equal(splitPoint(shot), 6);
   const { first, second, atS } = splitShot(shot);
   assert.equal(atS, 6);
@@ -454,10 +458,15 @@ test("plan_ab: two arms that differ in one thing, the same seeds in both", async
   assert.deepEqual([first.frames, second.frames], [{ first: "Mia at the door" }, { last: "the gate stands open" }]);
   assert.equal(first.state, undefined);
   assert.deepEqual(second.state, [{ who: "mia", holding: "the gate key" }]);
-  const plan = planAb("length", shot);
-  assert.match(plan.question, /one 12 s generation .* 6 s \+ 6 s chained with continuous/);
   /* a shot that cannot be cut says why */
-  assert.match(String(splitPoint({ ...shot, durationS: 8, beats: [{ from: 0, to: 4, action: "a" }, { from: 4, to: 8, action: "b" }] })), /two shots need 5 s each/);
+  assert.match(String(splitPoint({ ...shot, durationS: 8, beats: [{ from: 0, to: 4, action: "a" }, { from: 4, to: 8, action: "b" }] })), /two chained shots need 5 s each/);
   assert.match(String(splitPoint({ ...shot, beats: [{ from: 0, to: 12, action: "one beat" }] })), /one beat/);
-  assert.throws(() => planAb("length", { ...shot, beats: [{ from: 0, to: 2.5, action: "a" }, { from: 2.5, to: 12, action: "b" }] }), /no beat boundary/);
+  assert.throws(() => splitShot({ ...shot, beats: [{ from: 0, to: 2.5, action: "a" }, { from: 2.5, to: 12, action: "b" }] }), /no beat boundary/);
+  /* the lint asks for the split, and says where */
+  const long = lintShotlist({ scenes: [{ slug: "yard", shots: [shot] }] } as unknown as Shotlist).find((x) => x.code === "duration.complex")!;
+  assert.equal(long.severity, "warn");
+  assert.match(long.message, /chains long action as two shots joined with continuous \(the user's choice, 6 \+ 6 over one 12 s shot\).*Split_shot cuts it at 6 s into 6 s \+ 6 s/);
+  /* a long one-beat shot may be a hold: a hint only */
+  const hold = lintShotlist({ scenes: [{ slug: "yard", shots: [{ ...shot, durationS: 10, beats: [{ from: 0, to: 10, action: "Mia stands at the gate" }], dialogue: [], state: undefined }] }] } as unknown as Shotlist).find((x) => x.code === "duration.complex")!;
+  assert.equal(hold.severity, "info");
 });

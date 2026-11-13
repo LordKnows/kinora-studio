@@ -23,7 +23,7 @@ ${how}
 ## Rules
 
 - A linked shot can only render after its anchor has a finished take; order the renders accordingly (or render the anchor first, then the linked shots).
-- \`continuous\` and \`bridge\` are the only ways to exceed 15 s of unbroken action: chain 5–15 s shots.
+- \`continuous\` and \`bridge\` are the only ways to exceed 15 s of unbroken action: chain 5–15 s shots. In this project an action over 8 s is already two shots joined with \`continuous\` (12 s is 6 + 6: the user's rule, \`split_shot\`), so a long take of action is a chain from the start.
 - \`reverse\` for dialogue: A (cut), B (cut or match), A (reverse, anchor -2), B (reverse, anchor -2)… keep the 180° line and eyelines.
 - \`insert_return\` after an \`insert\`-size cutaway resumes the main action from its own last frame.
 - \`match_cut\` is a reference, not a first frame: the new scene may be anywhere; describe it fully in the beats.

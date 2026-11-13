@@ -39,7 +39,7 @@ export const LINT_ZH: Record<string, string> = {
   "dialogue.dense": "台词太多，这个时长读不完。",
   "dialogue.lines": "台词句数太多，10 秒的镜头大约放两句。",
   "duration.15": "15 秒是重拍最贵的长度，除非画面撑得住，用 10 秒或连续镜头链。",
-  "duration.complex": "镜头偏长、动作偏多：默认每个动作 5 秒、最长 8 秒；拆开用连续衔接，或者确实需要这么长就保留。",
+  "duration.complex": "镜头超过 8 秒：本项目的规则是长动作拆成两个镜头、用连续衔接（你选的 6+6，而不是一条 12 秒）。有两个以上节拍的会给出拆分点，用 split_shot 拆开；只有一个节拍的可能是定镜，仅作提示。",
   "duration.handles": "预计上屏时长没留出剪辑余量，生成时长至少要多 0.5 秒。",
   "duration.range": "镜头时长要在 5–15 秒之间。",
   "duration.tile": "镜头加起来和目标片长对不上。",

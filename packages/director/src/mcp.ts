@@ -17,7 +17,8 @@ import { checkLines, placeLines, toSrt, spellNumbersForSpeech, type Line } from 
 import { synthesize } from "./narration/tts.js";
 import { planBatch, type BatchShot } from "./batch.js";
 import { faultRoutes } from "./faults.js";
-import { AB_TESTS, planAb, splitShot } from "./ab.js";
+import { AB_TESTS, planAb } from "./ab.js";
+import { splitShot } from "./split.js";
 import { carriedStates, stateText } from "./state.js";
 import { flatShots, type Shotlist } from "./types.js";
 
@@ -156,14 +157,14 @@ server.registerTool("carried_state", {
 });
 
 server.registerTool("plan_ab", {
-  description: "Lay out an A/B test on one shot (a shot object as save_shotlist takes it), spending nothing: format (the Studio's default prompt serialisation against MiniMax's published format, experiments.officialFormat), restate_frame (trust the first frame, or restate it as MiniMax's guide asks), steps (8-step turbo against the base chain at 20 steps, on prompt following), length (one long shot against the same action as two shots chained with continuous). Returns the question, the two arms, the seeds, what is held the same, what to read on the takes and what the answer will not show; for length also the two shots. The Studio's plan_ab does the same on a saved shot and adds the cost and the calls.",
+  description: "Lay out an A/B test on one shot (a shot object as save_shotlist takes it), spending nothing: format (the Studio's default prompt serialisation against MiniMax's published format, experiments.officialFormat), restate_frame (trust the first frame, or restate it as MiniMax's guide asks), steps (8-step turbo against the base chain at 20 steps, on prompt following). Returns the question, the two arms, the seeds, what is held the same, what to read on the takes and what the answer will not show. The Studio's plan_ab does the same on a saved shot and adds the cost and the calls. Shot length is not a test: long action is two chained shots (split_shot), the user's decision.",
   inputSchema: { test: z.enum(AB_TESTS), shot: z.any(), seeds: z.array(z.number().int().min(0)).min(1).max(4).optional() },
 }, async ({ test, shot, seeds }) => {
   try { return text(planAb(test, shot, { seeds })); } catch (e) { return text({ error: (e as Error).message }); }
 });
 
 server.registerTool("split_shot", {
-  description: "One shot as two, the second continuing from the first's last frame (link continuous): the beats, timed lines, frames and state are divided at a beat boundary on a whole second with 5 s or more on both sides (the one nearest the middle, or atS). Nothing is rewritten. For the length A/B, or when a long shot keeps losing its second action.",
+  description: "The project's rule for long action: two shots, not one long generation (the user's choice, 6 + 6 over one 12 s shot; lint_shotlist warns with duration.complex). This divides one shot into two, the second continuing from the first's last frame (link continuous): the beats, timed lines, frames and state are divided at a beat boundary on a whole second with 5 s or more on both sides (the one nearest the middle, or atS). Nothing is rewritten. Put the two in the shotlist in place of the long shot.",
   inputSchema: { shot: z.any(), atS: z.number().optional() },
 }, async ({ shot, atS }) => {
   try { return text(splitShot(shot, atS)); } catch (e) { return text({ error: (e as Error).message }); }

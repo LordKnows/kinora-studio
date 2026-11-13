@@ -4,6 +4,7 @@ import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { abReport, armOf, planAb } from "@/studio/ab";
 import { mapRunPodStatus } from "@/studio/backends/runpod";
+import * as director from "@/director";
 import * as craft from "@/studio/craft";
 import * as orch from "@/studio/orchestrator";
 import * as repo from "@/studio/repo";
@@ -102,11 +103,12 @@ describe("plan_ab", () => {
 
   it("refuses a shot that cannot carry the test, and says why", async () => {
     await expect(planAb(shotId, "restate_frame")).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("keyframe mode") });
-    await expect(planAb(shotId, "length")).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("two shots need 5 s each") });
-    const length = await planAb(longId, "length", { seeds: [7] });
-    expect([length.split!.first.durationS, length.split!.second.durationS]).toEqual([6, 6]);
-    expect(length.calls).toEqual([]);
-    expect(length.next).toContain('slug starting "ab-length"');
+    /* shot length is not a test: long action as two chained shots is the user's decision, and the lint asks for it */
+    expect([...director.AB_TESTS]).toEqual(["format", "restate_frame", "steps"]);
+    const { first, second } = director.splitShot((await repo.getShot(longId)).spec as never);
+    expect([first.durationS, second.durationS, second.link?.type]).toEqual([6, 6, "continuous"]);
+    const lint = await orch.lintProject(projectId);
+    expect(lint.warnings.find((w) => w.code === "duration.complex")).toMatchObject({ severity: "warn", scene: "square", shot: 2, message: expect.stringContaining("Split_shot cuts it at 6 s into 6 s + 6 s") });
   });
 });
 

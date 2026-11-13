@@ -9,7 +9,8 @@ import { readTake, type TakeMeasures } from "./take-checks";
 import type { Take } from "./types";
 
 /*
- * A/B tests on the self-hosted H3, on a shot of a project: the plan with what
+ * A/B tests on the self-hosted H3 (the prompt format, restating a first frame,
+ * the turbo LoRA against the base chain), on a shot of a project: the plan with what
  * each arm costs and the calls that render it, and the report that sets the
  * arms side by side from what the takes carry (the user's picks and tags,
  * blind votes, what was measured on each file). The planning itself is the
@@ -47,28 +48,20 @@ export async function planAb(shotId: string, test: director.AbTest, opts: { seed
   }
   const perTakeUsd: Record<string, number | undefined> = {};
   const calls: AbCall[] = [];
-  if (test !== "length") {
-    for (const arm of plan.arms) {
-      /* arm A of the steps test is the shot's own switch: only the base-chain arm overrides it */
-      const turbo = arm.turbo === false ? false : undefined;
-      perTakeUsd[arm.arm] = await compileForShot(shotId, { experiments: arm.experiments, turbo }).then((c) => c.estimate.usd).catch(() => undefined);
-    }
-    for (const seed of plan.seeds) for (const arm of plan.arms) {
-      calls.push({ tool: "generate_take", args: {
-        shotId, n: 1, seed, ...(arm.experiments ? { experiments: arm.experiments } : {}), ...(arm.turbo === false ? { turbo: false } : {}),
-        change: `A/B ${test}: arm ${arm.arm} (${arm.label}), seed ${seed}`,
-      } });
-    }
-  } else {
-    perTakeUsd.A = await compileForShot(shotId).then((c) => c.estimate.usd).catch(() => undefined);
-    /* B's two shots add up to A's length, and the estimate is linear in length */
-    perTakeUsd.B = perTakeUsd.A;
+  for (const arm of plan.arms) {
+    /* arm A of the steps test is the shot's own switch: only the base-chain arm overrides it */
+    const turbo = arm.turbo === false ? false : undefined;
+    perTakeUsd[arm.arm] = await compileForShot(shotId, { experiments: arm.experiments, turbo }).then((c) => c.estimate.usd).catch(() => undefined);
+  }
+  for (const seed of plan.seeds) for (const arm of plan.arms) {
+    calls.push({ tool: "generate_take", args: {
+      shotId, n: 1, seed, ...(arm.experiments ? { experiments: arm.experiments } : {}), ...(arm.turbo === false ? { turbo: false } : {}),
+      change: `A/B ${test}: arm ${arm.arm} (${arm.label}), seed ${seed}`,
+    } });
   }
   const takes = plan.seeds.length * plan.arms.length;
   const totalUsd = Math.round(plan.seeds.length * plan.arms.reduce((a, arm) => a + (perTakeUsd[arm.arm] ?? 0), 0) * 1000) / 1000;
-  const next = test === "length"
-    ? `Nothing is rendered or saved. Variant A is this shot as it is. For variant B add the two shots in split (first, then second, which continues from the first's last frame) to a scene of their own, slug starting "ab-length" — best in a copy of the project, since saving a shotlist puts the approval back to draft. Render A and B's first shot with the same seeds, let the user pick a take of B's first shot, then render B's second. Tell the user what it costs first (about ${totalUsd.toFixed(2)} USD for ${plan.seeds.length} seed(s)). ab_report reads scenes whose slug starts with "ab-length".`
-    : `Nothing is rendered. Tell the user what the test is for and what it costs (about ${totalUsd.toFixed(2)} USD for ${takes} takes), then run the calls in order, each with confirm: true once they agree; the shot needs its passing review as for any take (an arm's prompt is its own review subject: review_packet with the arm's switches, or skipReview with the user's word). When the takes are in, the user watches and picks; then ab_report.`;
+  const next = `Nothing is rendered. Tell the user what the test is for and what it costs (about ${totalUsd.toFixed(2)} USD for ${takes} takes), then run the calls in order, each with confirm: true once they agree; the shot needs its passing review as for any take (an arm's prompt is its own review subject: review_packet with the arm's switches, or skipReview with the user's word). When the takes are in, the user watches and picks; then ab_report.`;
   return { ...plan, shotId, shot: slate(view, shotId), estimate: { perTakeUsd, totalUsd, takes }, calls, next };
 }
 
@@ -90,8 +83,7 @@ type ArmStats = {
 };
 
 export type AbShotReport = { shotId: string; shot: string; arms: ArmStats[]; pairedSeeds: number[]; note: string };
-export type AbLengthReport = { scene: string; variants: Array<{ variant: "A" | "B"; shots: string[]; seconds: number; arms: ArmStats[] }>; note: string };
-export type AbReport = { shots: AbShotReport[]; length: AbLengthReport[]; caution: string; markdown: string };
+export type AbReport = { shots: AbShotReport[]; caution: string; markdown: string };
 
 /** The arm a take belongs to: its prompt switches and its chain. */
 export function armOf(take: Take): string {
@@ -154,13 +146,12 @@ function table(arms: ArmStats[]): string[] {
   ];
 }
 
-/** Every shot rendered in more than one arm, and every length test, side by side. */
+/** Every shot rendered in more than one arm, side by side. */
 export async function abReport(projectId: string): Promise<AbReport> {
   const view = await getProjectView(projectId);
   const votes = await repo.listEvalVotes(projectId);
   const shots: AbShotReport[] = [];
   for (const sc of view.scenes) for (const sh of sc.shots) {
-    if (sc.slug.startsWith("ab-length")) continue;
     const arms = armsOfShot(sh, votes);
     if (arms.length < 2) continue;
     const paired = arms.map((a) => new Set(a.seeds)).reduce((a, b) => new Set([...a].filter((s) => b.has(s))));
@@ -170,22 +161,8 @@ export async function abReport(projectId: string): Promise<AbReport> {
       note: [paired.size ? `${paired.size} seed(s) rendered in every arm` : "no seed was rendered in every arm: the arms differ by chance as well as by what was tested", unjudged ? `${unjudged} take(s) have no review: tag them on the Board first` : ""].filter(Boolean).join("; "),
     });
   }
-  const length: AbLengthReport[] = [];
-  for (const sc of view.scenes.filter((s) => s.slug.startsWith("ab-length"))) {
-    if (sc.shots.length < 3) continue;
-    const [a, ...b] = sc.shots;
-    const row = (variant: "A" | "B", list: ShotView[]) => ({
-      variant, shots: list.map((s) => slate(view, s.id)), seconds: list.reduce((n, s) => n + s.spec.durationS, 0),
-      arms: list.flatMap((s) => armsOfShot(s, votes).map((x) => ({ ...x, arm: `${list.length > 1 ? `${slate(view, s.id).split(" ")[1]} · ` : ""}${x.arm}` }))),
-    });
-    length.push({ scene: sc.slug, variants: [row("A", [a!]), row("B", b.slice(0, 2))], note: "A is one generation; B is two, the second from the first's picked take. Put both on the timeline and let the user watch them one after the other: the seam of B and the hold of the action in A are what the test is for." });
-  }
   const L: string[] = ["# A/B report", "", CAUTION, ""];
-  if (!shots.length && !length.length) L.push("No shot has finished takes in more than one arm yet, and no scene named ab-length… holds a length test. plan_ab lays one out.");
+  if (!shots.length) L.push("No shot has finished takes in more than one arm yet. plan_ab lays a test out.");
   for (const s of shots) L.push(`## ${s.shot}`, "", s.note, "", ...table(s.arms), "");
-  for (const l of length) {
-    L.push(`## Length: ${l.scene}`, "", l.note, "");
-    for (const v of l.variants) L.push(`Variant ${v.variant}: ${v.shots.join(" + ")} (${v.seconds} s)`, "", ...table(v.arms), "");
-  }
-  return { shots, length, caution: CAUTION, markdown: L.join("\n") };
+  return { shots, caution: CAUTION, markdown: L.join("\n") };
 }
