@@ -116,6 +116,59 @@ def test_extract_frames_produces_last_frame_and_four_thumbs(tmp_path):
     assert abs(h.probe_duration(clip) - 2.0) < 0.2
 
 
+# ---------- what can be measured on a take ----------
+
+
+def make_action_clip(path: Path) -> Path:
+    """3 s: a box crosses the frame in the first second with a tone, then the picture holds in silence."""
+    subprocess.run(
+        [h.FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=black:size=320x180:rate=24:duration=3",
+         "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono:d=2",
+         "-f", "lavfi", "-i", "color=c=white:size=60x60:rate=24:duration=3",
+         "-filter_complex", "[0:v][3:v]overlay=x='if(lt(t,1),t*240,240)':y=60[v];[1:a][2:a]concat=n=2:v=0:a=1[a]",
+         "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", "3", str(path)],
+        check=True,
+    )
+    return path
+
+
+def test_motion_profile_shows_when_the_picture_moves(tmp_path):
+    clip = make_action_clip(tmp_path / "action.mp4")
+    motion = h.motion_profile(clip)
+    assert abs(len(motion) - 3 * h.MEASURE_FPS) <= 2
+    first, rest = motion[: h.MEASURE_FPS - 1], motion[h.MEASURE_FPS + 1:]
+    assert min(first) > 0.005 and max(rest) < 0.001
+
+
+def test_audio_profile_shows_when_there_is_sound(tmp_path):
+    clip = make_action_clip(tmp_path / "action.mp4")
+    db = h.audio_profile(clip)
+    assert db is not None and abs(len(db) - 3 * h.AUDIO_HZ) <= 2
+    assert max(db[2:8]) > -30 and max(db[15:]) < -60
+    silent = tmp_path / "mute.mp4"
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24:duration=1", "-an", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(silent)], check=True)
+    assert h.audio_profile(silent) is None
+
+
+def test_frame_difference_is_small_for_the_frame_itself_and_large_for_another(tmp_path):
+    clip = make_action_clip(tmp_path / "action.mp4")
+    first, last, other = tmp_path / "first.png", tmp_path / "last.png", tmp_path / "other.png"
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-i", str(clip), "-frames:v", "1", str(first)], check=True)
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-sseof", "-0.3", "-i", str(clip), "-update", "1", str(last)], check=True)
+    subprocess.run([h.FFMPEG, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=white:size=320x180", "-frames:v", "1", str(other)], check=True)
+    assert h.frame_difference(clip, first, False) < 0.01
+    assert h.frame_difference(clip, last, True) < 0.01
+    assert h.frame_difference(clip, other, True) > 0.5
+
+
+def test_measure_take_keeps_what_it_could_measure(tmp_path):
+    clip = make_action_clip(tmp_path / "action.mp4")
+    checks = h.measure_take(clip, None, tmp_path / "missing.png")
+    assert checks["version"] == 1 and checks["motion"]["fps"] == h.MEASURE_FPS and checks["audio"]["hz"] == h.AUDIO_HZ
+    assert "first_frame_diff" not in checks and "last_frame_diff" not in checks
+    assert checks["failed"][0].startswith("last_frame_diff")
+
+
 # ---------- end to end with ComfyUI and R2 mocked ----------
 
 
@@ -202,6 +255,8 @@ def test_run_job_end_to_end(tmp_path, monkeypatch):
     assert out["last_frame_url"].endswith("t.last.png")
     assert [u.rsplit("/", 1)[-1] for u in out["thumb_urls"]] == ["0.jpg", "1.jpg", "2.jpg", "3.jpg"]
     assert out["seed"] == 42 and out["execution_ms"] >= 0 and out["studio_take_id"] == "tke_1"
+    # measured on the file: motion and sound over time; the first frame against the picture given when it decodes
+    assert out["checks"]["motion"]["values"] and out["checks"]["audio"]["db"]
     assert [c for c in uploader.uploaded if c[2] == "video/mp4"][0][1] == "projects/p/shots/s/takes/t.mp4"
     assert ("POST", "http://comfy/upload/image") in session.calls and ("POST", "http://comfy/prompt") in session.calls
 

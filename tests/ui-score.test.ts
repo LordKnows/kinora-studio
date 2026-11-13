@@ -191,8 +191,9 @@ describe("the Chinese explanations of lint codes", () => {
 
   it("explain every code the project's lint writes", async () => {
     const { LINT_ZH } = await import("@/studio-ui/zh/lint");
-    /* not the project lint: the cue map's check, fork_style's, and the review gate's refusals */
-    const written = await writtenCodes(/sound\/cuemap\.ts$|styles\/fork\.ts$/);
+    /* not the project lint: the cue map's check, fork_style's, the review gate's refusals, and what was
+       measured on a take (the Board names those with FINDING_LABELS; tests/take-checks.test.ts holds them to it) */
+    const written = await writtenCodes(/sound\/cuemap\.ts$|styles\/fork\.ts$|studio\/take-checks\.ts$/);
     const other = new Set(["custom", "not_reviewed"]);
     expect([...written].filter((c) => !LINT_ZH[c] && !other.has(c))).toEqual([]);
   });

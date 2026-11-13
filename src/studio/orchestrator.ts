@@ -515,7 +515,10 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
       const costUsd = executionMs ? (pod?.costPerHr ? podTakeUsd(executionMs, pod.costPerHr) : actualTakeUsd(executionMs)) : undefined;
       const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
       const lastFrameUrl = str(out.last_frame_url);
+      /* what the worker measured on the file (take-checks.ts reads it against the shot); kept with the take's input, which needs no new column */
+      const checks = out.checks && typeof out.checks === "object" ? { input: { ...take.input, studio_checks: out.checks } } : {};
       const updated = await repo.updateTake(take.id, {
+        ...checks,
         status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null, progress: null,
         gpuTypeId: pod?.gpuTypeId, gpuCostPerHr: pod?.costPerHr, outputSeconds: num(out.duration_s) ?? num(take.input.seconds),
       });

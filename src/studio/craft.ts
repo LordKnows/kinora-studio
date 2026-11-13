@@ -6,6 +6,7 @@ import { VIDEO_SIZES } from "./compiler";
 import { frameStateLines } from "./imaging";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
+import { readTake } from "./take-checks";
 import * as treatments from "./treatment";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
@@ -434,6 +435,15 @@ export async function buildRetro(projectId: string): Promise<string> {
   if (faults.size === 0) L.push("No take was tagged with faults. Tag rejected takes on the Board so the next film learns from this one.");
   else for (const [f, n] of [...faults].sort((a, b) => b[1] - a[1])) L.push(`- ${f}: ${n}`);
   if (unjudged.length) L.push("", `${unjudged.length} of ${done.length} finished take(s) have no review at all: what failed in them is not in this retro.`);
+  /* What the files themselves showed, whether or not anyone tagged it: leads, counted. */
+  const found = new Map<string, number>();
+  let measuredTakes = 0;
+  for (const scene of view.scenes) for (const sh of scene.shots) for (const t of sh.takes) {
+    if (t.status !== "completed" || !t.input.studio_checks) continue;
+    measuredTakes++;
+    for (const f of readTake(t, sh.spec).findings) found.set(f.code, (found.get(f.code) ?? 0) + 1);
+  }
+  if (measuredTakes) L.push("", `Measured on ${measuredTakes} take(s) (motion and sound over time, the ends against their frames; leads, not verdicts): ${found.size ? [...found].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join(", ") : "nothing found"}.`);
   L.push("");
 
   /* How the film was made, in numbers: the checks that ran, what they were worth, what the settings cost. */
