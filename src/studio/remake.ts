@@ -124,6 +124,8 @@ export async function remakeTake(takeId: string, input: { mode: "edit" | "swap";
       workflow: "REMAKE", mode: input.mode, video: source.resultUrl, prompt, refs: keyframes.map((k) => assets.get(k.assetId)!.url), pins: keyframes.map((k) => k.frame),
       frames, short_edge: input.shortEdge ?? 736, seed, seconds: frames / 24,
       studio_remake: { sourceTakeId: source.id, sourceN: source.n, mode: input.mode, keyframes, changes: input.changes ?? [] },
+      /* a Remake is a retake: the retro counts it against the faults of the take it fixes */
+      studio_retake: { of: source.n, changed: ["remake"], after: source.review?.faults ?? [], change: `Remake (${input.mode}) of take #${source.n}${input.changes?.length ? `: ${input.changes.map((c) => c.subject).join(", ")}` : ""}` },
     },
     seed,
   });

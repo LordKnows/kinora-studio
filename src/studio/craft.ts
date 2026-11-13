@@ -1,6 +1,6 @@
 import * as director from "@/director";
 
-import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
+import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive, fixLedger, fixTally, retakeChanges, retakeRecord } from "./craft-core";
 import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
 import { frameStateLines } from "./imaging";
@@ -502,19 +502,26 @@ export async function buildRetro(projectId: string): Promise<string> {
     const good = ts.find((t) => t.id === sh.selectedTakeId) ?? ts.find((t) => t.review && !isRejected(t));
     if (!good) continue;
     for (const bad of ts.filter((t) => t.n < good.n && (t.review?.faults?.length ?? 0) > 0)) {
-      const imgs = (t: typeof bad) => JSON.stringify(Array.isArray(t.input.images) ? t.input.images : []);
-      const changed = [bad.prompt !== good.prompt ? "prompt" : "", imgs(bad) !== imgs(good) ? "frames" : "", bad.workflow !== good.workflow ? `${bad.workflow} → ${good.workflow}` : "", bad.input.steps !== good.input.steps ? `${String(bad.input.steps)} → ${String(good.input.steps)} steps` : ""].filter(Boolean);
-      fixes.push(`- ${label}: ${bad.review!.faults!.join(", ")} on take #${bad.n}${bad.review!.notes ? ` ("${bad.review!.notes.slice(0, 140)}")` : ""} → take #${good.n} held; changed: ${changed.join(", ") || "the seed only"}`);
+      const changed = retakeChanges(bad, good).map((c) => (c === "mode" ? `${bad.workflow} → ${good.workflow}` : c === "steps" ? `${String(bad.input.steps)} → ${String(good.input.steps)} steps` : c === "length" ? `${String(bad.input.seconds)} → ${String(good.input.seconds)} s` : c === "seed" ? "the seed only" : c));
+      const said = retakeRecord(good)?.change;
+      fixes.push(`- ${label}: ${bad.review!.faults!.join(", ")} on take #${bad.n}${bad.review!.notes ? ` ("${bad.review!.notes.slice(0, 140)}")` : ""} → take #${good.n} held; changed: ${changed.join(", ")}${said ? ` — "${said.slice(0, 140)}"` : ""}`);
     }
   }
   if (fixes.length) L.push("What got past a fault (compare the two takes' prompts with get_take):", ...fixes, "");
+  /* The same pairs counted: per fault, which change held and which brought the fault back. */
+  const tally = fixTally(fixLedger(shotsAll));
+  if (tally.length) {
+    L.push("Which change got past which fault (a faulted take and the take after it; small counts are anecdotes, not rates):", "", "| Fault | Changed | Held | Came back | Unjudged |", "|---|---|---|---|---|");
+    for (const r of tally) L.push(`| ${r.fault} | ${r.change} | ${r.held} | ${r.cameBack} | ${r.unjudged} |`);
+    L.push("");
+  }
   if (costly.length) L.push("Shots that took three takes or more — plan them differently at the story stage:", ...costly, "");
   const exNames = [...new Set(pair.flatMap((t) => Object.entries((t.input.studio_experiments ?? {}) as Record<string, boolean>).filter(([, v]) => v).map(([k]) => k)))];
   for (const name of exNames) {
     const on = pair.filter((t) => (t.input.studio_experiments as Record<string, boolean>)[name]);
     L.push(`- Experiment ${name}: ${on.length} take(s), ${on.filter((t) => shotsAll.some((sh) => sh.selectedTakeId === t.id)).length} picked, ${on.filter(isRejected).length} rejected.`);
   }
-  if (!fixes.length && !costly.length && !exNames.length) L.push("Nothing to carry yet: no reviewed take followed a faulted one, no shot took three takes, no experiment ran. Review the takes (review_take with faults) so the next film has something to learn from.");
+  if (!fixes.length && !tally.length && !costly.length && !exNames.length) L.push("Nothing to carry yet: no reviewed take followed a faulted one, no shot took three takes, no experiment ran. Review the takes (review_take with faults) so the next film has something to learn from.");
   L.push("");
   return L.join("\n");
 }

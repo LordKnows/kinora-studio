@@ -229,7 +229,12 @@ describe("reviews, guards, envelope, timeline", () => {
     const done = await orch.applyTakeStatus(take, mapRunPodStatus({ id: take.requestId!, status: "COMPLETED", executionTime: 10_000, output: { url: "https://r2/t1.mp4", last_frame_url: "https://r2/t1.last.png", thumb_urls: [], execution_ms: 10_000, duration_s: 5.17 } }));
     await orch.reviewTake(done.id, 1, "walks the wrong way", web, { faults: ["wrong_direction"] });
     await expect(orch.reviewTake(done.id, 3, "fine", mcp, {})).rejects.toMatchObject({ code: "validation" });
-    await expect(orch.createTakes(s1, { n: 1, confirm: false }, mcp)).rejects.toMatchObject({ code: "needs_confirm", details: { warnings: [expect.stringContaining("rejected take #1")] } });
+    /* a retake from an agent says what it changes and which fault it is after; the refusal names what the Studio sees and the fix the fault calls for */
+    await expect(orch.createTakes(s1, { n: 1, confirm: false }, mcp)).rejects.toMatchObject({
+      code: "validation", message: expect.stringMatching(/already has take #1: say what this take changes .*seed only \(the same input again\).*tagged wrong_direction: wrong_direction: write the direction in screen terms/),
+      details: { retake: { of: 1, changed: ["seed"], after: ["wrong_direction"] }, fixes: [expect.objectContaining({ fault: "wrong_direction", class: "motion" })] },
+    });
+    await expect(orch.createTakes(s1, { n: 1, confirm: false, change: "same input, another seed: checking whether the direction was chance" }, mcp)).rejects.toMatchObject({ code: "needs_confirm", details: { warnings: [expect.stringContaining("rejected take #1")] } });
   });
 
   it("auto timeline: hard cuts, a 2-frame head trim on frame-driven takes, muted audio from review", async () => {
@@ -259,7 +264,9 @@ describe("reviews, guards, envelope, timeline", () => {
 
   it("flags a seam whose anchor pick changed after the linked shot rendered", async () => {
     expect(await orch.checkSeams(projectId)).toHaveLength(0);
-    const { takes } = await orch.createTakes(s1, { n: 1, confirm: true, seed: 99 }, mcp);
+    const { takes } = await orch.createTakes(s1, { n: 1, confirm: true, seed: 99, change: "same input, another seed: the direction may have been chance" }, mcp);
+    /* the take carries what it changed, the faults it follows and what the director said */
+    expect(takes[0]!.input.studio_retake).toEqual({ of: 1, changed: ["seed"], after: ["wrong_direction"], change: "same input, another seed: the direction may have been chance" });
     const alt = await orch.applyTakeStatus(takes[0]!, mapRunPodStatus({ id: takes[0]!.requestId!, status: "COMPLETED", executionTime: 10_000, output: { url: "https://r2/t3.mp4", last_frame_url: "https://r2/t3.last.png", thumb_urls: [], execution_ms: 10_000 } }));
     await orch.selectTake(s1, alt.id);
     const seams = await orch.checkSeams(projectId);
@@ -286,7 +293,9 @@ describe("reviews, guards, envelope, timeline", () => {
     /* how it was made, and what to carry, come from the project's own records */
     expect(retro).toMatch(/Shot reviews: \d of \d rendered shot\(s\) had one \(\d of \d by a fresh reviewer\); 1 render\(s\) skipped the review on the record/);
     expect(retro).toContain("Requirements: 2 of 2 still open");
-    expect(retro).toMatch(/square #1: wrong_direction on take #1 .* → take #\d held; changed: the seed only/);
+    expect(retro).toMatch(/square #1: wrong_direction on take #1 .* → take #\d held; changed: the seed only — "same input, another seed: the direction may have been chance"/);
+    /* and the same pair counted: which change got past which fault */
+    expect(retro).toContain("| wrong_direction | seed | 1 | 0 | 0 |");
     expect(retro).not.toContain("The wordings that fixed a fault");
   });
 });

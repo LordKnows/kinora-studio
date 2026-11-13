@@ -14,6 +14,7 @@ export { validateTreatment, treatmentToMarkdown, TreatmentSchema, type Treatment
 export { lintShotlist } from "@director/lint/shotlist";
 export { lintCraft, shotFragility, fragileInText, screenDirection, type Fragility } from "@director/lint/craft";
 export { carriedStates, stateLines, stateText, hasState, sameState, lintState, type ShotStates } from "@director/state";
+export { FAULT_ROUTES, faultRoutes, faultClass, pictureFaults, fixSummary, type FaultRoute, type FixKind } from "@director/faults";
 export { checkConstraint, promptConstraints, lintConstraints, type ConstraintVerdict } from "@director/lint/constraints";
 export { checkCueMap, cutOnBeats, hitTimes, type CueMap } from "@director/sound/cuemap";
 export { checkTimeline, toStudioTimeline, type ExtTimeline } from "@director/timeline/extended";
