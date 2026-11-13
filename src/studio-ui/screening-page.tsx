@@ -146,7 +146,8 @@ function Screening() {
   }, [toggle, stepTake, stepShot, compare, nextOpen, go, a, here, select]);
 
   if (!view) return null;
-  /* Back: the page of this project you came in from, as you left it; the Reel when the room was opened directly */
+  /* Back, for the room with nothing to screen (with takes on, Lights up is the way out): the page of
+     this project you came in from, as you left it; the Reel when the room was opened directly */
   const back = (
     <button type="button" className="st-btn scr-back" onClick={() => router.push(cameFrom() ?? base)}>
       <ArrowLeftIcon />
@@ -170,7 +171,6 @@ function Screening() {
   return (
     <div className="st-page scr-page">
       <div className="scr-top">
-        {back}
         <span className="sc-slate sc-slate--xl">{here.slate}</span>
         <span className="st-num scr-facts">
           {tr("{a}–{b} · {d} s · {mode} · {move}", { a: tc(here.startS), b: tc(here.startS + here.durationS), d: here.durationS, mode: tr(spec.mode), move: tr(String(spec.camera?.move ?? "static").replace(/_/g, " ")) })}
