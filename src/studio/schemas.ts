@@ -87,6 +87,7 @@ export type LoraInput = z.infer<typeof LoraInput>;
    each changes the compiled text, and none is verified on H3 yet. The take
    records which were on, so pairs can be compared on the eval page. */
 export const PromptExperiments = z.object({
+  officialFormat: z.boolean().optional().describe("Write the prompt as MiniMax's H3 prompt guides do instead of the Studio's default: the instruction line first and a blank line before the fields, the guide's own first-and-last-frame sentence, no instruction line for text-to-video, time only where the shot cuts ('[Shot 2] At 00:03.500, the camera cuts to …') with the beats following each other in prose and each line tied to its beat, the camera move as a sentence, no labels. Not measured on the 8-step turbo chain: render the same shot and seed with and without it (plan_ab test 'format')"),
   frameHolds: z.boolean().optional().describe("Add 'the first 0.2 s hold on the first frame' and 'the last 0.3 s settle exactly on the final frame' lines (frame-driven shots)"),
   restateFrame: z.boolean().optional().describe("Keyframe shots: restate who and what the first frame shows (people, wardrobe, props, place) instead of trusting the frame alone"),
   positiveCast: z.boolean().optional().describe("Frame-driven shots: 'only the people and objects of the first frame appear throughout' as a positive constraint"),
