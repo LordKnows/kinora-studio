@@ -125,7 +125,7 @@ export const pages: Record<string, string> = {
   "{total} s cannot be tiled with {n} shots of 5–15 s; the plan uses {m} shots.": "{total} 秒没法用 {n} 个 5–15 秒的镜头排满；计划用 {m} 个镜头。",
   "Close presets": "收起预设", "Change preset": "换预设", "Choose a preset": "选预设", "Save style": "保存风格",
   "the preset compiled into the fields below; the Board’s “Apply style” fills each shot’s cinematography from it.": "预设已编译进下面的字段；分镜页的“应用风格”会用它填每个镜头的摄影。",
-  "Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting, constraints and LoRAs; you can still edit everything.": "导演层的十六种预设（水墨、赛璐璐动画、黏土微缩景观、城市交响曲…）。选一个会填好类型、色调、摄影机、镜头焦段、光线、约束和 LoRA；一切仍然可以改。",
+  "Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting and constraints; you can still edit everything.": "导演层的十六种预设（水墨、赛璐璐动画、黏土微缩景观、城市交响曲…）。选一个会填好类型、色调、摄影机、镜头焦段、光线和约束；一切仍然可以改。",
   "Style filled from “{slug}”. Review the fields, then Save style. Apply the style to the Board once the shotlist exists.": "风格已按“{slug}”填好。检查各字段，然后点“保存风格”。分镜排好后，再把风格应用到分镜上。",
   "Click a preset to compile it into the fields below.": "点一个预设，把它编译进下面的字段。",
   "Genre and tone": "类型与基调", "neo-noir thriller": "新黑色惊悚片", "Palette": "色调", "teal and amber, crushed blacks": "青橙色调，压暗的黑位",

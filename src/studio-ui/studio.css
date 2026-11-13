@@ -629,16 +629,26 @@ button.st-pill {
 
 /* ---------- page frame ---------- */
 
+/* Pages fill the window, as the bars above them do: on a wide screen a
+   capped page left a block of nothing on the right. Text keeps its measure
+   inside (subtitles, the script, notes); grids and staves take the room. */
 .studio .st-page {
   padding: 32px 36px 96px;
-  max-width: 1480px;
   width: 100%;
 }
-.studio .st-page--wide {
-  max-width: none;
-}
-.studio .st-page--narrow {
-  max-width: 980px;
+/* a page of settings cards: one column, two once the window has room */
+@media (min-width: 1500px) {
+  .studio .st-page--narrow {
+    column-count: 2;
+    column-gap: 20px;
+  }
+  .studio .st-page--narrow > * {
+    break-inside: avoid;
+  }
+  .studio .st-page--narrow > .st-page-head,
+  .studio .st-page--narrow > .st-alert {
+    column-span: all;
+  }
 }
 @media (max-width: 860px) {
   .studio .st-page {
@@ -736,6 +746,36 @@ button.st-pill {
 }
 .studio .st-split--wide-right {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+}
+/* the Story page: versions | the script | its treatment */
+.studio .sp-story {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-areas: "left read" "left treat";
+  gap: 20px;
+  align-items: start;
+}
+.studio .sp-left {
+  grid-area: left;
+}
+.studio .sp-read {
+  grid-area: read;
+}
+.studio .sp-treat {
+  grid-area: treat;
+}
+@media (min-width: 1800px) {
+  .studio .sp-story {
+    /* the script keeps its reading width (72ch and the tramlines); the sides share the rest */
+    grid-template-columns: minmax(0, 0.9fr) minmax(600px, 820px) minmax(0, 1.1fr);
+    grid-template-areas: "left read treat";
+  }
+}
+@media (max-width: 1000px) {
+  .studio .sp-story {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "left" "read" "treat";
+  }
 }
 @media (max-width: 1000px) {
   .studio .st-split,
@@ -2898,7 +2938,6 @@ button.st-pill {
 /* the Design page's tabs: Look, Elements, Pictures */
 .studio .dz-tabs-row {
   padding: 24px 36px 0;
-  max-width: 1480px;
 }
 .studio .dz-tabs {
   display: flex;
@@ -3130,7 +3169,6 @@ button.st-pill {
 /* ---------- Score: the page ---------- */
 
 .studio .sc-page {
-  max-width: 1560px;
   padding-top: 28px;
 }
 .studio .sc-head {
@@ -3324,6 +3362,9 @@ button.st-pill {
   line-height: 16px;
   font-weight: 500;
   pointer-events: none;
+}
+.studio .sc-head-flag[data-flip="true"] {
+  transform: translateX(-100%);
 }
 .studio .sc-stave {
   display: flex;
@@ -3717,7 +3758,6 @@ button.st-pill {
   outline-offset: 2px;
 }
 .studio .scr-page {
-  max-width: 1560px;
   padding-top: 20px;
   padding-bottom: 28px;
 }
@@ -4034,6 +4074,11 @@ button.st-pill {
   flex: 1.3 1 360px;
   min-width: 0;
   max-width: 560px;
+}
+@media (min-width: 2000px) {
+  .studio .cut-viewer {
+    max-width: 760px;
+  }
 }
 .studio .cut-viewer .st-roughcut-video {
   background: #0a0a0a;

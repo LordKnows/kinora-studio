@@ -114,8 +114,9 @@ function StoryPageInner() {
         <BriefCard />
       </div>
 
-      <div className="st-split st-split--wide-right">
-        <div className="st-stack">
+      {/* versions | the script | its treatment: three columns on a wide screen, the treatment under the script otherwise */}
+      <div className="sp-story">
+        <div className="st-stack sp-left">
           <div className="st-card st-stack">
             <span className="st-label">{t("New version")}</span>
             <textarea className="st-textarea" rows={12} placeholder={t("Paste the screenplay here, or let the director agent call save_script.")} value={draft} onChange={(e) => setDraft(e.target.value)} />
@@ -155,7 +156,7 @@ function StoryPageInner() {
             )}
           </Section>
         </div>
-        <div className="st-stack">
+        <div className="st-stack sp-read">
           <div className="st-card st-stack">
             <div className="st-row st-row--between">
               <span className="st-row">
@@ -175,8 +176,8 @@ function StoryPageInner() {
               : mode === "changes" ? <Changes before={scripts?.find((x) => x.version < current.version)} after={current} />
               : <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div>}
           </div>
-          {scripts && scripts.length > 0 && <TreatmentPanel treatment={treatment} warnings={treatmentWarnings} />}
         </div>
+        {scripts && scripts.length > 0 && <div className="st-stack sp-treat"><TreatmentPanel treatment={treatment} warnings={treatmentWarnings} /></div>}
       </div>
     </div>
   );

@@ -189,7 +189,7 @@ export function LookPage() {
               <span className="st-muted">{t("the preset compiled into the fields below; the Board’s “Apply style” fills each shot’s cinematography from it.")}</span>
             </div>
           ) : (
-            <p className="st-muted">{t("Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting, constraints and LoRAs; you can still edit everything.")}</p>
+            <p className="st-muted">{t("Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting and constraints; you can still edit everything.")}</p>
           )}
           {styleNote && (
             <div className="st-alert st-alert--info">
@@ -240,9 +240,9 @@ export function LookPage() {
             </div>
             <span className="st-muted">{t("H3-Base renders 768p (1344×768 at 16:9). Full resolution comes from the Cut page, in its export panel.")}</span>
           </div>
+          {/* beside the aspect ratio, so the row is full on a wide screen */}
+          <StyleFrameCard />
         </div>
-
-        <StyleFrameCard />
       </div>
     </div>
   );

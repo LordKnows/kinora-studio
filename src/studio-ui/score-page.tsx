@@ -130,7 +130,8 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
   const step = total <= 90 ? 10 : total <= 300 ? 30 : total <= 900 ? 60 : 300;
   const marks: number[] = [];
   for (let x = 0; x < total; x += step) marks.push(x);
-  const headAt = here ? here.startS + here.durationS / 2 : 0;
+  /* the playhead stands where the shot starts, as on any timeline */
+  const headAt = here ? here.startS : 0;
   const clips = view.timeline.clips;
   const cutSeconds = clips.reduce((n, c) => n + Math.max(0, c.outS - c.inS), 0);
   const noMusic = !view.timeline.music && shots.every((s) => { const m = (s.shot.spec.sound?.music ?? "").trim().toLowerCase(); return m === "" || m === "n/a" || m === "none"; });
@@ -148,7 +149,8 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
         {here && (
           <>
             <div className="sc-head-line" aria-hidden="true" style={{ left: `calc(var(--sc-label) + (100% - var(--sc-label)) * ${headAt / total})` }} />
-            <div className="sc-head-flag st-num" style={{ left: `calc(var(--sc-label) + (100% - var(--sc-label)) * ${headAt / total})` }}>{here.slate}</div>
+            {/* the slate hangs into the shot; near the end of the film, back over the line */}
+            <div className="sc-head-flag st-num" data-flip={headAt / total > 0.92 ? "true" : undefined} style={{ left: `calc(var(--sc-label) + (100% - var(--sc-label)) * ${headAt / total})` }}>{here.slate}</div>
           </>
         )}
 
