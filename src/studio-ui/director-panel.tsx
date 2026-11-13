@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AGENT_IMAGE_MODELS, findModel } from "@/studio/models";
 import type { LoraRef } from "@/studio/schemas";
@@ -9,6 +9,7 @@ import type { DirectorNote, StageReview } from "@/studio/types";
 import { del, get, patch, post, put } from "./api";
 import { Button, ErrorBanner, Field, useAction, whenT } from "./common";
 import { useT } from "./i18n";
+import { BanIcon, CheckCircleIcon, CheckIcon, ChevronIcon, UndoIcon } from "./icons";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
 import { useProjectContext } from "./shell";
 
@@ -20,12 +21,15 @@ type ModelReadiness = { id: string; painters?: { ready: boolean; note?: string }
 type VoicingSummary = { enabled: boolean; model: string; maxChars: number; usedChars: number; leftChars: number; keyReady: boolean; note?: string; models: Array<{ id: string; label: string; provider?: "tokensail" | "pod"; modes: string[]; note: string }> };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
+type LogSection = "requirements" | "decisions" | "reviews";
 
 /* What the director may do and what it keeps for you, in two parts.
    `settings` (the project's Settings page): image and voice generation, the
    spend envelope you grant it, delegated approval. `log` (the Director panel
    beside every page): everything you asked for, the decisions it took
-   (overturn any), and the cold-reader reviews of the story, the shots and the cut. */
+   (overturn any), and the cold-reader reviews of the story, the shots and the
+   cut. The log is three headings that are always on the panel; one of them is
+   open at a time and its entries scroll between the other two. */
 export function DirectorPanel({ projectId, part }: { projectId: string; part: "settings" | "log" }) {
   const [ap, setAp] = useState<Autopilot | null>(null);
   const [notes, setNotes] = useState<Notes | null>(null);
@@ -118,6 +122,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     await refresh();
   });
   const [newReq, setNewReq] = useState("");
+  const [openSection, setOpenSection] = useState<LogSection | null>("requirements");
   const addReq = useAction(async () => {
     const text = newReq.trim();
     if (!text) return;
@@ -133,12 +138,75 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
   const error = grant.error ?? revoke.error ?? setReq.error ?? addReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
 
   const settings = part === "settings";
+  const banner = <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />;
+  if (!settings) {
+    const section = (id: LogSection, title: string, meta: string, children: ReactNode) => (
+      <LogSectionBox id={id} title={title} meta={meta} open={openSection === id} onToggle={() => setOpenSection((now) => (now === id ? null : id))}>
+        {children}
+      </LogSectionBox>
+    );
+    const openReqs = notes?.requirements.filter((r) => r.status === "open").length ?? 0;
+    return (
+      <div className="dir-log">
+        {banner}
+        {section("requirements", t("Requirements"), notes ? t("{open} open · {n} in all", { open: openReqs, n: notes.requirements.length }) : "", <>
+          <form className="st-row dir-req-new" onSubmit={(e) => { e.preventDefault(); void addReq.fire(); }}>
+            <input className="st-input" style={{ flex: 1, minWidth: 160 }} aria-label={t("A requirement in your own words")} placeholder={t("In your own words, e.g. the cat never looks into the camera")} maxLength={500} value={newReq} onChange={(e) => setNewReq(e.target.value)} />
+            <Button type="submit" busy={addReq.busy} disabled={!newReq.trim()}>{t("Add")}</Button>
+          </form>
+          {notes?.requirements.length === 0 && <span className="st-muted">{t("A requirement is a sentence the film is held to at every review. The director records what you ask for here; you can add one yourself.")}</span>}
+          {notes?.requirements.map((r) => (
+            <div key={r.id} className="dir-entry dir-req" data-status={r.status}>
+              <span className="dir-req-mark" role="img" aria-label={t(`${r.status}||requirement status`)} title={t(`${r.status}||requirement status`)}>
+                {r.status === "met" ? <CheckCircleIcon size={16} /> : r.status === "dropped" ? <BanIcon size={16} /> : <span className="dir-req-open" />}
+              </span>
+              <span className="dir-req-text">{String(r.body.text)}</span>
+              <span className="dir-req-acts">
+                {r.status !== "met" && <button type="button" className="st-btn st-btn--sm dir-act" data-act="met" disabled={setReq.busy} onClick={() => void setReq.fire(r.id, "met")}><CheckIcon size={12} />{t("Met")}</button>}
+                {r.status !== "dropped" && <button type="button" className="st-btn st-btn--sm dir-act" data-act="drop" disabled={setReq.busy} onClick={() => void setReq.fire(r.id, "dropped")}><BanIcon size={12} />{t("Drop||requirement")}</button>}
+                {r.status !== "open" && <button type="button" className="st-btn st-btn--sm st-btn--quiet dir-act" disabled={setReq.busy} onClick={() => void setReq.fire(r.id, "open")}><UndoIcon size={12} />{t("Reopen")}</button>}
+              </span>
+            </div>
+          ))}
+        </>)}
+        {section("decisions", t("Decisions"), notes ? String(notes.decisions.length) : "", <>
+          {notes?.decisions.length === 0 && <span className="st-muted">{t("None logged yet.")}</span>}
+          {notes?.decisions.slice().reverse().slice(0, 30).map((d) => (
+            <div key={d.id} className="dir-entry dir-decision" data-status={d.status}>
+              <span className="st-muted st-num">{whenT(t, d.createdAt)} · {d.body.by === "agent" ? t("agent||reviewer") : String(d.body.by ?? "")}{d.body.confidence ? ` · ${t(`${String(d.body.confidence)}||confidence`)}` : ""}</span>
+              <span className="dir-decision-text">
+                {String(d.body.decision)}
+                {d.body.why ? <span className="st-muted"> — {String(d.body.why)}</span> : null}
+              </span>
+              {d.status !== "overturned" && <span className="dir-req-acts"><Button size="sm" kind="quiet" onClick={() => void overturn.fire(d.id)}>{t("Overturn")}</Button></span>}
+            </div>
+          ))}
+        </>)}
+        {section("reviews", t("Reviews"), notes ? String(notes.reviews.length) : "", <>
+          {notes?.reviews.length === 0 && <span className="st-muted">{t("No cold-reader reviews yet (review_packet → a fresh agent → record_review).")}</span>}
+          {notes?.reviews.slice(0, 20).map((r) => (
+            <details key={r.id} className="dir-entry dir-review" data-verdict={r.verdict}>
+              <summary>
+                <span className="st-num">{t(`${r.stage}||review stage`)}{r.shotId ? ` ${r.shotId.slice(-6)}` : ""}</span> · <strong>{t(`${r.verdict.toUpperCase()}||verdict`)}</strong> · {t(`${r.reviewer.replace("_", " ")}||reviewer`)} · {t("{n} finding(s)", { n: r.findings.length })} · <span className="st-muted">{whenT(t, r.createdAt)}</span>
+              </summary>
+              <div className="st-muted">{t("Basis: {basis}", { basis: r.basis })}</div>
+              <ul>
+                {r.findings.map((f, i) => <li key={i}><strong>{f.where}</strong>: {f.problem}{f.fix ? ` → ${f.fix}` : ""}{f.sure === false ? t(" (maybe)") : ""}</li>)}
+              </ul>
+            </details>
+          ))}
+        </>)}
+        <div className="dir-log-foot">
+          <a className="st-btn st-btn--sm" href={`/api/projects/${projectId}/retro`} target="_blank" rel="noreferrer">{t("Retro (Markdown)")}</a>
+        </div>
+      </div>
+    );
+  }
   return (
-    <div className={settings ? "st-card st-stack" : "st-stack"}>
-      {settings && <span className="st-h2">{t("What the director may do")}</span>}
-      <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />
+    <div className="st-card st-stack">
+      <span className="st-h2">{t("What the director may do")}</span>
+      {banner}
 
-      {settings && <>
       <div className="st-stack st-stack--tight">
         <strong>{t("Image generation")}</strong>
         <span className="st-muted">
@@ -307,65 +375,22 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           <span>{t("Let the director approve the shotlist")}</span>
         </label>
       </div>
-      </>}
-
-      {!settings && <>
-
-      <div className="st-stack st-stack--tight">
-        <strong>{t("Requirements")} {notes ? t("· {n} open", { n: notes.requirements.filter((r) => r.status === "open").length }) : ""}</strong>
-        {notes?.requirements.length === 0 && <span className="st-muted">{t("A requirement is a sentence the film is held to at every review. The director records what you ask for here; you can add one yourself.")}</span>}
-        <form className="st-row" onSubmit={(e) => { e.preventDefault(); void addReq.fire(); }}>
-          <input className="st-input" style={{ flex: 1, minWidth: 160 }} aria-label={t("A requirement in your own words")} placeholder={t("In your own words, e.g. the cat never looks into the camera")} maxLength={500} value={newReq} onChange={(e) => setNewReq(e.target.value)} />
-          <Button type="submit" busy={addReq.busy} disabled={!newReq.trim()}>{t("Add")}</Button>
-        </form>
-        {notes?.requirements.map((r) => (
-          <div key={r.id} className="st-row st-row--between">
-            <span style={{ textDecoration: r.status === "dropped" ? "line-through" : undefined }}>{r.status === "met" ? "✓ " : ""}{String(r.body.text)}</span>
-            <span className="st-row">
-              {r.status !== "met" && <Button size="sm" kind="quiet" onClick={() => void setReq.fire(r.id, "met")}>{t("Met")}</Button>}
-              {r.status !== "dropped" && <Button size="sm" kind="quiet" onClick={() => void setReq.fire(r.id, "dropped")}>{t("Drop||requirement")}</Button>}
-              {r.status !== "open" && <Button size="sm" kind="quiet" onClick={() => void setReq.fire(r.id, "open")}>{t("Reopen")}</Button>}
-            </span>
-          </div>
-        ))}
-      </div>
-
-      <div className="st-stack st-stack--tight">
-        <strong>{t("Decisions")}</strong>
-        {notes?.decisions.length === 0 && <span className="st-muted">{t("None logged yet.")}</span>}
-        {notes?.decisions.slice().reverse().slice(0, 30).map((d) => (
-          <div key={d.id} className="st-row st-row--between" style={{ alignItems: "flex-start" }}>
-            <span style={{ textDecoration: d.status === "overturned" ? "line-through" : undefined }}>
-              <span className="st-muted st-num">{whenT(t, d.createdAt)} · {d.body.by === "agent" ? t("agent||reviewer") : String(d.body.by ?? "")}{d.body.confidence ? ` · ${t(`${String(d.body.confidence)}||confidence`)}` : ""}</span>
-              <br />
-              {String(d.body.decision)}
-              {d.body.why ? <span className="st-muted"> — {String(d.body.why)}</span> : null}
-            </span>
-            {d.status !== "overturned" && <Button size="sm" kind="quiet" onClick={() => void overturn.fire(d.id)}>{t("Overturn")}</Button>}
-          </div>
-        ))}
-      </div>
-
-      <div className="st-stack st-stack--tight">
-        <strong>{t("Reviews")}</strong>
-        {notes?.reviews.length === 0 && <span className="st-muted">{t("No cold-reader reviews yet (review_packet → a fresh agent → record_review).")}</span>}
-        {notes?.reviews.slice(0, 20).map((r) => (
-          <details key={r.id}>
-            <summary>
-              <span className="st-num">{t(`${r.stage}||review stage`)}{r.shotId ? ` ${r.shotId.slice(-6)}` : ""}</span> · <strong>{t(`${r.verdict.toUpperCase()}||verdict`)}</strong> · {t(`${r.reviewer.replace("_", " ")}||reviewer`)} · {t("{n} finding(s)", { n: r.findings.length })} · <span className="st-muted">{whenT(t, r.createdAt)}</span>
-            </summary>
-            <div className="st-muted">{t("Basis: {basis}", { basis: r.basis })}</div>
-            <ul>
-              {r.findings.map((f, i) => <li key={i}><strong>{f.where}</strong>: {f.problem}{f.fix ? ` → ${f.fix}` : ""}{f.sure === false ? t(" (maybe)") : ""}</li>)}
-            </ul>
-          </details>
-        ))}
-      </div>
-
-      <div className="st-row">
-        <a className="st-btn" href={`/api/projects/${projectId}/retro`} target="_blank" rel="noreferrer">{t("Retro (Markdown)")}</a>
-      </div>
-      </>}
     </div>
+  );
+}
+
+/* One heading of the log. The heading is always there; its entries only while it is the open one. */
+function LogSectionBox({ id, title, meta, open, onToggle, children }: { id: LogSection; title: string; meta: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <section className="dir-sec" data-open={open ? "true" : undefined}>
+      <h3>
+        <button type="button" className="dir-sec-head" aria-expanded={open} aria-controls={`dir-sec-${id}`} onClick={onToggle}>
+          <ChevronIcon size={13} />
+          <span>{title}</span>
+          <span className="dir-sec-meta">{meta}</span>
+        </button>
+      </h3>
+      {open && <div id={`dir-sec-${id}`} className="dir-sec-body">{children}</div>}
+    </section>
   );
 }

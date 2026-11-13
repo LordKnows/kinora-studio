@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
+import { ArrowUpIcon, CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
 import { ApiError, describe, usd, when } from "./api";
@@ -50,22 +50,37 @@ export function Button({
   disabled,
   type = "button",
   title,
+  expanded,
 }: {
   children: ReactNode;
   onClick?: () => void;
-  /** tally: the one red button of a page — the next step, or a spend */
-  kind?: "default" | "primary" | "quiet" | "danger" | "tally";
+  /** tally: the one red button of a page — the next step, or a spend.
+      destroy: the button that confirms a deletion, inside its question. */
+  kind?: "default" | "primary" | "quiet" | "danger" | "tally" | "destroy";
   size?: "sm";
   busy?: boolean;
   disabled?: boolean;
   type?: "button" | "submit";
   title?: string;
+  /** set on a button that opens a popover: whether it is open */
+  expanded?: boolean;
 }) {
   const cls = ["st-btn", kind !== "default" ? `st-btn--${kind}` : "", size ? `st-btn--${size}` : ""].filter(Boolean).join(" ");
   return (
-    <button type={type} className={cls} onClick={onClick} disabled={disabled || busy} data-busy={busy ? "true" : undefined} title={title}>
+    <button type={type} className={cls} onClick={onClick} disabled={disabled || busy} data-busy={busy ? "true" : undefined} title={title} {...(expanded === undefined ? {} : { "aria-expanded": expanded, "aria-haspopup": "dialog" as const })}>
       {children}
     </button>
+  );
+}
+
+/** A state told by an icon in its colour and a word: green for done, amber for
+    not yet, red for wrong, blue for a note (studio.css, --sig-*). */
+export function Status({ tone, icon, children }: { tone: "ok" | "warn" | "err" | "info"; icon: ReactNode; children: ReactNode }) {
+  return (
+    <span className="st-status" data-tone={tone}>
+      {icon}
+      {children}
+    </span>
   );
 }
 
@@ -186,6 +201,77 @@ export function usePopover() {
     };
   }, [open]);
   return { open, setOpen, ref };
+}
+
+/** A button with a small panel that drops from it (or rises: `placement`),
+    for a short form or a question asked where it was raised. `children` gets
+    `close`. A press outside or Escape closes it, and only it: inside a
+    drawer, Escape does not close the drawer as well. */
+export function Popover({ label, children, kind, size, title, busy, disabled, placement = "below", align = "end", tip, panelLabel }: {
+  label: ReactNode; children: (close: () => void) => ReactNode; kind?: "default" | "primary" | "quiet" | "danger"; size?: "sm"; title?: string; busy?: boolean; disabled?: boolean;
+  placement?: "below" | "above"; align?: "start" | "end";
+  /** a speech-bubble: narrow, with a notch toward the button */
+  tip?: boolean; panelLabel?: string;
+}) {
+  const { open, setOpen, ref } = usePopover();
+  const close = () => {
+    setOpen(false);
+    ref.current?.querySelector("button")?.focus();
+  };
+  return (
+    <div className="st-pop-anchor" ref={ref} onKeyDown={(e) => { if (open && e.key === "Escape") { e.stopPropagation(); close(); } }}>
+      <Button kind={kind} size={size} busy={busy} disabled={disabled} title={open ? undefined : title} expanded={open} onClick={() => setOpen((o) => !o)}>
+        {label}
+      </Button>
+      {open && (
+        <div className="st-pop" role="dialog" aria-label={panelLabel ?? title} data-placement={placement} data-align={align} data-tip={tip ? "true" : undefined}>
+          {children(close)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A button that asks before it acts: the question opens in a bubble at the
+    button, with the action and a way out. For deletions. */
+export function ConfirmButton({ children, question, confirmLabel, onConfirm, kind = "quiet", size, busy, title, placement, align }: {
+  children: ReactNode; question: ReactNode; confirmLabel: string; onConfirm: () => void; kind?: "quiet" | "danger" | "default"; size?: "sm"; busy?: boolean; title?: string;
+  placement?: "below" | "above"; align?: "start" | "end";
+}) {
+  const t = useT();
+  return (
+    <Popover label={children} kind={kind} size={size} busy={busy} title={title} placement={placement} align={align} tip panelLabel={confirmLabel}>
+      {(close) => (
+        <div className="st-confirm">
+          <p>{question}</p>
+          <div className="st-row">
+            <Button size="sm" kind="destroy" onClick={() => { close(); onConfirm(); }}>{confirmLabel}</Button>
+            <Button size="sm" kind="quiet" onClick={close}>{t("Cancel")}</Button>
+          </div>
+        </div>
+      )}
+    </Popover>
+  );
+}
+
+/** Back to the top of a long page: shows once the page has scrolled a screen or so. */
+export function BackToTop() {
+  const t = useT();
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setShow(window.scrollY > 480);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+  if (!show) return null;
+  const still = typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return (
+    <button type="button" className="st-totop" onClick={() => window.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" })}>
+      <ArrowUpIcon size={13} />
+      {t("Back to top")}
+    </button>
+  );
 }
 
 /** Runs an action; on needs_confirm the banner offers a retry with confirm. */

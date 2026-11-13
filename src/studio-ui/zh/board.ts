@@ -1,23 +1,27 @@
 /* Chinese for the Board, the shot editor and drawer, frames, Remake, image tools, the LoRA picker. Keys are the English text; the terms follow zh/core.ts. */
 export const board: Record<string, string> = {
   /* the Board */
-  "Style “{style}” applied to every shot{notes}. The shotlist is back in draft until you approve it.": "风格“{style}”已套用到每个镜头{notes}。分镜回到草稿，等你重新批准。",
-  "; {n} note(s) in Lint": "；检查里有 {n} 条提示",
-  "Colour script for \"{slug}\": hex colours darkest first, then | and a note. Empty clears it.\nExample: #1d2430 #3b4a5c #d9c7a3 #b23a2b | warm practicals against a cold window; red only on the scarf":
-    "“{slug}”的色彩脚本：十六进制颜色，从最暗的写起，然后是 | 和一句备注。留空即清除。\n示例：#1d2430 #3b4a5c #d9c7a3 #b23a2b | 暖色实景灯对冷色窗光；只有围巾是红的",
+  /* a scene's colour script, in its popover */
+  "Colour script · {slug}": "色彩脚本 · {slug}", "Up to six colours, darkest first; one accent at most. They compile into every shot of the scene.": "最多六个颜色，从最暗的排起；点缀色最多一个。会编进本场每个镜头。",
+  "Pick a colour": "选颜色", "Colour {n}": "颜色 {n}", "Colour {n}, hex": "颜色 {n} 的十六进制值", "Remove colour {n}": "移除颜色 {n}", "Add a colour": "加一个颜色",
+  "e.g. warm practicals against a cold window; red only on the scarf": "例如：暖色实景灯对冷色窗光；只有围巾是红的",
+  "A colour is six hex digits after #, like #1d2430.": "颜色写成 # 加六位十六进制数，如 #1d2430。", "Clear the palette": "清除色板",
   "Deleted scene {i} · {slug}{shots}": "已删除第 {i} 场 · {slug}{shots}", " and its 1 shot": "及其 1 个镜头", " and its {n} shots": "及其 {n} 个镜头",
   "Checkpoint 2. Structural edits return the shotlist to draft.": "第 2 道关口。改动结构会让分镜回到草稿。", "Ready to render.": "可以开拍。", "Blocked: {list}.": "卡住了：{list}。",
   "Shotlist approved by the director": "分镜已由导演代为批准", "Shotlist approved": "分镜已批准", "Shotlist draft": "分镜草稿",
   "Sketch": "草图", "Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes": "按分镜画的色块故事板：景别、38/62 构图、走位、各场色板",
   "Lint": "检查", "Rhythm and craft lint of the shotlist": "检查分镜的节奏和手艺",
-  "Apply style": "套用风格", "Fill every shot's cinematography from the style “{style}”": "按风格“{style}”填好每个镜头的摄影",
+  "Errors||lint": "错误", "Warnings||lint": "警告", "Notes||lint": "提示", "No errors.": "没有错误。",
   "Approve shotlist": "批准分镜", "Render batch": "批量拍摄",
   "Order the shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.": "给还没有镜次的镜头排顺序：R2VA 在前，锚定镜头在衔接镜头之前，统一估价。你确认之前什么都不会拍。",
   "Dismiss": "关闭",
-  "No scenes yet": "还没有场次", "Ask the director agent to save_shotlist, or add a scene below and build shots by hand.": "让导演调用 save_shotlist，或在下面加一场，手动搭镜头。",
+  "No scenes yet": "还没有场次", "Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.": "让导演调用 save_shotlist，或点右上角的“加一场”，手动搭镜头。",
   "scene palette": "本场色板", "Palette||scene colours": "色板", "This scene's colour script; it compiles into every shot": "本场的色彩脚本，会编进每个镜头",
   "Add shot": "加镜头", "Delete scene": "删除这一场", "Delete": "删除", "Empty scene": "空场",
-  "New scene slug, e.g. alley-chase": "新场次的简称，如 alley-chase", "Add scene": "加一场",
+  "New scene slug, e.g. alley-chase": "新场次的简称，如 alley-chase", "Add scene": "加一场", "Add a scene at the end of the board": "在分镜末尾加一场",
+  "Scene slug": "场次简称", "A short name for the scene. It is added at the end of the board, and the shotlist goes back to draft.": "场次的简短名字。会加在分镜末尾，分镜回到草稿。",
+  "Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.": "删除第 {i} 场 · {slug}{shots}？14 天内可以在设置页的“最近删除”里恢复。",
+  "Sketch · {scene}": "草图 · {scene}", "Sketch of": "草图范围", "This scene": "本场", "Whole film": "全片",
   "Sketch · colour-block storyboard": "草图 · 色块故事板", "Black and white: does the subject separate from the background by value alone?": "黑白：只看明暗，主体能和背景分开吗？",
   "Colour": "彩色", "Grayscale": "灰度", "Refresh": "刷新", "Open": "打开",
   "Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.":
@@ -44,6 +48,7 @@ export const board: Record<string, string> = {
   "Deleted shot {slate}{takes}": "已删除镜头 {slate}{takes}", " and its 1 take": "及其 1 条镜次", " and its {n} takes": "及其 {n} 条镜次",
   "Shot {n}": "镜头 {n}", "untitled": "未命名", "Save": "保存", "Edit": "编辑", "Compile": "编译", "Frames": "画面", "Takes ({n})": "镜次（{n}）",
   "Remove this shot from the board (its takes too). Pictures stay in Pictures.": "把这个镜头从分镜上删掉（连同它的镜次）。图片仍留在图片里。", "Delete this shot": "删除这个镜头",
+  "Delete this shot{takes}? For 14 days it can be put back from Recently deleted, on the Settings page.": "删除这个镜头{takes}？14 天内可以在设置页的“最近删除”里恢复。",
   "Unsaved edits are not reflected here. Save first.": "未保存的改动不会显示在这里。先保存。",
   "Steps": "步数", "empty = auto: the model's and its speed LoRA's recommendation": "留空 = 自动：取模型及其加速 LoRA 的推荐值", "auto": "自动",
   "Workflow": "工作流", "Estimate": "估价", "{cost} · {gpu} GPU s": "{cost} · {gpu} GPU 秒", "measured on {gpu}": "在 {gpu} 上实测", "your GPU": "你的 GPU", "placeholder constants": "占位常数",

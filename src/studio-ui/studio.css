@@ -7,7 +7,11 @@
    The chrome has no hue. The one accent (--accent, the tally red) means
    three things only: you are here, the camera is rolling (money is being
    spent), and the next step. Selection, approval, warnings and failures are
-   ink marks that differ in shape, not colour. Type: Archivo for text (its
+   ink marks that differ in shape, not colour — except on a state's own mark
+   where it has to be told apart at a glance, which takes one of four signal
+   hues (--sig-ok / -warn / -err / -info): the shotlist's status on the
+   Board, the severities of its Lint drawer, a requirement met or dropped in
+   the Director panel, and the button that confirms a deletion. Type: Archivo for text (its
    width axis: wide for the film's name, condensed for slate numbers), IBM
    Plex Mono for everything measured, a system Songti for script text. */
 
@@ -42,6 +46,15 @@
   --danger: #121212;
   --danger-bg: rgba(18, 18, 18, 0.06);
   --danger-line: #121212;
+  /* the four signal hues, for a state's own mark only (see the note above) */
+  --sig-ok: #1a7a43;
+  --sig-ok-bg: rgba(26, 122, 67, 0.1);
+  --sig-warn: #8f5300;
+  --sig-warn-bg: rgba(204, 134, 0, 0.14);
+  --sig-err: #c2212b;
+  --sig-err-bg: rgba(194, 33, 43, 0.09);
+  --sig-info: #2458b8;
+  --sig-info-bg: rgba(36, 88, 184, 0.09);
   --plate: rgba(10, 10, 10, 0.82);
   --plate-ink: #f4f4f2;
   --shadow-2: 0 6px 20px rgba(18, 18, 18, 0.16);
@@ -90,6 +103,14 @@
   --danger: #ededea;
   --danger-bg: rgba(237, 237, 234, 0.08);
   --danger-line: #ededea;
+  --sig-ok: #57c98a;
+  --sig-ok-bg: rgba(87, 201, 138, 0.14);
+  --sig-warn: #e3a83f;
+  --sig-warn-bg: rgba(227, 168, 63, 0.14);
+  --sig-err: #f2686f;
+  --sig-err-bg: rgba(242, 104, 111, 0.14);
+  --sig-info: #7ba6f5;
+  --sig-info-bg: rgba(123, 166, 245, 0.14);
   background: var(--bg);
   color: var(--tx);
 }
@@ -552,6 +573,46 @@ button.st-pill {
 
 /* ---------- lamps & status ---------- */
 
+/* a state told by an icon in its colour and a word (the shotlist's status in the Board's subtitle) */
+.studio .st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.studio .st-status svg {
+  flex: none;
+}
+.studio .st-status[data-tone="ok"] {
+  color: var(--sig-ok);
+}
+.studio .st-status[data-tone="warn"] {
+  color: var(--sig-warn);
+}
+.studio .st-status[data-tone="err"] {
+  color: var(--sig-err);
+}
+.studio .st-status[data-tone="info"] {
+  color: var(--sig-info);
+}
+/* a count by severity, on the Lint button */
+.studio .st-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+}
+.studio .st-sev[data-severity="error"] {
+  color: var(--sig-err);
+}
+.studio .st-sev[data-severity="warn"] {
+  color: var(--sig-warn);
+}
+
 .studio .st-lamp {
   display: inline-flex;
   align-items: center;
@@ -896,6 +957,185 @@ button.st-pill {
   background: var(--tx);
   border-color: var(--tx);
   color: var(--bg);
+}
+/* the button inside a deletion's question */
+.studio .st-btn--destroy {
+  background: var(--sig-err);
+  border-color: var(--sig-err);
+  color: var(--s2);
+}
+.studio .st-btn--destroy:hover {
+  background: var(--tx);
+  border-color: var(--tx);
+  color: var(--bg);
+}
+
+/* ---------- popovers: a panel at the button that opened it ---------- */
+
+.studio .st-pop-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.studio .st-pop {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  min-width: 280px;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 14px;
+  background: var(--s2);
+  border: 1px solid var(--line-3);
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  color: var(--tx);
+  animation: st-rise 0.16s var(--ease);
+}
+.studio .st-pop[data-align="start"] {
+  right: auto;
+  left: 0;
+}
+.studio .st-pop[data-placement="above"] {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+/* the bubble of a question: narrower, with a notch toward its button */
+.studio .st-pop[data-tip="true"] {
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 32px));
+}
+.studio .st-pop[data-tip="true"]::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  background: var(--s2);
+  border: solid var(--line-3);
+  border-width: 1px 0 0 1px;
+  transform: rotate(45deg);
+}
+.studio .st-pop[data-tip="true"][data-align="start"]::before {
+  right: auto;
+  left: 18px;
+}
+.studio .st-pop[data-tip="true"][data-placement="above"]::before {
+  top: auto;
+  bottom: -6px;
+  border-width: 0 1px 1px 0;
+}
+.studio .st-confirm p {
+  margin-bottom: 12px;
+}
+/* phones: a button may sit anywhere in a wrapped row, so the panel takes the foot of the screen */
+@media (max-width: 640px) {
+  .studio .st-pop,
+  .studio .st-pop[data-align="start"],
+  .studio .st-pop[data-placement="above"] {
+    position: fixed;
+    z-index: 45;
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+    width: auto;
+    max-width: none;
+    box-shadow: var(--shadow-3);
+  }
+  .studio .st-pop[data-tip="true"]::before {
+    display: none;
+  }
+}
+
+/* back to the top of a long page */
+.studio .st-totop {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  background: var(--tx);
+  color: var(--bg);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
+  animation: st-rise 0.2s var(--ease);
+}
+.studio .st-totop:hover {
+  background: var(--tx2);
+}
+@media (max-width: 640px) {
+  .studio .st-totop {
+    right: 12px;
+    bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+}
+
+/* a scene's colour script, in its popover */
+.studio .pal-form {
+  width: 300px;
+  max-width: 100%;
+}
+@media (max-width: 640px) {
+  .studio .pal-form {
+    width: auto;
+  }
+}
+.studio .pal-list {
+  display: grid;
+  gap: 6px;
+}
+.studio .pal-colour {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio .pal-swatch {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--line-3);
+  cursor: pointer;
+  overflow: hidden;
+}
+.studio .pal-swatch:focus-within {
+  outline: 2px solid var(--tx);
+  outline-offset: 1px;
+}
+.studio .pal-swatch input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.studio .pal-hex {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+.studio .pal-hex[aria-invalid="true"] {
+  border-color: var(--sig-err);
+}
+.studio .pal-remove {
+  flex: none;
+  padding: 0 8px;
+}
+.studio .pal-add {
+  justify-self: start;
 }
 .studio .st-btn--sm {
   height: 30px;
@@ -1434,12 +1674,15 @@ button.st-pill {
 
 .studio .st-scene {
   margin-top: 28px;
+  /* brought into view under the top bar and the project bar */
+  scroll-margin-top: calc(var(--topbar) + 110px);
 }
 .studio .st-scene-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   padding-bottom: 10px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
@@ -2109,6 +2352,83 @@ button.st-pill {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--tx3);
+}
+/* the Board's Lint drawer: a group a severity, each in its own colour; a group folds */
+.studio .st-lint-groups {
+  display: grid;
+  gap: 12px;
+}
+.studio .st-lint-group {
+  border: 1px solid var(--line-2);
+  border-left: 4px solid var(--sev);
+  background: var(--s1);
+}
+.studio .st-lint-group[data-severity="error"] {
+  --sev: var(--sig-err);
+  --sev-bg: var(--sig-err-bg);
+}
+.studio .st-lint-group[data-severity="warn"] {
+  --sev: var(--sig-warn);
+  --sev-bg: var(--sig-warn-bg);
+}
+.studio .st-lint-group[data-severity="info"] {
+  --sev: var(--sig-info);
+  --sev-bg: var(--sig-info-bg);
+}
+.studio .st-lint-group h3 {
+  font: inherit;
+}
+.studio .st-lint-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  color: var(--sev);
+}
+.studio .st-lint-head:hover {
+  background: var(--hover);
+}
+.studio .st-lint-head > span:first-of-type {
+  color: var(--tx);
+}
+.studio .st-lint-head > svg {
+  flex: none;
+}
+.studio .st-lint-head > svg:last-child {
+  margin-left: auto;
+  color: var(--tx3);
+  transition: transform 0.15s ease;
+}
+.studio .st-lint-head[aria-expanded="false"] > svg:last-child {
+  transform: rotate(-90deg);
+}
+.studio .st-lint-count {
+  min-width: 22px;
+  padding: 0 6px;
+  background: var(--sev);
+  color: var(--s2);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+}
+.studio .st-lint-group .st-lint {
+  padding: 0 12px 12px;
+}
+.studio .st-lint-group .st-lint-row {
+  border-color: transparent;
+  background: var(--sev-bg);
+}
+.studio .st-lint-code {
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--sev);
 }
 
 /* ---------- popups (over the drawer too) ---------- */
@@ -2890,7 +3210,9 @@ button.st-pill {
   border-color: var(--tx);
 }
 
-/* The Director panel: beside any page, under the top bar. */
+/* The Director panel: beside any page, under the top bar. It does not scroll
+   as a whole: its three headings (requirements, decisions, reviews) are
+   always on it, and the one that is open scrolls its entries between them. */
 .studio .dir-drawer {
   position: fixed;
   z-index: 60;
@@ -2898,20 +3220,19 @@ button.st-pill {
   right: 0;
   bottom: 0;
   width: min(440px, 100vw);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg);
   border-left: 1px solid var(--tx);
   box-shadow: -16px 0 40px rgba(0, 0, 0, 0.1);
-  padding: 0 22px 32px;
 }
 .studio .dir-drawer-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 0 12px;
+  padding: 16px 22px 12px;
   background: var(--bg);
   border-bottom: 1px solid var(--line-3);
 }
@@ -2926,13 +3247,188 @@ button.st-pill {
   line-height: 1;
 }
 .studio .dir-drawer-status {
+  flex: none;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 12px 0 16px;
+  padding: 12px 22px 14px;
   font-size: 13px;
+}
+.studio .dir-log {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* a very short screen: the open heading keeps a readable height and the panel scrolls */
+  overflow-y: auto;
+}
+.studio .dir-log > .st-alert {
+  flex: none;
+  margin: 0 22px 12px;
+}
+.studio .dir-sec {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line-3);
+}
+.studio .dir-sec[data-open="true"] {
+  flex: 1 1 0;
+  min-height: 200px;
+}
+.studio .dir-sec h3 {
+  flex: none;
+  font: inherit;
+}
+.studio .dir-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  padding: 0 22px;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  color: var(--tx);
+}
+.studio .dir-sec-head:hover {
+  background: var(--hover);
+}
+.studio .dir-sec-head svg {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease;
+}
+.studio .dir-sec-head[aria-expanded="true"] {
+  background: var(--tx);
+  color: var(--bg);
+}
+.studio .dir-sec-head[aria-expanded="true"] svg {
+  transform: none;
+}
+.studio .dir-sec-meta {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tx3);
+}
+.studio .dir-sec-head[aria-expanded="true"] .dir-sec-meta {
+  color: inherit;
+  opacity: 0.75;
+}
+.studio .dir-sec-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 22px 18px;
+}
+.studio .dir-log-foot {
+  flex: none;
+  margin-top: auto;
+  padding: 12px 22px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line-3);
+}
+/* an entry of the log: a card of its own, so one ends where the next begins */
+.studio .dir-entry {
+  flex: none;
+  padding: 10px 12px;
+  background: var(--s1);
+  border: 1px solid var(--line-2);
+}
+.studio .dir-req {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 8px 10px;
+  border-left: 3px solid var(--tx);
+}
+.studio .dir-req[data-status="met"] {
+  border-left-color: var(--sig-ok);
+}
+.studio .dir-req[data-status="dropped"] {
+  border-left-color: var(--tx-off);
+  background: transparent;
+}
+.studio .dir-req-mark {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--tx);
+}
+.studio .dir-req[data-status="met"] .dir-req-mark {
+  color: var(--sig-ok);
+}
+.studio .dir-req[data-status="dropped"] .dir-req-mark {
+  color: var(--tx-off);
+}
+.studio .dir-req-open {
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+.studio .dir-req-text {
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.studio .dir-req[data-status="dropped"] .dir-req-text {
+  color: var(--tx3);
+  text-decoration: line-through;
+}
+.studio .dir-req-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.studio .dir-req .dir-req-acts {
+  grid-column: 2;
+}
+.studio .dir-act {
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+}
+/* met is green with a tick, drop is red with a bar through a circle: two answers that must not be mistaken */
+.studio .dir-act[data-act="met"] {
+  color: var(--sig-ok);
+  border-color: var(--sig-ok);
+}
+.studio .dir-act[data-act="met"]:hover:not(:disabled) {
+  background: var(--sig-ok);
+  color: var(--s2);
+}
+.studio .dir-act[data-act="drop"] {
+  color: var(--sig-err);
+  border-color: var(--sig-err);
+}
+.studio .dir-act[data-act="drop"]:hover:not(:disabled) {
+  background: var(--sig-err);
+  color: var(--s2);
+}
+.studio .dir-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.studio .dir-decision-text {
+  overflow-wrap: anywhere;
+}
+.studio .dir-decision[data-status="overturned"] .dir-decision-text {
+  color: var(--tx3);
+  text-decoration: line-through;
+}
+.studio .dir-review summary {
+  cursor: pointer;
+}
+.studio .dir-review ul {
+  margin-top: 6px;
 }
 
 /* the Design page's tabs: Look, Elements, Pictures */
@@ -3776,6 +4272,9 @@ button.st-pill {
 }
 .studio .scr-spacer {
   flex: 1 1 0;
+}
+.studio .scr-back {
+  align-self: center;
 }
 .studio .scr-lights::before {
   content: "";

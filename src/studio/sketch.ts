@@ -104,10 +104,11 @@ function cell(sh: ShotView, label: string, palette: ScenePalette | undefined, na
   return parts.join("");
 }
 
-/** The whole board as one SVG; `gray` renders it in black and white. */
-export function sketchBoardSvg(view: ProjectView, opts: { gray?: boolean } = {}): string {
+/** The whole board as one SVG, or one scene of it (`sceneId`); `gray` renders it in black and white. */
+export function sketchBoardSvg(view: ProjectView, opts: { gray?: boolean; sceneId?: string } = {}): string {
   const names = new Map(view.elements.map((e) => [e.id, e.name]));
-  const flat = view.scenes.flatMap((s) => s.shots.map((sh) => ({ scene: s, sh })));
+  const only = opts.sceneId ? view.scenes.find((s) => s.id === opts.sceneId) : undefined;
+  const flat = (only ? [only] : view.scenes).flatMap((s) => s.shots.map((sh) => ({ scene: s, sh })));
   const rows = Math.max(1, Math.ceil(flat.length / COLS));
   const W = COLS * CELL_W + (COLS + 1) * GAP;
   const H = rows * (CELL_H + GAP + 18) + GAP + 30;
@@ -119,7 +120,7 @@ export function sketchBoardSvg(view: ProjectView, opts: { gray?: boolean } = {})
     const intent = sh.spec.intent.length > 64 ? `${sh.spec.intent.slice(0, 63)}…` : sh.spec.intent;
     return `${linkBadge}<g transform="translate(${x} ${y})"><clipPath id="c${i}"><rect width="${CELL_W}" height="${CELL_H}" rx="6"/></clipPath><g clip-path="url(#c${i})">${cell(sh, `${scene.slug} #${sh.index + 1}`, scene.palette, names)}</g><text x="0" y="${CELL_H + 14}" font-size="11" fill="#c8ccd0">${esc(intent)}</text></g>`;
   });
-  const title = `${view.project.name} — colour-block storyboard${opts.gray ? " (grayscale value check)" : ""}`;
+  const title = `${view.project.name}${only ? ` · ${only.slug}` : ""} — colour-block storyboard${opts.gray ? " (grayscale value check)" : ""}`;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="system-ui, sans-serif">`,
     `<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ffd166"/></marker>`,

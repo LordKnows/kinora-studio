@@ -300,6 +300,13 @@ describe("sketch, palette, images, hashes", () => {
     expect(svg.match(/<clipPath/g)).toHaveLength(2);
     expect(svg).toContain("dead frame");
     expect(sketchBoardSvg(view, { gray: true })).toContain('filter="url(#gray)"');
+    /* one scene of it: only that scene's cards, and its name in the title */
+    await repo.createScene(p.id, { slug: "empty", summary: "" });
+    const both = await orch.getProjectView(p.id);
+    expect(sketchBoardSvg(both, { sceneId: both.scenes[0]!.id }).match(/<clipPath/g)).toHaveLength(2);
+    expect(sketchBoardSvg(both, { sceneId: both.scenes[0]!.id })).toContain("Sketch · a —");
+    expect(sketchBoardSvg(both, { sceneId: both.scenes[1]!.id })).not.toContain("<clipPath");
+    expect(sketchBoardSvg(both, { sceneId: "no-such-scene" }).match(/<clipPath/g)).toHaveLength(2);
     expect(paletteRoles({ colors: ["#777777", "#7a7a7a"] }).ratio).toBeLessThan(2);
     expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 0);
     const lint = await orch.lintProject(p.id);
