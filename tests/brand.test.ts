@@ -34,3 +34,23 @@ describe("the brand", () => {
     expect(old).toEqual([]);
   });
 });
+
+describe("the installed app and the sitemap", () => {
+  it("the manifest names the brand, and every icon it lists is a file the build wrote", async () => {
+    const { existsSync } = await import("node:fs");
+    const { BRAND, BRAND_COLORS } = await import("@/brand");
+    const { default: manifest } = await import("@/app/manifest");
+    const m = manifest();
+    expect(m.name).toBe(`${BRAND.name} ${BRAND.zh}`);
+    expect(m.theme_color).toBe(BRAND_COLORS.card);
+    for (const icon of m.icons ?? []) expect(existsSync(icon.src === "/icon.svg" ? "src/app/icon.svg" : `public${icon.src}`), icon.src).toBe(true);
+    expect(m.icons?.some((i) => i.purpose === "maskable")).toBe(true);
+  });
+
+  it("the sitemap lists only the front door, and nothing from the old project is left in public/", async () => {
+    const { existsSync } = await import("node:fs");
+    const { default: sitemap } = await import("@/app/sitemap");
+    expect(sitemap().map((e) => new URL(e.url).pathname)).toEqual(["/"]);
+    expect(existsSync("public/model-icons")).toBe(false);
+  });
+});
