@@ -3,6 +3,7 @@ import * as director from "@/director";
 import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
 import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
+import { frameStateLines } from "./imaging";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
 import * as treatments from "./treatment";
@@ -70,10 +71,13 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
   /* the pictures it was drawn from, in the order the painter attached them */
   const job = typeof m.jobId === "string" ? await repo.getJob(m.jobId).catch(() => undefined) : undefined;
   const refsUsed = ((job?.input.refUrls as string[] | undefined) ?? []).map((url, k) => ({ n: k + 1, url, name: view.assets.find((a) => a.url === url)?.name }));
+  const flatShots = view.scenes.flatMap((s) => s.shots);
+  const which = shot ? (shot.heroAssetId === asset.id ? "first" as const : "last" as const) : undefined;
+  const carried = shot && which ? frameStateLines(shot, which, director.carriedStates(flatShots.map((s) => s.spec))[flatShots.findIndex((s) => s.id === shot.id)], (id) => view.elements.find((e) => e.id === id)?.name ?? id) : [];
   const materials = {
     picture: asset.url, handle: asset.handle, name: asset.name, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
     refsUsed,
-    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
+    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which, carriedState: carried.length ? carried : undefined, other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
     element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], detailOf: element.refFeatures?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
     sheets, renderSize: VIDEO_SIZES[view.project.look.aspectRatio],
     /* measured on the pixels by the painter: facts, not opinions */
@@ -88,7 +92,7 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
     "Check, and file every fault under one code:",
     "1. anatomy — hands (count the fingers on every visible hand), arms, legs, faces, eyes, teeth; nothing fused, doubled, melted or missing.",
     "2. count / extra — exactly the people and props asked for (shot.characters, askedFor); no extra person in the background, no duplicate of a character, nothing added that was not asked.",
-    "3. identity / wardrobe — put the picture next to each sheet (refsUsed, sheets): face shape, hairline and hair colour, eye colour, age, build, every garment and its colour, props. 'Similar' is a fault: the video will drift further.",
+    "3. identity / wardrobe — put the picture next to each sheet (refsUsed, sheets): face shape, hairline and hair colour, eye colour, age, build, every garment and its colour, props. 'Similar' is a fault: the video will drift further. Where shot.carriedState says how someone is at this moment (what they wear now, what they hold, soaked, wounded), the picture shows that and not the sheet's look: a dry coat on someone the story left soaked is a blocker.",
     "4. feature_side — every fixed feature on the side the sheet puts it, as the PERSON's own left/right (a scar on her left cheek is on the right side of the picture when she faces the camera). A mirrored person is a blocker.",
     "5. text — letters, numbers, captions, labels, logos, watermarks, signatures, borders, panel grids, letterbox bars.",
     "6. framing / aspect — the render is " + materials.renderSize + ": heads, hands or feet cut that should be in, the subject's eyes on the composition line (shot.composition), headroom; a sheet shows the whole figure.",
@@ -172,12 +176,16 @@ async function shotPacket(projectId: string, shotId: string): Promise<ReviewPack
     const asset = view.assets.find((a) => a.url === img.url);
     return { role: img.role, label: img.label, url: img.url, size: asset?.width ? `${asset.width}×${asset.height}` : undefined };
   });
+  const names = (id: string) => view.elements.find((e) => e.id === id)?.name ?? id;
+  const states = director.carriedStates(flat.map((s) => s.spec))[i];
+  const carriedState = { atStart: frameStateLines(sh, "first", states, names), atEnd: frameStateLines(sh, "last", states, names) };
   const materials = {
     shot: shotLabel(view, sh), workflow: compiled.workflow, seconds: compiled.effectiveSeconds, videoSize: compiled.input.video_size,
     prompt: compiled.prompt, images, spec: {
       intent: sh.spec.intent, beats: sh.spec.beats, camera: sh.spec.camera, cinematography: sh.spec.cinematography, blocking: sh.spec.blocking,
       motion: sh.spec.motion, composition: sh.spec.composition, frames: sh.spec.frames, link: sh.spec.link, sound: sh.spec.sound,
     },
+    ...(carriedState.atStart.length || carriedState.atEnd.length ? { carriedState } : {}),
     elements, scenePalette: scene.palette, look: { genre: view.project.look.genre, palette: view.project.look.palette, style: view.project.look.style },
     previous: neighbour(flat[i - 1]), next: neighbour(flat[i + 1]), compilerWarnings: compiled.warnings, openRequirements: requirements,
   };
@@ -199,6 +207,7 @@ async function shotPacket(projectId: string, shotId: string): Promise<ReviewPack
     "1. Does every sentence of the prompt match the images? Positions, left/right, colours, how many people, how many props, clothes, expressions.",
     "2. Same camera position, scale and background in both frames?",
     "3. Consistent with the element sheets (fixed features on the right side), the scene palette, the previous and next shot?",
+    "   carriedState, when present, is what the shots before left (what each one wears now, holds, is like): the first frame shows atStart and the last frame atEnd, in the pictures and in the prompt. A reference-mode shot draws the sheet's look: say so when the state would be lost.",
     "4. Is every movement physically caused and written so (wind lifts the bag — the hands never touch it)? Where are the hands?",
     "5. Where could the model go wrong: simultaneous actions, things appearing, faces on objects, walking the wrong way, ambiguous words ('the old man behind the window' — which window?), counts not stated.",
     "",

@@ -369,3 +369,45 @@ test("a style of the user's own is held to constraints as statements, like the p
   // and a style from a blank page is checked the same way
   assert.ok(checkFork(undefined, mine, taken).warnings.some((x) => x.code === "style.constraints.bare"));
 });
+
+test("state: what an element carries from shot to shot, and the shots that cannot show it", async () => {
+  const { carriedStates, stateLines, stateText, lintState } = await import("../state.js");
+  const sh = (over: Record<string, unknown>) => ({ durationS: 5, mode: "keyframe", intent: "x", beats: [{ from: 0, to: 5, action: "She waits under the awning" }], camera: { move: "static" }, characters: ["mia"], link: { type: "cut" }, ...over });
+  const list = { scenes: [{ slug: "rain", shots: [
+    sh({ beats: [{ from: 0, to: 5, action: "Rain soaks her coat as she picks up the umbrella" }], state: [{ who: "mia", holding: "the closed red umbrella", condition: "soaked through, hair dripping" }] }),
+    sh({ link: { type: "continuous" } }),
+    sh({ state: [{ who: "mia", holding: "" }] }),
+    sh({ mode: "reference" }),
+    sh({ link: { type: "insert_return" } }),
+    sh({ state: [{ who: "mia", reset: true }] }),
+    sh({ mode: "reference" }),
+  ] }] } as unknown as Shotlist;
+  const states = carriedStates(list.scenes[0].shots);
+  assert.deepEqual(states[0].before, {});
+  assert.equal(stateText(states[0].after.mia), "holding the closed red umbrella; soaked through, hair dripping");
+  /* it holds until a record changes it; an empty slot drops that slot only */
+  assert.equal(stateText(states[1].before.mia), stateText(states[0].after.mia));
+  assert.equal(stateText(states[2].after.mia), "soaked through, hair dripping");
+  assert.equal(states[2].after.mia.since, 2);
+  /* reset: back to the sheet */
+  assert.equal(states[5].after.mia, undefined);
+  assert.deepEqual(stateLines(["mia"], states[2], () => "Mia"), ["Mia, from the start of the shot: holding the closed red umbrella; soaked through, hair dripping.", "Mia, by the end of the shot: soaked through, hair dripping."]);
+  assert.deepEqual(stateLines(["mia"], states[6], () => "Mia"), []);
+
+  const w = lintState(list, { elements: [{ id: "mia", name: "Mia", kind: "character" }] });
+  /* a reference-mode shot draws the sheet's look */
+  assert.deepEqual(w.filter((x) => x.code === "state.reference").map((x) => x.shot), [3]);
+  assert.match(w.find((x) => x.code === "state.reference")!.message, /Mia is soaked through, hair dripping since rain #3/);
+  /* insert_return resumes shot 3 (index 2), where the state last changed: its frame shows it */
+  assert.equal(w.filter((x) => x.code === "state.resume").length, 0);
+  const resumed = { scenes: [{ slug: "a", shots: [sh({}), sh({ state: [{ who: "mia", condition: "a bandage on the right hand" }] }), sh({ link: { type: "insert_return" } })] }] } as unknown as Shotlist;
+  assert.deepEqual(lintState(resumed).filter((x) => x.code === "state.resume").map((x) => x.shot), [2]);
+  /* a record for someone who is not on the shot, and a ban where a statement belongs */
+  const bad = { scenes: [{ slug: "a", shots: [sh({ state: [{ who: "tom", wardrobe: "no hat" }] })] }] } as unknown as Shotlist;
+  assert.deepEqual(lintState(bad).map((x) => x.code).sort(), ["state.negation", "state.unlisted"]);
+  /* a change in the beats that nobody recorded, for someone who comes back */
+  const silent = { scenes: [{ slug: "a", shots: [sh({ beats: [{ from: 0, to: 5, action: "She takes off the wet coat" }] }), sh({})] }] } as unknown as Shotlist;
+  assert.deepEqual(lintState(silent).map((x) => [x.code, x.severity, x.shot]), [["state.missing", "info", 0]]);
+  /* and lint_shotlist carries all of it */
+  assert.ok(lintShotlist(list).some((x) => x.code === "state.reference"));
+});

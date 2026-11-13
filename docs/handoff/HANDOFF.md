@@ -45,7 +45,7 @@ FL2VA 测试时把示例 prompt 换成了一段具体描述（见 `verify/verify
 
 LoadImage 读的是 ComfyUI `input/` 目录里的文件，图要先用 `POST /upload/image` 传上去，再把返回的 `name` 填进 `image`。
 
-prompt 用 lightx2v 的结构化格式，turbo LoRA 是用这种格式训练的：
+prompt 用 MiniMax 官方的结构化 caption 格式（MiniMaxAI/MiniMax-H3 的两份提示词指南；lightx2v 的 ComfyUI 说明用同样的字段）。turbo LoRA 蒸馏时用的 caption 没有公布，所以不能说它是按哪种写法训练的：
 - I2VA/FL2VA/T2VA：`integrated_multimodal_description` / `overall_soundscape` / `non_diegetic_music`，首帧写作 `<Picture 1>`，尾帧写作 `<Picture 2>`。
 - R2VA：`subject_definitions` / `summary` / `retention_analysis` / `detailed_description` / `overall_soundscape` / `non_diegetic_music`，参考图写作 `<Subject N>`。
 

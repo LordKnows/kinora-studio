@@ -90,6 +90,8 @@ export const board: Record<string, string> = {
   "Blocking — who enters, crosses or leaves which side of the frame": "走位 —— 谁从画面哪一侧入画、穿过或出画", "Add": "添加", "who": "谁",
   "from —": "从 —", "from {position}": "从{position}", "to —": "到 —", "to {position}": "到{position}", "path / pace": "路线 / 速度", "Remove": "移除",
   "off left||screen position": "画左外", "left||screen position": "左侧", "center||screen position": "中间", "right||screen position": "右侧", "off right||screen position": "画右外", "foreground||screen position": "前景", "background||screen position": "背景",
+  "State when the shot ends — what they wear now, hold, and are like, where it differs from the sheet. Later shots carry it.": "镜头结束时的状态 —— 现在穿什么、拿什么、是什么样子（和设定图不同的地方）。后面的镜头会沿用。",
+  "wearing…": "穿着…", "holding…": "拿着…", "is now… (soaked, a bandaged hand)": "现在是…（湿透、右手缠着绷带）", "back to the sheet": "回到设定图",
   "First frame shows": "首帧画面", "Who stands where, facing where, which props are visible. Reviewed before anyone draws it.": "谁站在哪、朝哪看、能看到哪些道具。画之前先审。", "Last frame shows": "尾帧画面",
   "Dialogue": "对白", "Add line": "加一句", "Create a character element to add dialogue.": "先建一个角色元素，才能加对白。", "The exact line": "台词原文",
   "delivery": "语气", "Delivery": "语气", "Remove line": "删除这句",

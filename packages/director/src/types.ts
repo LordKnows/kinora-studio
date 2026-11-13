@@ -73,6 +73,20 @@ export interface LintElement {
   fixedFeatures?: { feature: string; where: string }[];
 }
 
+/** The slots of an element's state: text, each a phrase that follows "wearing", "holding", or stands alone. */
+export interface StateSlots {
+  wardrobe?: string;
+  holding?: string;
+  condition?: string;
+}
+
+/** How an element is when a shot ends, where it differs from its sheet (state.ts). */
+export interface ElementState extends StateSlots {
+  who: string;
+  /** Back to the sheet: the element carries no state from here on. */
+  reset?: boolean;
+}
+
 /** A shot as `save_shotlist` takes it. */
 export interface Shot {
   id?: string;
@@ -97,6 +111,8 @@ export interface Shot {
   composition?: Composition;
   frames?: { first?: string; last?: string };
   screenS?: number;
+  /** How elements are when the shot ends, where that differs from their sheets; carried into later shots. */
+  state?: ElementState[];
 }
 
 export interface Scene {

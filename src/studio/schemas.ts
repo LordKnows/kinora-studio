@@ -279,6 +279,19 @@ export const FramePlan = z.object({
 });
 export type FramePlan = z.infer<typeof FramePlan>;
 
+/* What an element carries out of a shot, where it differs from its sheet. A
+   video model has no memory between generations: a state written only in a
+   beat is lost at the next cut, so it is a record the compiler, the frame
+   briefs, the reviewers and the lint all read (packages/director/src/state.ts). */
+export const ElementStateEntry = z.object({
+  who: z.string().min(1).max(80).describe("Element id: a character, a prop or the location on this shot"),
+  wardrobe: z.string().max(160).optional().describe("What they wear now, where it differs from the sheet, as a phrase after 'wearing': 'the grey raincoat, hood up'. An empty string drops it"),
+  holding: z.string().max(160).optional().describe("What is in their hands, after 'holding': 'the closed red umbrella in her left hand'. An empty string drops it (their hands are free again)"),
+  condition: z.string().max(160).optional().describe("What they are like now, as it is seen: 'soaked through, hair dripping', 'a bandage on the right hand'; for a prop or a place 'standing open', 'the lamp lit'. Statements only: H3 has no negative prompt"),
+  reset: z.boolean().optional().describe("true = back to the sheet: the element carries no state from here on (a new day, a change of clothes off screen)"),
+});
+export type ElementStateEntry = z.infer<typeof ElementStateEntry>;
+
 export const ShotBase = z.object({
     durationS: z.number().int().min(5).max(15).describe("5–15 seconds; chain shots for longer takes"),
     mode: z.enum(SHOT_MODES).describe(
@@ -306,6 +319,7 @@ export const ShotBase = z.object({
     composition: Composition.optional().describe("Where the subject sits; compiles to a composition line"),
     frames: FramePlan.optional().describe("First / last frame descriptions, written and reviewed before any frame is drawn"),
     screenS: z.number().min(1).max(15).optional().describe("Planned time on screen; durationS should be ≥ screenS + 0.5 so the edit has handles"),
+    state: z.array(ElementStateEntry).max(6).optional().describe("How the shot's characters, props and place are when it ENDS, where that differs from their sheets: what they wear now, what is in their hands, what they are like (soaked, wounded, a door standing open). It holds for every later shot until another record changes it: the compiler writes it into each later prompt, the frame briefs draw it, the reviewers read it, and lint_project names the shots that cannot show it (state.reference: a reference-mode shot draws the sheet's look; state.resume: an insert_return resumes a frame from before the change). Record a change on the shot that shows it happen"),
     scriptLines: z.array(z.string().trim().min(2).max(400)).max(12).optional().describe("The script lines this shot puts on screen, each quoted exactly from the current script: a sentence, or a clause of one. Planning only, never in the prompt. The Story page draws them as tramlines beside the text; lint_project flags lines of the script no shot shows (script.uncovered) and a quote the current script no longer has (script.quote.stale)."),
 });
 

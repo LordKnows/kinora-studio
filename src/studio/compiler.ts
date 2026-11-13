@@ -1,5 +1,6 @@
 import { h3Frames } from "@director/catalog";
 import { promptConstraints } from "@director/lint/constraints";
+import { stateLines, type ShotStates } from "@director/state";
 
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
@@ -96,6 +97,8 @@ export type CompileContext = {
   scene?: Scene;
   /** Prompt A/B switches (take request over project default); all off by default. */
   experiments?: PromptExperiments;
+  /** What the shot's elements carry in from the shots before it, and how they are when it ends (state.ts). */
+  states?: ShotStates;
 };
 
 /* MiniMax's caption format (the H3 prompt guides; lightx2v's notes for its
@@ -637,6 +640,9 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
       const el = ctx.elements.get(id);
       if (el?.fixedFeatures?.length) who.push(`${el.name} always has ${el.fixedFeatures.map(placedFeature).join("; ")}, in every frame.`);
     }
+    /* What each element carries from the shots before, in every mode: a sheet shows the designed
+       look and a frame can lose a wet coat as easily as a tattoo. */
+    who.push(...stateLines([...spec.characters, ...spec.props, ...(spec.location ? [spec.location] : [])], ctx.states, name));
     for (const b of spec.blocking ?? []) who.push(blockingLine(b, name));
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
     out.who = who;

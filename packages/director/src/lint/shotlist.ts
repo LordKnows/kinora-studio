@@ -1,6 +1,7 @@
 import { CORE_CINEMATOGRAPHY_KEYS, baseModelFor } from "../catalog.js";
 import type { LintElement, Shot, Shotlist, Warning } from "../types.js";
 import { lintCraft } from "./craft.js";
+import { lintState } from "../state.js";
 import { flatShots } from "../types.js";
 import { readingTimeS } from "../narration/srt.js";
 
@@ -109,6 +110,8 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   // Staging, wording and the pictures video models get wrong (lint/craft.ts)
   const animated = opts.animated ?? shots.some((s) => !!s.shot.cinematography?.animation);
   W.push(...lintCraft(list, { elements: opts.elements, animated }));
+  // What each element carries from shot to shot, and the shots that cannot show it (state.ts)
+  W.push(...lintState(list, { elements: opts.elements }));
 
   return opts.errorsAndWarningsOnly ? W.filter((w) => w.severity !== "info") : W;
 }

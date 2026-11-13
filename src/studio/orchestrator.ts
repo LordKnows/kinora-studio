@@ -316,6 +316,8 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     }
   }
   const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
+  /* what the shot's elements carry in from the shots before it */
+  const states = await shotStates(shot.projectId, shot.id);
   /* the shot's two switches (shot-loras.ts): every speed LoRA while use turbo is
      on (the compiler loads the one for the workflow), the assigned LoRAs while
      use LoRA is on */
@@ -329,7 +331,18 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
       return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
     }) : []),
   ];
-  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, turbo: on.turbo, steps: opts?.steps, seed: opts?.seed, experiments };
+  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, turbo: on.turbo, steps: opts?.steps, seed: opts?.seed, experiments, states };
+}
+
+/** The state every shot of the project starts and ends with, by shot id (story order); or one shot's. */
+export async function projectStates(projectId: string): Promise<Map<string, director.ShotStates>> {
+  const shots = await repo.listShots(projectId);
+  const states = director.carriedStates(shots.map((s) => s.spec));
+  return new Map(shots.map((s, i) => [s.id, states[i]!]));
+}
+
+async function shotStates(projectId: string, shotId: string): Promise<director.ShotStates | undefined> {
+  return (await projectStates(projectId)).get(shotId);
 }
 
 export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }): Promise<CompiledJob & { estimate: Estimate }> {

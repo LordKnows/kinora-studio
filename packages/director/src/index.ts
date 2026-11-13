@@ -6,6 +6,7 @@ export { compileLook, applyStyle, styleLoraSuggestions, type LookOverrides, type
 export { TreatmentSchema, validateTreatment, treatmentToMarkdown, type Treatment } from "./treatment.js";
 export { lintShotlist, type LintOptions } from "./lint/shotlist.js";
 export { lintCraft, shotFragility, fragileInText, screenDirection, FRAGILE_PATTERNS, type CraftOptions, type Fragility } from "./lint/craft.js";
+export { carriedStates, stateLines, stateLine, stateText, sameState, hasState, lintState, STATE_SLOTS, type CarriedState, type ShotStates } from "./state.js";
 export { checkConstraint, promptConstraints, lintConstraints, type ConstraintKind, type ConstraintVerdict } from "./lint/constraints.js";
 export * from "./sound/cuemap.js";
 export * from "./timeline/extended.js";
