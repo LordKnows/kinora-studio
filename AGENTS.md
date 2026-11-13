@@ -24,6 +24,8 @@ Edit the source, then run the emitter; the generated files are committed.
 | `src/db/migrations/*.ts` | `migrations/*.sql` | `pnpm db:emit` |
 | `workers/h3-runpod`, `workers/assembler/handler.py`, `workers/painter` | `src/pod/bundle.ts` | `pnpm pod:bundle` |
 
+`pnpm pod:bundle` rewrites `src/pod/bundle.ts` only when the files inside differ from the committed bundle's: a tarball's bytes change with the clock and the machine, its contents do not.
+
 `pnpm dev` and `pnpm build` build the director package first; `src` imports it as `@director/*` (its `dist` in tsc, its `src` in vitest).
 
 ## Checks
@@ -31,6 +33,7 @@ Edit the source, then run the emitter; the generated files are committed.
 - `pnpm typecheck` and `pnpm test` (vitest, `tests/`).
 - `pnpm --filter @kinora/director test` (node:test, `packages/director/src/test`).
 - `python3 -m pytest workers` for the workers (needs ffmpeg).
+- CI (`.github/workflows/ci.yml`) runs all of these on every pull request and on `main`, runs the emitters and fails when `git status` is not clean after them, and runs `pnpm build`. Two jobs, `studio` and `workers`.
 
 ## Facts that were got wrong once
 
