@@ -1,11 +1,14 @@
 import * as director from "@/director";
 
-import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive } from "./craft-core";
+import { audioInputs, hashOf, renderHash, reviewState, takeRenderHash, isRejected, autopilotActive, fixLedger, fixTally, retakeChanges, retakeRecord } from "./craft-core";
 import { StudioError } from "./errors";
 import { VIDEO_SIZES } from "./compiler";
+import { frameStateLines } from "./imaging";
 import { compileForShot, getProjectView, lintProject, type ProjectView, type ShotView } from "./orchestrator";
 import * as repo from "./repo";
+import { readTake } from "./take-checks";
 import * as treatments from "./treatment";
+import type { PromptExperiments } from "./schemas";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
 /*
@@ -40,11 +43,12 @@ export type ReviewPacket = {
 
 /** The packet for one stage. */
 /** `targetId` is the shot (stage shot) or the generated picture (stage frame). */
-export async function reviewPacket(projectId: string, stage: ReviewStage, targetId?: string): Promise<ReviewPacket> {
+/** `variant`: stage shot only — the prompt switches a take will render with (an A/B arm), so the packet and the verdict are of that arm's prompt. */
+export async function reviewPacket(projectId: string, stage: ReviewStage, targetId?: string, variant?: { experiments?: PromptExperiments }): Promise<ReviewPacket> {
   if (stage === "story") return storyPacket(projectId);
   if (stage === "shot") {
     if (!targetId) throw new StudioError("validation", "stage 'shot' needs shotId");
-    return shotPacket(projectId, targetId);
+    return shotPacket(projectId, targetId, variant);
   }
   if (stage === "frame") {
     if (!targetId) throw new StudioError("validation", "stage 'frame' needs assetId");
@@ -70,10 +74,13 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
   /* the pictures it was drawn from, in the order the painter attached them */
   const job = typeof m.jobId === "string" ? await repo.getJob(m.jobId).catch(() => undefined) : undefined;
   const refsUsed = ((job?.input.refUrls as string[] | undefined) ?? []).map((url, k) => ({ n: k + 1, url, name: view.assets.find((a) => a.url === url)?.name }));
+  const flatShots = view.scenes.flatMap((s) => s.shots);
+  const which = shot ? (shot.heroAssetId === asset.id ? "first" as const : "last" as const) : undefined;
+  const carried = shot && which ? frameStateLines(shot, which, director.carriedStates(flatShots.map((s) => s.spec))[flatShots.findIndex((s) => s.id === shot.id)], (id) => view.elements.find((e) => e.id === id)?.name ?? id) : [];
   const materials = {
     picture: asset.url, handle: asset.handle, name: asset.name, size: asset.width ? `${asset.width}×${asset.height}` : undefined, purpose: m.purpose, askedFor: m.prompt, base: base?.url, diff: m.diffUrl, region: m.region,
     refsUsed,
-    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which: shot.heroAssetId === asset.id ? "first" : "last", other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
+    shot: shot ? { intent: shot.spec.intent, frames: shot.spec.frames, blocking: shot.spec.blocking, composition: shot.spec.composition, characters: shot.spec.characters.map((c) => view.elements.find((e) => e.id === c)?.name ?? c), which, carriedState: carried.length ? carried : undefined, other: shot.heroAssetId === asset.id ? shot.end?.url : shot.hero?.url } : undefined,
     element: element ? { name: element.name, kind: element.kind, description: element.description, fixedFeatures: element.fixedFeatures ?? [], view: element.refViews?.[asset.id], detailOf: element.refFeatures?.[asset.id], otherViews: element.refAssetIds.filter((a) => a !== asset.id).map((a) => ({ url: view.assets.find((x) => x.id === a)?.url, view: element.refViews?.[a] })) } : undefined,
     sheets, renderSize: VIDEO_SIZES[view.project.look.aspectRatio],
     /* measured on the pixels by the painter: facts, not opinions */
@@ -88,7 +95,7 @@ async function framePacket(projectId: string, assetId: string): Promise<ReviewPa
     "Check, and file every fault under one code:",
     "1. anatomy — hands (count the fingers on every visible hand), arms, legs, faces, eyes, teeth; nothing fused, doubled, melted or missing.",
     "2. count / extra — exactly the people and props asked for (shot.characters, askedFor); no extra person in the background, no duplicate of a character, nothing added that was not asked.",
-    "3. identity / wardrobe — put the picture next to each sheet (refsUsed, sheets): face shape, hairline and hair colour, eye colour, age, build, every garment and its colour, props. 'Similar' is a fault: the video will drift further.",
+    "3. identity / wardrobe — put the picture next to each sheet (refsUsed, sheets): face shape, hairline and hair colour, eye colour, age, build, every garment and its colour, props. 'Similar' is a fault: the video will drift further. Where shot.carriedState says how someone is at this moment (what they wear now, what they hold, soaked, wounded), the picture shows that and not the sheet's look: a dry coat on someone the story left soaked is a blocker.",
     "4. feature_side — every fixed feature on the side the sheet puts it, as the PERSON's own left/right (a scar on her left cheek is on the right side of the picture when she faces the camera). A mirrored person is a blocker.",
     "5. text — letters, numbers, captions, labels, logos, watermarks, signatures, borders, panel grids, letterbox bars.",
     "6. framing / aspect — the render is " + materials.renderSize + ": heads, hands or feet cut that should be in, the subject's eyes on the composition line (shot.composition), headroom; a sheet shows the whole figure.",
@@ -148,14 +155,14 @@ function shotLabel(view: ProjectView, sh: ShotView): string {
   return `${scene?.slug ?? "?"} #${sh.index + 1}`;
 }
 
-async function shotPacket(projectId: string, shotId: string): Promise<ReviewPacket> {
+async function shotPacket(projectId: string, shotId: string, variant?: { experiments?: PromptExperiments }): Promise<ReviewPacket> {
   const view = await getProjectView(projectId);
   const flat = view.scenes.flatMap((s) => s.shots);
   const i = flat.findIndex((s) => s.id === shotId);
   if (i < 0) throw new StudioError("not_found", `shot ${shotId} not in project ${projectId}`);
   const sh = flat[i]!;
   const scene = view.scenes.find((s) => s.id === sh.sceneId)!;
-  const compiled = await compileForShot(shotId);
+  const compiled = await compileForShot(shotId, variant?.experiments ? { experiments: variant.experiments } : undefined);
   const subjectHash = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
   const ids = new Set([...sh.spec.characters, ...sh.spec.props, ...(sh.spec.location ? [sh.spec.location] : [])]);
   const assetUrl = new Map(view.assets.map((a) => [a.id, a]));
@@ -172,12 +179,16 @@ async function shotPacket(projectId: string, shotId: string): Promise<ReviewPack
     const asset = view.assets.find((a) => a.url === img.url);
     return { role: img.role, label: img.label, url: img.url, size: asset?.width ? `${asset.width}×${asset.height}` : undefined };
   });
+  const names = (id: string) => view.elements.find((e) => e.id === id)?.name ?? id;
+  const states = director.carriedStates(flat.map((s) => s.spec))[i];
+  const carriedState = { atStart: frameStateLines(sh, "first", states, names), atEnd: frameStateLines(sh, "last", states, names) };
   const materials = {
     shot: shotLabel(view, sh), workflow: compiled.workflow, seconds: compiled.effectiveSeconds, videoSize: compiled.input.video_size,
     prompt: compiled.prompt, images, spec: {
       intent: sh.spec.intent, beats: sh.spec.beats, camera: sh.spec.camera, cinematography: sh.spec.cinematography, blocking: sh.spec.blocking,
       motion: sh.spec.motion, composition: sh.spec.composition, frames: sh.spec.frames, link: sh.spec.link, sound: sh.spec.sound,
     },
+    ...(carriedState.atStart.length || carriedState.atEnd.length ? { carriedState } : {}),
     elements, scenePalette: scene.palette, look: { genre: view.project.look.genre, palette: view.project.look.palette, style: view.project.look.style },
     previous: neighbour(flat[i - 1]), next: neighbour(flat[i + 1]), compilerWarnings: compiled.warnings, openRequirements: requirements,
   };
@@ -199,6 +210,7 @@ async function shotPacket(projectId: string, shotId: string): Promise<ReviewPack
     "1. Does every sentence of the prompt match the images? Positions, left/right, colours, how many people, how many props, clothes, expressions.",
     "2. Same camera position, scale and background in both frames?",
     "3. Consistent with the element sheets (fixed features on the right side), the scene palette, the previous and next shot?",
+    "   carriedState, when present, is what the shots before left (what each one wears now, holds, is like): the first frame shows atStart and the last frame atEnd, in the pictures and in the prompt. A reference-mode shot draws the sheet's look: say so when the state would be lost.",
     "4. Is every movement physically caused and written so (wind lifts the bag — the hands never touch it)? Where are the hands?",
     "5. Where could the model go wrong: simultaneous actions, things appearing, faces on objects, walking the wrong way, ambiguous words ('the old man behind the window' — which window?), counts not stated.",
     "",
@@ -255,8 +267,8 @@ async function filmPacket(projectId: string): Promise<ReviewPacket> {
 }
 
 /** Store a verdict against the hash of what the packet showed now. */
-export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[] }): Promise<{ review: StageReview; note?: string }> {
-  const packet = await reviewPacket(projectId, input.stage, input.shotId);
+export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[]; experiments?: PromptExperiments }): Promise<{ review: StageReview; note?: string }> {
+  const packet = await reviewPacket(projectId, input.stage, input.shotId, input.experiments ? { experiments: input.experiments } : undefined);
   const sure = input.findings.filter((f) => f.sure !== false);
   if (input.verdict === "pass" && (input.stage === "film" || input.stage === "frame") && input.findings.some((f) => f.severity === "blocker")) {
     throw new StudioError("validation", `a ${input.stage} review with blocker findings cannot pass`);
@@ -425,6 +437,15 @@ export async function buildRetro(projectId: string): Promise<string> {
   if (faults.size === 0) L.push("No take was tagged with faults. Tag rejected takes on the Board so the next film learns from this one.");
   else for (const [f, n] of [...faults].sort((a, b) => b[1] - a[1])) L.push(`- ${f}: ${n}`);
   if (unjudged.length) L.push("", `${unjudged.length} of ${done.length} finished take(s) have no review at all: what failed in them is not in this retro.`);
+  /* What the files themselves showed, whether or not anyone tagged it: leads, counted. */
+  const found = new Map<string, number>();
+  let measuredTakes = 0;
+  for (const scene of view.scenes) for (const sh of scene.shots) for (const t of sh.takes) {
+    if (t.status !== "completed" || !t.input.studio_checks) continue;
+    measuredTakes++;
+    for (const f of readTake(t, sh.spec).findings) found.set(f.code, (found.get(f.code) ?? 0) + 1);
+  }
+  if (measuredTakes) L.push("", `Measured on ${measuredTakes} take(s) (motion and sound over time, the ends against their frames; leads, not verdicts): ${found.size ? [...found].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} ${n}`).join(", ") : "nothing found"}.`);
   L.push("");
 
   /* How the film was made, in numbers: the checks that ran, what they were worth, what the settings cost. */
@@ -472,7 +493,7 @@ export async function buildRetro(projectId: string): Promise<string> {
 
   const pair = takes.filter((t) => t.input.studio_experiments);
   if (pair.length) {
-    L.push("## Prompt experiments", "", `${pair.length} take(s) rendered with an experiment on. Compare them with their siblings on the eval page before turning one on by default.`, "");
+    L.push("## Prompt experiments", "", `${pair.length} take(s) rendered with an experiment on. ab_report sets the arms side by side (picks, tags, votes, what was measured); compare them with their siblings on the eval page before turning one on by default.`, "");
   }
 
   L.push("## Requirements", "");
@@ -493,19 +514,26 @@ export async function buildRetro(projectId: string): Promise<string> {
     const good = ts.find((t) => t.id === sh.selectedTakeId) ?? ts.find((t) => t.review && !isRejected(t));
     if (!good) continue;
     for (const bad of ts.filter((t) => t.n < good.n && (t.review?.faults?.length ?? 0) > 0)) {
-      const imgs = (t: typeof bad) => JSON.stringify(Array.isArray(t.input.images) ? t.input.images : []);
-      const changed = [bad.prompt !== good.prompt ? "prompt" : "", imgs(bad) !== imgs(good) ? "frames" : "", bad.workflow !== good.workflow ? `${bad.workflow} → ${good.workflow}` : "", bad.input.steps !== good.input.steps ? `${String(bad.input.steps)} → ${String(good.input.steps)} steps` : ""].filter(Boolean);
-      fixes.push(`- ${label}: ${bad.review!.faults!.join(", ")} on take #${bad.n}${bad.review!.notes ? ` ("${bad.review!.notes.slice(0, 140)}")` : ""} → take #${good.n} held; changed: ${changed.join(", ") || "the seed only"}`);
+      const changed = retakeChanges(bad, good).map((c) => (c === "mode" ? `${bad.workflow} → ${good.workflow}` : c === "steps" ? `${String(bad.input.steps)} → ${String(good.input.steps)} steps` : c === "length" ? `${String(bad.input.seconds)} → ${String(good.input.seconds)} s` : c === "seed" ? "the seed only" : c));
+      const said = retakeRecord(good)?.change;
+      fixes.push(`- ${label}: ${bad.review!.faults!.join(", ")} on take #${bad.n}${bad.review!.notes ? ` ("${bad.review!.notes.slice(0, 140)}")` : ""} → take #${good.n} held; changed: ${changed.join(", ")}${said ? ` — "${said.slice(0, 140)}"` : ""}`);
     }
   }
   if (fixes.length) L.push("What got past a fault (compare the two takes' prompts with get_take):", ...fixes, "");
+  /* The same pairs counted: per fault, which change held and which brought the fault back. */
+  const tally = fixTally(fixLedger(shotsAll));
+  if (tally.length) {
+    L.push("Which change got past which fault (a faulted take and the take after it; small counts are anecdotes, not rates):", "", "| Fault | Changed | Held | Came back | Unjudged |", "|---|---|---|---|---|");
+    for (const r of tally) L.push(`| ${r.fault} | ${r.change} | ${r.held} | ${r.cameBack} | ${r.unjudged} |`);
+    L.push("");
+  }
   if (costly.length) L.push("Shots that took three takes or more — plan them differently at the story stage:", ...costly, "");
   const exNames = [...new Set(pair.flatMap((t) => Object.entries((t.input.studio_experiments ?? {}) as Record<string, boolean>).filter(([, v]) => v).map(([k]) => k)))];
   for (const name of exNames) {
     const on = pair.filter((t) => (t.input.studio_experiments as Record<string, boolean>)[name]);
     L.push(`- Experiment ${name}: ${on.length} take(s), ${on.filter((t) => shotsAll.some((sh) => sh.selectedTakeId === t.id)).length} picked, ${on.filter(isRejected).length} rejected.`);
   }
-  if (!fixes.length && !costly.length && !exNames.length) L.push("Nothing to carry yet: no reviewed take followed a faulted one, no shot took three takes, no experiment ran. Review the takes (review_take with faults) so the next film has something to learn from.");
+  if (!fixes.length && !tally.length && !costly.length && !exNames.length) L.push("Nothing to carry yet: no reviewed take followed a faulted one, no shot took three takes, no experiment ran. Review the takes (review_take with faults) so the next film has something to learn from.");
   L.push("");
   return L.join("\n");
 }

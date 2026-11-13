@@ -83,3 +83,87 @@ export async function consumeAutopilot(project: Project, usd: number, what: stri
     envelope: { usedUsd: a.usedUsd + usd, envelopeUsd: a.envelopeUsd },
   });
 }
+
+/* ---- what a retake changed, and which change got past which fault ---- */
+
+/** What differs between two renders of one shot. "seed" alone means the same input again. */
+export type RetakeChange = "prompt" | "frames" | "mode" | "steps" | "length" | "loras" | "experiments" | "remake" | "seed";
+
+type RenderInput = { workflow: string; prompt: string; input: Record<string, unknown> };
+
+const images = (x: RenderInput) => JSON.stringify(Array.isArray(x.input.images) ? (x.input.images as Img[]).map((i) => `${i.role}:${i.url}`) : []);
+const loraNames = (x: RenderInput) => JSON.stringify(Array.isArray(x.input.loras) ? (x.input.loras as Array<{ name?: string; strength?: number }>).map((l) => `${l.name}@${l.strength ?? ""}`).sort() : []);
+const switches = (x: RenderInput) => JSON.stringify(Object.entries((x.input.studio_experiments ?? {}) as Record<string, boolean>).filter(([, v]) => v).map(([k]) => k).sort());
+
+/** What a render changes against an earlier take of the same shot. */
+export function retakeChanges(prev: RenderInput, next: RenderInput): RetakeChange[] {
+  if (next.workflow === "REMAKE") return ["remake"];
+  const out: RetakeChange[] = [];
+  if (prev.workflow !== next.workflow) out.push("mode");
+  if (images(prev) !== images(next)) out.push("frames");
+  if (Number(prev.input.seconds) !== Number(next.input.seconds)) out.push("length");
+  if (Number(prev.input.steps) !== Number(next.input.steps)) out.push("steps");
+  if (loraNames(prev) !== loraNames(next)) out.push("loras");
+  if (switches(prev) !== switches(next)) out.push("experiments");
+  /* the prompt follows from all of the above; it counts on its own only when the words changed and the length, mode and switches did not explain it */
+  if (prev.prompt !== next.prompt) out.push("prompt");
+  return out.length ? out : ["seed"];
+}
+
+/** The record a retake carries (take.input.studio_retake). */
+export type RetakeRecord = {
+  /** The take it follows: the latest finished one of the shot. */
+  of: number;
+  changed: RetakeChange[];
+  /** The faults tagged on the takes before it. */
+  after: string[];
+  /** What the director said this take changes and why. */
+  change?: string;
+};
+
+export function retakeRecord(take: Take): RetakeRecord | undefined {
+  const r = take.input.studio_retake as RetakeRecord | undefined;
+  return r && typeof r.of === "number" && Array.isArray(r.changed) ? r : undefined;
+}
+
+export type FixOutcome = "held" | "came_back" | "unjudged";
+export type FixRow = { shotId: string; fault: string; from: number; to: number; changed: RetakeChange[]; outcome: FixOutcome; note?: string };
+
+/**
+ * Every faulted take and the take after it: what changed between the two,
+ * and whether the fault was gone. "held": the next take was picked, or
+ * reviewed without that fault. "came_back": it carries the fault again.
+ * "unjudged": nobody reviewed it, so the pair teaches nothing.
+ */
+export function fixLedger(shots: Array<{ id: string; selectedTakeId?: string; takes: Take[] }>): FixRow[] {
+  const rows: FixRow[] = [];
+  for (const sh of shots) {
+    const ts = sh.takes.filter((t) => t.status === "completed").sort((a, b) => a.n - b.n);
+    for (let i = 0; i + 1 < ts.length; i++) {
+      const bad = ts[i]!, next = ts[i + 1]!;
+      const faults = bad.review?.faults ?? [];
+      if (!faults.length) continue;
+      const changed = retakeRecord(next)?.changed ?? retakeChanges(bad, next);
+      for (const fault of faults) {
+        const outcome: FixOutcome = next.review?.faults?.includes(fault as never) ? "came_back" : next.id === sh.selectedTakeId || next.review ? "held" : "unjudged";
+        rows.push({ shotId: sh.id, fault, from: bad.n, to: next.n, changed, outcome, ...(retakeRecord(next)?.change ? { note: retakeRecord(next)!.change } : {}) });
+      }
+    }
+  }
+  return rows;
+}
+
+/** fault → change → how often it held, came back, or went unjudged. */
+export function fixTally(rows: FixRow[]): Array<{ fault: string; change: string; held: number; cameBack: number; unjudged: number }> {
+  const m = new Map<string, { fault: string; change: string; held: number; cameBack: number; unjudged: number }>();
+  for (const r of rows) {
+    const change = r.changed.join(" + ");
+    const key = `${r.fault}|${change}`;
+    const row = m.get(key) ?? { fault: r.fault, change, held: 0, cameBack: 0, unjudged: 0 };
+    if (r.outcome === "held") row.held++;
+    else if (r.outcome === "came_back") row.cameBack++;
+    else row.unjudged++;
+    m.set(key, row);
+  }
+  return [...m.values()].sort((a, b) => a.fault.localeCompare(b.fault) || b.held - a.held);
+}

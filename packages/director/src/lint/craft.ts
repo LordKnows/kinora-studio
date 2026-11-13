@@ -33,7 +33,7 @@ export const FRAGILE_PATTERNS: FragilePattern[] = [
   { code: "text", label: "readable text", re: /\b(sign|signboard|label|headline|newspaper|letter reads|writes|writing|handwriting|caption|subtitle|logo|text on)\b|招牌|标语|写字|文字|字幕|报纸|信上写/i, advice: "the model cannot spell; add text in the edit (title or overlay) and keep the frame free of writing" },
   { code: "mirror", label: "mirror or reflection", re: /\b(mirror|reflection|reflected|reflects)\b|镜子|倒影|镜中|反射/i, advice: "reflections rarely match the subject; avoid, or make the reflection the only subject" },
   { code: "light_change", label: "light changes inside the shot", re: /\b(lights? (go|goes|went|turn|turns|switch|switches|flicker|flickers)( (on|off|out))?|blackout|power cut|sun (sets|rises)|lightning)\b|灯(灭|亮|关|开|闪)|停电|天黑|天亮|闪电/i, advice: "one shot, one lighting state; cut on the change, or write 'a white flash inside the clouds' and trim it in the edit" },
-  { code: "chain", label: "one person, three actions", re: /(\bthen\b[^.;]*\bthen\b)|((然后|接着|随后)[^。]*(然后|接着|随后))/i, advice: "H3 holds one action per 5 s; split the chain across shots" },
+  { code: "chain", label: "one person, three actions", re: /(\bthen\b[^.;]*\bthen\b)|((然后|接着|随后)[^。]*(然后|接着|随后))/i, advice: "three actions for one person in one generation: every action is one more to mistime or drop; give each its own beat, or split the chain across shots" },
   { code: "crowd", label: "too many people", re: /\b(crowd|audience|everyone|everybody|dozens of|a group of|passers-by|bystanders)\b|人群|观众|围观|一群/i, advice: "extras multiply errors; keep two or three readable people, the rest soft in the background" },
   { code: "cartoon", label: "cartoon wording on a non-character", re: /\b(cartoon|cute|kawaii|smiling (sun|moon|cloud|tree|flower))\b|卡通|可爱|拟人/i, advice: "'cartoon cloud' grows eyes and a mouth; describe the material ('fluffy grey cumulus, cotton texture and shadow only') and only how it moves" },
 ];
@@ -75,7 +75,7 @@ export function shotFragility(shot: Shot, elements: LintElement[] = []): Fragili
   if (chars >= 3 && !reasons.some((r) => r.code === "crowd")) reasons.push({ code: "crowd", message: `${chars} characters in one generation; keep two or three readable people` });
   const c = shot.cinematography ?? {};
   if (c.angle === "overhead" && chars > 0) reasons.push({ code: "topdown", message: "overhead angle on characters: the faces disappear and identity drifts" });
-  if (shot.beats.length >= 3 && chars === 1 && !reasons.some((r) => r.code === "chain")) reasons.push({ code: "chain", message: `${shot.beats.length} beats for one person in one generation; H3 averages the turns` });
+  if (shot.beats.length >= 3 && chars === 1 && !reasons.some((r) => r.code === "chain")) reasons.push({ code: "chain", message: `${shot.beats.length} beats for one person in one generation: each is one more action to mistime or drop; split the chain across shots if a take loses one` });
   const byId = new Map(elements.map((e) => [e.id, e]));
   for (const id of shot.characters ?? []) {
     const el = byId.get(id);

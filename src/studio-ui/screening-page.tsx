@@ -4,7 +4,8 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { TAKE_FAULTS, type TakeFault } from "@/studio/schemas";
+import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
+import { FINDING_LABELS, findingAt, readTake } from "@/studio/take-checks";
 import type { Take } from "@/studio/types";
 
 import { post, usd } from "./api";
@@ -233,7 +234,7 @@ function Screening() {
           <ErrorBanner error={select.error} projectId={projectId} onDismiss={select.dismiss} />
         </section>
 
-        <ReviewPanel key={a.id} take={a} letter={b ? "A" : undefined} score={score} setScore={setScore} saveRef={saveRef} next={nextOpen}
+        <ReviewPanel key={a.id} take={a} spec={here.shot.spec} letter={b ? "A" : undefined} score={score} setScore={setScore} saveRef={saveRef} next={nextOpen}
           onSaved={async () => { await reload(); if (nextOpen) go({ shot: nextOpen.shot.id }, "push"); }} />
       </div>
 
@@ -292,8 +293,8 @@ function TakeFigure({ letter, take, circled, focus, videoRef, muted, onTime, onM
   );
 }
 
-function ReviewPanel({ take, letter, score, setScore, saveRef, next, onSaved }: {
-  take: Take; letter?: string; score: number | undefined; setScore: (n: number | undefined) => void; saveRef: React.RefObject<() => void>; next?: FilmShot; onSaved: () => Promise<void>;
+function ReviewPanel({ take, spec, letter, score, setScore, saveRef, next, onSaved }: {
+  take: Take; spec: ShotInput; letter?: string; score: number | undefined; setScore: (n: number | undefined) => void; saveRef: React.RefObject<() => void>; next?: FilmShot; onSaved: () => Promise<void>;
 }) {
   const { projectId } = useProjectContext();
   const [notes, setNotes] = useState(take.review?.notes ?? "");
@@ -308,6 +309,7 @@ function ReviewPanel({ take, letter, score, setScore, saveRef, next, onSaved }: 
   });
   saveRef.current = () => { if (score && !save.busy) void save.fire(); };
   const tr = useT();
+  const measured = useMemo(() => readTake(take, spec).findings, [take, spec]);
   return (
     <section className="scr-review" aria-label={tr("Review this take")}>
       <div className="scr-review-head">
@@ -323,6 +325,20 @@ function ReviewPanel({ take, letter, score, setScore, saveRef, next, onSaved }: 
       <label className="scr-label">{tr("Review notes")}
         <textarea className="st-textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </label>
+      {/* what the worker measured on the file, read against the shot: where to look while watching */}
+      {measured.length > 0 && (
+        <div className="scr-measured">
+          <span className="sc-cap">{tr("Measured on the file — places to look, not a verdict")}</span>
+          {measured.map((f, i) => (
+            <div key={`${f.code}${i}`} className="st-row" style={{ gap: 6 }} title={f.message}>
+              <span>{tr(FINDING_LABELS[f.code] ?? f.message, { at: findingAt(f) })}</span>
+              {f.suggests && !faults.includes(f.suggests) && (
+                <button type="button" className="st-chip st-chip--btn" onClick={() => setFaults((xs) => [...xs, f.suggests!])}>{tr("Tag: {fault}", { fault: tr(f.suggests.replaceAll("_", " ")) })}</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <span className="sc-cap scr-faults-cap">{tr("What went wrong · feeds the retro")}</span>
       <div className="st-chips">
         {TAKE_FAULTS.map((f) => (

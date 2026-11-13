@@ -32,7 +32,7 @@ export function assertConfirmed(confirm: boolean, estimateUsd: number, what: str
 /** Which shot fields reset the shotlist approval when changed (§3.2). */
 export const STRUCTURAL_SHOT_FIELDS = new Set([
   "durationS", "mode", "intent", "beats", "camera", "dialogue", "sound", "characters", "location", "props", "linkToPrev", "sourceTakeId", "editInstruction",
-  "blocking", "motion", "composition",
+  "blocking", "motion", "composition", "state",
 ]);
 
 /** True when a structural field actually changed between two specs. The

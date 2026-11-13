@@ -4,7 +4,7 @@ import { grammarFor } from "./editing";
 import { config } from "./config";
 import { actualTakeUsd, estimateExport, estimateTake, podTakeUsd, reservedUsd, type Estimate, estimateUpscale } from "./cost";
 import * as director from "@/director";
-import { audioInputs, autopilotCovers, consumeAutopilot, identicalTakes, renderHash, reviewState } from "./craft-core";
+import { audioInputs, autopilotCovers, consumeAutopilot, identicalTakes, renderHash, retakeChanges, reviewState, type RetakeChange, type RetakeRecord } from "./craft-core";
 import { paletteContrastWarnings } from "./sketch";
 
 import { StudioError } from "./errors";
@@ -276,7 +276,7 @@ export async function removeProject(projectId: string, by?: string): Promise<{ t
 
 /* ---------- compile ---------- */
 
-async function compileContext(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }) {
+async function compileContext(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments; turbo?: boolean }) {
   const shot = await repo.getShot(shotId);
   const project = await repo.getProject(shot.projectId);
   const scene = await repo.getScene(shot.sceneId);
@@ -316,12 +316,15 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
     }
   }
   const sourceTake = shot.spec.sourceTakeId ? await repo.getTake(shot.spec.sourceTakeId) : undefined;
+  /* what the shot's elements carry in from the shots before it */
+  const states = await shotStates(shot.projectId, shot.id);
   /* the shot's two switches (shot-loras.ts): every speed LoRA while use turbo is
      on (the compiler loads the one for the workflow), the assigned LoRAs while
      use LoRA is on */
   const library = await repo.listLoras();
   const byId = new Map(library.map((l) => [l.id, l]));
-  const on = shotSwitches(shot.spec);
+  /* a take may ask for the other chain than the shot's switch says (TakeRequest.turbo: an A/B on steps) */
+  const on = { ...shotSwitches(shot.spec), ...(opts?.turbo !== undefined ? { turbo: opts.turbo } : {}) };
   const loras = [
     ...(on.turbo ? library.filter((l) => l.kind === "speed").map((l) => ({ ...l, strength: l.defaultStrength })) : []),
     ...(on.loras ? assignedRefs(shot.spec, (id) => byId.get(id)?.kind).flatMap((r) => {
@@ -329,10 +332,21 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
       return lora ? [{ ...lora, strength: r.strength ?? lora.defaultStrength }] : [];
     }) : []),
   ];
-  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, turbo: on.turbo, steps: opts?.steps, seed: opts?.seed, experiments };
+  return { shot, project, scene, elements, assets, prevLastFrameUrl, anchorFrameUrl, anchorLabel, sourceTake, loras, turbo: on.turbo, steps: opts?.steps, seed: opts?.seed, experiments, states };
 }
 
-export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }): Promise<CompiledJob & { estimate: Estimate }> {
+/** The state every shot of the project starts and ends with, by shot id (story order); or one shot's. */
+export async function projectStates(projectId: string): Promise<Map<string, director.ShotStates>> {
+  const shots = await repo.listShots(projectId);
+  const states = director.carriedStates(shots.map((s) => s.spec));
+  return new Map(shots.map((s, i) => [s.id, states[i]!]));
+}
+
+async function shotStates(projectId: string, shotId: string): Promise<director.ShotStates | undefined> {
+  return (await projectStates(projectId)).get(shotId);
+}
+
+export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments; turbo?: boolean }): Promise<CompiledJob & { estimate: Estimate }> {
   const ctx = await compileContext(shotId, opts);
   try {
     const job = compileShot({ ...ctx, look: ctx.project.look });
@@ -346,7 +360,7 @@ export async function compileForShot(shotId: string, opts?: { steps?: number; se
 /* ---------- takes ---------- */
 
 export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[]; gpu?: gpu.GpuState }> {
-  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed, experiments: req.experiments });
+  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed, experiments: req.experiments, turbo: req.turbo });
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
   let compiled: CompiledJob;
@@ -368,9 +382,18 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
   const review = await reviewState(ctx.project.id, "shot", subject, shotId);
   const earlier = await repo.listShotTakes(shotId);
   const same = identicalTakes(earlier, subject);
-  const guards = preRenderGuards(review.state, same, earlier);
+  /* A retake: what it changes against the take before it, and the faults it follows. */
+  const finished = earlier.filter((t) => t.status === "completed").sort((a, b) => b.n - a.n);
+  const prev = finished[0];
+  const rendering = { workflow: compiled.workflow, prompt: compiled.prompt, input: { ...compiled.input, ...(onExperiments(ctx.experiments) ? { studio_experiments: ctx.experiments } : {}) } as Record<string, unknown> };
+  const retake: RetakeRecord | undefined = prev ? { of: prev.n, changed: retakeChanges(prev, rendering), after: [...new Set(finished.flatMap((t) => t.review?.faults ?? []))], ...(req.change ? { change: req.change } : {}) } : undefined;
+  const guards = preRenderGuards(review.state, same, earlier, retake);
   compiled.warnings.push(...guards);
   let unreviewed: string | undefined;
+  if (actor.via === "mcp" && retake && !req.change) {
+    /* The retro can only say which change got past which fault if every retake says what it was for. */
+    throw new StudioError("validation", `this shot already has take #${retake.of}: say what this take changes against it and which fault it is after (change). The Studio sees a change of: ${retake.changed.join(", ")}${retake.changed.length === 1 && retake.changed[0] === "seed" ? " only (the same input again)" : ""}.${retake.after.length ? ` The takes before it are tagged ${retake.after.join(", ")}: ${director.fixSummary(retake.after).join("; ")}.` : " No take before it is tagged with a fault: review them first (review_take), or say that this is an alternate."}`, { retake, fixes: director.faultRoutes(retake.after), warnings: guards });
+  }
   if (actor.via === "mcp") {
     /* The envelope spends without asking, so it takes an independent read: the
        agent's own review of its own shot is not one (the script checkpoint has
@@ -416,7 +439,7 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
     const seed = req.seed !== undefined ? req.seed + i : Math.floor(Math.random() * 2 ** 31);
     const take = await repo.createTake({
       projectId: ctx.project.id, shotId, backend: "runpod", workflow: compiled.workflow, prompt: compiled.prompt,
-      input: { ...compiled.input, seed, ...(onExperiments(ctx.experiments) ? { studio_experiments: ctx.experiments } : {}) }, seed,
+      input: { ...compiled.input, seed, ...(onExperiments(ctx.experiments) ? { studio_experiments: ctx.experiments } : {}), ...(retake ? { studio_retake: retake } : {}) }, seed,
     });
     const input = {
       ...take.input,
@@ -436,8 +459,13 @@ function onExperiments(e: PromptExperiments | undefined): boolean {
 
 /** Warnings before a render: the review state of this exact input, and
     earlier takes that rendered the same thing. */
-export function preRenderGuards(state: "pass" | "fail" | "stale" | "none", same: { rejected: Take[]; any: Take[] }, earlier: Take[] = []): string[] {
+export function preRenderGuards(state: "pass" | "fail" | "stale" | "none", same: { rejected: Take[]; any: Take[] }, earlier: Take[] = [], retake?: { changed: RetakeChange[]; after: string[] }): string[] {
   const out: string[] = [];
+  /* A picture fault answered with new words only: the one fix the records never saw work. */
+  const picture = retake ? director.pictureFaults(retake.after) : [];
+  if (retake && picture.length && retake.changed.every((c) => c === "prompt")) {
+    out.push(`the takes before are tagged ${picture.join(", ")} and this render changes only the prompt: on the takes reviewed so far no identity, prop or count fault was fixed by rewording (small sample). ${director.fixSummary(picture).join("; ")}`);
+  }
   /* A re-render with no verdict on the takes before it teaches the retro nothing. */
   const unjudged = earlier.filter((t) => t.status === "completed" && !t.review);
   if (unjudged.length) out.push(`take ${unjudged.map((t) => `#${t.n}`).join(", ")} of this shot ${unjudged.length > 1 ? "have" : "has"} no review: note what was wrong first — the user's tags on the Board, or review_take with faults and a basis (you see stills only) — so the next render and the retro know what failed`);
@@ -488,7 +516,10 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
       const costUsd = executionMs ? (pod?.costPerHr ? podTakeUsd(executionMs, pod.costPerHr) : actualTakeUsd(executionMs)) : undefined;
       const thumbUrls = Array.isArray(out.thumb_urls) ? out.thumb_urls.filter((u): u is string => typeof u === "string") : [];
       const lastFrameUrl = str(out.last_frame_url);
+      /* what the worker measured on the file (take-checks.ts reads it against the shot); kept with the take's input, which needs no new column */
+      const checks = out.checks && typeof out.checks === "object" ? { input: { ...take.input, studio_checks: out.checks } } : {};
       const updated = await repo.updateTake(take.id, {
+        ...checks,
         status: "completed", resultUrl: url, lastFrameUrl, thumbUrls, executionMs, costUsd, finishedAt: Date.now(), error: null, progress: null,
         gpuTypeId: pod?.gpuTypeId, gpuCostPerHr: pod?.costPerHr, outputSeconds: num(out.duration_s) ?? num(take.input.seconds),
       });
@@ -1207,7 +1238,7 @@ async function takeReadiness(shotId: string, n: number, steps?: number): Promise
  * is the one generate_take has: a confirmation accepts the price, not an
  * unread shot.
  */
-export async function createTakeBatch(projectId: string, req: { shotIds?: string[]; n: number; steps?: number; confirm: boolean; skipReview?: string }, actor: Actor): Promise<TakeBatchResult> {
+export async function createTakeBatch(projectId: string, req: { shotIds?: string[]; n: number; steps?: number; confirm: boolean; skipReview?: string; change?: string }, actor: Actor): Promise<TakeBatchResult> {
   /* The two checkpoints first: without them no take renders, whatever its review says. */
   assertCanGenerate(await repo.getProject(projectId), await repo.latestScript(projectId));
   const plan = await planProjectBatch(projectId, { takesPerShot: req.n, onlyMissing: !req.shotIds?.length });
@@ -1255,7 +1286,7 @@ export async function createTakeBatch(projectId: string, req: { shotIds?: string
   const queued: TakeBatchResult["queued"] = [];
   for (const row of ready) {
     try {
-      const r = await createTakes(row.shotId, { n: req.n, steps: req.steps, confirm: true, ...(row.review !== "pass" && req.skipReview ? { skipReview: req.skipReview } : {}) }, actor);
+      const r = await createTakes(row.shotId, { n: req.n, steps: req.steps, confirm: true, ...(req.change ? { change: req.change } : {}), ...(row.review !== "pass" && req.skipReview ? { skipReview: req.skipReview } : {}) }, actor);
       queued.push({ shotId: row.shotId, label: row.label, takeIds: r.takes.map((t) => t.id), estimateUsd: r.estimate.usd, warnings: r.warnings });
     } catch (caught) {
       refused.push({ shotId: row.shotId, label: row.label, code: caught instanceof StudioError ? caught.code : "error", why: caught instanceof Error ? caught.message : String(caught) });

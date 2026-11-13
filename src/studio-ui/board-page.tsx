@@ -6,7 +6,9 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
 import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
+import { FINDING_LABELS, findingAt, readTake } from "@/studio/take-checks";
 import type { Take } from "@/studio/types";
+import { faultRoutes } from "@director/faults";
 import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
@@ -827,6 +829,18 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
     await post(`/api/shots/${shot.id}/select-take`, { takeId: take.id });
     await reload();
   });
+  /* One click says what was wrong: a tag is saved as it is set, with the score the take has or 2
+     (a take with a fault is a rejected one). The retro only learns from takes somebody judged. */
+  const tag = useAction(async (_confirm, next: TakeFault[], fallbackScore: number) => {
+    setFaults(next);
+    const s = score ?? take.review?.score ?? fallbackScore;
+    setScore(s);
+    await post(`/api/takes/${take.id}/review`, { score: s, notes, faults: next, ...(audioOk !== undefined ? { audioOk } : {}) });
+    await reload();
+  });
+  const toggleFault = (f: TakeFault) => void tag.fire(faults.includes(f) ? faults.filter((x) => x !== f) : [...faults, f], 2);
+  /* what the worker measured on the file, read against the shot: leads, each with the tag it suggests */
+  const measured = useMemo(() => (take.status === "completed" ? readTake(take, shot.spec).findings : []), [take, shot.spec]);
   const cancel = useAction(async () => {
     await post(`/api/takes/${take.id}/cancel`);
     await reload();
@@ -852,6 +866,8 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   const active = take.status === "queued" || take.status === "running" || Boolean(upActive);
   const playUrl = up?.status === "completed" && up.url && show2k ? up.url : take.resultUrl;
   const selected = shot.selectedTakeId === take.id;
+  /* another take was picked and nobody said what was wrong with this one */
+  const passedOver = Boolean(shot.selectedTakeId) && !selected && take.status === "completed" && !take.review;
   return (
     <div className="st-take" data-selected={selected}>
       <div>
@@ -881,7 +897,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             <span>{take.error}</span>
           </div>
         )}
-        <ErrorBanner error={review.error ?? select.error ?? cancel.error ?? retry.error ?? regen.error ?? cancelRegen.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : regen.error ? () => void regen.confirm() : undefined} onDismiss={() => { review.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); regen.dismiss(); cancelRegen.dismiss(); }} />
+        <ErrorBanner error={review.error ?? tag.error ?? select.error ?? cancel.error ?? retry.error ?? regen.error ?? cancelRegen.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : regen.error ? () => void regen.confirm() : undefined} onDismiss={() => { review.dismiss(); tag.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); regen.dismiss(); cancelRegen.dismiss(); }} />
         {take.status === "completed" && (
           <div className="st-row" style={{ flexWrap: "wrap", gap: 8 }}>
             {up?.status === "completed" && up.url ? (
@@ -925,16 +941,45 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             {tr("Save review")}
           </Button>
         </div>
+        {measured.length > 0 && (
+          <div className="st-stack st-stack--tight">
+            <span className="st-muted">{tr("Measured on the file — places to look, not a verdict")}</span>
+            {measured.map((f, i) => (
+              <div key={`${f.code}${i}`} className="st-row" style={{ gap: 6 }} title={f.message}>
+                <span>{tr(FINDING_LABELS[f.code] ?? f.message, { at: findingAt(f) })}</span>
+                {f.suggests && !faults.includes(f.suggests) && (
+                  <button type="button" className="st-chip" disabled={tag.busy} onClick={() => toggleFault(f.suggests!)}>
+                    {tr("Tag: {fault}", { fault: tr(f.suggests.replaceAll("_", " ")) })}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         {take.status === "completed" && (
-          <details>
-            <summary className="st-muted">{tr("What went wrong (feeds the retro)")}{faults.length ? ` · ${faults.length}` : ""}</summary>
+          <details open={passedOver || faults.length > 0}>
+            <summary className="st-muted">{passedOver ? tr("Passed over — one click says why (feeds the retro)") : tr("What went wrong (feeds the retro)")}{faults.length ? ` · ${faults.length}` : ""}</summary>
             <div className="st-chips" style={{ marginTop: 6 }}>
               {TAKE_FAULTS.map((f) => (
-                <button key={f} type="button" className="st-chip" aria-pressed={faults.includes(f)} onClick={() => setFaults((xs) => (xs.includes(f) ? xs.filter((x) => x !== f) : [...xs, f]))}>
+                <button key={f} type="button" className="st-chip" aria-pressed={faults.includes(f)} disabled={tag.busy} onClick={() => toggleFault(f)}>
                   {tr(f.replaceAll("_", " "))}
                 </button>
               ))}
+              {passedOver && (
+                <button type="button" className="st-chip" disabled={tag.busy} title={tr("Nothing wrong with it: it is an alternate")} onClick={() => void tag.fire([], 3)}>
+                  {tr("nothing wrong — an alternate")}
+                </button>
+              )}
             </div>
+            {faults.length > 0 && (
+              <ul className="st-muted" style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                {faultRoutes(faults).map((r) => (
+                  <li key={r.fault} title={r.fixes.map((x) => x.how).join(" · ")}>
+                    {tr(r.fault.replaceAll("_", " "))}: {tr(`${r.fixes[0]!.kind}||fix`)}{r.not?.startsWith("rewording") ? tr(" — not by rewording the prompt") : ""}
+                  </li>
+                ))}
+              </ul>
+            )}
             <label className="st-row" style={{ gap: 6, marginTop: 6 }}>
               <input type="checkbox" checked={audioOk === false} onChange={(e) => setAudioOk(e.target.checked ? false : true)} />
               <span className="st-muted">{tr("Sound unusable — mute this take's own audio on the timeline")}</span>

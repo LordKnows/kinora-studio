@@ -63,6 +63,8 @@ export function ShotEditor({
   const characters = elements.filter((e) => e.kind === "character");
   const locations = elements.filter((e) => e.kind === "location");
   const props = elements.filter((e) => e.kind === "prop");
+  /* the elements a state can be recorded for: the ones on this shot */
+  const onShot = elements.filter((e) => value.characters.includes(e.id) || value.props.includes(e.id) || value.location === e.id);
 
   /* Tier 2: the link. `linkToPrev` is mirrored for older readers. */
   const linkType: LinkType = value.link?.type ?? (value.linkToPrev === "continuous" ? "continuous" : "cut");
@@ -351,6 +353,31 @@ export function ShotEditor({
           </div>
         ))}
         <datalist id="st-blocking-who">{characters.map((c) => <option key={c.id} value={c.name} />)}</datalist>
+        {/* What each element carries out of the shot (schemas.ts ElementStateEntry): later prompts, frames and reviews read it. */}
+        <div className="st-row st-row--between">
+          <span className="st-muted">{tr("State when the shot ends — what they wear now, hold, and are like, where it differs from the sheet. Later shots carry it.")}</span>
+          <Button size="sm" disabled={(value.state?.length ?? 0) >= 6 || onShot.length === 0} onClick={() => set("state", [...(value.state ?? []), { who: onShot[0]!.id }])}>{tr("Add")}</Button>
+        </div>
+        {(value.state ?? []).map((st, i) => {
+          const patch = (next: Partial<typeof st>) => set("state", (value.state ?? []).map((x, j) => (j === i ? { ...x, ...next } : x)));
+          return (
+            <div key={i} className="st-line">
+              <select className="st-select st-input--sm" value={st.who} onChange={(e) => patch({ who: e.target.value })} style={{ width: 120 }}>
+                {!onShot.some((el) => el.id === st.who) && <option value={st.who}>{st.who}</option>}
+                {onShot.map((el) => <option key={el.id} value={el.id}>{el.name}</option>)}
+              </select>
+              <input className="st-input st-input--sm" disabled={st.reset} placeholder={tr("wearing…")} value={st.wardrobe ?? ""} onChange={(e) => patch({ wardrobe: e.target.value || undefined })} />
+              <input className="st-input st-input--sm" disabled={st.reset} placeholder={tr("holding…")} value={st.holding ?? ""} onChange={(e) => patch({ holding: e.target.value || undefined })} />
+              <input className="st-input st-input--sm" disabled={st.reset} placeholder={tr("is now… (soaked, a bandaged hand)")} value={st.condition ?? ""} onChange={(e) => patch({ condition: e.target.value || undefined })} />
+              <label className="st-muted" style={{ whiteSpace: "nowrap" }}>
+                <input type="checkbox" checked={!!st.reset} onChange={(e) => patch({ reset: e.target.checked || undefined })} /> {tr("back to the sheet")}
+              </label>
+              <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove")} onClick={() => { const next = (value.state ?? []).filter((_, j) => j !== i); set("state", next.length ? next : undefined); }}>
+                <CloseIcon size={11} />
+              </button>
+            </div>
+          );
+        })}
         <div className="st-fields">
           <Field label={tr("First frame shows")} hint={tr("Who stands where, facing where, which props are visible. Reviewed before anyone draws it.")}>
             <textarea className="st-textarea" rows={2} value={value.frames?.first ?? ""} onChange={(e) => set("frames", e.target.value || value.frames?.last ? { ...(value.frames ?? {}), first: e.target.value || undefined } : undefined)} />

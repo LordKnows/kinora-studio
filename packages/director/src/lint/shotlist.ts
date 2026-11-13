@@ -1,6 +1,8 @@
 import { CORE_CINEMATOGRAPHY_KEYS, baseModelFor } from "../catalog.js";
 import type { LintElement, Shot, Shotlist, Warning } from "../types.js";
 import { lintCraft } from "./craft.js";
+import { lintState } from "../state.js";
+import { splitPoint } from "../split.js";
 import { flatShots } from "../types.js";
 import { readingTimeS } from "../narration/srt.js";
 
@@ -68,11 +70,18 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
     }
     if (shot.camera.move !== "static" && (c.pace === "still")) W.push({ code: "pace.still", severity: "info", ...where, message: "pace still with a moving camera; consider static" });
 
-    // Length vs. complexity: a default from cost (a short shot is cheaper to retake, and a second of
-    // video cost about 1.4× the GPU time in takes over 7 s), not a measured quality rule. Hence a hint.
+    // Long action is chained shots, not one long generation: the user's choice (6 + 6 over one 12 s shot;
+    // split.ts), not a measured rule. A shot with two or more beats past MAX_ACTION_S is asked to split; a
+    // one-beat shot that long may be a hold, so it only gets a hint.
     const complex = shot.beats.length > 1 || c.pace === "brisk" || c.pace === "frantic" || (shot.characters?.length ?? 0) > 0 || (shot.dialogue?.length ?? 0) > 0;
     if (shot.durationS > MAX_ACTION_S && complex && shot.link?.type !== "loop") {
-      W.push({ code: "duration.complex", severity: "info", ...where, message: `${shot.durationS}s with ${shot.beats.length > 1 ? `${shot.beats.length} beats` : "action, characters or dialogue"}: the default is 5 s per action and at most ${MAX_ACTION_S} s (cheaper to retake); split into 5 s shots chained with continuous, or keep it if the action needs the time` });
+      if (shot.beats.length > 1) {
+        const at = splitPoint(shot);
+        const how = typeof at === "number" ? `split_shot cuts it at ${at} s into ${at} s + ${shot.durationS - at} s, the second continuing from the first's last frame` : at;
+        W.push({ code: "duration.complex", severity: "warn", ...where, message: `${shot.durationS}s with ${shot.beats.length} beats in one generation: this project chains long action as two shots joined with continuous (the user's choice, 6 + 6 over one 12 s shot), at most ${MAX_ACTION_S} s each. ${how.charAt(0).toUpperCase()}${how.slice(1)}` });
+      } else {
+        W.push({ code: "duration.complex", severity: "info", ...where, message: `${shot.durationS}s with one beat: fine for a held frame. If it carries an action, keep it at ${MAX_ACTION_S} s or less, or write the action as two beats and split it into two shots joined with continuous (the project's rule for long action)` });
+      }
     }
     if (shot.durationS >= 15 && shot.link?.type !== "loop") W.push({ code: "duration.15", severity: "info", ...where, message: "15 s is the most expensive take to redo; prefer 10 s or a continuous chain unless the frame only holds" });
   }
@@ -109,11 +118,13 @@ export function lintShotlist(list: Shotlist, opts: LintOptions = {}): Warning[] 
   // Staging, wording and the pictures video models get wrong (lint/craft.ts)
   const animated = opts.animated ?? shots.some((s) => !!s.shot.cinematography?.animation);
   W.push(...lintCraft(list, { elements: opts.elements, animated }));
+  // What each element carries from shot to shot, and the shots that cannot show it (state.ts)
+  W.push(...lintState(list, { elements: opts.elements }));
 
   return opts.errorsAndWarningsOnly ? W.filter((w) => w.severity !== "info") : W;
 }
 
-/** The default ceiling for a shot that carries an action; longer shots are for held frames and loops. A default from cost, not a measured limit. */
+/** The ceiling for a shot that carries an action; longer action is two chained shots (split.ts: the user's choice, not a measured limit), longer shots are for held frames and loops. */
 export const MAX_ACTION_S = 8;
 
 function isCalm(sh: Shot): boolean {

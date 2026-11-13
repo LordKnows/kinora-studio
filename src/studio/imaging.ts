@@ -1,5 +1,7 @@
 
 import type { BackendStatus } from "./backends/types";
+import { carriedStates, hasState, stateText, type ShotStates } from "@director/state";
+
 import { renderCinematography } from "./cinematography";
 import { effectiveLink, faceRef, pickRefForViews, placedFeature, preferredViews, VIDEO_SIZES } from "./compiler";
 import { config } from "./config";
@@ -490,7 +492,14 @@ export function refRole(r: FrameRef, n: number): string {
 }
 
 /** A first or last frame of a shot, drawn from its structured fields. */
-export function shotFramePrompt(sh: ShotView, which: "first" | "last", ctx: { elements: Map<string, Element>; palette?: { colors: string[]; note?: string }; look: Project["look"]; refNames?: string[]; refs?: FrameRef[] }): string {
+/** What the shot's elements carry into its first frame, or out of its last: "Mia: wearing …; holding …". */
+export function frameStateLines(sh: ShotView, which: "first" | "last", states: ShotStates | undefined, name: (id: string) => string): string[] {
+  if (!states) return [];
+  const at = which === "first" ? states.before : states.after;
+  return [...sh.spec.characters, ...sh.spec.props, ...(sh.spec.location ? [sh.spec.location] : [])].filter((id) => hasState(at[id])).map((id) => `${name(id)}: ${stateText(at[id]!)}.`);
+}
+
+export function shotFramePrompt(sh: ShotView, which: "first" | "last", ctx: { elements: Map<string, Element>; palette?: { colors: string[]; note?: string }; look: Project["look"]; refNames?: string[]; refs?: FrameRef[]; states?: ShotStates }): string {
   const spec = sh.spec;
   const name = (id: string) => ctx.elements.get(id)?.name ?? id;
   const describe = which === "first"
@@ -508,6 +517,8 @@ export function shotFramePrompt(sh: ShotView, which: "first" | "last", ctx: { el
   const pal = ctx.palette ? `Palette ${ctx.palette.colors.join(", ")}${ctx.palette.note ? ` (${ctx.palette.note})` : ""}.` : "";
   const fixed = [...spec.characters, ...spec.props].map((id) => ctx.elements.get(id)).filter((e): e is Element => !!e && !!e.fixedFeatures?.length).map((e) => `${e.name} has ${e.fixedFeatures!.map((f) => sidedFeature(f, "unknown")).join(" and ")}.`).join(" ");
   const refs = ctx.refs ?? (ctx.refNames ?? []).map((n) => ({ name: n, role: "other" as const }));
+  /* what the shots before left: the sheets show the designed look, the frame must show this one */
+  const carried = frameStateLines(sh, which, ctx.states, name);
   return join([
     `A single still frame from a film: the ${which} frame of the shot "${spec.intent}". Photographed as one moment of the scene, not a poster, not a collage.`,
     section("SCENE", describe),
@@ -516,7 +527,7 @@ export function shotFramePrompt(sh: ShotView, which: "first" | "last", ctx: { el
     section("CAMERA", cine),
     section("COMPOSITION", comp),
     section("COLOUR", pal),
-    section("CONTINUITY", fixed),
+    section("CONTINUITY", [fixed, carried.length ? `At this moment, unlike the reference sheets: ${carried.join(" ")}` : ""].filter(Boolean).join(" ")),
     section("REFERENCES", refs.map((r, k) => refRole(r, k + 1)).join(" ")),
     section("STYLE", styleLine(ctx.look)),
     section("RULES", `Every person in a different pose; leave room where things will move. ${ANATOMY} ${NO_TEXT}`),
@@ -754,6 +765,8 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   }
   /* references: the characters by the view this shot wants, the location, the style frame */
   const elements = new Map(pv.elements.map((e) => [e.id, e]));
+  const states = carriedStates(flat.map((x) => x.spec))[flat.findIndex((x) => x.id === shotId)];
+  const carried = frameStateLines(sh, which, states, (id) => elements.get(id)?.name ?? id);
   const refs: Array<{ url: string; name: string; role: FrameRef["role"] }> = [];
   const wanted = preferredViews(sh.spec);
   /* each character by the figure this shot's size and angle want, then their
@@ -785,13 +798,14 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
   if (method === "new") {
     /* at most five pictures, or fewer when the project's model takes fewer: the characters' figures first, then their portraits, then the place, a close-up's expression grids, the style frame last (dropped first) */
     const use = refs.slice(0, Math.min(5, refCap(pv.project, false)));
-    const prompt = shotFramePrompt(sh, which, { elements, palette: scene.palette, look: pv.project.look, refs: use });
+    const prompt = shotFramePrompt(sh, which, { elements, palette: scene.palette, look: pv.project.look, refs: use, states });
     const r = await submitImage(pv.project.id, { op: "paint", purpose: which === "first" ? "shot_first" : "shot_last", prompt, refUrls: use.map((x) => x.url), refRoles: use.map((x) => frameRefRole(x.role)), size, quality: opts.quality, targetId: shotId, attach, label }, actor, opts);
     return { ...r, method, prompt };
   }
   /* edits of a related frame: the base goes last */
   let base: Asset | undefined;
   let instruction = opts.instruction ?? "";
+  const own = !instruction;
   if (method === "edit_from_last") {
     base = sh.end;
     instruction ||= `make it the moment the shot begins: ${sh.spec.frames?.first ?? sh.spec.beats[0]?.action ?? sh.spec.intent}. Only positions, poses, expressions and what is in hand change.`;
@@ -814,6 +828,8 @@ export async function generateShotFrame(shotId: string, which: "first" | "last",
     if (!base && take?.lastFrameUrl) base = { id: "", projectId: pv.project.id, url: take.lastFrameUrl, kind: "image", source: "frame-extract", meta: {}, createdAt: 0 };
     instruction ||= `time has passed: ${sh.spec.frames?.first ?? sh.spec.beats[0]?.action}. Same place, same camera, same framing.`;
   }
+  /* the default instruction carries the state the shots before left; one the caller wrote is theirs */
+  if (own && carried.length) instruction += ` At this moment: ${carried.join(" ")}`;
   if (!base) throw new StudioError("validation", `${method}: the frame to edit from does not exist yet (${method === "edit_from_last" ? "draw the last frame first" : method === "edit_anchor" ? "the anchor shot needs a finished take" : "the earlier shot has no first frame"})`);
   const extra = refs.filter((r) => r.role !== "style").slice(0, Math.min(4, refCap(pv.project, true)));
   const prompt = editPrompt(instruction, { refsFirst: extra.length });

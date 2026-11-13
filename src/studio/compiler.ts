@@ -1,17 +1,21 @@
 import { h3Frames } from "@director/catalog";
 import { promptConstraints } from "@director/lint/constraints";
+import { stateLines, type ShotStates } from "@director/state";
 
 import { renderCinematography } from "./cinematography";
 import { grammarFor, type LinkType } from "./editing";
 import { findModel, isGraphDefault, resolveParams, type InferenceParams, type ModelEntry } from "./models";
-import { CAMERA_MOVES, FIGURE_VIEWS, type Blocking, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
+import { CAMERA_MOVES, FIGURE_VIEWS, type Beat, type Blocking, type Camera, type Line, type LookSettings, type PromptExperiments, type RefView, type ScreenPosition, type ShotInput, type ShotLink, type VoiceState } from "./schemas";
 import { H3_FAMILY, trainedFor, turboFor } from "./shot-loras";
 import type { Asset, Element, Lora, Scene, Shot, Take } from "./types";
 
 /* §4.2 — the deterministic half of the director. Structured shot fields become
-   an H3 prompt in the community-documented format, with the project Look and
-   a constraints block on every shot. Templates differ by mode so the text
-   never repeats what a frame or a reference image already carries. */
+   an H3 prompt in MiniMax's caption fields (the H3 prompt guides), with the
+   project Look and a constraints block on every shot. Templates differ by mode
+   so the text never repeats what a frame or a reference image already carries.
+   The default serialisation is the one the handoff graphs rendered with; it
+   departs from MiniMax's published format in five places, and
+   experiments.officialFormat writes that format instead (serializeOfficial). */
 
 export type Workflow = "T2VA" | "I2VA" | "FL2VA" | "R2VA";
 
@@ -93,12 +97,16 @@ export type CompileContext = {
   scene?: Scene;
   /** Prompt A/B switches (take request over project default); all off by default. */
   experiments?: PromptExperiments;
+  /** What the shot's elements carry in from the shots before it, and how they are when it ends (state.ts). */
+  states?: ShotStates;
 };
 
-/* lightx2v trained the turbo LoRAs on a structured caption: fixed field names,
-   <Picture 1> / <Picture 2> for the first / last frame and <Subject N> for
-   reference images (handoff §1). "blocks" is the plain sectioned text used
-   before the handoff; keep it for A/B tests. */
+/* MiniMax's caption format (the H3 prompt guides; lightx2v's notes for its
+   turbo LoRAs use the same fields): fixed field names, <Picture 1> /
+   <Picture 2> for the first / last frame and <Subject N> for reference images
+   (handoff §1). What captions the turbo LoRAs were distilled with is not
+   published. "blocks" is the plain sectioned text used before the handoff;
+   keep it for A/B tests. */
 export type PromptFormat = "lightx2v-json" | "lightx2v-lines" | "blocks";
 
 export function promptFormat(): PromptFormat {
@@ -545,10 +553,20 @@ type Sections = {
   sound: { sfx: string; ambience: string; music: string };
   constraints: string[];
   edit?: string;
+  /** The same shot as data, for the official serialisation (serializeOfficial). */
+  official: {
+    beats: Beat[];
+    camera: Camera;
+    linkLine?: string;
+    frameHolds: boolean;
+    spoken: { startS?: number; text: string }[];
+    effectiveS: number;
+  };
 };
 
 function buildPrompt(ctx: CompileContext, images: WorkerImage[], workflow: Workflow, loras: ActiveLora[] = [], linkType: LinkType = "cut", audios: WorkerAudio[] = []): string {
   const sections = buildSections(ctx, images, workflow, loras, linkType, audios);
+  if (ctx.experiments?.officialFormat) return serializeOfficial(sections, workflow, images);
   return serializePrompt(sections, workflow, images, ctx.format ?? promptFormat());
 }
 
@@ -582,7 +600,10 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   });
   if (spec.mode === "edit") refLines.unshift("Video 1: the source take. Keep its framing, camera motion, timing and everything not listed under EDIT.");
   if (refLines.length) blocks.push(`REFERENCES\n${refLines.join("\n")}`);
-  const out: Sections = { references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], spoken: [], voiceRefs: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [] };
+  const out: Sections = {
+    references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], spoken: [], voiceRefs: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [],
+    official: { beats: spec.mode === "edit" ? [] : spec.beats, camera: spec.camera, frameHolds: false, spoken: [], effectiveS: h3EffectiveSeconds(spec.durationS) },
+  };
 
   /* LOOK — always; style LoRAs contribute their trigger words here, the
      scene's colour script its palette. */
@@ -619,6 +640,9 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
       const el = ctx.elements.get(id);
       if (el?.fixedFeatures?.length) who.push(`${el.name} always has ${el.fixedFeatures.map(placedFeature).join("; ")}, in every frame.`);
     }
+    /* What each element carries from the shots before, in every mode: a sheet shows the designed
+       look and a frame can lose a wet coat as easily as a tattoo. */
+    who.push(...stateLines([...spec.characters, ...spec.props, ...(spec.location ? [spec.location] : [])], ctx.states, name));
     for (const b of spec.blocking ?? []) who.push(blockingLine(b, name));
     blocks.push(`SHOT INTENT\n${spec.intent}${who.length ? `\n${who.join("\n")}` : ""}`);
     out.who = who;
@@ -626,7 +650,11 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
     const hasFirstFrame = images.some((i) => i.role === "first_frame");
     const beatLines = spec.beats.map((b) => `${fmt(b.from)}–${fmt(b.to)}s: ${b.cut ? "Hard cut. " : ""}${b.action}`);
     const linkLine = LINK_LINES[linkType];
-    if (linkLine && images.some((i) => i.role === "first_frame" || i.label === "match frame")) beatLines.unshift(linkLine);
+    if (linkLine && images.some((i) => i.role === "first_frame" || i.label === "match frame")) {
+      beatLines.unshift(linkLine);
+      out.official.linkLine = linkLine;
+    }
+    out.official.frameHolds = !!ctx.experiments?.frameHolds && hasFirstFrame;
     if (ctx.experiments?.frameHolds && hasFirstFrame) beatLines.unshift("0–0.2s: the picture holds perfectly still, identical to the first frame.");
     if (workflow === "FL2VA") beatLines.push(ctx.experiments?.frameHolds ? `Last 0.3s: everyone stops; the picture settles exactly on the final frame provided.` : `The shot ends on the final frame provided.`);
     blocks.push(`TIMELINE (${spec.durationS}s)\n${beatLines.join("\n")}`);
@@ -653,7 +681,7 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   const speakers = onscreenSpeakers(spec);
   const refImages = images.filter((i) => i.role === "reference");
   const who = (id: string) => {
-    if (workflow !== "R2VA" || (ctx.format ?? promptFormat()) === "blocks") return name(id);
+    if (workflow !== "R2VA" || (!ctx.experiments?.officialFormat && (ctx.format ?? promptFormat()) === "blocks")) return name(id);
     const k = refImages.findIndex((img) => img.label === ctx.elements.get(id)?.name);
     return k >= 0 ? `<Subject ${k + 1}>` : name(id);
   };
@@ -664,9 +692,12 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
     introduced.add(l.speaker);
     const delivery = l.delivery && l.delivery !== "neutral" ? ` (${l.delivery})` : "";
     const at = l.startS !== undefined ? `At ${fmt(l.startS)}s, ` : "";
-    const text = `${at}${who(l.speaker)} (S${sid})${voice ? `, ${voice},` : ""} says${delivery}: <d>[${languageTag(lineLanguage(l, look))}] ${l.text}</d>`;
+    const said = `${who(l.speaker)} (S${sid})${voice ? `, ${voice},` : ""} says${delivery}: <d>[${languageTag(lineLanguage(l, look))}] ${l.text}</d>`;
+    const text = `${at}${said}`;
     out.dialogue.push(text);
     out.spoken.push({ segment: l.startS !== undefined ? segmentAt(spec, l.startS) : -1, text });
+    /* the official format ties a line to the beat it falls in, not to a timecode */
+    out.official.spoken.push({ startS: l.startS, text: said });
   }
   if (out.dialogue.length) blocks.push(`DIALOGUE\n${out.dialogue.join("\n")}`);
   for (const [j, a] of audios.entries()) {
@@ -782,6 +813,152 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
   }
   if (format === "lightx2v-json") return JSON.stringify(Object.fromEntries(fields.map(([k, v]) => [k, v])));
   return fields.map(([k, v, mode]) => (mode === "block" ? `${k}:\n${v}` : `${k}: ${v}`)).join("\n\n");
+}
+
+/* ---------- MiniMax's published format (experiments.officialFormat) ---------- */
+
+/* The H3 prompt guides (VIDEO_PROMPT_WRITING_GUIDE_base_en / _ref_en in
+   MiniMaxAI/MiniMax-H3) and the default serialisation above differ in five
+   places. This one follows the guides:
+   1. the instruction line is the first line of the prompt, a blank line before the fields;
+   2. first-and-last-frame takes use the guide's own sentence ("How the reference pictures align …");
+   3. text-to-video has no instruction line;
+   4. time is written only where the shot cuts ("[Shot 2] At 00:03.500, the camera cuts to …");
+      inside a shot the beats follow each other in prose, and a line is tied to its beat;
+   5. the camera move is a sentence of the shot ("The camera pushes in with small amplitude at
+      slow speed."), not a `Camera:` label, and the cinematography terms lose their labels too.
+   Whether any of this renders better on the 8-step turbo chain is not measured: it is an A/B
+   switch, recorded on the take, off by default. */
+
+const CAMERA_OFFICIAL: Record<(typeof CAMERA_MOVES)[number], string> = {
+  static: "holds a static shot",
+  push_in: "pushes in",
+  pull_out: "pulls out",
+  pan: "pans",
+  tilt: "tilts",
+  truck: "trucks sideways",
+  pedestal: "moves on a pedestal",
+  arc: "arcs around the subject",
+  tracking: "tracks with the subject",
+  handheld: "shakes slightly",
+  pov: "shows the subject's point of view",
+  roll: "rolls",
+  zoom: "zooms",
+};
+
+/** The camera move in the guide's words: type, then amplitude and speed where they are not the middle value. */
+export function officialCameraSentence(cam: Camera): string {
+  const note = cam.note ? ` ${cam.note}` : "";
+  if (cam.move === "static") return `The camera holds a static shot for the whole duration.${note}`;
+  if (cam.move === "handheld") return `The camera ${cam.amplitude === "strong" ? "shakes strongly" : "shakes slightly"}, handheld.${note}`;
+  if (cam.move === "pov") return `The shot is the subject's POV.${note}`;
+  const amplitude = cam.amplitude === "subtle" ? " with small amplitude" : cam.amplitude === "strong" ? " with large amplitude" : "";
+  const speed = cam.speed === "slow" ? " at slow speed" : cam.speed === "fast" ? " at fast speed" : "";
+  return `The camera ${CAMERA_OFFICIAL[cam.move]}${amplitude}${speed}.${note}`;
+}
+
+/** 3.5 → "00:03.500": the guide's cut time. */
+export function cutTimecode(seconds: number): string {
+  const ms = Math.round(seconds * 1000);
+  const pad = (n: number, w: number) => String(n).padStart(w, "0");
+  return `${pad(Math.floor(ms / 60000), 2)}:${pad(Math.floor((ms % 60000) / 1000), 2)}.${pad(ms % 1000, 3)}`;
+}
+
+/* "The wind lifts the bag." after "Early in the shot, " reads "…, the wind lifts the bag."; a name keeps its capital. */
+const LOWER_AFTER_MARKER = /^(The|A|An|His|Her|Their|Its|She|He|They|It|Both|Each|One|Two|Three|Someone|Something|Everyone|Nothing|Behind|Beside|In|On|At|From|With|As|While)\b/;
+function afterMarker(marker: string, action: string): string {
+  const a = action.trim();
+  if (!marker) return a;
+  return `${marker}${LOWER_AFTER_MARKER.test(a) ? a.charAt(0).toLowerCase() + a.slice(1) : a}`;
+}
+
+/** Where a beat sits among the beats of its segment, in words. */
+function beatMarker(i: number, n: number): string {
+  if (n <= 1) return "";
+  if (i === 0) return "Early in the shot, ";
+  if (i === n - 1) return "Through the rest of the shot, ";
+  return i === 1 ? "As the shot continues, " : "Then, ";
+}
+
+const unlabel = (line: string) => {
+  const t = line.replace(/^[A-Z][A-Za-z]+: /, "");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
+function serializeOfficial(sec: Sections, workflow: Workflow, images: WorkerImage[]): string {
+  const refs = images.filter((i) => i.role === "reference");
+  const hasFirst = images.some((i) => i.role === "first_frame");
+  const hasLast = images.some((i) => i.role === "last_frame");
+  /* a spoken line ends with its </d>, as in the guide's examples: no full stop after it */
+  const sentence = (parts: string[]) => parts.map((p) => p.trim()).filter(Boolean).map((p) => (ENDS_SENTENCE.test(p) || p.endsWith("</d>") ? p : `${p}.`)).join(" ");
+  const capital = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "N/A";
+  const soundscape = sentence([sec.sound.sfx !== "only what the action makes" ? sec.sound.sfx : "", sec.sound.ambience]) || "Natural room tone.";
+  const o = sec.official;
+
+  /* A new [Shot k] opens at every hard cut after the first frame. */
+  const segments: Beat[][] = [[]];
+  for (const b of o.beats) {
+    if (b.cut && b.from > 0 && segments[segments.length - 1]!.length) segments.push([]);
+    segments[segments.length - 1]!.push(b);
+  }
+  const last = segments.length - 1;
+  /* a line belongs to the beat it starts in; one with no time closes the last shot */
+  const linesAfter = (b: Beat, isLastBeat: boolean) => o.spoken.filter((d) => (d.startS === undefined ? isLastBeat : d.startS >= b.from - 1e-6 && (d.startS < b.to - 1e-6 || (isLastBeat && d.startS >= b.to - 1e-6)))).map((d) => d.text);
+
+  const look = sentence(sec.look);
+  /* the guide opens [Shot 1] with the style and the initial composition */
+  const framing = sec.cinematography.filter((l) => /^(Framing|Lens): /.test(l)).map(unlabel);
+  const finish = sec.cinematography.filter((l) => !/^(Framing|Lens): /.test(l)).map(unlabel);
+  const camera = officialCameraSentence(o.camera);
+  const single = segments.length === 1;
+  const anchor = hasFirst && hasLast
+    ? "The shot begins in the position and framing established by Picture 1."
+    : hasFirst ? `The shot opens exactly on <Picture 1>${single ? " and continues from it in one take" : ""}, preserving the appearance, clothing, positions and layout it shows.` : "";
+  const landing = hasFirst && hasLast
+    ? (o.frameHolds ? "In the last moments everyone stops, and the picture settles exactly into the pose, spacing and composition established by Picture 2." : "By the end of the shot everything settles into the pose, spacing and composition established by Picture 2.")
+    : "";
+  const lastBeat = o.beats[o.beats.length - 1];
+  const untimed = o.beats.length === 0 ? o.spoken.map((d) => d.text) : [];
+
+  const shotBlocks = segments.map((beats, k) => {
+    const head = k === 0
+      ? [workflow === "R2VA" ? "" : look, ...framing, anchor, sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : sec.intent, ...sec.who, o.linkLine ?? "", o.frameHolds ? "The picture first holds still for a moment, identical to the first frame." : ""]
+      : [`At ${cutTimecode(beats[0]!.from)}, the camera cuts to a new view.`];
+    const body = beats.flatMap((b, i) => [afterMarker(beatMarker(i, beats.length), b.action), ...linesAfter(b, b === lastBeat)]);
+    const tail = k === last ? [...untimed, landing, ...finish, ...sec.constraints.map(capital)] : [];
+    return `[Shot ${k + 1}] ${sentence([...head, camera, ...body, ...tail])}`;
+  });
+
+  if (workflow === "R2VA") {
+    const subjects = refs.map((img, i) => {
+      const line = sec.references[i]?.replace(/^Image \d+: /, "") ?? img.label ?? "reference";
+      /* the guide cites the source picture inside the subject's definition */
+      return `<Subject ${i + 1}> is ${line.replace(/, the character\. /, `, the character shown in <Picture ${i + 1}>. `).replace(/, the setting\. /, `, the setting shown in <Picture ${i + 1}>. `)}`;
+    });
+    const retention = refs.map((_img, i) => {
+      const keep = /Keep ([^.]+)\./.exec(sec.references[i] ?? "")?.[1] ?? "identity, proportions and materials";
+      return `<Subject ${i + 1}> (appears in [Shot 1]): fully_preserved - ${keep} are retained.`;
+    });
+    const voiceRefs = sec.voiceRefs ?? [];
+    const audioNote = voiceRefs.length ? [`${voiceRefs.map((_v, j) => `<Audio ${j + 1}>`).join(" and ")} give the speakers' voice timbre`] : [];
+    return [
+      `subject_definitions:\n${[...subjects, ...voiceRefs.map((v) => v.definition)].join("\n")}`,
+      `summary:\n[reference generation${voiceRefs.length ? " + audio reference" : ""}] ${sentence([sec.intent, `${refs.map((_r, i) => `<Subject ${i + 1}>`).join(" and ")} guide character identity and wardrobe throughout`, ...audioNote])}`,
+      `retention_analysis:\n${[...retention, ...voiceRefs.map((v) => v.retention)].join("\n")}`,
+      /* reference mode: the style opens the description, before [Shot 1] */
+      `detailed_description:\n${look ? `${look} ` : ""}${shotBlocks.join(" ")}`,
+      `overall_soundscape:\n${soundscape}`,
+      `non_diegetic_music: ${music}`,
+    ].join("\n\n");
+  }
+
+  const seconds = o.effectiveS.toFixed(2);
+  const instruction = hasFirst && hasLast
+    ? `How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot ${segments.length}) aligns with the ${seconds}-second mark of the target video.`
+    : hasFirst ? "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced." : "";
+  const fields = [`integrated_multimodal_description: ${shotBlocks.join(" ")}`, `overall_soundscape: ${soundscape}`, `non_diegetic_music: ${music}`].join("\n\n");
+  return instruction ? `${instruction}\n\n${fields}` : fields;
 }
 
 function fmt(n: number): string {

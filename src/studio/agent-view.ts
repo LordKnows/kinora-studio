@@ -36,7 +36,8 @@ export function compactTake(t: Take): Row {
     steps: input.steps, loras, seed: t.seed, videoSize: input.video_size, experiments: input.studio_experiments,
     outputSeconds: t.outputSeconds, executionMs: t.executionMs, costUsd: t.costUsd, gpuTypeId: t.gpuTypeId,
     resultUrl: t.resultUrl, lastFrameUrl: t.lastFrameUrl, error: clip(t.error, 400),
-    review: t.review, progress: t.status === "queued" || t.status === "running" ? t.progress : undefined,
+    review: t.review, retake: input.studio_retake, measured: input.studio_checks ? true : undefined,
+    progress: t.status === "queued" || t.status === "running" ? t.progress : undefined,
     upscale: t.upscale ? drop({ status: t.upscale.status, resolution: t.upscale.resolution, url: t.upscale.url, costUsd: t.upscale.costUsd }) : undefined,
     createdAt: t.createdAt, finishedAt: t.finishedAt,
   });

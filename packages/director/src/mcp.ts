@@ -16,6 +16,11 @@ import { assemble } from "./timeline/assemble.js";
 import { checkLines, placeLines, toSrt, spellNumbersForSpeech, type Line } from "./narration/srt.js";
 import { synthesize } from "./narration/tts.js";
 import { planBatch, type BatchShot } from "./batch.js";
+import { faultRoutes } from "./faults.js";
+import { AB_TESTS, planAb } from "./ab.js";
+import { splitShot } from "./split.js";
+import { carriedStates, stateText } from "./state.js";
+import { flatShots, type Shotlist } from "./types.js";
 
 /**
  * The director MCP: judgement helpers that sit beside the Kinora Studio MCP.
@@ -24,7 +29,7 @@ import { planBatch, type BatchShot } from "./batch.js";
  * `save_timeline`, `generate_take`) or a local file.
  */
 const server = new McpServer({ name: "director", version: "0.1.0" }, {
-  instructions: "Director layer for Kinora Studio. Read get_guide('director') first. Flow: suggest_styles/get_style → compile_look (→ start_film) → validate_treatment (→ save_script with its markdown) → apply_style + lint_shotlist (→ save_shotlist) → build_cue_map/check_cue_map → plan_batch (→ generate_take) → check_timeline/to_studio_timeline (→ save_timeline) → assemble_local for J/L cuts, titles, narration.",
+  instructions: "Director layer for Kinora Studio. Read get_guide('director') first. Flow: suggest_styles/get_style → compile_look (→ start_film) → validate_treatment (→ save_script with its markdown) → apply_style + lint_shotlist (→ save_shotlist) → build_cue_map/check_cue_map → plan_batch (→ generate_take; after a take: fix_for_faults; to test a default: plan_ab) → check_timeline/to_studio_timeline (→ save_timeline) → assemble_local for J/L cuts, titles, narration.",
 });
 
 const text = (x: unknown) => ({ content: [{ type: "text" as const, text: typeof x === "string" ? x : JSON.stringify(x, null, 2) }] });
@@ -84,7 +89,7 @@ server.registerTool("apply_style", {
 });
 
 server.registerTool("lint_shotlist", {
-  description: "Deterministic rhythm and craft lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beats tiling, link/mode sanity, render-order switches; staging (blocking in screen terms, the 180° line, what moves, dead frames), wording the model misreads (loose directions, negations, unison reactions) and the pictures video models get wrong (fragile.*). Pass elements so names in the beats are checked against each shot. Run before save_shotlist and fix the errors and warnings.",
+  description: "Deterministic rhythm, craft and continuity lint on a shotlist in save_shotlist shape: pace and framing variety, a breath, static use, runs of the same link, dialogue density, beats tiling, link/mode sanity, render-order switches; staging (blocking in screen terms, the 180° line, what moves, dead frames), wording the model misreads (loose directions, negations, unison reactions) the pictures video models get wrong (fragile.*), and the state each element carries from shot to shot (state.*: a reference-mode shot that would draw the sheet's look, an insert_return over a change, a change nobody recorded). Pass elements so names in the beats are checked against each shot. Run before save_shotlist and fix the errors and warnings.",
   inputSchema: { shotlist: ShotlistSchema, totalSeconds: z.number().int().optional(), errorsAndWarningsOnly: z.boolean().default(false), elements: z.array(z.object({ id: z.string(), name: z.string(), kind: z.enum(["character", "location", "prop"]), fixedFeatures: z.array(z.object({ feature: z.string(), where: z.string() })).optional() })).optional() },
 }, async ({ shotlist, totalSeconds, errorsAndWarningsOnly, elements }) => text(lintShotlist(shotlist as any, { totalSeconds, errorsAndWarningsOnly, elements })));
 
@@ -135,6 +140,35 @@ server.registerTool("plan_batch", {
     capUsd: z.number(), spentUsd: z.number().default(0), perSecondUsd: z.number().optional(), takesPerShot: z.number().int().min(1).max(4).default(1), onlyMissing: z.boolean().default(true),
   },
 }, async ({ shots, capUsd, spentUsd, perSecondUsd, takesPerShot, onlyMissing }) => text(planBatch(shots as BatchShot[], { capUsd, spentUsd }, { perSecondUsd, takesPerShot, onlyMissing })));
+
+server.registerTool("fix_for_faults", {
+  description: "From the faults tagged on a take to the fix each calls for, cheapest first: a picture fault (identity, a lost prop, a count) goes to a painted frame, another mode or Viggle Remake and not to new wording; a motion fault (the action, its timing, the camera) to the shot's beats, length or camera and a new render, which Remake cannot fix; a head or tail fault to the edit; a sound fault to the timeline. The Studio's review_take answers with the same table.",
+  inputSchema: { faults: z.array(z.string().min(1).max(40)).min(1).max(8).describe("Fault tags as review_take takes them: identity_drift, wardrobe_or_prop_lost, action_timing, tail_snap, audio_bad …") },
+}, async ({ faults }) => text(faultRoutes(faults)));
+
+server.registerTool("carried_state", {
+  description: "What every character, prop and place carries into and out of each shot of a shotlist, from the shots' state records (what they wear now, hold, are like, where that differs from the sheet). A state holds until another record changes it. Use it to see what a later shot's prompt and frames will be told; lint_shotlist names the shots that cannot show it (state.reference, state.resume).",
+  inputSchema: { shotlist: ShotlistSchema },
+}, async ({ shotlist }) => {
+  const shots = flatShots(shotlist as Shotlist);
+  const states = carriedStates(shots.map((s) => s.shot));
+  const say = (r: Record<string, { wardrobe?: string; holding?: string; condition?: string }>) => Object.fromEntries(Object.entries(r).map(([who, s]) => [who, stateText(s)]));
+  return text(shots.map((s, i) => ({ scene: s.scene.slug, shot: s.index, atStart: say(states[i]!.before), atEnd: say(states[i]!.after) })));
+});
+
+server.registerTool("plan_ab", {
+  description: "Lay out an A/B test on one shot (a shot object as save_shotlist takes it), spending nothing: format (the Studio's default prompt serialisation against MiniMax's published format, experiments.officialFormat), restate_frame (trust the first frame, or restate it as MiniMax's guide asks), steps (8-step turbo against the base chain at 20 steps, on prompt following). Returns the question, the two arms, the seeds, what is held the same, what to read on the takes and what the answer will not show. The Studio's plan_ab does the same on a saved shot and adds the cost and the calls. Shot length is not a test: long action is two chained shots (split_shot), the user's decision.",
+  inputSchema: { test: z.enum(AB_TESTS), shot: z.any(), seeds: z.array(z.number().int().min(0)).min(1).max(4).optional() },
+}, async ({ test, shot, seeds }) => {
+  try { return text(planAb(test, shot, { seeds })); } catch (e) { return text({ error: (e as Error).message }); }
+});
+
+server.registerTool("split_shot", {
+  description: "The project's rule for long action: two shots, not one long generation (the user's choice, 6 + 6 over one 12 s shot; lint_shotlist warns with duration.complex). This divides one shot into two, the second continuing from the first's last frame (link continuous): the beats, timed lines, frames and state are divided at a beat boundary on a whole second with 5 s or more on both sides (the one nearest the middle, or atS). Nothing is rewritten. Put the two in the shotlist in place of the long shot.",
+  inputSchema: { shot: z.any(), atS: z.number().optional() },
+}, async ({ shot, atS }) => {
+  try { return text(splitShot(shot, atS)); } catch (e) { return text({ error: (e as Error).message }); }
+});
 
 const ExtTimelineSchema = z.any();
 

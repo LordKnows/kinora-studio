@@ -9,7 +9,7 @@ Input (from the Studio's compiler, `WorkerInput`):
     studio_take_id
 
 Output (posted to the Studio webhook by RunPod):
-    {url, last_frame_url, thumb_urls[4], execution_ms, seed}
+    {url, last_frame_url, thumb_urls[4], execution_ms, seed, checks}
 
 The ComfyUI graph itself is not in this repo: the deployer drops API-format
 workflow JSONs into workflows/ and points mapping.json at the right nodes.
@@ -673,6 +673,7 @@ def run_remake_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, wo
         "seed": params["seed"],
         "studio_take_id": params.get("studio_take_id"),
         "duration_s": probe_duration(video),
+        "checks": measure_take(video),
         "remake": {"mode": params["mode"], "frames": params["frames"], "pins": params["pins"]},
     }
 
@@ -1120,6 +1121,92 @@ def extract_frames(video: Path, out_dir: Path) -> tuple[Path, list[Path]]:
     return last, thumbs
 
 
+# ---------- what can be measured on a take ----------
+
+# The director sees four stills of a take and hears nothing. These are the facts a file gives
+# without a model: how much the picture changes over time, when there is sound, and how far the
+# first and last frames are from the pictures the take was given. The Studio reads them against
+# the shot's beats, lines and frames (src/studio/take-checks.ts); nothing here judges a take.
+MEASURE_FPS = 8
+MEASURE_SIZE = (64, 36)
+AUDIO_HZ = 10
+AUDIO_RATE = 8000
+
+
+def _gray_frames(args: list[str]) -> list[bytes]:
+    """Decode to small grey frames: one bytes object of w*h values per frame."""
+    w, h = MEASURE_SIZE
+    raw = subprocess.run([FFMPEG, "-v", "error", *args, "-f", "rawvideo", "-pix_fmt", "gray", "-"], check=True, capture_output=True).stdout
+    n = w * h
+    return [raw[i:i + n] for i in range(0, len(raw) - n + 1, n)]
+
+
+def _mean_abs_diff(a: bytes, b: bytes) -> float:
+    return sum(abs(x - y) for x, y in zip(a, b)) / (255.0 * max(1, len(a)))
+
+
+def motion_profile(video: Path) -> list[float]:
+    """Mean absolute difference between consecutive frames at MEASURE_FPS, 0 (a still) to 1."""
+    w, h = MEASURE_SIZE
+    frames = _gray_frames(["-i", str(video), "-vf", f"fps={MEASURE_FPS},scale={w}:{h}"])
+    return [round(_mean_abs_diff(frames[i - 1], frames[i]), 5) for i in range(1, len(frames))]
+
+
+def audio_profile(video: Path) -> list[float] | None:
+    """RMS level in dBFS per 1/AUDIO_HZ s of the take's own sound (mono mix); None without an audio stream."""
+    import array
+    import math
+
+    has = subprocess.run([FFPROBE, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(video)], capture_output=True, text=True).stdout.strip()
+    if not has:
+        return None
+    raw = subprocess.run([FFMPEG, "-v", "error", "-i", str(video), "-vn", "-ac", "1", "-ar", str(AUDIO_RATE), "-f", "s16le", "-"], check=True, capture_output=True).stdout
+    samples = array.array("h")
+    samples.frombytes(raw[: len(raw) - len(raw) % 2])
+    if sys.byteorder == "big":
+        samples.byteswap()
+    step = AUDIO_RATE // AUDIO_HZ
+    out: list[float] = []
+    for i in range(0, len(samples) - step + 1, step):
+        window = samples[i:i + step]
+        rms = math.sqrt(sum(v * v for v in window) / step) / 32768.0
+        out.append(round(20 * math.log10(rms), 1) if rms > 1e-5 else -100.0)
+    return out
+
+
+def frame_difference(video: Path, picture: Path, at_end: bool) -> float:
+    """How far the take's first (or last) frame is from a picture, 0 (the same) to 1, on small grey copies."""
+    w, h = MEASURE_SIZE
+    seek = ["-sseof", "-0.3", "-i", str(video), "-vf", f"scale={w}:{h}"] if at_end else ["-i", str(video), "-frames:v", "1", "-vf", f"scale={w}:{h}"]
+    frames = _gray_frames(seek)
+    ref = _gray_frames(["-i", str(picture), "-frames:v", "1", "-vf", f"scale={w}:{h}"])
+    if not frames or not ref:
+        raise ValueError("no frame decoded")
+    return round(_mean_abs_diff(frames[-1] if at_end else frames[0], ref[0]), 5)
+
+
+def measure_take(video: Path, first_frame: Path | None = None, last_frame: Path | None = None) -> dict[str, Any]:
+    """The measurements a finished take carries. Each is on its own: one that fails is left out and named."""
+    checks: dict[str, Any] = {"version": 1}
+    failed: list[str] = []
+
+    def attempt(name: str, fn: Callable[[], Any]) -> None:
+        try:
+            checks[name] = fn()
+        except Exception as error:  # a measurement never fails a take that rendered
+            failed.append(f"{name}: {str(error)[:120]}")
+
+    attempt("motion", lambda: {"fps": MEASURE_FPS, "values": motion_profile(video)})
+    attempt("audio", lambda: (lambda db: {"hz": AUDIO_HZ, "db": db} if db is not None else None)(audio_profile(video)))
+    if first_frame:
+        attempt("first_frame_diff", lambda: frame_difference(video, first_frame, False))
+    if last_frame:
+        attempt("last_frame_diff", lambda: frame_difference(video, last_frame, True))
+    if failed:
+        checks["failed"] = failed
+    return checks
+
+
 # ---------- R2 ----------
 
 
@@ -1159,6 +1246,7 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
     inputs = workdir / "in"
     inputs.mkdir(exist_ok=True)
     files: dict[str, Any] = {"reference": []}
+    given: dict[str, Path] = {}
     for i, img in enumerate(params["images"]):
         local = download_image(img["url"], inputs / f"{img['role']}{i}.{ext_of(img['url'], 'png')}", comfy.http)
         name = comfy.upload_image(local)
@@ -1166,6 +1254,7 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
             files["reference"].append(name)
         else:
             files[img["role"]] = name
+            given[img["role"]] = local
     if params.get("video"):
         local = download(params["video"], inputs / f"source.{ext_of(params['video'], 'mp4')}", comfy.http)
         files["video"] = comfy.upload_image(local)
@@ -1211,6 +1300,8 @@ def run_job(params: dict[str, Any], comfy: ComfyClient, uploader: Any, workdir: 
         "seed": params["seed"],
         "studio_take_id": params.get("studio_take_id"),
         "duration_s": probe_duration(video),
+        # motion over time, the sound's level, and how far the ends are from the frames given
+        "checks": measure_take(video, given.get("first_frame"), given.get("last_frame")),
     }
 
 

@@ -87,6 +87,7 @@ export type LoraInput = z.infer<typeof LoraInput>;
    each changes the compiled text, and none is verified on H3 yet. The take
    records which were on, so pairs can be compared on the eval page. */
 export const PromptExperiments = z.object({
+  officialFormat: z.boolean().optional().describe("Write the prompt as MiniMax's H3 prompt guides do instead of the Studio's default: the instruction line first and a blank line before the fields, the guide's own first-and-last-frame sentence, no instruction line for text-to-video, time only where the shot cuts ('[Shot 2] At 00:03.500, the camera cuts to …') with the beats following each other in prose and each line tied to its beat, the camera move as a sentence, no labels. Not measured on the 8-step turbo chain: render the same shot and seed with and without it (plan_ab test 'format')"),
   frameHolds: z.boolean().optional().describe("Add 'the first 0.2 s hold on the first frame' and 'the last 0.3 s settle exactly on the final frame' lines (frame-driven shots)"),
   restateFrame: z.boolean().optional().describe("Keyframe shots: restate who and what the first frame shows (people, wardrobe, props, place) instead of trusting the frame alone"),
   positiveCast: z.boolean().optional().describe("Frame-driven shots: 'only the people and objects of the first frame appear throughout' as a positive constraint"),
@@ -278,6 +279,19 @@ export const FramePlan = z.object({
 });
 export type FramePlan = z.infer<typeof FramePlan>;
 
+/* What an element carries out of a shot, where it differs from its sheet. A
+   video model has no memory between generations: a state written only in a
+   beat is lost at the next cut, so it is a record the compiler, the frame
+   briefs, the reviewers and the lint all read (packages/director/src/state.ts). */
+export const ElementStateEntry = z.object({
+  who: z.string().min(1).max(80).describe("Element id: a character, a prop or the location on this shot"),
+  wardrobe: z.string().max(160).optional().describe("What they wear now, where it differs from the sheet, as a phrase after 'wearing': 'the grey raincoat, hood up'. An empty string drops it"),
+  holding: z.string().max(160).optional().describe("What is in their hands, after 'holding': 'the closed red umbrella in her left hand'. An empty string drops it (their hands are free again)"),
+  condition: z.string().max(160).optional().describe("What they are like now, as it is seen: 'soaked through, hair dripping', 'a bandage on the right hand'; for a prop or a place 'standing open', 'the lamp lit'. Statements only: H3 has no negative prompt"),
+  reset: z.boolean().optional().describe("true = back to the sheet: the element carries no state from here on (a new day, a change of clothes off screen)"),
+});
+export type ElementStateEntry = z.infer<typeof ElementStateEntry>;
+
 export const ShotBase = z.object({
     durationS: z.number().int().min(5).max(15).describe("5–15 seconds; chain shots for longer takes"),
     mode: z.enum(SHOT_MODES).describe(
@@ -305,6 +319,7 @@ export const ShotBase = z.object({
     composition: Composition.optional().describe("Where the subject sits; compiles to a composition line"),
     frames: FramePlan.optional().describe("First / last frame descriptions, written and reviewed before any frame is drawn"),
     screenS: z.number().min(1).max(15).optional().describe("Planned time on screen; durationS should be ≥ screenS + 0.5 so the edit has handles"),
+    state: z.array(ElementStateEntry).max(6).optional().describe("How the shot's characters, props and place are when it ENDS, where that differs from their sheets: what they wear now, what is in their hands, what they are like (soaked, wounded, a door standing open). It holds for every later shot until another record changes it: the compiler writes it into each later prompt, the frame briefs draw it, the reviewers read it, and lint_project names the shots that cannot show it (state.reference: a reference-mode shot draws the sheet's look; state.resume: an insert_return resumes a frame from before the change). Record a change on the shot that shows it happen"),
     scriptLines: z.array(z.string().trim().min(2).max(400)).max(12).optional().describe("The script lines this shot puts on screen, each quoted exactly from the current script: a sentence, or a clause of one. Planning only, never in the prompt. The Story page draws them as tramlines beside the text; lint_project flags lines of the script no shot shows (script.uncovered) and a quote the current script no longer has (script.quote.stale)."),
 });
 
@@ -413,6 +428,8 @@ export const TakeRequest = z.object({
   seed: z.number().int().optional(),
   confirm: z.boolean().default(false).describe("Must be true to spend budget"),
   experiments: PromptExperiments.optional().describe("Prompt A/B switches for this take; recorded on the take"),
+  turbo: z.boolean().optional().describe("An A/B only (plan_ab test 'steps'): false renders this take on the base chain, about 20 steps and 2.5 times the time, although the shot's use-turbo switch is on; true loads the speed LoRA although it is off. Left out, the shot's switch decides, and that switch is the user's"),
+  change: z.string().trim().min(8).max(300).optional().describe("A retake only (the shot already has a finished take): what this take changes against the one before it and which fault it is after, in a sentence — 'new end frame with the beret still on (wardrobe_or_prop_lost on #2)', 'same input, another seed: the hand was chance', 'A/B: officialFormat on, same seed'. Agents must give it; the Studio adds what it sees changed (prompt, frames, mode, steps, length, LoRAs, switches, or the seed alone), and the retro counts which change got past which fault"),
   skipReview: z.string().min(8).max(300).optional().describe("Agents only: render although this exact prompt and these frames have no passing shot review. Give the reason (the user's words when they asked for it); it is written to the decision log. Without it an unreviewed, stale or failed shot is refused."),
 });
 export type TakeRequest = z.infer<typeof TakeRequest>;
