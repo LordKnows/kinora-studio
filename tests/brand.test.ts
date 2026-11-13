@@ -47,6 +47,30 @@ describe("the installed app and the sitemap", () => {
     expect(m.icons?.some((i) => i.purpose === "maskable")).toBe(true);
   });
 
+  it("the MCP server shows a client the same mark: absolute URLs on its own origin, each a file the build wrote", async () => {
+    const { existsSync } = await import("node:fs");
+    process.env.STUDIO_PUBLIC_URL = "https://studio.example/";
+    const { createStudioServer } = await import("@/mcp/server");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "0" });
+    await Promise.all([createStudioServer({ user: "agent-user@local", via: "mcp" }).connect(a), client.connect(b)]);
+    const info = client.getServerVersion();
+    expect(info).toMatchObject({ name: "kinora-studio", title: `${BRAND.name} ${BRAND.zh}`, websiteUrl: "https://studio.example" });
+    const icons = info?.icons ?? [];
+    expect(icons.map((i) => i.mimeType)).toEqual(["image/png", "image/png", "image/svg+xml"]);
+    for (const icon of icons) {
+      const path = icon.src.replace("https://studio.example", "");
+      expect(path.startsWith("/"), icon.src).toBe(true);
+      expect(existsSync(path === "/icon.svg" ? "src/app/icon.svg" : `public${path}`), icon.src).toBe(true);
+    }
+    /* the manifest lists the same files */
+    const { default: manifest } = await import("@/app/manifest");
+    expect(manifest().icons?.filter((i) => i.purpose === "any").map((i) => i.src)).toEqual(icons.map((i) => new URL(i.src).pathname));
+    await client.close();
+  });
+
   it("the sitemap lists only the front door, and nothing from the old project is left in public/", async () => {
     const { existsSync } = await import("node:fs");
     const { default: sitemap } = await import("@/app/sitemap");

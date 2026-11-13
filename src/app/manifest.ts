@@ -1,15 +1,13 @@
 import type { MetadataRoute } from "next";
 
-import { BRAND, BRAND_COLORS } from "@/brand";
+import { BRAND, BRAND_COLORS, BRAND_ICONS } from "@/brand";
 
 /* The installed app (Add to Home Screen / Install). It opens on the
    projects, in the Studio's own grey, with the three-card K that
    scripts/build-brand-assets.mjs draws from src/brand.ts. */
 
 const ICONS: MetadataRoute.Manifest["icons"] = [
-  { src: "/icon.svg", type: "image/svg+xml", sizes: "any", purpose: "any" },
-  { src: "/icon-192.png", type: "image/png", sizes: "192x192", purpose: "any" },
-  { src: "/icon-512.png", type: "image/png", sizes: "512x512", purpose: "any" },
+  ...BRAND_ICONS.map((icon) => ({ src: icon.src, type: icon.type, sizes: icon.size, purpose: "any" as const })),
   /* the mark inside the safe circle, for launchers that crop to a shape */
   { src: "/icon-maskable-512.png", type: "image/png", sizes: "512x512", purpose: "maskable" },
 ];
