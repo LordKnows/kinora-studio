@@ -437,6 +437,37 @@ character budget, since speech is billed per character.
 - `transcribe_audio` (qwen-audio-3.0-asr-flash) turns audio back into text and,
   given the intended line, the character error rate: the pronunciation check.
 
+**Qwen3-TTS VoiceDesign on the GPU pod.** The same switch offers a fifth model,
+*Qwen3-TTS VoiceDesign (our GPU)*
+([Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign),
+Apache-2.0), run by the pod's job server while the pod is up. It keeps no voice:
+it speaks each line from the voice card state's description with the line's
+`delivery` after it as the emotion ("Emotion and delivery: furious, voice
+raised"), which gives far stronger emotion than an instruction to a cloned
+voice. The same description gives a slightly different person from one seed to
+the next, so a line is spoken several times (4 by default, one seed each) and
+the user keeps one by ear:
+
+- `speak_line` speaks a shot's line (its text, the speaker's card and state, its
+  delivery and language); `speak` does the same for free text with a card. Both
+  answer with a voice job; the takes come back on the pod's webhook.
+- `get_voice_job` (with `wait`) shows the takes. Each carries its seed, how close
+  it is to the card state's reference audio (WeSpeaker ResNet293-LM speaker
+  embeddings, CC BY 4.0, scored on the pod) and what TokenSail's ASR heard; a
+  take far from the voice is marked `off_voice`, a misread one `misread`. The
+  marks only catch what went wrong; they never choose.
+- `pick_voice_take` keeps the chosen take as an audio asset with its seed and
+  description (so it can be made again), and optionally adds it to the card
+  state's references and sets it as the line's `audioAssetId`. On the Board, a
+  line's **Speak takes** button does the same by hand: listen, then *Keep this
+  take* puts it on the line in the draft.
+
+Voice jobs share the pod's one GPU queue: they go ahead of renders still waiting
+and never run beside the one rendering. The model lives in its own virtualenv on
+the pod (it pins its own transformers) and frees its GPU memory after ten idle
+minutes; each take counts its characters against the budget. See
+`workers/h3-runpod/README.md` for the pod side.
+
 Not in the Studio yet: separating and re-voicing finished takes (TokenSail has
 no voice-conversion endpoint), and the consistency check before export.
 

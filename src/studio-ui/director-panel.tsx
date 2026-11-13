@@ -17,7 +17,7 @@ type ImagingSummary = {
   enabled: boolean; model: string; modelLabel: string; runtime: "api" | "pod"; backend: string; license?: string;
   loras?: Array<{ id: string; name: string; strength: number; adult?: boolean }>; agentCanvas?: boolean; settings?: string; settingsFrom?: string[]; warnings?: string[]; maxImages: number; usedImages: number; leftImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; stoppedReason?: string; backendReady: boolean; note?: string };
 type ModelReadiness = { id: string; painters?: { ready: boolean; note?: string } };
-type VoicingSummary = { enabled: boolean; model: string; maxChars: number; usedChars: number; leftChars: number; keyReady: boolean; note?: string; models: Array<{ id: string; label: string; modes: string[]; note: string }> };
+type VoicingSummary = { enabled: boolean; model: string; maxChars: number; usedChars: number; leftChars: number; keyReady: boolean; note?: string; models: Array<{ id: string; label: string; provider?: "tokensail" | "pod"; modes: string[]; note: string }> };
 type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; grantedAt?: number };
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 
@@ -90,8 +90,13 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     await refresh();
   });
   const setVoicing = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; maxChars: number; resetUsed: boolean }>) => {
-    const label = voice?.models.find((m) => m.id === (next.model ?? voice?.model))?.label ?? t("the model below");
-    if (next.enabled && !voice?.enabled && !window.confirm(t("Allow voice generation on this project? The director may then make voices and speak lines through the voice API (TokenSail) with {model}, billed per character, up to the budget below.", { model: label }))) return;
+    const chosen = voice?.models.find((m) => m.id === (next.model ?? voice?.model));
+    const label = chosen?.label ?? t("the model below");
+    const onPod = chosen?.provider === "pod";
+    if (next.enabled && !voice?.enabled && !window.confirm(onPod
+      ? t("Allow voice generation on this project? The director may then speak lines with {model} on the GPU pod, only while it runs (it bills per hour), several takes for you to pick from, up to the character budget below.", { model: label })
+      : t("Allow voice generation on this project? The director may then make voices and speak lines through the voice API (TokenSail) with {model}, billed per character, up to the budget below.", { model: label }))) return;
+    if (next.model && voice?.enabled && onPod && next.model !== voice.model && !window.confirm(t("{model} speaks on the GPU pod, only while it runs (it bills per hour). Use it for this project's voices?", { model: label }))) return;
     await put(`/api/projects/${projectId}/voicing`, { enabled: next.enabled ?? voice?.enabled ?? false, ...next });
     await refresh();
   });
@@ -239,7 +244,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       <div className="st-stack st-stack--tight">
         <strong>{t("Voice generation")}</strong>
         <span className="st-muted">
-          {t("Off by default. Switched on, the director may make character voices on the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY) — cloned from a voice card's reference audio, or designed from its description with CosyVoice — speak lines with them (off-screen lines, inner monologue, audition samples) and transcribe audio to check pronunciation. Speech is billed per character, up to the budget below.")}
+          {t("Off by default. Switched on, the director may make and use character voices: on the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY), cloned from a voice card's reference audio or designed from its description with CosyVoice; or with Qwen3-TTS VoiceDesign on the Studio's GPU pod, which speaks each line from the card's description with the line's delivery as the emotion, several takes for you to pick from. For off-screen lines, inner monologue and audition samples; audio is transcribed to check pronunciation. The budget counts characters spoken (TokenSail bills per character; a GPU job counts each take).")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!voice || setVoicing.busy} checked={!!voice?.enabled} onChange={(e) => void setVoicing.fire({ enabled: e.target.checked })} />
@@ -249,7 +254,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           <div className="st-row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
             <Field label={t("Voice model")}>
               <select className="st-select st-input--sm" value={voice.model} disabled={setVoicing.busy} onChange={(e) => void setVoicing.fire({ model: e.target.value })}>
-                {voice.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.modes.includes("design") ? t(" · clone or design") : t(" · clone")}</option>)}
+                {voice.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.provider === "pod" ? t(" · our GPU, takes to pick from") : m.modes.includes("design") ? t(" · clone or design") : t(" · clone")}</option>)}
               </select>
             </Field>
             <Field label={t("Character budget")}>
@@ -260,7 +265,9 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           </div>
         )}
         {voice?.enabled && <span className="st-muted">{voice.models.find((m) => m.id === voice.model)?.note}</span>}
-        {voice?.enabled && !voice.keyReady && voice.note && <span className="st-warn">{voice.note}</span>}
+        {voice?.enabled && !voice.keyReady && (voice.models.find((m) => m.id === voice.model)?.provider === "pod"
+          ? <span className="st-warn">{t("Without the Worker's TOKENSAIL_API_KEY the takes get no pronunciation check.")}</span>
+          : voice.note && <span className="st-warn">{voice.note}</span>)}
       </div>
 
       <div className="st-stack st-stack--tight">

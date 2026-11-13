@@ -130,8 +130,9 @@ export type Element = {
   updatedAt: number;
 };
 
-/* A project's voice generation through the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY):
-   on or off, the TTS model, and a character budget (TTS is billed per character). Web only to change. */
+/* A project's voice generation: on or off, the TTS model (on the voice API, TokenSail with the Worker's
+   TOKENSAIL_API_KEY, billed per character; or Qwen3-TTS VoiceDesign on the Studio's GPU pod), and a budget of
+   characters spoken (a GPU job counts each take). Web only to change. */
 export type Voicing = {
   enabled: boolean;
   model: string;
@@ -139,6 +140,50 @@ export type Voicing = {
   usedChars: number;
   grantedBy: string;
   grantedAt: number;
+};
+
+/* One line spoken several times on the GPU pod (Qwen3-TTS VoiceDesign), one take per seed, for the user to pick
+   from (voice-pod.ts). A take's flags say what the automatic checks found; they never pick for the user. */
+export type VoiceTakeFlag = "misread" | "off_voice";
+export type VoiceTake = {
+  index: number;
+  seed: number;
+  url: string;
+  key: string;
+  durationS?: number;
+  /** cosine of speaker embeddings against the voice card state's reference audio; null when there was none */
+  similarity: number | null;
+  /** what the pronunciation check heard, and its character error rate against the line */
+  heard?: string;
+  cer?: number;
+  flags: VoiceTakeFlag[];
+};
+export type VoiceJobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type VoiceJob = {
+  id: string;
+  projectId: string;
+  status: VoiceJobStatus;
+  model: string;
+  text: string;
+  language: string;
+  /** the voice description the model spoke from: the card state's description, the line's delivery after it */
+  instruct: string;
+  delivery?: string;
+  seeds: number[];
+  voiceCardId?: string;
+  stateId?: string;
+  anchorAssetId?: string;
+  shotId?: string;
+  lineIndex?: number;
+  takes: VoiceTake[];
+  picked?: number;
+  pickedAssetId?: string;
+  error?: string;
+  backendJobId?: string;
+  executionMs?: number;
+  createdBy?: string;
+  createdAt: number;
+  updatedAt: number;
 };
 
 export type VoiceCard = {

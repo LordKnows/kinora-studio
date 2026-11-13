@@ -991,6 +991,13 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
   } catch {
     /* next sweep */
   }
+  /* voice jobs on the pod (the webhook normally answers first) */
+  try {
+    const { sweepVoiceJobs } = await import("./voice-pod");
+    await sweepVoiceJobs();
+  } catch {
+    /* next sweep */
+  }
   /* the painter pod: started for queued pictures, stopped when idle */
   try {
     const { sweepPainterPod } = await import("./painter-pod");
@@ -1002,7 +1009,7 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
     /* pictures keep the pod up only while the pod itself is drawing one (painters elsewhere do not need it) */
     const { podIsPainting } = await import("./painter");
-    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await podIsPainting());
+    const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveVoiceJobs()).length > 0 || (await podIsPainting());
     try {
       autoStopped = await gpu.autoStopIfIdle(stillBusy);
     } catch {

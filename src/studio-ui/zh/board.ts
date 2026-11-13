@@ -93,6 +93,13 @@ export const board: Record<string, string> = {
   "First frame shows": "首帧画面", "Who stands where, facing where, which props are visible. Reviewed before anyone draws it.": "谁站在哪、朝哪看、能看到哪些道具。画之前先审。", "Last frame shows": "尾帧画面",
   "Dialogue": "对白", "Add line": "加一句", "Create a character element to add dialogue.": "先建一个角色元素，才能加对白。", "The exact line": "台词原文",
   "delivery": "语气", "Delivery": "语气", "Remove line": "删除这句",
+  /* voice takes of a line (voice-takes.tsx) */
+  "Hide takes": "收起", "Voice takes ({n})": "语音备选（{n}）", "Speak takes": "念几条", "Speaking…": "正在念…",
+  "Speaks the saved line on the GPU pod, several times": "在 GPU 机器上把已保存的这句台词念几遍",
+  "This line has its audio.": "这句已经有音频了。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
+  "made for an earlier wording: “{text}”": "是按之前的写法念的：“{text}”", "on the GPU…": "GPU 上生成中…", "failed: {e}": "失败：{e}",
+  "Closeness to the voice card's reference audio (speaker embeddings); short clips score low": "和声音卡参考音频的相似度（说话人特征）；片段短时分数偏低",
+  "voice {s}": "像 {s}", "heard “{h}”": "听成“{h}”", "In use": "正在用", "Keep this take": "用这一条",
   "SFX (events)": "音效（事件）", "rain on tin roof": "雨打铁皮屋顶", "Ambience": "环境声", "distant traffic, wet street": "远处车流，湿漉漉的街道", "Music": "音乐", "N/A suppresses score.": "填 N/A 就不配乐。",
   "Who and where": "人物与地点", "Characters (max 3)": "角色（最多 3 个）", "Location": "地点", "Props (max 3)": "道具（最多 3 个）",
   /* the shot's two LoRA switches and what the director assigned */

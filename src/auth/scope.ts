@@ -7,7 +7,7 @@ import type { Actor, ProjectVisibility } from "@/studio/types";
 
    A project is shared (every signed-in user, as before) or private (only its
    owner). Everything else in a project — scripts, scenes, shots, takes,
-   elements, pictures, jobs, exports, reviews, notes, voice cards — hangs off
+   elements, pictures, jobs, exports, reviews, notes, voice cards, voice jobs — hangs off
    its project_id, so one rule covers it all.
 
    The rule is applied where a request comes in, not in the repository: every
@@ -23,11 +23,11 @@ import type { Actor, ProjectVisibility } from "@/studio/types";
 
 const KIND: Record<string, string> = {
   prj: "project", scr: "script", ast: "asset", ele: "element", scn: "scene", sht: "shot", tke: "take", exp: "export",
-  job: "job", vc: "voice card", rev: "review", req: "requirement", dec: "decision", vot: "vote", trs: "deleted item",
+  job: "job", vc: "voice card", rev: "review", req: "requirement", dec: "decision", vot: "vote", trs: "deleted item", vjb: "voice job",
 };
 
 /** A Studio id of something that belongs to a project: prefix, "_", 12 of [0-9a-z] (ids.ts). */
-const PROJECT_ID = /^(prj|scr|ast|ele|scn|sht|tke|exp|job|vc|rev|req|dec|vot|trs)_[0-9a-z]{12}$/;
+const PROJECT_ID = /^(prj|scr|ast|ele|scn|sht|tke|exp|job|vc|rev|req|dec|vot|trs|vjb)_[0-9a-z]{12}$/;
 
 /** Users that are not a person: they own nothing and see shared projects only. */
 const NOBODY = new Set(["anonymous", "mcp-static"]);
