@@ -7,7 +7,7 @@ import type { BackendStatus, GenerationBackend } from "./types";
    serverless API — /run, /status/{id}, /cancel/{id} — so the orchestrator's
    status mapping is shared. A shared token keeps the public proxy private. */
 
-export type PodBackendOptions = { hostUrl: string; token: string; fetch?: typeof fetch; kind?: "video" | "assemble" };
+export type PodBackendOptions = { hostUrl: string; token: string; fetch?: typeof fetch; kind?: "video" | "assemble" | "voice" };
 
 /** The pod's boot-time download chain, as its /health says (handler.py downloads_status). */
 export type PodDownloads = { active?: boolean; current?: string | null; gb_left?: number; missing?: string[]; failed?: string[]; skipped?: string[] };
@@ -18,7 +18,7 @@ export class PodBackend implements GenerationBackend {
 
   constructor(private readonly opts: PodBackendOptions) {
     this.fetchImpl = opts.fetch ?? fetch;
-    this.runPath = opts.kind === "assemble" ? "/assemble" : "/run";
+    this.runPath = opts.kind === "assemble" ? "/assemble" : opts.kind === "voice" ? "/voice" : "/run";
   }
 
   /** Any other endpoint of the job server (remake install). */

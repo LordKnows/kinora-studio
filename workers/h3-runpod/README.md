@@ -47,6 +47,38 @@ templates found in `workflows/`.
 5. In the Studio set `RUNPOD_ENDPOINT_ID` to this endpoint. The Studio signs a
    `webhook` URL per take; nothing else needs configuring here.
 
+## Voice jobs (pod mode)
+
+The pod's job server (`server.py`) also speaks lines with
+[Qwen3-TTS VoiceDesign](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign)
+(Qwen team, Apache-2.0): `POST /voice` with
+
+```json
+{"input": {"text": "...", "language": "Chinese", "instruct": "<voice description>. Emotion and delivery: furious",
+           "seeds": [11, 12, 13, 14], "anchor_url": "https://.../reference.wav",
+           "output": {"prefix": "projects/p1/voice/vjb_1"}, "studio_voice_job_id": "vjb_1"},
+ "webhook": "https://studio/api/voice/hook?..."}
+```
+
+returns a job id like `/run`; the output is one take per seed, uploaded to R2
+as `<prefix>/take-<n>-s<seed>.wav`, each with its length and its similarity to
+`anchor_url` (cosine of [WeSpeaker ResNet293-LM](https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet293-LM)
+speaker embeddings, WeNet community, CC BY 4.0). The same seed and
+description give the same take on the same hardware.
+
+- **Weights**: `models-voice.txt` (≈4.6 GB, pinned to a commit) is the last
+  list of the boot download chain; `VOICE_DESIGN=0` skips it and the rest.
+- **Environment**: qwen-tts pins its own transformers and accelerate, so the
+  model runs in `/app/voice-venv` (`voice_setup.sh`, built in the background
+  at boot from `requirements-voice.txt`; torch and torchaudio come from the
+  image). `GET /health` → `voice` says whether it is ready and why not.
+- **Process**: `voice_worker.py` is started on the first voice job and stopped
+  after `VOICE_IDLE_S` (600) without one, so its GPU memory goes back to the
+  video models. Voice jobs share the one GPU queue and go ahead of renders
+  still waiting, never beside the one running; on an out-of-memory error
+  ComfyUI is asked to free its models (`POST /free`) and the take is tried
+  once more. Its log is `/app/voice_worker.log`.
+
 ## Test
 
 ```bash

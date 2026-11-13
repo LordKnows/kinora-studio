@@ -153,7 +153,7 @@ export async function getGpuState(): Promise<GpuState> {
   };
 }
 
-export function podBackend(pod: repo.GpuPod, kind: "video" | "assemble" = "video"): PodBackend {
+export function podBackend(pod: repo.GpuPod, kind: "video" | "assemble" | "voice" = "video"): PodBackend {
   if (!pod.hostUrl) throw new StudioError("backend_error", "pod has no host url yet");
   return new PodBackend({ hostUrl: pod.hostUrl, token: config.runpodPod().workerToken, kind });
 }
@@ -360,8 +360,18 @@ export async function terminateGpu(): Promise<GpuState> {
   return getGpuState();
 }
 
+/** The pod's voice worker as its /health says (voice_handler.voice_status). */
+export type PodVoice = { ready?: boolean; why?: string | null; model?: string; missing?: string[]; setup?: string; loaded?: boolean };
+
+/** Whether the GPU pod can speak right now: undefined when no pod is up to ask, or it does not answer. */
+export async function podVoiceStatus(): Promise<PodVoice | undefined> {
+  const h = await livePodHealth();
+  if (!h) return undefined;
+  return h.voice ?? { ready: false, why: "the pod's job server has no voice worker (an older bundle): restart the pod to take the new one" };
+}
+
 /** What the GPU pod says right now (/health), or undefined when there is no pod up to ask (or it does not answer in 8 s). */
-async function livePodHealth(): Promise<{ downloads?: PodDownloads; image_models?: Record<string, { ready?: boolean; missing?: string[] }> } | undefined> {
+async function livePodHealth(): Promise<{ downloads?: PodDownloads; image_models?: Record<string, { ready?: boolean; missing?: string[] }>; voice?: PodVoice } | undefined> {
   const pod = await repo.currentGpuPod();
   if (!pod?.hostUrl || (pod.status !== "running" && pod.status !== "starting")) return undefined;
   const ask = new PodBackend({ hostUrl: pod.hostUrl, token: config.runpodPod().workerToken }).health().catch(() => undefined);

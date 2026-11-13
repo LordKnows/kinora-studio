@@ -57,6 +57,7 @@ fetch_models() {
   [ "${AUTO_DOWNLOAD_MODELS:-1}" = "1" ] && fetch_list "$dir" models.txt /app/download_models.log "H3 models (~68 GB)" 0 ""
   [ "${H3_IMAGE:-1}" = "1" ] && fetch_list "$dir" models-h3-image.txt /app/download_h3_image.log "MiniMax-H3-Image (+22 GB: the text encoder is the video set's)" 30 diffusion_models/minimax_h3_image_pruned_int8_convrot.safetensors
   [ "${REGEN_2K:-1}" = "1" ] && fetch_list "$dir" models-regen.txt /app/download_regen.log "Open-H3-Regenerate-2K (~21 GB)" 30 loras/open_h3_regenerate_2k_lora.safetensors
+  [ "${VOICE_DESIGN:-1}" = "1" ] && fetch_list "$dir" models-voice.txt /app/download_voice.log "Qwen3-TTS VoiceDesign (~4.6 GB)" 8 tts/qwen3-tts-12hz-1.7b-voicedesign/model.safetensors
   rm -f "$DOWNLOAD_STATE_DIR/chain.pid" "$DOWNLOAD_STATE_DIR/current"
   echo "[start] model downloads finished$( [ -s "$DOWNLOAD_STATE_DIR/failed" ] && echo "; failed: $(tr '\n' ' ' < "$DOWNLOAD_STATE_DIR/failed")")"
   return 0
@@ -283,6 +284,13 @@ fi
 # are normally drawn on a painter elsewhere (workers/painter), before the pod
 # is started; PAINTER_ON_POD=0 turns this off. paint.py needs Pillow.
 python3 -c "import PIL" 2>/dev/null || python3 -m pip install -q pillow >/dev/null 2>&1 || echo "[start] pip install pillow failed; the pod cannot draw pictures"
+
+# Voice design (voice_handler.py): its own virtualenv, built in the background
+# while the rest boots; the job server reports it under /health → voice.
+# VOICE_DESIGN=0 skips it and its weights.
+if [ "${VOICE_DESIGN:-1}" = "1" ]; then
+  bash /app/h3-runpod/voice_setup.sh > /app/voice_setup.log 2>&1 || echo "[start] voice environment failed; voice jobs will say so (see /app/voice_setup.log)" &
+fi
 
 # Titles and burned subtitles are mostly Chinese; without a CJK font the
 # assembler draws boxes (and says so in the export's warnings). Fetched in the

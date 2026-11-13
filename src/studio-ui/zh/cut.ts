@@ -114,8 +114,12 @@ export const cut: Record<string, string> = {
   "Self-check every picture": "每张图都自检", "Redraws on a blocker": "遇到硬伤时重画", "0 (just flag it)": "0（只标出来）", "A redraw counts as a picture.": "重画一次算一张图。",
   "Stopped: {reason}": "已停止：{reason}", "Resume||images": "继续",
   "Voice generation": "语音生成",
-  "Off by default. Switched on, the director may make character voices on the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY) — cloned from a voice card's reference audio, or designed from its description with CosyVoice — speak lines with them (off-screen lines, inner monologue, audition samples) and transcribe audio to check pronunciation. Speech is billed per character, up to the budget below.": "默认关闭。打开后，导演可以在语音 API 上制作角色声音（TokenSail，用 Worker 的 TOKENSAIL_API_KEY）——从声音卡的参考音频克隆，或用 CosyVoice 按声音卡的描述设计——用这些声音念台词（画外音、内心独白、试音样本），并转写音频来检查发音。语音按字符计费，最多用到下面的预算。",
+  "Off by default. Switched on, the director may make and use character voices: on the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY), cloned from a voice card's reference audio or designed from its description with CosyVoice; or with Qwen3-TTS VoiceDesign on the Studio's GPU pod, which speaks each line from the card's description with the line's delivery as the emotion, several takes for you to pick from. For off-screen lines, inner monologue and audition samples; audio is transcribed to check pronunciation. The budget counts characters spoken (TokenSail bills per character; a GPU job counts each take).": "默认关闭。打开后，导演可以制作和使用角色声音：在语音 API 上（TokenSail，用 Worker 的 TOKENSAIL_API_KEY）从声音卡的参考音频克隆，或用 CosyVoice 按描述设计；或者用 Studio 自己 GPU 机器上的 Qwen3-TTS VoiceDesign，它按声音卡的描述、加上台词的语气当情绪来念每一句，一次生成几条给你挑。用于画外音、内心独白和试音样本，并转写音频来检查发音。预算按念出的字符计（TokenSail 按字符计费；GPU 任务每条都计）。",
   "Allow voice API use by agent": "允许导演使用语音 API", "Voice model": "语音模型", " · clone or design": " · 克隆或设计", " · clone": " · 克隆",
+  " · our GPU, takes to pick from": " · 自己的 GPU，生成几条来挑",
+  "Allow voice generation on this project? The director may then speak lines with {model} on the GPU pod, only while it runs (it bills per hour), several takes for you to pick from, up to the character budget below.": "在这个项目上允许生成语音？之后导演可以用 GPU 机器上的 {model} 念台词，只在机器运行时可用（按小时计费），每句生成几条给你挑，最多用到下面的字符预算。",
+  "{model} speaks on the GPU pod, only while it runs (it bills per hour). Use it for this project's voices?": "{model} 在 GPU 机器上念台词，只在机器运行时可用（按小时计费）。这个项目的声音用它吗？",
+  "Without the Worker's TOKENSAIL_API_KEY the takes get no pronunciation check.": "Worker 没有 TOKENSAIL_API_KEY，生成的几条不会做发音检查。",
   "Character budget": "字符预算", "Reset count": "计数清零",
 
   /* spend envelope, delegated approval */

@@ -10,6 +10,7 @@ import { Button, Chips, Field, NumberInput } from "./common";
 import { translate, type T, useT } from "./i18n";
 import { ShotLorasField } from "./shot-loras-field";
 import { useProjectContext } from "./shell";
+import { LineTakes, useVoiceTakes } from "./voice-takes";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
    obvious mistakes (beats not tiling the duration) are caught before the
@@ -55,8 +56,9 @@ export function ShotEditor({
   /** The shot being edited, so the anchor picker lists only earlier shots. */
   shotId?: string;
 }) {
-  const { view } = useProjectContext();
+  const { view, projectId } = useProjectContext();
   const tr = useT();
+  const voiceTakes = useVoiceTakes(projectId, shotId);
   const set = <K extends keyof ShotDraft>(key: K, v: ShotDraft[K]) => onChange({ ...value, [key]: v });
   const characters = elements.filter((e) => e.kind === "character");
   const locations = elements.filter((e) => e.kind === "location");
@@ -368,7 +370,8 @@ export function ShotEditor({
         </div>
         {characters.length === 0 && <span className="st-muted">{tr("Create a character element to add dialogue.")}</span>}
         {value.dialogue.map((l, i) => (
-          <div key={i} className="st-line">
+          <div key={i} className="st-stack st-stack--tight">
+          <div className="st-line">
             <select className="st-select st-input--sm" value={l.speaker} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, speaker: e.target.value } : x)))}>
               {characters.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -382,6 +385,14 @@ export function ShotEditor({
             <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove line")} onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
               <CloseIcon size={11} />
             </button>
+          </div>
+          {voiceTakes.onPod && shotId && (
+            <LineTakes
+              projectId={projectId} shotId={shotId} lineIndex={i} lineText={l.text} audioAssetId={l.audioAssetId}
+              jobs={voiceTakes.jobs} reload={voiceTakes.reload}
+              onUse={(assetId) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, audioAssetId: assetId } : x)))}
+            />
+          )}
           </div>
         ))}
       </div>

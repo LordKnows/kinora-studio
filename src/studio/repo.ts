@@ -7,7 +7,7 @@ import { DEFAULT_LOOK, LookSettings, MAX_DETAILS, MAX_ELEMENT_REFS, ShotInput, T
 import type {
   Approval, Asset, AssetKind, AssetSource, Element, ElementKind, ExportJob, ExportStatus, GpuTypeStats,
   Autopilot, Delegation, DirectorNote, Imaging, Job, JobKind, JobStatus, Lora, Painter, PainterPod, LoraKind, NoteKind, Project, ProjectVisibility, Review, ReviewFinding, ReviewStage, Scene, Script, Shot, StageReview,
-  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, Voicing,
+  Take, TakeProgress, TakeStatus, TakeUpscale, Timeline, VoiceCard, VoiceJob, VoiceJobStatus, Voicing,
 } from "./types";
 import type { FixedFeature, LoraRef, RefView, ScenePalette, SceneSound } from "./schemas";
 import { carryLookLoras, keepShotLoras } from "./shot-loras";
@@ -136,6 +136,7 @@ export async function projectAccessRows(ids: string[]): Promise<Map<string, { ow
 export const PROJECT_TABLE_OF_PREFIX = {
   scr: "scripts", ast: "assets", ele: "elements", scn: "scenes", sht: "shots", tke: "takes", exp: "export_jobs",
   job: "jobs", vc: "voice_cards", rev: "reviews", req: "director_notes", dec: "director_notes", vot: "eval_votes", trs: "trash",
+  vjb: "voice_jobs",
 } as const;
 
 /** The project of each of these rows (null: a library row, in no project); unknown ids are left out. */
@@ -657,11 +658,15 @@ export async function attachElementRef(id: string, assetId: string, tag: { view?
 
 /* ---------- voice cards ---------- */
 
-/* Created on first use as well as by migration 0019 (one statement each: D1's exec splits on newlines). */
+/* Created on first use as well as by migrations 0019 and 0025 (one statement each: D1's exec splits on newlines). */
 const VOICE_CARDS_SQL = [
   "CREATE TABLE IF NOT EXISTS voice_cards (id TEXT PRIMARY KEY, project_id TEXT, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', data_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
   "CREATE INDEX IF NOT EXISTS voice_cards_project ON voice_cards (project_id)",
   "CREATE TABLE IF NOT EXISTS voice_settings (project_id TEXT PRIMARY KEY, data_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
+  /* migration 0025 */
+  "CREATE TABLE IF NOT EXISTS voice_jobs (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, shot_id TEXT, status TEXT NOT NULL, backend_job_id TEXT, data_json TEXT NOT NULL DEFAULT '{}', created_by TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)",
+  "CREATE INDEX IF NOT EXISTS voice_jobs_project ON voice_jobs (project_id, created_at)",
+  "CREATE INDEX IF NOT EXISTS voice_jobs_status ON voice_jobs (status)",
 ];
 let voiceCardsReady = false;
 
@@ -771,6 +776,65 @@ export async function setVoicingRow(projectId: string, v: Voicing): Promise<Voic
 export async function voiceCardsWithApiVoice(voiceId: string): Promise<VoiceCard[]> {
   const rows = await (await voiceCardsDb()).all("SELECT * FROM voice_cards WHERE data_json LIKE ?", [`%"voiceId":"${voiceId}"%`]);
   return rows.map(mapVoiceCard);
+}
+
+/* ---------- voice jobs (voice-pod.ts) ---------- */
+
+type VoiceJobData = Omit<VoiceJob, "id" | "projectId" | "status" | "shotId" | "backendJobId" | "createdBy" | "createdAt" | "updatedAt">;
+
+function mapVoiceJob(r: Row): VoiceJob {
+  const data = json<VoiceJobData>(r.data_json, {} as VoiceJobData);
+  return {
+    ...data, takes: Array.isArray(data.takes) ? data.takes : [], seeds: Array.isArray(data.seeds) ? data.seeds : [],
+    id: str(r.id), projectId: str(r.project_id), status: str(r.status) as VoiceJobStatus,
+    ...(r.shot_id ? { shotId: str(r.shot_id) } : {}), ...(r.backend_job_id ? { backendJobId: str(r.backend_job_id) } : {}),
+    ...(r.created_by ? { createdBy: str(r.created_by) } : {}), createdAt: num(r.created_at), updatedAt: num(r.updated_at),
+  };
+}
+
+function voiceJobData(j: VoiceJob): string {
+  const { id: _i, projectId: _p, status: _s, shotId: _sh, backendJobId: _b, createdBy: _c, createdAt: _ca, updatedAt: _u, ...data } = j;
+  return JSON.stringify(data);
+}
+
+export async function createVoiceJob(input: Omit<VoiceJob, "id" | "status" | "takes" | "createdAt" | "updatedAt">): Promise<VoiceJob> {
+  const now = Date.now();
+  const job: VoiceJob = { ...input, id: newId("vjb"), status: "queued", takes: [], createdAt: now, updatedAt: now };
+  await (await voiceCardsDb()).run(
+    "INSERT INTO voice_jobs (id, project_id, shot_id, status, backend_job_id, data_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [job.id, job.projectId, job.shotId ?? null, job.status, null, voiceJobData(job), job.createdBy ?? null, now, now],
+  );
+  return job;
+}
+
+export async function getVoiceJob(id: string): Promise<VoiceJob> {
+  const row = await (await voiceCardsDb()).get("SELECT * FROM voice_jobs WHERE id = ?", [id]);
+  if (!row) throw notFound("voice job", id);
+  return mapVoiceJob(row);
+}
+
+export async function updateVoiceJob(id: string, patch: Partial<Omit<VoiceJob, "id" | "projectId" | "createdAt" | "updatedAt">>): Promise<VoiceJob> {
+  const next = { ...(await getVoiceJob(id)), ...patch, updatedAt: Date.now() };
+  await (await voiceCardsDb()).run(
+    "UPDATE voice_jobs SET shot_id = ?, status = ?, backend_job_id = ?, data_json = ?, updated_at = ? WHERE id = ?",
+    [next.shotId ?? null, next.status, next.backendJobId ?? null, voiceJobData(next), next.updatedAt, id],
+  );
+  return next;
+}
+
+/** A project's voice jobs, newest first; with shotId, those for that shot's lines. */
+export async function listVoiceJobs(projectId: string, opts: { shotId?: string; limit?: number } = {}): Promise<VoiceJob[]> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const rows = opts.shotId
+    ? await (await voiceCardsDb()).all("SELECT * FROM voice_jobs WHERE project_id = ? AND shot_id = ? ORDER BY created_at DESC LIMIT ?", [projectId, opts.shotId, limit])
+    : await (await voiceCardsDb()).all("SELECT * FROM voice_jobs WHERE project_id = ? ORDER BY created_at DESC LIMIT ?", [projectId, limit]);
+  return rows.map(mapVoiceJob);
+}
+
+/** Voice jobs still waiting on the pod, in every project (the sweep asks after them). */
+export async function listActiveVoiceJobs(): Promise<VoiceJob[]> {
+  const rows = await (await voiceCardsDb()).all("SELECT * FROM voice_jobs WHERE status IN ('queued', 'running') ORDER BY created_at LIMIT 100");
+  return rows.map(mapVoiceJob);
 }
 
 /** Elements (in any project) that speak with this card. */

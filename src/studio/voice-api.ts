@@ -21,13 +21,19 @@ import type { Actor, Asset, VoiceCard, Voicing } from "./types";
    A project switches it on on the project's Settings page (web only) with a model and a
    character budget, as it does image generation. */
 
-export type VoiceApiModel = { id: string; label: string; modes: Array<"clone" | "design">; systemVoice: boolean; note: string };
+/* provider "tokensail": the voice API, billed per character, voices made once (clone or design) and kept on the card.
+   provider "pod": Qwen3-TTS VoiceDesign on the Studio's GPU pod (voice-pod.ts): no stored voice, each line is spoken
+   from the card state's description with the line's delivery after it, several takes to pick from. */
+export type VoiceApiModel = { id: string; label: string; provider: "tokensail" | "pod"; modes: Array<"clone" | "design">; systemVoice: boolean; note: string };
+
+export const POD_VOICE_MODEL = "qwen3-tts-voicedesign";
 
 export const VOICE_API_MODELS: VoiceApiModel[] = [
-  { id: "qwen-audio-3.0-tts-plus", label: "Qwen Audio 3.0 TTS Plus", modes: ["clone"], systemVoice: true, note: "highest quality Qwen voice; clone from a sample, or a system voice" },
-  { id: "qwen-audio-3.0-tts-flash", label: "Qwen Audio 3.0 TTS Flash", modes: ["clone"], systemVoice: true, note: "faster, cheaper Qwen voice; clone from a sample, or a system voice" },
-  { id: "cosyvoice-v3.5-plus", label: "CosyVoice 3.5 Plus", modes: ["clone", "design"], systemVoice: false, note: "clone from a sample or design from a description" },
-  { id: "cosyvoice-v3.5-flash", label: "CosyVoice 3.5 Flash", modes: ["clone", "design"], systemVoice: false, note: "faster CosyVoice; clone or design" },
+  { id: "qwen-audio-3.0-tts-plus", label: "Qwen Audio 3.0 TTS Plus", provider: "tokensail", modes: ["clone"], systemVoice: true, note: "highest quality Qwen voice; clone from a sample, or a system voice" },
+  { id: "qwen-audio-3.0-tts-flash", label: "Qwen Audio 3.0 TTS Flash", provider: "tokensail", modes: ["clone"], systemVoice: true, note: "faster, cheaper Qwen voice; clone from a sample, or a system voice" },
+  { id: "cosyvoice-v3.5-plus", label: "CosyVoice 3.5 Plus", provider: "tokensail", modes: ["clone", "design"], systemVoice: false, note: "clone from a sample or design from a description" },
+  { id: "cosyvoice-v3.5-flash", label: "CosyVoice 3.5 Flash", provider: "tokensail", modes: ["clone", "design"], systemVoice: false, note: "faster CosyVoice; clone or design" },
+  { id: POD_VOICE_MODEL, label: "Qwen3-TTS VoiceDesign (our GPU)", provider: "pod", modes: [], systemVoice: false, note: "runs on the Studio's GPU pod while it is up: speaks each line from the voice card's description with the line's delivery (emotion) after it, several takes to pick from; the pronunciation check still uses TokenSail when its key is set" },
 ];
 export const DEFAULT_VOICE_MODEL = "qwen-audio-3.0-tts-plus";
 export const ASR_MODEL = "qwen-audio-3.0-asr-flash";
@@ -41,6 +47,11 @@ const AUDIO_TYPES: Record<string, { ext: string; type: string }> = {
 
 export function voiceApiModel(id: string): VoiceApiModel | undefined {
   return VOICE_API_MODELS.find((m) => m.id === id);
+}
+
+/** The model a call would use: the one it names, else the project's choice. */
+export async function projectVoiceModel(projectId: string, model?: string): Promise<VoiceApiModel | undefined> {
+  return voiceApiModel(model ?? (await repo.getVoicing(projectId))?.model ?? DEFAULT_VOICE_MODEL);
 }
 
 /** Where the voice API is: TokenSail with the Worker's key, or undefined without one. */
@@ -83,14 +94,26 @@ export async function setVoicing(projectId: string, input: { enabled: boolean; m
 }
 
 async function requireVoicing(projectId: string, chars = 0): Promise<{ v: Voicing; api: { base: string; key: string } }> {
-  const v = await repo.getVoicing(projectId);
-  if (!v?.enabled) throw new StudioError("forbidden", "voice generation is off for this project: the user switches it on on the project's Settings page (web only)");
+  const v = await requireVoicingOn(projectId, chars);
   const api = voiceApi();
   if (!api) throw new StudioError("validation", "the voice API needs TOKENSAIL_API_KEY as a Worker secret (Cloudflare → Workers → the Studio → Settings → Variables and secrets)");
+  return { v, api };
+}
+
+/** Voice generation is on for the project and the budget has room for `chars` more characters (any provider). */
+export async function requireVoicingOn(projectId: string, chars = 0): Promise<Voicing> {
+  const v = await repo.getVoicing(projectId);
+  if (!v?.enabled) throw new StudioError("forbidden", "voice generation is off for this project: the user switches it on on the project's Settings page (web only)");
   if (chars && v.usedChars + chars > v.maxChars) {
     throw new StudioError("validation", `this needs ${chars} characters and ${Math.max(0, v.maxChars - v.usedChars)} of the project's ${v.maxChars} are left; the user raises the budget on the project's Settings page`);
   }
-  return { v, api };
+  return v;
+}
+
+/** Count characters spoken against the project's budget. */
+export async function spendChars(projectId: string, chars: number): Promise<void> {
+  const latest = await repo.getVoicing(projectId);
+  if (latest) await repo.setVoicingRow(projectId, { ...latest, usedChars: latest.usedChars + chars });
 }
 
 /** The provider's error envelope ({error: {code, message}}) as a Studio error. */
@@ -131,6 +154,7 @@ export async function createApiVoice(projectId: string, input: { voiceCardId: st
   const model = input.model ?? v.model;
   const m = voiceApiModel(model);
   if (!m) throw new StudioError("validation", `unknown voice model ${model}`);
+  if (m.provider === "pod") throw new StudioError("validation", `${m.label} keeps no voice: it speaks each line from the card state's description. Use speak (it returns a voice job with takes to pick from), or create_api_voice with a TokenSail model`);
   if (!m.modes.includes(input.mode)) throw new StudioError("validation", `${m.label} cannot ${input.mode} a voice; ${input.mode === "design" ? "designing from a description needs cosyvoice-v3.5-plus or cosyvoice-v3.5-flash" : "use a model that clones"}`);
   const form = new FormData();
   form.set("mode", input.mode);
@@ -159,7 +183,7 @@ export async function createApiVoice(projectId: string, input: { voiceCardId: st
   return { voice, voiceCard: updated };
 }
 
-function countChars(text: string): number {
+export function countChars(text: string): number {
   return [...text].length;
 }
 
@@ -184,7 +208,9 @@ export async function speak(projectId: string, input: { text: string; voiceCardI
     model = made.model;
     voice = made.voiceId;
   }
-  if (!voiceApiModel(model)) throw new StudioError("validation", `unknown voice model ${model}`);
+  const m = voiceApiModel(model);
+  if (!m) throw new StudioError("validation", `unknown voice model ${model}`);
+  if (m.provider === "pod") throw new StudioError("validation", `${m.label} runs on the GPU pod and answers with takes to pick from: use speakTakes (voice-pod.ts), which speak routes to`);
   const format = input.format ?? "wav";
   const res = await fetch(`${api.base}/audio/speech`, {
     method: "POST",
@@ -203,8 +229,7 @@ export async function speak(projectId: string, input: { text: string; voiceCardI
     meta: { key, provider: "tokensail", model, ...(voice ? { voice } : {}), text, ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}), ...(input.inputOptions ? { inputOptions: input.inputOptions } : {}), ...(card ? { voiceCardId: card.id, stateId } : {}), requestId: res.headers.get("x-tokensail-request-id") ?? undefined },
     name: input.label ?? nameOfUploadKey(key),
   });
-  const latest = (await repo.getVoicing(projectId)) ?? v;
-  await repo.setVoicingRow(projectId, { ...latest, usedChars: latest.usedChars + chars });
+  await spendChars(projectId, chars);
   if (input.addAsReference && card && stateId) {
     await repo.updateVoiceCard(card.id, { states: card.states.map((s) => (s.id === stateId ? { ...s, refAssetIds: [...s.refAssetIds, asset.id].slice(-8) } : s)) });
   }
@@ -223,15 +248,19 @@ export async function transcribe(projectId: string, input: { assetId: string; ex
   const { api } = await requireVoicing(projectId);
   const asset = await repo.getAsset(input.assetId);
   if (asset.kind !== "audio" && asset.kind !== "video") throw new StudioError("validation", `${input.assetId} is not audio or video`);
-  const audio = await assetBytes(asset);
+  const text = await transcribeBytes(api, await assetBytes(asset));
+  return { text, model: ASR_MODEL, ...(input.expectedText !== undefined ? { cer: characterErrorRate(input.expectedText, text) } : {}) };
+}
+
+/** The pronunciation check on raw audio (TokenSail's ASR): what it heard. */
+export async function transcribeBytes(api: { base: string; key: string }, audio: { bytes: Uint8Array<ArrayBuffer>; type: string; filename: string }): Promise<string> {
   if (audio.bytes.byteLength > MAX_ASR_BYTES) throw new StudioError("validation", "transcription takes at most 25 MB");
   const form = new FormData();
   form.set("model", ASR_MODEL);
   form.set("file", new Blob([audio.bytes], { type: audio.type }), audio.filename);
   const res = await fetch(`${api.base}/audio/transcriptions`, { method: "POST", headers: { authorization: `Bearer ${api.key}` }, body: form });
   if (!res.ok) throw await apiError(res, "transcription");
-  const text = String(((await res.json()) as { text?: string }).text ?? "");
-  return { text, model: ASR_MODEL, ...(input.expectedText !== undefined ? { cer: characterErrorRate(input.expectedText, text) } : {}) };
+  return String(((await res.json()) as { text?: string }).text ?? "");
 }
 
 /** Character error rate between the intended and the heard text, ignoring punctuation, spaces and case. */
