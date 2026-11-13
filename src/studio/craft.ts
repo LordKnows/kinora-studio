@@ -8,6 +8,7 @@ import { compileForShot, getProjectView, lintProject, type ProjectView, type Sho
 import * as repo from "./repo";
 import { readTake } from "./take-checks";
 import * as treatments from "./treatment";
+import type { PromptExperiments } from "./schemas";
 import type { Actor, Delegation, DirectorNote, Project, ReviewFinding, ReviewStage, Script, StageReview } from "./types";
 
 /*
@@ -42,11 +43,12 @@ export type ReviewPacket = {
 
 /** The packet for one stage. */
 /** `targetId` is the shot (stage shot) or the generated picture (stage frame). */
-export async function reviewPacket(projectId: string, stage: ReviewStage, targetId?: string): Promise<ReviewPacket> {
+/** `variant`: stage shot only — the prompt switches a take will render with (an A/B arm), so the packet and the verdict are of that arm's prompt. */
+export async function reviewPacket(projectId: string, stage: ReviewStage, targetId?: string, variant?: { experiments?: PromptExperiments }): Promise<ReviewPacket> {
   if (stage === "story") return storyPacket(projectId);
   if (stage === "shot") {
     if (!targetId) throw new StudioError("validation", "stage 'shot' needs shotId");
-    return shotPacket(projectId, targetId);
+    return shotPacket(projectId, targetId, variant);
   }
   if (stage === "frame") {
     if (!targetId) throw new StudioError("validation", "stage 'frame' needs assetId");
@@ -153,14 +155,14 @@ function shotLabel(view: ProjectView, sh: ShotView): string {
   return `${scene?.slug ?? "?"} #${sh.index + 1}`;
 }
 
-async function shotPacket(projectId: string, shotId: string): Promise<ReviewPacket> {
+async function shotPacket(projectId: string, shotId: string, variant?: { experiments?: PromptExperiments }): Promise<ReviewPacket> {
   const view = await getProjectView(projectId);
   const flat = view.scenes.flatMap((s) => s.shots);
   const i = flat.findIndex((s) => s.id === shotId);
   if (i < 0) throw new StudioError("not_found", `shot ${shotId} not in project ${projectId}`);
   const sh = flat[i]!;
   const scene = view.scenes.find((s) => s.id === sh.sceneId)!;
-  const compiled = await compileForShot(shotId);
+  const compiled = await compileForShot(shotId, variant?.experiments ? { experiments: variant.experiments } : undefined);
   const subjectHash = renderHash(compiled.workflow, compiled.prompt, compiled.input.images, audioInputs(compiled.input));
   const ids = new Set([...sh.spec.characters, ...sh.spec.props, ...(sh.spec.location ? [sh.spec.location] : [])]);
   const assetUrl = new Map(view.assets.map((a) => [a.id, a]));
@@ -265,8 +267,8 @@ async function filmPacket(projectId: string): Promise<ReviewPacket> {
 }
 
 /** Store a verdict against the hash of what the packet showed now. */
-export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[] }): Promise<{ review: StageReview; note?: string }> {
-  const packet = await reviewPacket(projectId, input.stage, input.shotId);
+export async function recordReview(projectId: string, input: { stage: ReviewStage; shotId?: string; verdict: "pass" | "fail"; reviewer: StageReview["reviewer"]; basis: string; findings: ReviewFinding[]; experiments?: PromptExperiments }): Promise<{ review: StageReview; note?: string }> {
+  const packet = await reviewPacket(projectId, input.stage, input.shotId, input.experiments ? { experiments: input.experiments } : undefined);
   const sure = input.findings.filter((f) => f.sure !== false);
   if (input.verdict === "pass" && (input.stage === "film" || input.stage === "frame") && input.findings.some((f) => f.severity === "blocker")) {
     throw new StudioError("validation", `a ${input.stage} review with blocker findings cannot pass`);
@@ -491,7 +493,7 @@ export async function buildRetro(projectId: string): Promise<string> {
 
   const pair = takes.filter((t) => t.input.studio_experiments);
   if (pair.length) {
-    L.push("## Prompt experiments", "", `${pair.length} take(s) rendered with an experiment on. Compare them with their siblings on the eval page before turning one on by default.`, "");
+    L.push("## Prompt experiments", "", `${pair.length} take(s) rendered with an experiment on. ab_report sets the arms side by side (picks, tags, votes, what was measured); compare them with their siblings on the eval page before turning one on by default.`, "");
   }
 
   L.push("## Requirements", "");

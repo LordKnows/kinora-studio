@@ -8,6 +8,7 @@ export { lintShotlist, type LintOptions } from "./lint/shotlist.js";
 export { lintCraft, shotFragility, fragileInText, screenDirection, FRAGILE_PATTERNS, type CraftOptions, type Fragility } from "./lint/craft.js";
 export { carriedStates, stateLines, stateLine, stateText, sameState, hasState, lintState, STATE_SLOTS, type CarriedState, type ShotStates } from "./state.js";
 export { FAULT_ROUTES, faultRoutes, faultClass, pictureFaults, fixSummary, type FaultRoute, type FaultClass, type Fix, type FixKind } from "./faults.js";
+export { AB_TESTS, planAb, splitShot, splitPoint, abFits, type AbTest, type AbPlan, type AbArm } from "./ab.js";
 export { checkConstraint, promptConstraints, lintConstraints, type ConstraintKind, type ConstraintVerdict } from "./lint/constraints.js";
 export * from "./sound/cuemap.js";
 export * from "./timeline/extended.js";

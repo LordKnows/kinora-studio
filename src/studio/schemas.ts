@@ -428,6 +428,7 @@ export const TakeRequest = z.object({
   seed: z.number().int().optional(),
   confirm: z.boolean().default(false).describe("Must be true to spend budget"),
   experiments: PromptExperiments.optional().describe("Prompt A/B switches for this take; recorded on the take"),
+  turbo: z.boolean().optional().describe("An A/B only (plan_ab test 'steps'): false renders this take on the base chain, about 20 steps and 2.5 times the time, although the shot's use-turbo switch is on; true loads the speed LoRA although it is off. Left out, the shot's switch decides, and that switch is the user's"),
   change: z.string().trim().min(8).max(300).optional().describe("A retake only (the shot already has a finished take): what this take changes against the one before it and which fault it is after, in a sentence — 'new end frame with the beret still on (wardrobe_or_prop_lost on #2)', 'same input, another seed: the hand was chance', 'A/B: officialFormat on, same seed'. Agents must give it; the Studio adds what it sees changed (prompt, frames, mode, steps, length, LoRAs, switches, or the seed alone), and the retro counts which change got past which fault"),
   skipReview: z.string().min(8).max(300).optional().describe("Agents only: render although this exact prompt and these frames have no passing shot review. Give the reason (the user's words when they asked for it); it is written to the decision log. Without it an unreviewed, stale or failed shot is refused."),
 });

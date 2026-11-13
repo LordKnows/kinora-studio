@@ -276,7 +276,7 @@ export async function removeProject(projectId: string, by?: string): Promise<{ t
 
 /* ---------- compile ---------- */
 
-async function compileContext(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }) {
+async function compileContext(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments; turbo?: boolean }) {
   const shot = await repo.getShot(shotId);
   const project = await repo.getProject(shot.projectId);
   const scene = await repo.getScene(shot.sceneId);
@@ -323,7 +323,8 @@ async function compileContext(shotId: string, opts?: { steps?: number; seed?: nu
      use LoRA is on */
   const library = await repo.listLoras();
   const byId = new Map(library.map((l) => [l.id, l]));
-  const on = shotSwitches(shot.spec);
+  /* a take may ask for the other chain than the shot's switch says (TakeRequest.turbo: an A/B on steps) */
+  const on = { ...shotSwitches(shot.spec), ...(opts?.turbo !== undefined ? { turbo: opts.turbo } : {}) };
   const loras = [
     ...(on.turbo ? library.filter((l) => l.kind === "speed").map((l) => ({ ...l, strength: l.defaultStrength })) : []),
     ...(on.loras ? assignedRefs(shot.spec, (id) => byId.get(id)?.kind).flatMap((r) => {
@@ -345,7 +346,7 @@ async function shotStates(projectId: string, shotId: string): Promise<director.S
   return (await projectStates(projectId)).get(shotId);
 }
 
-export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments }): Promise<CompiledJob & { estimate: Estimate }> {
+export async function compileForShot(shotId: string, opts?: { steps?: number; seed?: number; experiments?: PromptExperiments; turbo?: boolean }): Promise<CompiledJob & { estimate: Estimate }> {
   const ctx = await compileContext(shotId, opts);
   try {
     const job = compileShot({ ...ctx, look: ctx.project.look });
@@ -359,7 +360,7 @@ export async function compileForShot(shotId: string, opts?: { steps?: number; se
 /* ---------- takes ---------- */
 
 export async function createTakes(shotId: string, req: TakeRequest, actor: Actor): Promise<{ takes: Take[]; estimate: Estimate; warnings: string[]; gpu?: gpu.GpuState }> {
-  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed, experiments: req.experiments });
+  const ctx = await compileContext(shotId, { steps: req.steps, seed: req.seed, experiments: req.experiments, turbo: req.turbo });
   const script = await repo.latestScript(ctx.project.id);
   assertCanGenerate(ctx.project, script);
   let compiled: CompiledJob;
