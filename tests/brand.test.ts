@@ -3,13 +3,25 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { BRAND, MARK, faviconSvg, markSvg } from "@/brand";
+import { BRAND, FAVICON_SIZES, MARK, faviconSvg, markSvg } from "@/brand";
 
 /* The name and the mark come from src/brand.ts; docs/brand.md says why. */
 
 describe("the brand", () => {
   it("draws the favicon from the one mark (node scripts/build-brand-assets.mjs)", () => {
     expect(readFileSync("src/app/icon.svg", "utf8")).toBe(`${faviconSvg()}\n`);
+  });
+
+  it("answers /favicon.ico with the mark too, one PNG frame at each size", () => {
+    const ico = readFileSync("src/app/favicon.ico");
+    expect([ico.readUInt16LE(0), ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([0, 1, FAVICON_SIZES.length]);
+    FAVICON_SIZES.forEach((size, i) => {
+      const at = 6 + 16 * i;
+      const png = ico.subarray(ico.readUInt32LE(at + 12), ico.readUInt32LE(at + 12) + ico.readUInt32LE(at + 8));
+      expect([ico.readUInt8(at), ico.readUInt8(at + 1)], `${size}`).toEqual([size, size]);
+      expect(png.subarray(0, 8).toString("latin1"), `${size}`).toBe("\x89PNG\r\n\x1a\n");
+      expect([png.readUInt32BE(16), png.readUInt32BE(20)], `${size}`).toEqual([size, size]);
+    });
   });
 
   it("is three cards, one red, on every ground", () => {
@@ -45,6 +57,30 @@ describe("the installed app and the sitemap", () => {
     expect(m.theme_color).toBe(BRAND_COLORS.card);
     for (const icon of m.icons ?? []) expect(existsSync(icon.src === "/icon.svg" ? "src/app/icon.svg" : `public${icon.src}`), icon.src).toBe(true);
     expect(m.icons?.some((i) => i.purpose === "maskable")).toBe(true);
+  });
+
+  it("the MCP server shows a client the same mark: absolute URLs on its own origin, each a file the build wrote", async () => {
+    const { existsSync } = await import("node:fs");
+    process.env.STUDIO_PUBLIC_URL = "https://studio.example/";
+    const { createStudioServer } = await import("@/mcp/server");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "0" });
+    await Promise.all([createStudioServer({ user: "agent-user@local", via: "mcp" }).connect(a), client.connect(b)]);
+    const info = client.getServerVersion();
+    expect(info).toMatchObject({ name: "kinora-studio", title: `${BRAND.name} ${BRAND.zh}`, websiteUrl: "https://studio.example" });
+    const icons = info?.icons ?? [];
+    expect(icons.map((i) => i.mimeType)).toEqual(["image/png", "image/png", "image/svg+xml"]);
+    for (const icon of icons) {
+      const path = icon.src.replace("https://studio.example", "");
+      expect(path.startsWith("/"), icon.src).toBe(true);
+      expect(existsSync(path === "/icon.svg" ? "src/app/icon.svg" : `public${path}`), icon.src).toBe(true);
+    }
+    /* the manifest lists the same files */
+    const { default: manifest } = await import("@/app/manifest");
+    expect(manifest().icons?.filter((i) => i.purpose === "any").map((i) => i.src)).toEqual(icons.map((i) => new URL(i.src).pathname));
+    await client.close();
   });
 
   it("the sitemap lists only the front door, and nothing from the old project is left in public/", async () => {

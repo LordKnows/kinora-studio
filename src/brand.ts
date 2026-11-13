@@ -34,6 +34,17 @@ export const BRAND_COLORS = {
   nightEdge: "#3A3A38",
 } as const;
 
+/** The mark as files a client fetches (scripts/build-brand-assets.mjs writes them). The web app manifest and
+    the MCP server both list these; the PNGs come first because every MCP client must read PNG and SVG is optional. */
+export const BRAND_ICONS = [
+  { src: "/icon-192.png", type: "image/png", size: "192x192" },
+  { src: "/icon-512.png", type: "image/png", size: "512x512" },
+  { src: "/icon.svg", type: "image/svg+xml", size: "any" },
+] as const;
+
+/** The frames inside src/app/favicon.ico, in pixels: what an origin answers when asked for /favicon.ico. */
+export const FAVICON_SIZES = [16, 32, 48] as const;
+
 /* The mark on a 64-unit field: three rounded cards make a K. The upright one
    is the spindle, the lower one leans on it, and the red one is the card
    flicking past the stop. */

@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 import { assertVisible } from "@/auth/scope";
+import { BRAND, BRAND_ICONS } from "@/brand";
 import * as director from "@/director";
 import * as styles from "@/studio/styles";
 import * as treatments from "@/studio/treatment";
@@ -65,8 +66,24 @@ export function shotWarnings(label: string, spec: { link?: { type?: string }; li
   return out;
 }
 
+/* How the server introduces itself (initialize → serverInfo): the name a
+   client shows, what it is, where it lives, and the three-card K. The icons
+   are the files the manifest lists, as absolute URLs on the server's own
+   origin, which is where the MCP spec asks a client to accept them from. */
+export function studioServerInfo() {
+  const base = config.publicUrl();
+  return {
+    name: "kinora-studio",
+    title: `${BRAND.name} ${BRAND.zh}`,
+    version: "0.1.0",
+    description: `${BRAND.descriptor}. ${BRAND.tagline}`,
+    websiteUrl: base,
+    icons: BRAND_ICONS.map((icon) => ({ src: `${base}${icon.src}`, mimeType: icon.type, sizes: [icon.size] })),
+  };
+}
+
 export function createStudioServer(actor: Actor): McpServer {
-  const server = new McpServer({ name: "kinora-studio", version: "0.1.0" }, { instructions: "Kinora Studio (影匣), an AI film studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first. Keep errors in front of the spend: record the user's requirements, have a fresh reviewer read the story, every shot before it renders and the cut (review_packet → record_review), and remember you see stills, never motion or sound. With image generation on (image_status: on, and the model the user chose), pictures come before takes: plan_frames, generate_element_sheet, generate_shot_frame, each reviewed (stage frame); a prop, wardrobe, face or background fault in a take is fixed with remake_take. Work a stage through to its end before you report: queue every picture the plan needs (independent ones together), wait for them (get_image_job with wait), review them, fix what fails, then report once with the handles — do not stop after each picture or group to ask whether to go on; ask only for what is the user's (approvals, spend confirmations, choices between looks). Never present a shotlist with lint errors: save_shotlist answers with them in lint and next." });
+  const server = new McpServer(studioServerInfo(), { instructions: "Kinora Studio (影匣), an AI film studio: script → elements → shotlist → hero frames → takes → timeline → export. Call get_director_guide first. Keep errors in front of the spend: record the user's requirements, have a fresh reviewer read the story, every shot before it renders and the cut (review_packet → record_review), and remember you see stills, never motion or sound. With image generation on (image_status: on, and the model the user chose), pictures come before takes: plan_frames, generate_element_sheet, generate_shot_frame, each reviewed (stage frame); a prop, wardrobe, face or background fault in a take is fixed with remake_take. Work a stage through to its end before you report: queue every picture the plan needs (independent ones together), wait for them (get_image_job with wait), review them, fix what fails, then report once with the handles — do not stop after each picture or group to ask whether to go on; ask only for what is the user's (approvals, spend confirmations, choices between looks). Never present a shotlist with lint errors: save_shotlist answers with them in lint and next." });
 
   const tool = <T extends z.ZodTypeAny>(name: string, description: string, input: T, run: (args: z.infer<T>) => Promise<unknown>) => {
     const cb = async (args: unknown) => {

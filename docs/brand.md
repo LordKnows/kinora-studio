@@ -129,9 +129,10 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 | 文件 | 内容 |
 |---|---|
 | `src/brand.ts` | 名字、颜色、标志的几何、`markSvg()` 和 `faviconSvg()`。改名或改标志只改这里 |
+| `src/app/manifest.ts`、`src/mcp/server.ts` | 安装的应用和 MCP server（`studioServerInfo()`，initialize 时报给客户端的名字、网址和图标）列的是同一批图标文件：`src/brand.ts` 里的 `BRAND_ICONS` |
 | `src/studio-ui/brand-mark.tsx` | 界面里用的图标（`BrandMark`，`ground` 为 `ink` 或 `night`）和字标（`BrandWord`） |
-| `scripts/build-brand-assets.mjs` | 从 `src/brand.ts` 生成 `src/app/icon.svg`、`public/icon-*.png`、`src/app/apple-icon.png` 和 `public/og.png`（`node scripts/build-brand-assets.mjs`，需要 Node 22.18 以上和一个 Chromium） |
-| `tests/brand.test.ts` | favicon 和 `src/brand.ts` 一致；三张卡、一张红；界面里没有旧名字 |
+| `scripts/build-brand-assets.mjs` | 从 `src/brand.ts` 生成 `src/app/icon.svg`、`src/app/favicon.ico`（16、32、48 三帧，给不读 `<link>`、直接要 `/favicon.ico` 的客户端，比如 MCP 客户端的连接器列表）、`public/icon-*.png`、`src/app/apple-icon.png` 和 `public/og.png`（`node scripts/build-brand-assets.mjs`，需要 Node 22.18 以上和一个 Chromium） |
+| `tests/brand.test.ts` | favicon 和 `src/brand.ts` 一致；`favicon.ico` 每个尺寸一帧；三张卡、一张红；界面里没有旧名字；manifest 和 MCP server 列的图标都是生成出来的文件 |
 
 ## 没有改名的东西
 
