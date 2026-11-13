@@ -181,6 +181,10 @@ Worker 页面 → **Settings → Variables and Secrets**。
   - `studio.example.com/api/cron/sweep`
   - `studio.example.com/api/painter/*`（画图机器的心跳、上传、回报，带 `PAINTER_TOKEN`）
   - `studio.example.com/api/pod/*`（Pod 和画图机器开机拉代码包，带 token）
+  - `studio.example.com/favicon.ico`、`studio.example.com/icon.svg`、
+    `studio.example.com/icon-192.png`、`studio.example.com/icon-512.png`（标志。MCP 客户端的
+    连接器列表不登录就来取图标：有的直接要 `/favicon.ico`，有的读 `/mcp` 在 initialize 里报的
+    图标地址。不放行的话拿到的是登录页的 302，列表里只显示一个字母）
 - Policy：Action **Bypass**，Include → **Everyone**。
 - 注意 `/oauth/authorize`（同意页）**不要**加进 bypass，它必须登录。
 

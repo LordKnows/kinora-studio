@@ -213,7 +213,10 @@ Put the studio hostname behind **Cloudflare Access** (set `AUTH_MODE=access`,
 `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`) and add bypass rules for `/mcp`,
 `/.well-known/*`, `/api/oauth/*`, `/api/runpod/hook`, `/api/assembler/hook`,
 `/api/cron/sweep`, `/api/painter/*`, `/api/pod/*` and `/media/*` (unguessable
-keys), which carry their own auth (OAuth bearer, HMAC, secret, token). `AUTH_MODE` fails closed: anything but
+keys), which carry their own auth (OAuth bearer, HMAC, secret, token). Bypass
+`/favicon.ico`, `/icon.svg`, `/icon-192.png` and `/icon-512.png` as well: an MCP
+client fetches the connector's icon without logging in, and behind Access it
+gets the login redirect and shows a letter instead. `AUTH_MODE` fails closed: anything but
 `dev` means Access.
 
 ### 3. A painter (pictures, off the GPU)
