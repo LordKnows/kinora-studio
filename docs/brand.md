@@ -142,7 +142,9 @@ Kinora 是 1896 年卢米埃尔兄弟申请专利的家用看片机，1902 年�
 - RunPod 上的 GPU 机器 `cinema-studio-h3*` 和绘图机 `cinema-studio-painter*`：Studio 靠这些名字认领已有的机器。
 - 数据库迁移文件里的注释（已经执行过的迁移不改）。
 - `docs/cinema-studio-h3-design.md`：最初复刻 Higgsfield Cinema Studio 的设计稿，保留原文。
-- GitHub 仓库名 `open-higgsfield-server`：要改的话在 GitHub 仓库的 Settings → General → Repository name 里改，
-  旧地址会自动跳转；改完把 Cloudflare Workers Builds 里连接的仓库确认一下。
+
+GitHub 仓库已经从 `open-higgsfield-server` 改名为 `LordKnows/kinora-studio`，旧地址会自动跳转。
+Cloudflare Workers Builds 不会跟着改名，要在 Worker 的构建设置里断开 Git 再连上新仓库，步骤见
+[deploy-cloudflare.md](deploy-cloudflare.md) 第 3 节。
 
 导演包的自定义风格目录改成了 `~/.kinora/my-styles`；只有旧目录 `~/.openhiggsfield/my-styles` 存在时仍然读旧目录，不用手动搬。
