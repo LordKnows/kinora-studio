@@ -1,0 +1,13 @@
+# The voice worker's own packages, installed by voice_setup.sh into /app/voice-venv. The venv sees the
+# image's system site-packages, so torch and torchaudio (with the image's CUDA) come from there; these
+# pinned versions shadow anything older the image carries, without touching ComfyUI's environment.
+# qwen-tts itself is installed with --no-deps: it pins these two and also asks for gradio, which only
+# its demo uses.
+transformers==4.57.3
+accelerate==1.12.0
+huggingface_hub==0.36.2
+einops==0.8.2
+librosa==1.0.0
+soundfile==0.14.0
+onnxruntime==1.31.1
+sox==1.5.0

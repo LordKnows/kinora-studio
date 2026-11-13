@@ -12,6 +12,7 @@ COPY h3-runpod/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir requests boto3
 COPY h3-runpod/handler.py /app/handler.py
 COPY h3-runpod/server.py /app/server.py
+COPY h3-runpod/voice_handler.py h3-runpod/voice_worker.py h3-runpod/voice_setup.sh h3-runpod/requirements-voice.txt h3-runpod/models-voice.txt /app/
 COPY painter/paint.py /app/paint.py
 COPY painter/painter.py /app/painter.py
 COPY painter/install_codex.sh /app/install_codex.sh

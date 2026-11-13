@@ -104,7 +104,9 @@ def test_every_list_names_sizes():
         for line in listing.read_text().splitlines():
             if line.strip() and not line.startswith("#"):
                 subdir, url, size = line.split("\t")
-                assert url.startswith("https://huggingface.co/") and size.isdigit() and int(size) > 1_000_000, (listing.name, line)
+                # weights are big; a transformers model also needs its small config and tokenizer files, listed by exact size
+                small_ok = url.rsplit("/", 1)[-1].endswith((".json", ".txt"))
+                assert url.startswith("https://huggingface.co/") and size.isdigit() and int(size) > (0 if small_ok else 1_000_000), (listing.name, line)
 
 
 # ---------- models the Studio no longer runs: removed from the volume at boot ----------

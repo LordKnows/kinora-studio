@@ -354,7 +354,7 @@ def test_downloads_status_says_what_is_left_and_whether_the_chain_runs(tmp_path,
     (base / "vae").mkdir(parents=True)
     state.mkdir()
     monkeypatch.setenv("DOWNLOAD_STATE_DIR", str(state))
-    for switch in ("H3_IMAGE", "REGEN_2K"):
+    for switch in ("H3_IMAGE", "REGEN_2K", "VOICE_DESIGN"):
         monkeypatch.setenv(switch, "0")
     idle = handler.downloads_status(base)
     assert idle["active"] is False and idle["gb_left"] > 60 and len(idle["missing"]) == 7
@@ -363,6 +363,12 @@ def test_downloads_status_says_what_is_left_and_whether_the_chain_runs(tmp_path,
     with_image = handler.downloads_status(base)
     assert len(with_image["missing"]) == 9 and round(with_image["gb_left"] - idle["gb_left"], 1) == 22.1
     monkeypatch.setenv("H3_IMAGE", "0")
+    # voice design: Qwen3-TTS VoiceDesign (weights, its codec, configs and tokenizer) and the speaker model (+4.6 GB)
+    monkeypatch.setenv("VOICE_DESIGN", "1")
+    with_voice = handler.downloads_status(base)
+    assert len(with_voice["missing"]) == 7 + 12 and round(with_voice["gb_left"] - idle["gb_left"], 1) == 4.6
+    assert "tts/qwen3-tts-12hz-1.7b-voicedesign/speech_tokenizer/model.safetensors" in with_voice["missing"]
+    monkeypatch.setenv("VOICE_DESIGN", "0")
     # the chain runs (its pid is this process), on a file half down
     (state / "chain.pid").write_text(str(os.getpid()))
     (state / "current").write_text("models.txt minimax_h3_video_vae_fp16.safetensors 5207808496")

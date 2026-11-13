@@ -6,14 +6,16 @@ shape as RunPod Serverless, so the Studio's PodBackend can treat both alike:
     GET  /health            → {ok, comfy, workflows}
     POST /run               {input, webhook?}  → {id, status: IN_QUEUE}
     POST /assemble          {input, webhook?}  → {id, status: IN_QUEUE}
+    POST /voice             {input, webhook?}  → {id, status: IN_QUEUE}  (VoiceDesign takes of a line)
     POST /remake/install    {modes?}           → {started}  (Viggle Remake models onto the volume)
     GET  /status/<id>       → {id, status, output?, error?, executionTime?}
     POST /cancel/<id>       → {id, status}
 
 Every request must carry `X-Studio-Token`; the RunPod HTTP proxy is public.
-Jobs (video, assemble) run one at a time on a worker thread (one GPU). When
-a job finishes and a webhook was given, the job object is POSTed there (3
-attempts).
+Jobs (video, assemble, voice) run one at a time on a worker thread (one GPU).
+A voice job takes seconds, so it goes ahead of the renders still waiting
+(never beside the one running). When a job finishes and a webhook was given,
+the job object is POSTed there (3 attempts).
 
 Pictures are not drawn through this server: the pod also runs the painter
 loop (workers/painter/painter.py) that claims image jobs from the Studio like
@@ -23,6 +25,7 @@ any painter, as the fallback while the pod is up (PAINTER_ON_POD=0: off).
 from __future__ import annotations
 
 import inspect
+import itertools
 import json
 import os
 import queue
@@ -70,9 +73,12 @@ class JobStore:
 
 
 class JobServer:
+    # Lower runs first; equal priorities keep their order.
+    PRIORITY = {"voice": 0}
+
     def __init__(self, run_video: Runner, run_assemble: Runner, token: str, health: Callable[[], dict[str, Any]] | None = None, post: Callable[..., Any] | None = None, interrupt: Callable[[], Any] | None = None,
-                 routes: dict[tuple[str, str], Callable[[dict[str, Any]], tuple[int, dict[str, Any]]]] | None = None) -> None:
-        self.runners = {"video": run_video, "assemble": run_assemble}
+                 routes: dict[tuple[str, str], Callable[[dict[str, Any]], tuple[int, dict[str, Any]]]] | None = None, run_voice: Runner | None = None) -> None:
+        self.runners = {"video": run_video, "assemble": run_assemble, **({"voice": run_voice} if run_voice else {})}
         self.token = token
         self.health = health or (lambda: {"ok": True})
         # Called when a running job is cancelled: tells ComfyUI to stop sampling.
@@ -81,7 +87,8 @@ class JobServer:
         # Extra endpoints (remake install): (method, path) → handler(body) → (status, payload)
         self.routes = routes or {}
         self.store = JobStore()
-        self.queue: "queue.Queue[str]" = queue.Queue()
+        self.queue: "queue.PriorityQueue[tuple[int, int, str]]" = queue.PriorityQueue()
+        self._seq = itertools.count()
         self.cancelled: set[str] = set()
         self._worker = threading.Thread(target=self._loop, name="jobs", daemon=True)
         self._worker.start()
@@ -98,7 +105,7 @@ class JobServer:
             "queued_at": time.time(),
         }
         self.store.put(job)
-        self.queue.put(job["id"])
+        self.queue.put((self.PRIORITY.get(kind, 1), next(self._seq), job["id"]))
         return self.public(job)
 
     def cancel(self, job_id: str) -> dict[str, Any] | None:
@@ -121,7 +128,7 @@ class JobServer:
 
     def _loop(self) -> None:
         while True:
-            job_id = self.queue.get()
+            _, _, job_id = self.queue.get()
             if job_id in self.cancelled:
                 continue
             job = self.store.get(job_id)
@@ -216,6 +223,8 @@ class JobServer:
                     self._send(200, server.enqueue("video", self._body()))
                 elif self.path == "/assemble":
                     self._send(200, server.enqueue("assemble", self._body()))
+                elif self.path == "/voice" and "voice" in server.runners:
+                    self._send(200, server.enqueue("voice", self._body()))
                 elif ("POST", self.path) in server.routes:
                     status, payload = server.routes[("POST", self.path)](self._body())
                     self._send(status, payload)
@@ -268,6 +277,7 @@ def main() -> int:
     import handler as h3
     import assembler_handler as asm
     import painter
+    import voice_handler as voice
 
     token = os.environ.get("STUDIO_WORKER_TOKEN")
     if not token:
@@ -276,16 +286,18 @@ def main() -> int:
     comfy = h3.ComfyClient()
     here = os.path.dirname(os.path.abspath(__file__))
     models_dir = os.environ.get("MODELS_DIR", str(h3.LORA_DIR.parent))
+    voice_worker = voice.VoiceWorker()
     server = JobServer(
         run_video=lambda inp, should_cancel=None, report=None: h3.handler({"input": inp}, should_cancel, report),
         run_assemble=lambda inp, should_cancel=None: asm.handler({"input": inp}),
         token=token,
-        health=lambda: h3.health(comfy),
+        health=lambda: {**h3.health(comfy), "voice": voice.voice_status(voice_worker)},
         interrupt=comfy.interrupt,
         routes={
             ("GET", "/remake/status"): lambda _b: (200, h3.remake_status()),
             ("POST", "/remake/install"): remake_installer(models_dir, here),
         },
+        run_voice=lambda inp, should_cancel=None, report=None: voice.handler({"input": inp}, voice_worker, should_cancel, report, comfy=comfy),
     )
     # the fallback painter: claims the Studio's image jobs while the pod is up
     painter.start_in_background(on_pod=True)

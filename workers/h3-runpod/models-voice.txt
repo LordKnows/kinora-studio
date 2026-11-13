@@ -1,0 +1,15 @@
+# Voice design for the Studio's voice jobs (voice_handler.py): subdir<TAB>URL<TAB>bytes (≈4.6 GB). Downloaded after the video sets when VOICE_DESIGN=1.
+# Qwen3-TTS-12Hz-1.7B-VoiceDesign (Qwen team, Apache-2.0) speaks a line from a written description of the voice; WeSpeaker ResNet293-LM
+# (WeNet community, CC BY 4.0) scores how close each take is to the voice card's reference. Both pinned to a commit so the sizes hold.
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/config.json	4421
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/generation_config.json	245
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/merges.txt	1671839
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/model.safetensors	3833402552
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/preprocessor_config.json	127
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/tokenizer_config.json	7344
+tts/qwen3-tts-12hz-1.7b-voicedesign	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/vocab.json	2776833
+tts/qwen3-tts-12hz-1.7b-voicedesign/speech_tokenizer	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/speech_tokenizer/config.json	2336
+tts/qwen3-tts-12hz-1.7b-voicedesign/speech_tokenizer	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/speech_tokenizer/configuration.json	76
+tts/qwen3-tts-12hz-1.7b-voicedesign/speech_tokenizer	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/speech_tokenizer/model.safetensors	682293092
+tts/qwen3-tts-12hz-1.7b-voicedesign/speech_tokenizer	https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign/resolve/5ecdb67327fd37bb2e042aab12ff7391903235d3/speech_tokenizer/preprocessor_config.json	234
+tts/wespeaker	https://huggingface.co/Wespeaker/wespeaker-voxceleb-resnet293-LM/resolve/6e6bffe5bf3d772a1f143dc6dbfea58a0799ea83/voxceleb_resnet293_LM.onnx	114336285

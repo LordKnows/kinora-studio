@@ -980,6 +980,10 @@ class ComfyClient:
         """Stop whatever ComfyUI is executing right now."""
         self.http.post(f"{self.base}/interrupt", timeout=10)
 
+    def free(self) -> None:
+        """Unload ComfyUI's cached models and free its GPU memory (the voice worker needs room)."""
+        self.http.post(f"{self.base}/free", json={"unload_models": True, "free_memory": True}, timeout=30)
+
     def dequeue(self, prompt_id: str) -> None:
         """Drop a prompt that is still waiting in ComfyUI's queue."""
         self.http.post(f"{self.base}/queue", json={"delete": [prompt_id]}, timeout=10)
@@ -1248,7 +1252,7 @@ def models_status(models_dir: Path | None = None) -> dict[str, Any]:
 
 
 # The lists the boot chain fetches (start.sh fetch_models), with the switch that turns each off.
-DOWNLOAD_LISTS = [("models.txt", "AUTO_DOWNLOAD_MODELS"), ("models-h3-image.txt", "H3_IMAGE"), ("models-regen.txt", "REGEN_2K")]
+DOWNLOAD_LISTS = [("models.txt", "AUTO_DOWNLOAD_MODELS"), ("models-h3-image.txt", "H3_IMAGE"), ("models-regen.txt", "REGEN_2K"), ("models-voice.txt", "VOICE_DESIGN")]
 
 
 def downloads_status(models_dir: Path | None = None) -> dict[str, Any]:
