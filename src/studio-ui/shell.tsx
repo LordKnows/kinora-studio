@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, Suspense, useContext, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 
 import { BRAND } from "@/brand";
 import type { ProjectView } from "@/studio/orchestrator";
@@ -33,7 +33,11 @@ import { useProject } from "./use-project";
    the shell turns dark around it and leaves the bar out, since that page
    carries its own strip of the film. */
 
-type Ctx = { projectId: string; view: ProjectView | null; error: string | null; loading: boolean; reload: () => Promise<void> };
+type Ctx = {
+  projectId: string; view: ProjectView | null; error: string | null; loading: boolean; reload: () => Promise<void>;
+  /** The last address in this project outside the Screening room, query and all: where its Back button goes. Null when the room was opened directly. */
+  cameFrom: () => string | null;
+};
 
 const ProjectContext = createContext<Ctx | null>(null);
 
@@ -148,6 +152,8 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   const t = useT();
   const base = `/p/${projectId}`;
   const lightsDown = pathname === `${base}/screening`;
+  const lastPage = useRef<string | null>(null);
+  const cameFrom = useCallback(() => lastPage.current, []);
   const spent = view?.project.spentUsd ?? 0;
   const cap = view?.project.budgetCapUsd ?? 0;
   const target = view?.project.targetSeconds;
@@ -236,6 +242,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
       )}
       <Suspense fallback={null}>
         <DirectorDrawer projectId={projectId} view={view} rolling={rolling} />
+        <WhereFrom room={`${base}/screening`} into={lastPage} />
       </Suspense>
       <main className="st-main st-main--project">
         {error && !view ? (
@@ -257,7 +264,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
     </>
   );
   return (
-    <ProjectContext.Provider value={{ projectId, view, error, loading, reload }}>
+    <ProjectContext.Provider value={{ projectId, view, error, loading, reload, cameFrom }}>
       <NoticeProvider>
         <TakeWatch view={view} base={base} />
         {lightsDown ? <div className="st-lightsdown sc-room">{body}</div> : body}
@@ -322,6 +329,16 @@ function DirectorDrawer({ projectId, view, rolling }: { projectId: string; view:
       <DirectorPanel projectId={projectId} part="log" />
     </aside>
   );
+}
+
+/* Keeps the address of the page you are on, as long as it is not the Screening room. */
+function WhereFrom({ room, into }: { room: string; into: RefObject<string | null> }) {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  useEffect(() => {
+    if (pathname && pathname !== room) into.current = params.size ? `${pathname}?${params}` : pathname;
+  }, [pathname, params, room, into]);
+  return null;
 }
 
 function TakeWatch({ view, base }: { view: ProjectView | null; base: string }) {

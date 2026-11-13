@@ -132,7 +132,8 @@ export const cut: Record<string, string> = {
   "Let the director approve the script": "让导演批准剧本", "Let the director approve the shotlist": "让导演批准分镜",
 
   /* requirements, decisions, reviews */
-  "Requirements": "需求", "· {n} open": "· {n} 条未满足",
+  "Requirements": "需求", "{open} open · {n} in all": "{open} 条未满足 · 共 {n} 条",
+  "open||requirement status": "未满足", "met||requirement status": "已满足", "dropped||requirement status": "已放弃",
   "A requirement is a sentence the film is held to at every review. The director records what you ask for here; you can add one yourself.": "需求是每次评审都要对照的一句话。导演会把你提的要求记在这里；你也可以自己加。",
   "A requirement in your own words": "用你自己的话写一条需求", "In your own words, e.g. the cat never looks into the camera": "用你自己的话写，例如：猫从不看镜头",
   "Add": "添加", "Met": "已满足", "Drop||requirement": "放弃", "Reopen": "重新打开",

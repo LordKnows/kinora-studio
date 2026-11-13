@@ -11,8 +11,9 @@ import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Stars, statusLabel, useAction } from "./common";
+import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { plural, type T, useLang, useT } from "./i18n";
+import { CheckCircleIcon, ChevronIcon, CloseIcon, DraftIcon, ErrorIcon, InfoIcon, PlusIcon, WarningIcon } from "./icons";
 import { lintLine } from "./zh/lint";
 import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
@@ -95,15 +96,16 @@ function Board() {
   const address = useShotAddress();
   const openId = address.openId;
   const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
-  const [newScene, setNewScene] = useState("");
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintOpen, setLintOpen] = useState(false);
-  const [sketchOpen, setSketchOpen] = useState(false);
+  /* the sketch is opened from a scene; `whole` shows the film instead of that scene */
+  const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
   const [sketchGray, setSketchGray] = useState(false);
   const [sketchKey, setSketchKey] = useState(0);
   const [batch, setBatch] = useState<BatchPlan | null>(null);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [styleNote, setStyleNote] = useState<string | null>(null);
+  /* a scene just added from the top of the page: brought into view once the board has it */
+  const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
   const refreshLint = useCallback(async () => {
     try {
@@ -124,14 +126,6 @@ function Board() {
     }
     return m;
   }, [lint]);
-  const applyStyle = useAction(async () => {
-    const style = view?.project.look.style;
-    if (!style) return;
-    const r = await post<{ warnings: LintWarning[] }>(`/api/projects/${projectId}/apply-style`, { style });
-    setStyleNote(tr("Style “{style}” applied to every shot{notes}. The shotlist is back in draft until you approve it.", { style, notes: r.warnings.length ? tr("; {n} note(s) in Lint", { n: r.warnings.length }) : "" }));
-    await reload();
-    await refreshLint();
-  });
   const plan = useAction(async () => {
     setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true }));
     setBatchOpen(true);
@@ -146,12 +140,11 @@ function Board() {
     await post(`/api/projects/${projectId}/shotlist/approve`);
     await reload();
   });
-  const addScene = useAction(async () => {
-    if (!newScene.trim()) return;
-    await post(`/api/projects/${projectId}/scenes`, { slug: newScene.trim() });
-    setNewScene("");
-    await reload();
-  });
+  useEffect(() => {
+    if (!addedScene || !view?.scenes.some((s) => s.id === addedScene)) return;
+    document.getElementById(`scene-${addedScene}`)?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    setAddedScene(null);
+  }, [addedScene, view]);
   const addShot = useAction(async (_c, sceneId: string) => {
     const { shot } = await post<{ shot: { id: string } }>(`/api/scenes/${sceneId}/shots`, { ...BLANK_SHOT, intent: "New shot — describe it" });
     await reload();
@@ -164,15 +157,6 @@ function Board() {
     await post("/api/shots/reorder", { sceneId: scene.id, shotIds: ids });
     await reload();
   });
-  const editPalette = useAction(async (_c, scene: SceneView) => {
-    const current = scene.palette ? `${scene.palette.colors.join(" ")}${scene.palette.note ? ` | ${scene.palette.note}` : ""}` : "";
-    const raw = window.prompt(tr("Colour script for \"{slug}\": hex colours darkest first, then | and a note. Empty clears it.\nExample: #1d2430 #3b4a5c #d9c7a3 #b23a2b | warm practicals against a cold window; red only on the scarf", { slug: scene.slug }), current);
-    if (raw === null) return;
-    const [cols, note] = raw.split("|");
-    const colors = (cols ?? "").match(/#[0-9a-fA-F]{6}/g) ?? [];
-    await put(`/api/scenes/${scene.id}/palette`, { palette: colors.length ? { colors: colors.slice(0, 6), ...(note?.trim() ? { note: note.trim() } : {}) } : null });
-    await reload();
-  });
   const removeScene = useAction(async (_c, scene: SceneView) => {
     const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
@@ -183,7 +167,12 @@ function Board() {
   const open = view.scenes.flatMap((s) => s.shots).find((s) => s.id === openId) ?? null;
   const approved = view.project.shotlistApproval === "approved";
   const shotCount = view.scenes.reduce((n, s) => n + s.shots.length, 0);
-  const error = approve.error ?? addScene.error ?? addShot.error ?? reorder.error ?? removeScene.error ?? editPalette.error;
+  const error = approve.error ?? addShot.error ?? reorder.error ?? removeScene.error;
+  const sketchScene = sketch ? view.scenes.find((s) => s.id === sketch.sceneId) : undefined;
+  const sketchSrc = (extra?: Record<string, string>) => {
+    const q = new URLSearchParams({ ...(sketchScene && !sketch?.whole ? { scene: sketchScene.id } : {}), ...(sketchGray ? { gray: "1" } : {}), ...extra });
+    return `/api/projects/${projectId}/sketch${q.size ? `?${q}` : ""}`;
+  };
 
   return (
     <div className="st-page st-page--wide">
@@ -191,26 +180,25 @@ function Board() {
         <div>
           <h1 className="st-title">{tr("Board")}</h1>
           <p className="st-subtitle">
+            {/* the shotlist's state: a green tick once approved, an amber pencil while it is a draft */}
+            <Status tone={approved ? "ok" : "warn"} icon={approved ? <CheckCircleIcon /> : <DraftIcon />}>
+              {approved ? (view.delegated?.shotlist ? tr("Shotlist approved by the director") : tr("Shotlist approved")) : tr("Shotlist draft")}
+            </Status>
+            {" · "}
             {tr("Checkpoint 2. Structural edits return the shotlist to draft.")} {view.canGenerate ? tr("Ready to render.") : tr("Blocked: {list}.", { list: view.blockers.join(", ") })}
           </p>
         </div>
         <div className="st-actions">
-          <Lamp state={approved ? "ok" : "warn"} label={approved ? (view.delegated?.shotlist ? tr("Shotlist approved by the director") : tr("Shotlist approved")) : tr("Shotlist draft")} />
           {shotCount > 0 && (
-            <Button kind="quiet" onClick={() => setSketchOpen(true)} title={tr("Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes")}>
-              {tr("Sketch")}
+            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title={lint ? tr("Lint · {e} errors, {w} warnings, {i} notes", { e: lint.counts.error, w: lint.counts.warn, i: lint.counts.info }) : tr("Rhythm and craft lint of the shotlist")}>
+              {tr("Lint")}
+              {lint && lint.counts.error > 0 && <span className="st-sev" data-severity="error"><ErrorIcon size={13} />{lint.counts.error}</span>}
+              {lint && lint.counts.warn > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{lint.counts.warn}</span>}
             </Button>
           )}
-          {shotCount > 0 && (
-            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title={tr("Rhythm and craft lint of the shotlist")}>
-              {tr("Lint")}{lint ? ` · ${lint.counts.error + lint.counts.warn}` : ""}
-            </Button>
-          )}
-          {shotCount > 0 && view.project.look.style && (
-            <Button busy={applyStyle.busy} onClick={() => void applyStyle.fire()} title={tr("Fill every shot's cinematography from the style “{style}”", { style: view.project.look.style })}>
-              {tr("Apply style")}
-            </Button>
-          )}
+          <Popover label={<><PlusIcon size={13} />{tr("Add scene")}</>} title={tr("Add a scene at the end of the board")} panelLabel={tr("Add scene")}>
+            {(close) => <AddSceneForm onAdded={(id) => { close(); setAddedScene(id); }} />}
+          </Popover>
           {!approved && (
             <Button kind="primary" busy={approve.busy} disabled={shotCount === 0} onClick={() => void approve.fire()}>
               {tr("Approve shotlist")}
@@ -223,20 +211,14 @@ function Board() {
           )}
         </div>
       </div>
-      <ErrorBanner error={error ?? applyStyle.error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addScene.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); editPalette.dismiss(); applyStyle.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
-      {styleNote && (
-        <div className="st-alert st-alert--info" style={{ marginBottom: 16 }}>
-          <span>{styleNote}</span>
-          <Button size="sm" kind="quiet" onClick={() => setStyleNote(null)}>{tr("Dismiss")}</Button>
-        </div>
-      )}
+      <ErrorBanner error={error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
 
       {view.scenes.length === 0 && (
-        <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene below and build shots by hand.")} />
+        <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.")} />
       )}
 
       {view.scenes.map((scene) => (
-        <section key={scene.id} className="st-scene">
+        <section key={scene.id} id={`scene-${scene.id}`} className="st-scene">
           <div className="st-scene-head">
             <div>
               <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
@@ -248,15 +230,19 @@ function Board() {
               )}
             </div>
             <div className="st-row">
-              <Button size="sm" kind="quiet" onClick={() => void editPalette.fire(scene)} title={tr("This scene's colour script; it compiles into every shot")}>
-                {tr("Palette||scene colours")}
+              <Button size="sm" kind="quiet" disabled={scene.shots.length === 0} onClick={() => setSketch({ sceneId: scene.id, whole: false })} title={tr("Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes")}>
+                {tr("Sketch")}
               </Button>
+              <Popover size="sm" kind="quiet" label={tr("Palette||scene colours")} title={tr("This scene's colour script; it compiles into every shot")} panelLabel={tr("Colour script · {slug}", { slug: scene.slug })}>
+                {(close) => <PaletteForm scene={scene} onDone={close} />}
+              </Popover>
               <Button size="sm" busy={addShot.busy} onClick={() => void addShot.fire(scene.id)}>
                 {tr("Add shot")}
               </Button>
-              <Button size="sm" kind="quiet" onClick={() => void removeScene.fire(scene)} title={tr("Delete scene")}>
+              <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
+                question={tr("Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.", { i: view.scenes.indexOf(scene) + 1, slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" })}>
                 {tr("Delete")}
-              </Button>
+              </ConfirmButton>
             </div>
           </div>
           {scene.shots.length === 0 ? (
@@ -281,29 +267,30 @@ function Board() {
         </section>
       ))}
 
-      <div className="st-section st-row">
-        <input className="st-input" style={{ maxWidth: 280 }} placeholder={tr("New scene slug, e.g. alley-chase")} value={newScene} onChange={(e) => setNewScene(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void addScene.fire()} />
-        <Button busy={addScene.busy} disabled={!newScene.trim()} onClick={() => void addScene.fire()}>
-          {tr("Add scene")}
-        </Button>
-      </div>
+      <BackToTop />
 
       {open && <ShotDrawer key={open.id} shot={open} onClose={() => setOpenId(null)} />}
-      {sketchOpen && (
+      {sketch && (
         <Drawer
-          title={tr("Sketch · colour-block storyboard")}
-          onClose={() => setSketchOpen(false)}
+          title={sketchScene && !sketch.whole ? tr("Sketch · {scene}", { scene: `${view.scenes.indexOf(sketchScene) + 1}. ${sketchScene.slug}` }) : tr("Sketch · colour-block storyboard")}
+          onClose={() => setSketch(null)}
           head={
             <span className="st-row">
+              {sketchScene && view.scenes.length > 1 && (
+                <span className="st-seg st-seg--sm" role="group" aria-label={tr("Sketch of")}>
+                  <button type="button" aria-pressed={!sketch.whole} onClick={() => setSketch({ ...sketch, whole: false })}>{tr("This scene")}</button>
+                  <button type="button" aria-pressed={sketch.whole} onClick={() => setSketch({ ...sketch, whole: true })}>{tr("Whole film")}</button>
+                </span>
+              )}
               <Button size="sm" kind={sketchGray ? "default" : "quiet"} onClick={() => setSketchGray((g) => !g)} title={tr("Black and white: does the subject separate from the background by value alone?")}>{sketchGray ? tr("Colour") : tr("Grayscale")}</Button>
               <Button size="sm" kind="quiet" onClick={() => setSketchKey((k) => k + 1)}>{tr("Refresh")}</Button>
-              <a className="st-link" href={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}`} target="_blank" rel="noreferrer">{tr("Open")}</a>
+              <a className="st-link" href={sketchSrc()} target="_blank" rel="noreferrer">{tr("Open")}</a>
             </span>
           }
         >
           <p className="st-muted">{tr("Drawn from the shotlist alone: subject size from the shot size, its place on the 38 % / 62 % guides, blocking arrows, the scene palette, and “dead frame” where nothing moves. Check the rhythm of sizes and the colour script before any frame is drawn.")}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img key={sketchKey} src={`/api/projects/${projectId}/sketch${sketchGray ? "?gray=1" : ""}${sketchGray ? "&" : "?"}v=${sketchKey}`} alt={tr("Colour-block storyboard")} style={{ width: "100%", height: "auto", borderRadius: 0 }} />
+          <img key={sketchSrc({ v: String(sketchKey) })} src={sketchSrc({ v: String(sketchKey) })} alt={tr("Colour-block storyboard")} style={{ width: "100%", height: "auto", borderRadius: 0 }} />
         </Drawer>
       )}
       {lintOpen && (
@@ -313,22 +300,7 @@ function Board() {
           ) : lint.warnings.length === 0 ? (
             <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass.")} />
           ) : (
-            <div className="st-lint">
-              {lint.warnings.map((w, i) => {
-                /* in Chinese: what the code means, and the server's own message beneath it */
-                const line = lintLine(lang, w);
-                return (
-                  <div key={i} className="st-lint-row" data-severity={w.severity}>
-                    <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : tr("film")}</span>
-                    <span>
-                      <span className={w.severity === "error" ? "st-danger" : w.severity === "warn" ? "st-warn" : "st-muted"} style={{ fontFamily: "var(--font-mono)", fontSize: 11, marginRight: 8 }}>{w.code}</span>
-                      {line.text}
-                      {line.detail && <span className="st-muted" style={{ display: "block" }}>{line.detail}</span>}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+            <LintGroups warnings={lint.warnings} lang={lang} />
           )}
         </Drawer>
       )}
@@ -390,6 +362,147 @@ function Board() {
         </Drawer>
       )}
     </div>
+  );
+}
+
+/* The Lint drawer: errors, then warnings, then notes, each in its own colour
+   with its own mark. Errors are open; warnings and notes are folded until
+   asked for, so what must be fixed is not under what may be. */
+const SEVERITIES = [
+  { severity: "error", label: "Errors||lint", Icon: ErrorIcon },
+  { severity: "warn", label: "Warnings||lint", Icon: WarningIcon },
+  { severity: "info", label: "Notes||lint", Icon: InfoIcon },
+] as const;
+
+function LintGroups({ warnings, lang }: { warnings: LintWarning[]; lang: ReturnType<typeof useLang> }) {
+  const tr = useT();
+  const [open, setOpen] = useState<Record<LintWarning["severity"], boolean>>({ error: true, warn: false, info: false });
+  const errors = warnings.filter((w) => w.severity === "error").length;
+  return (
+    <div className="st-lint-groups">
+      {errors === 0 && <Status tone="ok" icon={<CheckCircleIcon />}>{tr("No errors.")}</Status>}
+      {SEVERITIES.map(({ severity, label, Icon }) => {
+        const rows = warnings.filter((w) => w.severity === severity);
+        if (rows.length === 0) return null;
+        const id = `lint-${severity}`;
+        return (
+          <section key={severity} className="st-lint-group" data-severity={severity}>
+            <h3>
+              <button type="button" className="st-lint-head" aria-expanded={open[severity]} aria-controls={id} onClick={() => setOpen((o) => ({ ...o, [severity]: !o[severity] }))}>
+                <Icon size={15} />
+                <span>{tr(label)}</span>
+                <span className="st-lint-count st-num">{rows.length}</span>
+                <ChevronIcon />
+              </button>
+            </h3>
+            {open[severity] && (
+              <div id={id} className="st-lint">
+                {rows.map((w, i) => {
+                  /* in Chinese: what the code means, and the server's own message beneath it */
+                  const line = lintLine(lang, w);
+                  return (
+                    <div key={i} className="st-lint-row" data-severity={severity}>
+                      <span className="st-lint-where">{w.scene ? `${w.scene}${w.shot ? ` #${w.shot}` : ""}` : tr("film")}</span>
+                      <span>
+                        <span className="st-lint-code">{w.code}</span>
+                        {line.text}
+                        {line.detail && <span className="st-muted" style={{ display: "block" }}>{line.detail}</span>}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+/* A new scene, from the button at the top of the board: its slug, then it is added at the end. */
+function AddSceneForm({ onAdded }: { onAdded: (sceneId: string) => void }) {
+  const { projectId, reload } = useProjectContext();
+  const tr = useT();
+  const [slug, setSlug] = useState("");
+  const add = useAction(async () => {
+    if (!slug.trim()) return;
+    const { scene } = await post<{ scene: { id: string } }>(`/api/projects/${projectId}/scenes`, { slug: slug.trim() });
+    await reload();
+    onAdded(scene.id);
+  });
+  return (
+    <form className="st-stack st-stack--tight" onSubmit={(e) => { e.preventDefault(); void add.fire(); }}>
+      <Field label={tr("Scene slug")} hint={tr("A short name for the scene. It is added at the end of the board, and the shotlist goes back to draft.")}>
+        <input className="st-input" autoFocus maxLength={60} placeholder={tr("New scene slug, e.g. alley-chase")} value={slug} onChange={(e) => setSlug(e.target.value)} />
+      </Field>
+      <ErrorBanner error={add.error} projectId={projectId} onDismiss={add.dismiss} />
+      <div className="st-row">
+        <Button type="submit" kind="primary" size="sm" busy={add.busy} disabled={!slug.trim()}>{tr("Add scene")}</Button>
+      </div>
+    </form>
+  );
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+const MAX_COLOURS = 6;
+
+/* A scene's colour script: up to six colours, darkest first, and a note. Each
+   colour is a swatch (the system's colour picker) and its hex beside it; a
+   pasted run of hex codes replaces the lot. */
+function PaletteForm({ scene, onDone }: { scene: SceneView; onDone: () => void }) {
+  const { projectId, reload } = useProjectContext();
+  const tr = useT();
+  const [colors, setColors] = useState<string[]>(scene.palette?.colors ?? []);
+  const [note, setNote] = useState(scene.palette?.note ?? "");
+  const save = useAction(async (_c, palette: { colors: string[]; note?: string } | null) => {
+    await put(`/api/scenes/${scene.id}/palette`, { palette });
+    await reload();
+    onDone();
+  });
+  const setAt = (i: number, c: string) => setColors((xs) => xs.map((x, j) => (j === i ? c : x)));
+  const bad = colors.some((c) => !HEX.test(c));
+  return (
+    <form className="st-stack st-stack--tight pal-form" onSubmit={(e) => { e.preventDefault(); if (!bad) void save.fire(colors.length ? { colors, ...(note.trim() ? { note: note.trim() } : {}) } : null); }}>
+      <strong>{tr("Colour script · {slug}", { slug: scene.slug })}</strong>
+      <span className="st-muted">{tr("Up to six colours, darkest first; one accent at most. They compile into every shot of the scene.")}</span>
+      <div className="pal-list">
+        {colors.map((c, i) => (
+          <div key={i} className="pal-colour">
+            <label className="pal-swatch" style={{ background: HEX.test(c) ? c : "transparent" }} title={tr("Pick a colour")}>
+              <input type="color" value={HEX.test(c) ? c.toLowerCase() : "#808080"} onChange={(e) => setAt(i, e.target.value)} aria-label={tr("Colour {n}", { n: i + 1 })} />
+            </label>
+            <input className="st-input st-input--sm pal-hex" value={c} maxLength={7} spellCheck={false} aria-label={tr("Colour {n}, hex", { n: i + 1 })} aria-invalid={!HEX.test(c)}
+              onChange={(e) => setAt(i, e.target.value.trim())}
+              onPaste={(e) => {
+                /* a run of hex codes pasted into one field is a whole palette */
+                const many = e.clipboardData.getData("text").match(/#[0-9a-fA-F]{6}\b/g);
+                if (many && many.length > 1) { e.preventDefault(); setColors(many.slice(0, MAX_COLOURS)); }
+              }} />
+            <button type="button" className="st-btn st-btn--quiet st-btn--sm pal-remove" aria-label={tr("Remove colour {n}", { n: i + 1 })} onClick={() => setColors((xs) => xs.filter((_, j) => j !== i))}>
+              <CloseIcon size={11} />
+            </button>
+          </div>
+        ))}
+        {colors.length < MAX_COLOURS && (
+          <button type="button" className="st-btn st-btn--sm pal-add" onClick={() => setColors((xs) => [...xs, "#808080"])}>
+            <PlusIcon size={12} />{tr("Add a colour")}
+          </button>
+        )}
+      </div>
+      <Field label={tr("Note")}>
+        <input className="st-input st-input--sm" maxLength={200} placeholder={tr("e.g. warm practicals against a cold window; red only on the scarf")} value={note} onChange={(e) => setNote(e.target.value)} />
+      </Field>
+      {bad && <span className="st-muted">{tr("A colour is six hex digits after #, like #1d2430.")}</span>}
+      <ErrorBanner error={save.error} projectId={projectId} onDismiss={save.dismiss} />
+      <div className="st-row st-row--between">
+        <span className="st-row">
+          <Button type="submit" kind="primary" size="sm" busy={save.busy} disabled={bad}>{tr("Save")}</Button>
+          <Button size="sm" kind="quiet" onClick={onDone}>{tr("Cancel")}</Button>
+        </span>
+        {scene.palette && <Button size="sm" kind="quiet" busy={save.busy} onClick={() => void save.fire(null)}>{tr("Clear the palette")}</Button>}
+      </div>
+    </form>
   );
 }
 
@@ -535,7 +648,10 @@ function ShotDrawer({ shot, onClose }: { shot: ShotView; onClose: () => void }) 
             {/* deleting the shot is here, in its own place — never next to the frame buttons */}
             <div className="st-row st-row--between" style={{ marginTop: 16, paddingTop: 12, borderTop: "1px solid var(--line)" }}>
               <span className="st-muted">{tr("Remove this shot from the board (its takes too). Pictures stay in Pictures.")}</span>
-              <Button size="sm" kind="danger" busy={remove.busy} onClick={() => void remove.fire()}>{tr("Delete this shot")}</Button>
+              <ConfirmButton size="sm" kind="danger" busy={remove.busy} placement="above" confirmLabel={tr("Delete this shot")} onConfirm={() => void remove.fire()}
+                question={tr("Delete this shot{takes}? For 14 days it can be put back from Recently deleted, on the Settings page.", { takes: shot.takes.length ? plural(tr, shot.takes.length, " and its 1 take", " and its {n} takes") : "" })}>
+                {tr("Delete this shot")}
+              </ConfirmButton>
             </div>
           </>
         )}

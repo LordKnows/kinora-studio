@@ -11,7 +11,7 @@ import { post, usd } from "./api";
 import { ErrorBanner, useAction } from "./common";
 import { filmShots, shotPicture, takePicture, takesInOrder, tc, type FilmShot } from "./film";
 import { plural, useT } from "./i18n";
-import { PlayIcon } from "./icons";
+import { ArrowLeftIcon, PlayIcon } from "./icons";
 import { useProjectContext } from "./shell";
 
 /* Screening: lights down. One shot at a time, its takes side by side and
@@ -31,7 +31,7 @@ export function ScreeningPage() {
 const finishedOf = (s: FilmShot): Take[] => takesInOrder(s.shot).filter((t) => t.status === "completed");
 
 function Screening() {
-  const { projectId, view, reload } = useProjectContext();
+  const { projectId, view, reload, cameFrom } = useProjectContext();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -146,12 +146,20 @@ function Screening() {
   }, [toggle, stepTake, stepShot, compare, nextOpen, go, a, here, select]);
 
   if (!view) return null;
+  /* Back: the page of this project you came in from, as you left it; the Reel when the room was opened directly */
+  const back = (
+    <button type="button" className="st-btn scr-back" onClick={() => router.push(cameFrom() ?? base)}>
+      <ArrowLeftIcon />
+      {tr("Back")}
+    </button>
+  );
   const pickedShots = shots.filter((s) => s.picked);
   const reviewed = pickedShots.filter((s) => s.picked!.review).length;
 
   if (!here || !a) {
     return (
       <div className="st-page scr-page">
+        <div className="scr-top">{back}</div>
         <div className="st-empty"><strong>{tr("Nothing to screen yet")}</strong>{tr("A shot shows up here once one of its takes has finished rendering.")} <Link className="st-link" href={`${base}/board`}>{tr("Open the Board")}</Link></div>
       </div>
     );
@@ -162,6 +170,7 @@ function Screening() {
   return (
     <div className="st-page scr-page">
       <div className="scr-top">
+        {back}
         <span className="sc-slate sc-slate--xl">{here.slate}</span>
         <span className="st-num scr-facts">
           {tr("{a}–{b} · {d} s · {mode} · {move}", { a: tc(here.startS), b: tc(here.startS + here.durationS), d: here.durationS, mode: tr(spec.mode), move: tr(String(spec.camera?.move ?? "static").replace(/_/g, " ")) })}
