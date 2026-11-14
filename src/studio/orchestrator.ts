@@ -260,6 +260,18 @@ export async function removeScene(sceneId: string, by?: string): Promise<{ trash
   return { trashId };
 }
 
+/** The shots that use an element (as a character, a prop, the location, or a speaker), by slate ("2·3"). */
+export async function elementUses(elementId: string): Promise<string[]> {
+  const el = await repo.getElement(elementId);
+  const view = await getProjectView(el.projectId ?? "");
+  const out: string[] = [];
+  view.scenes.forEach((scene, si) => scene.shots.forEach((sh) => {
+    const s = sh.spec;
+    if (s.characters.includes(elementId) || s.props.includes(elementId) || s.location === elementId || s.dialogue.some((l) => l.speaker === elementId)) out.push(`${si + 1}·${sh.index + 1}`);
+  }));
+  return out;
+}
+
 export async function removeElement(elementId: string, by?: string): Promise<{ trashId: string }> {
   const el = await repo.getElement(elementId);
   const trashId = await trash.put({ projectId: el.projectId, kind: "element", label: `${el.kind} · ${el.name}`, by }, await trash.snapshot("element", elementId));
