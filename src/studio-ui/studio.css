@@ -1343,6 +1343,21 @@ button.st-pill {
   padding: 4px 9px;
   font-size: 12.5px;
 }
+/* the small padding above must not take the room the arrow needs: a select keeps its right side clear of
+   it, and what does not fit is cut off (hidden), not drawn under the arrow */
+.studio .st-select,
+.studio select.st-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-select.st-input--sm,
+.studio select.st-input.st-input--sm {
+  padding-right: 26px;
+  background-position:
+    calc(100% - 13px) 12px,
+    calc(100% - 8px) 12px;
+}
 .studio .st-toggle {
   display: inline-flex;
   align-items: center;

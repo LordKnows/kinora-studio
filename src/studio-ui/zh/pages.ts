@@ -35,7 +35,7 @@ export const pages: Record<string, string> = {
   "Checkpoint 1. Every new version returns to draft; nothing renders until the latest version is approved.": "第一道关。每个新版本都会回到草稿；最新版本批准之前什么都不会拍。",
   "Copy prompt pack": "复制提示词包",
   "Approved under delegated approval; overturn it on the Director page, under Decisions": "按代为批准通过的；可在导演台页的“决定”里推翻",
-  "Approved by the director": "导演已批准", "Approve v{v}": "批准 v{v}",
+  "Approved by the director": "导演已批准", "Script v{v} approved": "剧本 v{v} 已批准", "Script v{v} approved by the director": "剧本 v{v} 已由导演代为批准", "Script v{v} draft": "剧本 v{v} 草稿", "Approve v{v}": "批准 v{v}",
   "New version": "新版本", "Paste the screenplay here, or let the director agent call save_script.": "把剧本粘贴到这里，或者让导演调用 save_script。",
   "{n} chars": "{n} 字符", "Save as v{v}": "存为 v{v}", "Versions": "版本",
   "New version · v{v}": "新版本 · v{v}", " · v{v} goes back to draft until it is approved": " · v{v} 在批准前是草稿", "Write one with New version, or ask your director agent for a draft.": "点“新版本”写一份，或者让导演起草。",
