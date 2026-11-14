@@ -138,6 +138,8 @@ describe("pod mode", () => {
     /* the pod is "unavailable" here: no GPU to render on */
     await expect(orch.createTakes(shotId, { n: 1, confirm: true }, web)).rejects.toMatchObject({ code: "validation", details: { gpuNotRunning: true } });
     await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
+    /* a batch too: refused before it asks the user to confirm a spend that cannot start */
+    await expect(orch.createTakeBatch(projectId, { n: 1, confirm: false, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
     expect(await repo.listShotTakes(shotId)).toHaveLength(0);
   });
 
