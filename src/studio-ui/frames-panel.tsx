@@ -304,9 +304,9 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
           </Field>
         ) : <span />}
         {ready ? (
-          <ImageButton size="md" kind="primary" paint={how !== "crop"} label={tr("Generate the {what}", { what: tr(target.label.toLowerCase()) })} body={body} />
+          <ImageButton size="md" kind="secondary" paint={how !== "crop"} label={tr("Generate the {what}", { what: tr(target.label.toLowerCase()) })} body={body} />
         ) : (
-          <Button kind="primary" disabled>{tr("Generate the {what}", { what: tr(target.label.toLowerCase()) })}</Button>
+          <Button kind="secondary" disabled>{tr("Generate the {what}", { what: tr(target.label.toLowerCase()) })}</Button>
         )}
       </div>
       {picking && <PicturePicker title={tr("Start from which picture?")} current={baseId} onPick={(id) => { setBaseId(id); setPicking(false); }} onClose={() => setPicking(false)} />}

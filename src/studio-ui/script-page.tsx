@@ -26,6 +26,9 @@ import { lintLine } from "./zh/lint";
    as the changes from the version before. A new version is written in a
    popup, and the treatment that explains the film's shape opens in a drawer;
    both from the buttons at the head of Versions. */
+/* how many versions the rail shows before "Earlier versions" */
+const RAIL_SHOWN = 8;
+
 export function StoryPage() {
   return (
     <Suspense fallback={null}>
@@ -44,6 +47,7 @@ function StoryPageInner() {
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [writing, setWriting] = useState(false);
+  const [allVersions, setAllVersions] = useState(false);
   const [treatmentOpen, setTreatmentOpen] = useState(false);
   const params = useSearchParams();
   const [mode, setMode] = useState<"read" | "board" | "changes">(params.get("view") === "lined" ? "board" : "read");
@@ -135,7 +139,7 @@ function StoryPageInner() {
           {scripts && <span className="st-num st-muted">{scripts.length}</span>}
         </div>
         <div className="st-row sp-tools">
-          <Button kind="primary" onClick={() => setWriting(true)}>
+          <Button kind="secondary" onClick={() => setWriting(true)}>
             <PlusIcon size={13} />
             {t("New version")}
           </Button>
@@ -152,13 +156,21 @@ function StoryPageInner() {
           /* the versions in a rail | the one picked */
           <div className="sp-versions">
             <nav className="sp-rail" aria-label={t("Versions")}>
-              {scripts.map((s) => (
+              {/* the newest few; the version being read is always among them, the rest are one click away */}
+              {(allVersions || scripts.length <= RAIL_SHOWN ? scripts : scripts.filter((s, i) => i < RAIL_SHOWN || s.id === current?.id)).map((s) => (
                 <button key={s.id} type="button" className="sp-rail-item" aria-current={s.id === current?.id ? "true" : undefined} onClick={() => setOpen(s.id)}>
-                  <strong className="st-num">v{s.version}</strong>
-                  <Lamp state={s.approval} label={t(s.approval)} />
+                  <span className="sp-rail-head">
+                    <strong className="st-num">v{s.version}</strong>
+                    <Lamp state={s.approval} label={t(s.approval)} />
+                  </span>
                   <span className="st-muted">{whenT(t, s.createdAt)}</span>
                 </button>
               ))}
+              {scripts.length > RAIL_SHOWN && (
+                <button type="button" className="sp-rail-more" aria-expanded={allVersions} onClick={() => setAllVersions((v) => !v)}>
+                  {allVersions ? t("Fewer versions") : t("Earlier versions · {n}", { n: scripts.length - RAIL_SHOWN })}
+                </button>
+              )}
             </nav>
             <div className="st-card st-stack sp-read">
               <div className="st-row st-row--between">

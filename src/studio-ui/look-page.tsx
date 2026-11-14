@@ -89,7 +89,7 @@ export function BriefCard() {
     <div className="st-card st-stack">
       <ErrorBanner error={saveBrief.error} onDismiss={saveBrief.dismiss} />
       <CardHead title="Brief" dirty={briefDirty}>
-        <Button size="sm" kind="primary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? t("Saved") : t("Save brief")}</Button>
+        <Button size="sm" kind="secondary" busy={saveBrief.busy} onClick={() => void saveBrief.fire()}>{saveBrief.saved ? t("Saved") : t("Save brief")}</Button>
       </CardHead>
       <Field label={t("The film, in your own words")}>
         <textarea className="st-textarea" rows={6} value={brief.brief} onChange={(e) => setBrief({ ...brief, brief: e.target.value })} placeholder={t("A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…")} />
@@ -170,7 +170,7 @@ export function LookPage() {
         <div className="st-card st-stack">
           <CardHead title="Style" dirty={styleDirty}>
             <Button size="sm" onClick={() => setPickingStyle((v) => !v)}>{pickingStyle ? t("Close presets") : style.style ? t("Change preset") : t("Choose a preset")}</Button>
-            <Button size="sm" kind="primary" busy={saveStyle.busy} onClick={() => void saveStyle.fire()}>{saveStyle.saved ? t("Saved") : t("Save style")}</Button>
+            <Button size="sm" kind="secondary" busy={saveStyle.busy} onClick={() => void saveStyle.fire()}>{saveStyle.saved ? t("Saved") : t("Save style")}</Button>
           </CardHead>
           {style.style ? (
             <div className="st-row">
@@ -213,7 +213,7 @@ export function LookPage() {
         <div className="st-split">
           <div className="st-card st-stack">
             <CardHead title="Aspect ratio" dirty={ratio !== saved.aspectRatio}>
-              <Button size="sm" kind="primary" busy={saveRatio.busy} onClick={() => void saveRatio.fire()}>{saveRatio.saved ? t("Saved") : t("Save aspect ratio")}</Button>
+              <Button size="sm" kind="secondary" busy={saveRatio.busy} onClick={() => void saveRatio.fire()}>{saveRatio.saved ? t("Saved") : t("Save aspect ratio")}</Button>
             </CardHead>
             <div className="st-ratios" role="group">
               {RATIOS.map((r) => {
@@ -279,7 +279,7 @@ function StyleFrameCard() {
             await reload();
           }}
         />
-        <ImageButton label={t("Generate")} kind="primary" body={{ action: "style_frame" }} blocked={full ? fullWhy : notReady} title={t("Draw a style frame from the brief and the style")} />
+        <ImageButton label={t("Generate")} kind="secondary" body={{ action: "style_frame" }} blocked={full ? fullWhy : notReady} title={t("Draw a style frame from the brief and the style")} />
       </CardHead>
       <span className="st-muted">{t("One picture that sets the look. Generate it from the saved brief and style, or upload one; keep up to {n}. Click one to use it: every generated sheet and frame matches it.", { n: STYLE_FRAME_MAX })}</span>
       {notReady && !full && <span className="st-warn">{t("{why}.", { why: notReady })}</span>}

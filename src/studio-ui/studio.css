@@ -877,7 +877,7 @@ button.st-pill {
 }
 .studio .sp-versions {
   display: grid;
-  grid-template-columns: 136px minmax(0, 1fr);
+  grid-template-columns: 156px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -894,6 +894,33 @@ button.st-pill {
 }
 .studio .sp-rail::-webkit-scrollbar {
   display: none;
+}
+/* a version's number and its state side by side; approved reads green */
+.studio .sp-rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.studio .sp-versions .st-lamp[data-state="approved"] {
+  color: var(--sig-ok);
+}
+.studio .sp-versions .st-lamp[data-state="approved"]::before {
+  background: var(--sig-ok);
+  border-color: var(--sig-ok);
+}
+.studio .sp-rail-more {
+  flex: none;
+  padding: 9px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--tx2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.studio .sp-rail-more:hover {
+  background: var(--hover);
+  color: var(--tx);
 }
 .studio .sp-rail-item {
   flex: none;
@@ -936,7 +963,7 @@ button.st-pill {
     overflow-y: hidden;
   }
   .studio .sp-rail-item {
-    min-width: 116px;
+    min-width: 130px;
     border-bottom: 0;
     border-right: 1px solid var(--line);
   }

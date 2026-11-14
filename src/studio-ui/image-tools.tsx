@@ -99,7 +99,7 @@ export function useImageAction() {
 }
 
 /** A button that runs one image action, with its status beside it. `blocked` disables it and says why. */
-export function ImageButton({ label, body, paint = true, title, size = "sm", kind = "default", blocked }: { label: string; body: Record<string, unknown>; paint?: boolean; title?: string; size?: "sm" | "md"; kind?: "default" | "primary" | "quiet"; blocked?: string }) {
+export function ImageButton({ label, body, paint = true, title, size = "sm", kind = "default", blocked }: { label: string; body: Record<string, unknown>; paint?: boolean; title?: string; size?: "sm" | "md"; kind?: "default" | "primary" | "secondary" | "quiet"; blocked?: string }) {
   const { projectId } = useProjectContext();
   const imaging = useImagingOn();
   const a = useImageAction();
