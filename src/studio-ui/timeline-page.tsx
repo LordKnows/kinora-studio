@@ -7,7 +7,7 @@ import { TITLE_KINDS, TRANSITIONS, type TimelineInput } from "@/studio/schemas";
 import type { ExportJob, Take } from "@/studio/types";
 
 import { get, post, put, usd } from "./api";
-import { Button, Empty, ErrorBanner, Field, InfoTip, Lamp, Section, useAction, UploadButton, whenT } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, InfoTip, Lamp, useAction, UploadButton, whenT } from "./common";
 import { clipSeconds, filmShots, seamTrims, takePicture, tc, type FilmShot } from "./film";
 import { RoughCut } from "./rough-cut";
 import { plural, useLang, useT } from "./i18n";
@@ -44,6 +44,7 @@ export function TimelinePage() {
   const [past, setPast] = useState<TimelineInput[]>([]);
   const [sel, setSel] = useState(0);
   const [exports, setExports] = useState<ExportJob[]>([]);
+  const [history, setHistory] = useState(false);
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>("master-768p");
   const [burnIn, setBurnIn] = useState(false);
   const [exportNote, setExportNote] = useState<string[] | null>(null);
@@ -246,7 +247,10 @@ export function TimelinePage() {
             )}
 
             <section className="cut-panel" aria-label={tr("Export")}>
-              <h2 className="cut-h">{tr("Export")}</h2>
+              <div className="cut-h-row">
+                <h2 className="cut-h">{tr("Export")}</h2>
+                <Button size="sm" kind="quiet" onClick={() => setHistory(true)}>{tr("Exports")} · {exports.length}</Button>
+              </div>
               <fieldset className="cut-presets">
                 <legend className="sc-cap">{tr("Preset")}</legend>
                 {PRESETS.map((p) => (
@@ -289,7 +293,7 @@ export function TimelinePage() {
           {/* three columns, each about one thing: what is seen, what is heard, when it falls. Every panel has the same head (its
               name and count, its one action at the right); what a panel is for is behind its info icon. */}
           <div className="cut-groups">
-            <div className="cut-group" aria-label={tr("Picture||cut")}>
+            <div className="cut-group" data-tone="a" aria-label={tr("Picture||cut")}>
               <h3 className="cut-group-h">{tr("Picture||cut")}</h3>
             <section className="cut-panel" id="seams" aria-label={tr("Seams")}>
               <div className="cut-h-row">
@@ -323,7 +327,7 @@ export function TimelinePage() {
 
               <TitlesPanel timeline={timeline} total={total} onChange={set} />
             </div>
-            <div className="cut-group" aria-label={tr("Sound||cut")}>
+            <div className="cut-group" data-tone="b" aria-label={tr("Sound||cut")}>
               <h3 className="cut-group-h">{tr("Sound||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Mix")}>
               <div className="cut-h-row">
@@ -349,7 +353,7 @@ export function TimelinePage() {
 
               <SilencesPanel timeline={timeline} audio={music} onChange={set} />
             </div>
-            <div className="cut-group" aria-label={tr("Timing||cut")}>
+            <div className="cut-group" data-tone="c" aria-label={tr("Timing||cut")}>
               <h3 className="cut-group-h">{tr("Timing||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Beat grid")}>
               <div className="cut-h-row">
@@ -396,30 +400,32 @@ export function TimelinePage() {
         </>
       )}
 
-      <Section title={tr("Exports")} aside={<small>{exports.length}</small>}>
-        {exports.length === 0 ? (
-          <Empty title={tr("No exports yet")} />
-        ) : (
-          <div className="st-card st-card--pad0">
-            <table className="st-table">
-              <thead><tr><th>{tr("Preset")}</th><th>{tr("Status")}</th><th>{tr("Started")}</th><th></th></tr></thead>
-              <tbody>
-                {exports.map((e) => (
-                  <tr key={e.id}>
-                    <td className="st-num">{e.preset}</td>
-                    <td><Lamp state={e.status} label={tr(`${e.status}||status`)} />{e.error && <span className="st-muted"> · {e.error}</span>}</td>
-                    <td>{whenT(tr, e.createdAt)}</td>
-                    <td style={{ textAlign: "right" }}>
-                      {e.resultUrl && <a className="st-link" href={e.resultUrl} target="_blank" rel="noreferrer">{tr("Download")}</a>}
-                      {e.srtUrl && <>{" · "}<a className="st-link" href={e.srtUrl} target="_blank" rel="noreferrer">SRT</a></>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
+      {history && (
+        <Drawer title={tr("Exports")} onClose={() => setHistory(false)}>
+          {exports.length === 0 ? (
+            <Empty title={tr("No exports yet")} />
+          ) : (
+            <div className="st-card st-card--pad0">
+              <table className="st-table">
+                <thead><tr><th>{tr("Preset")}</th><th>{tr("Status")}</th><th>{tr("Started")}</th><th></th></tr></thead>
+                <tbody>
+                  {exports.map((e) => (
+                    <tr key={e.id}>
+                      <td className="st-num">{e.preset}</td>
+                      <td><Lamp state={e.status} label={tr(`${e.status}||status`)} />{e.error && <span className="st-muted"> · {e.error}</span>}</td>
+                      <td>{whenT(tr, e.createdAt)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {e.resultUrl && <a className="st-link" href={e.resultUrl} target="_blank" rel="noreferrer">{tr("Download")}</a>}
+                        {e.srtUrl && <>{" · "}<a className="st-link" href={e.srtUrl} target="_blank" rel="noreferrer">SRT</a></>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Drawer>
+      )}
       <p className="st-muted" style={{ marginTop: 12 }}>{tr("Spent so far: {spent} of {cap}.", { spent: usd(view.project.spentUsd), cap: usd(view.project.budgetCapUsd) })}</p>
     </div>
   );
