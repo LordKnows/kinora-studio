@@ -10,7 +10,7 @@ import type { Job } from "@/studio/types";
 
 import { usd } from "./api";
 import { BrandMark, BrandWord } from "./brand-mark";
-import { Lamp, Skeleton, usePopover, whenT } from "./common";
+import { Skeleton, usePopover, whenT } from "./common";
 import { DirectorPanel } from "./director-panel";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
@@ -199,9 +199,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   const cameFrom = useCallback(() => lastPage.current, []);
   const spent = view?.project.spentUsd ?? 0;
   const cap = view?.project.budgetCapUsd ?? 0;
-  const target = view?.project.targetSeconds;
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
-  const boardSeconds = filmSeconds(shots);
   const lampFor = (slug: string): { state: string; label: string } | null => {
     if (!view) return null;
     if (slug === "story") {
@@ -219,20 +217,14 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   /* the director is at work while takes are rolling: its chair's back turns red */
   const rolling = shots.reduce((n, s) => n + s.shot.takes.filter((x) => x.status === "queued" || x.status === "running").length, 0);
   const name = view?.project.name ?? (loading ? "…" : "Project");
-  const meter = (
-    <>
-      <span className="st-num" data-over={cap > 0 && spent > cap ? "true" : undefined}>{usd(spent)} / {usd(cap)}</span>
-      {target !== undefined && <span className="st-num" data-match={boardSeconds === target ? "true" : "false"}>{t("board {b} s · target {t} s", { b: boardSeconds, t: target })}</span>}
-    </>
-  );
-  const readiness = view && (view.canGenerate ? <Lamp state="ok" label={t("Ready to render")} /> : <Lamp state="warn" label={view.blockers.join(" · ")} />);
+  /* the bar's meter is the budget and nothing else: spent against the cap */
+  const meter = <span className="st-num" data-over={cap > 0 && spent > cap ? "true" : undefined}>{usd(spent)} / {usd(cap)}</span>;
   /* phones: the bar's meter and the way to Project settings head the menu */
   const menuHead = (
     <nav className="st-nav-menu-project" aria-label={t("Project")}>
       <div className="st-nav-menu-meter">
         <div className="st-rail-name" title={view?.project.name}>{name}</div>
         <div className="sc-meter">{meter}</div>
-        {readiness && <div className="st-nav-menu-ready">{readiness}</div>}
       </div>
       <Link href={`${pathname ?? base}?panel=settings`}>{t("Project settings")}</Link>
     </nav>
@@ -260,7 +252,6 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
             <div className="sc-bar-end">
               <div className="sc-meter">
                 {meter}
-                {readiness}
               </div>
               <div className="sc-tools">
                 <Link className="sc-tool" href={`${base}/screening`} title={t("Screening: watch the takes and the cut full screen")}>
@@ -328,8 +319,11 @@ function usePanel(): { panel: PanelName | null; open: (panel: PanelName | null) 
   const panel = PANELS.find((p) => p === params.get("panel")) ?? null;
   const open = (next: PanelName | null) => {
     const q = new URLSearchParams(params.toString());
-    if (next) q.set("panel", next);
-    else q.delete("panel");
+    if (next) {
+      q.set("panel", next);
+      /* the shot's drawer and a panel both open from the right: one at a time, the one just asked for */
+      if (q.has("shot")) { q.delete("shot"); q.delete("tab"); }
+    } else q.delete("panel");
     router.replace(q.size ? `${pathname}?${q}` : (pathname ?? "/"), { scroll: false });
   };
   return { panel, open };

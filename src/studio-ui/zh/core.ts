@@ -9,8 +9,7 @@ export const core: Record<string, string> = {
   /* the Queue panel */
   "Nothing is queued or under way.": "没有在排队或进行中的任务。", "Cancel all {n}": "全部取消（{n}）", "drawing||picture job": "正在画", "picture": "图片",
   "A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.": "已经在画的图取消后，绘图机会画完，但这张图不保留，也不计入额度。",
-  "Ready to render": "可以开拍",
-  "board {b} s · target {t} s": "分镜 {b} 秒 · 目标 {t} 秒", "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
+  "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
   "Language": "语言", "Studio pages": "工作室页面", "Project and studio pages": "项目与工作室页面", "Project": "项目", "Film": "影片",
 
   /* the Score */
@@ -93,6 +92,5 @@ export const core: Record<string, string> = {
   "What the film is and how long; the treatment and the screenplay. You approve it.": "片子讲什么、多长；处理稿和剧本。由你批准。",
   "One of the 16 looks; characters, places and props with reference images.": "16 种风格选一种；角色、场景和道具，配参考图。",
   "Tier 1. The style every shot inherits (a preset compiled into its fields), the aspect ratio, and the style frame drawn from the brief and the style. Each card saves on its own. LoRAs are per shot, on the Board.": "第一层。每个镜头都继承的风格（预设编译成各字段）、画幅比例，以及据简报和风格画出的风格图。每张卡片单独保存。LoRA 按镜头设置，在分镜里。",
-  "The brief, the script and its treatment. The script is checkpoint 1: every new version returns to draft; nothing renders until the latest version is approved.": "简报、剧本和处理稿。剧本是第一个检查点：每个新版本都回到草稿；最新版本批准之前，什么都不会渲染。",
   "Approved under delegated approval; overturn it in the Director panel, under Decisions": "按代为批准通过的；可在导演面板的“决定”里推翻",
 };

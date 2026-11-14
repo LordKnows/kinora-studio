@@ -8,8 +8,8 @@ import type { StoredTreatment, TreatmentWarning } from "@/studio/treatment";
 import type { Script } from "@/studio/types";
 
 import { get, patch, post } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Lamp, Loading, Modal, useAction, whenT } from "./common";
-import { PlusIcon, WarningIcon } from "./icons";
+import { Button, Drawer, Empty, ErrorBanner, Lamp, Loading, Modal, Status, useAction, whenT } from "./common";
+import { CheckCircleIcon, DraftIcon, PlusIcon, WarningIcon } from "./icons";
 import { filmShots, shotPicture, tc } from "./film";
 import { Markdown } from "./markdown";
 import { coverage, normalize } from "@/studio/coverage";
@@ -100,15 +100,22 @@ function StoryPageInner() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Story")}</h1>
-          <p className="st-subtitle">{t("The brief, the script and its treatment. The script is checkpoint 1: every new version returns to draft; nothing renders until the latest version is approved.")}</p>
+          {/* the subtitle is the script's state and nothing else, as the Board's is the shotlist's: a green tick once the
+              latest version is approved, an amber pencil while it is a draft */}
+          {latest && (
+            <p className="st-subtitle" title={latest.approval === "approved" && view?.delegated?.script ? t("Approved under delegated approval; overturn it in the Director panel, under Decisions") : undefined}>
+              <Status tone={latest.approval === "approved" ? "ok" : "warn"} icon={latest.approval === "approved" ? <CheckCircleIcon /> : <DraftIcon />}>
+                {latest.approval === "approved"
+                  ? (view?.delegated?.script ? t("Script v{v} approved by the director", { v: latest.version }) : t("Script v{v} approved", { v: latest.version }))
+                  : t("Script v{v} draft", { v: latest.version })}
+              </Status>
+            </p>
+          )}
         </div>
         <div className="st-actions">
           <Button kind="quiet" onClick={promptPack}>
             {copied ? t("Copied") : t("Copy prompt pack")}
           </Button>
-          {latest && latest.approval === "approved" && view?.delegated?.script && (
-            <span className="st-chip" title={t("Approved under delegated approval; overturn it in the Director panel, under Decisions")}>{t("Approved by the director")}</span>
-          )}
           {latest && latest.approval !== "approved" && (
             <Button kind="primary" busy={approve.busy} onClick={() => void approve.fire(latest.id)}>
               {t("Approve v{v}", { v: latest.version })}

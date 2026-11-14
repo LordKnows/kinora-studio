@@ -171,9 +171,13 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
   };
   if (desired === "RUNNING") {
     const health = await new PodBackend({ hostUrl: patch.hostUrl!, token: config.runpodPod().workerToken }).health();
-    patch.status = health.ok ? "running" : "starting";
+    /* A pod that has been running keeps running when one health look fails: while it renders, ComfyUI can be
+       too busy to answer in 5 s, and that is not a boot. Calling it "starting" parked every take that was
+       rolled meanwhile. A pod that really died is seen in RunPod's own status above. */
+    const wasUp = pod.status === "running";
+    patch.status = health.ok || wasUp ? "running" : "starting";
     const ports = record.exposedPorts.length ? ` RunPod reports exposed ports: ${record.exposedPorts.join(", ")}.` : " RunPod reports no exposed ports yet.";
-    patch.message = health.ok ? null : `booting: ${health.why ?? "not answering yet"}${/\(404\)|404/.test(health.why ?? "") ? ports : ""}`;
+    patch.message = health.ok ? null : wasUp ? `busy, did not answer just now: ${health.why ?? "no reason given"}` : `booting: ${health.why ?? "not answering yet"}${/\(404\)|404/.test(health.why ?? "") ? ports : ""}`;
     if (pod.status !== "running" && pod.status !== "starting") patch.startedAt = Date.now();
     else if (!pod.startedAt) patch.startedAt = Date.now();
   } else if (desired === "EXITED" || desired === "STOPPED" || desired === "TERMINATED") {

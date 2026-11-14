@@ -13,7 +13,7 @@ import { faultRoutes } from "@director/faults";
 import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
-import { del, describe, get, patch, post, put, usd } from "./api";
+import { ApiError, del, describe, get, patch, post, put, usd } from "./api";
 import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
 import { Zoomable } from "./picture-zoom";
@@ -88,7 +88,7 @@ function useShotAddress() {
   return {
     openId: params.get("shot"),
     tab: params.get("tab"),
-    open: (id: string) => go((q) => { q.set("shot", id); q.delete("tab"); }, "push"),
+    open: (id: string) => go((q) => { q.set("shot", id); q.delete("tab"); q.delete("panel"); }, "push"),
     close: () => go((q) => { q.delete("shot"); q.delete("tab"); }, "replace"),
     setTab: (tab: string) => go((q) => q.set("tab", tab), "replace"),
   };
@@ -133,9 +133,7 @@ function Board() {
   const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
   const [sketchGray, setSketchGray] = useState(false);
   const [sketchKey, setSketchKey] = useState(0);
-  const [batch, setBatch] = useState<BatchPlan | null>(null);
   const [batchScene, setBatchScene] = useState<string | null>(null);
-  const [planning, setPlanning] = useState<string | null>(null);
   /* a scene just added from the top of the page: brought into view once the board has it */
   const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
@@ -160,18 +158,9 @@ function Board() {
     }
     return m;
   }, [lint]);
-  const plan = useAction(async (_c, sceneId: string) => {
-    setPlanning(sceneId);
-    try {
-      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
-      setBatchScene(sceneId);
-    } finally {
-      setPlanning(null);
-    }
-  });
-  /* a batch that is already rolling: every queued or running take of the scene is cancelled */
+  /* the takes of the scene that are still queued are cancelled; one that is rendering is left to finish */
   const cancelScene = useAction(async (_c, scene: SceneView) => {
-    for (const t of scene.shots.flatMap((sh) => sh.takes)) if (t.status === "queued" || t.status === "running") await post(`/api/takes/${t.id}/cancel`);
+    for (const t of scene.shots.flatMap((sh) => sh.takes)) if (t.status === "queued") await post(`/api/takes/${t.id}/cancel`);
     await reload();
   });
 
@@ -251,7 +240,7 @@ function Board() {
           )}
         </div>
       </div>
-      <ErrorBanner error={error ?? plan.error ?? cancelScene.error} projectId={projectId} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); cancelScene.dismiss(); }} />
+      <ErrorBanner error={error ?? cancelScene.error} projectId={projectId} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); cancelScene.dismiss(); }} />
 
       {view.scenes.length === 0 && (
         <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.")} />
@@ -261,7 +250,7 @@ function Board() {
         const found = (lint?.warnings ?? []).filter((w) => w.scene === scene.slug);
         const errors = found.filter((w) => w.severity === "error").length;
         const warns = found.filter((w) => w.severity === "warn").length;
-        const rolling = scene.shots.flatMap((sh) => sh.takes).filter((t) => t.status === "queued" || t.status === "running").length;
+        const waiting = scene.shots.flatMap((sh) => sh.takes).filter((t) => t.status === "queued").length;
         const isFolded = folded.has(scene.id);
         const fold = (to: boolean) => { const next = new Set(folded); if (to) next.add(scene.id); else next.delete(scene.id); setFolded(next); };
         return (
@@ -293,16 +282,17 @@ function Board() {
                 {errors > 0 && <span className="st-sev" data-severity="error"><ErrorIcon size={13} />{errors}</span>}
                 {warns > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{warns}</span>}
               </Button>
-              {approved && scene.shots.length > 0 && (rolling > 0 ? (
-                <ConfirmButton size="sm" kind="default" busy={cancelScene.busy} title={tr("Cancel the takes of this scene that are queued or rolling")} confirmLabel={tr("Cancel rendering")} cancelLabel={tr("Keep rolling")} onConfirm={() => void cancelScene.fire(scene)}
-                  question={plural(tr, rolling, "Cancel the 1 take of this scene that is queued or rolling?", "Cancel the {n} takes of this scene that are queued or rolling?")}>
-                  {tr("Cancel rendering · {n}", { n: rolling })}
-                </ConfirmButton>
-              ) : (
-                <Button size="sm" busy={plan.busy && planning === scene.id} disabled={plan.busy && planning !== scene.id} onClick={() => void plan.fire(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
+              {approved && scene.shots.length > 0 && (
+                <Button size="sm" onClick={() => setBatchScene(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
                   {tr("Render batch")}
                 </Button>
-              ))}
+              )}
+              {approved && waiting > 0 && (
+                <ConfirmButton size="sm" kind="default" busy={cancelScene.busy} title={tr("Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled")} confirmLabel={tr("Cancel queued")} cancelLabel={tr("Keep them")} onConfirm={() => void cancelScene.fire(scene)}
+                  question={plural(tr, waiting, "Cancel the 1 queued take of this scene? A take that is already rendering keeps going.", "Cancel the {n} queued takes of this scene? A take that is already rendering keeps going.")}>
+                  {tr("Cancel queued · {n}", { n: waiting })}
+                </ConfirmButton>
+              )}
               <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot at the end of this scene")} panelLabel={tr("Add shot")}>
                 {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onSaved={() => fold(false)} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
               </Popover>
@@ -395,8 +385,8 @@ function Board() {
           </Drawer>
         );
       })()}
-      {batchOf && batch && (
-        <BatchPopup key={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} batch={batch} slateOf={slateOf} onClose={() => setBatchScene(null)} />
+      {batchOf && (
+        <BatchPopup key={batchOf.id} sceneId={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} slateOf={slateOf} onClose={() => setBatchScene(null)} />
       )}
     </div>
   );
@@ -406,33 +396,99 @@ function Board() {
    ticked to begin with, so the whole pass is rolled or only some of it; a shot of a later pass
    waits for its anchor and cannot be ticked yet. The way out: Cancel before anything is queued,
    Stop and cancel while the ticked shots are being queued (the takes queued so far are cancelled). */
-function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
+function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; title: string; slateOf: Map<string, string>; onClose: () => void }) {
+  const { projectId } = useProjectContext();
+  const tr = useT();
+  const [batch, setBatch] = useState<BatchPlan | null>(null);
+  const [failed, setFailed] = useState<unknown>(null);
+  /* The popup opens at the click and plans inside itself, so there is always something to see: the
+     wait, then the shots, or what went wrong with a way to try again (not a banner far up the page). */
+  const planIt = useCallback(async () => {
+    setFailed(null);
+    try {
+      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
+    } catch (caught) {
+      setFailed(caught);
+    }
+  }, [projectId, sceneId]);
+  useEffect(() => {
+    void planIt();
+  }, [planIt]);
+  if (!batch)
+    return (
+      <Modal title={title} size="lg" onClose={onClose}>
+        <div className="st-stack">
+          {failed ? (
+            <>
+              <ErrorBanner error={failed} projectId={projectId} onDismiss={() => setFailed(null)} />
+              <div className="st-row st-row--between">
+                <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
+                <Button onClick={() => void planIt()}>{tr("Try again")}</Button>
+              </div>
+            </>
+          ) : (
+            <Loading label={tr("Ordering this scene's shots…")} />
+          )}
+        </div>
+      </Modal>
+    );
+  return <BatchPicker title={title} batch={batch} slateOf={slateOf} onClose={onClose} />;
+}
+
+function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   const now = batch.passes[0] ?? [];
   const [picked, setPicked] = useState<Set<string>>(() => new Set(now));
   const stopPass = useRef(false);
   const [stopping, setStopping] = useState(false);
-  /* The ticked shots are queued one after another. Stop ends it between two shots and cancels the
-     takes already queued, so a stopped batch leaves nothing of its own rolling. */
+  /* what became of each shot that was asked for: being queued, queued (as which take), or why it was not */
+  const [outcomes, setOutcomes] = useState<Record<string, { state: "queuing" | "queued" | "failed"; detail?: string }>>({});
+  const [gpuNote, setGpuNote] = useState<string | null>(null);
+  const done = useRef<Set<string>>(new Set());
+  /* The ticked shots are queued one after another, each with its own result. A shot that fails does not
+     stop the rest; a question about money (needs confirm) does, and goes on from where it stopped once
+     answered. Stop ends it between two shots and cancels the takes queued so far that have not begun
+     (one that is already rendering is not cancelled). */
   const render = useAction(async (confirm, ids: string[]) => {
     stopPass.current = false;
     setStopping(false);
     const queued: string[] = [];
+    const mark = (id: string, o: { state: "queuing" | "queued" | "failed"; detail?: string } | null) =>
+      setOutcomes((all) => { const next = { ...all }; if (o) next[id] = o; else delete next[id]; return next; });
     try {
       for (const id of ids) {
+        if (done.current.has(id)) continue;
         if (stopPass.current) break;
-        const r = await post<{ takes?: Array<{ id: string }> }>(`/api/shots/${id}/takes`, { n: 1, confirm });
-        for (const t of r.takes ?? []) queued.push(t.id);
+        mark(id, { state: "queuing" });
+        try {
+          const r = await post<{ takes?: Array<{ id: string; n: number }>; gpu?: { mode?: string; status?: string; message?: string } }>(`/api/shots/${id}/takes`, { n: 1, confirm });
+          done.current.add(id);
+          for (const t of r.takes ?? []) queued.push(t.id);
+          mark(id, { state: "queued", detail: tr("Take {n} queued", { n: r.takes?.[0]?.n ?? "?" }) });
+          if (r.gpu?.mode === "pod" && r.gpu.status && r.gpu.status !== "running") setGpuNote(r.gpu.message ?? tr("The GPU is not up yet; the takes wait for it and are handed over as soon as it answers."));
+        } catch (caught) {
+          if (caught instanceof ApiError && caught.code === "needs_confirm") {
+            mark(id, null);
+            throw caught;
+          }
+          mark(id, { state: "failed", detail: describe(caught) });
+        }
       }
-      if (stopPass.current) for (const id of queued) await post(`/api/takes/${id}/cancel`).catch(() => undefined);
-      else onClose();
+      if (stopPass.current) {
+        for (const id of ids) if (done.current.has(id)) mark(id, { state: "queued", detail: tr("Queued before you stopped") });
+        for (const takeId of queued) await post(`/api/takes/${takeId}/cancel`).catch(() => undefined);
+      }
+      setPicked(new Set(ids.filter((id) => !done.current.has(id))));
     } finally {
       setStopping(false);
       await reload();
     }
   });
-  const chosen = now.filter((id) => picked.has(id));
+  const finished = Object.values(outcomes).filter((o) => o.state !== "queuing");
+  const queuedN = Object.values(outcomes).filter((o) => o.state === "queued").length;
+  const failedN = Object.values(outcomes).filter((o) => o.state === "failed").length;
+  const chosen = now.filter((id) => picked.has(id) && !done.current.has(id));
   const priceOf = (ids: string[]) => ids.reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0);
   const price = priceOf(chosen);
   const tick = (id: string) => setPicked((p) => { const next = new Set(p); if (next.has(id)) next.delete(id); else next.add(id); return next; });
@@ -441,10 +497,15 @@ function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: 
     const sh = batch.shots.find((x) => x.shotId === id);
     const est = batch.estimates.find((x) => x.shotId === id);
     const waits = pass > 0;
+    const had = outcomes[id];
+    const over = done.current.has(id);
     return (
-      <tr key={id} data-off={waits || !picked.has(id) ? "true" : undefined}>
-        <td className="bp-tick"><input type="checkbox" aria-label={tr("Render {shot}", { shot: sh?.label ?? id })} checked={!waits && picked.has(id)} disabled={waits || render.busy} onChange={() => tick(id)} /></td>
-        <td><span className="st-num">{slateOf.get(id) ?? ""}</span> {sh?.label.split(" · ").slice(1).join(" · ") || sh?.label || id}</td>
+      <tr key={id} data-off={waits || over || !picked.has(id) ? "true" : undefined}>
+        <td className="bp-tick"><input type="checkbox" aria-label={tr("Render {shot}", { shot: sh?.label ?? id })} checked={!waits && !over && picked.has(id)} disabled={waits || over || render.busy} onChange={() => tick(id)} /></td>
+        <td>
+          <span className="st-num">{slateOf.get(id) ?? ""}</span> {sh?.label.split(" · ").slice(1).join(" · ") || sh?.label || id}
+          {had && <div className="bp-result" data-state={had.state} role="status">{had.state === "queuing" ? tr("Queuing…") : had.state === "failed" ? tr("Not queued: {why}", { why: had.detail ?? "" }) : had.detail}</div>}
+        </td>
         <td className="st-num">{sh?.mode && tr(sh.mode)}</td>
         <td className="st-num">{tr(sh?.link ?? "cut")}</td>
         <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? tr(" · careful") : ""}` : "—"}</td>
@@ -462,6 +523,12 @@ function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: 
         <span className="st-muted">{tr("Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.")}</span>
         {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
         <ErrorBanner error={render.error} projectId={projectId} onConfirm={() => void render.confirm()} onDismiss={render.dismiss} />
+        {!render.busy && finished.length > 0 && (
+          <div className="bp-summary" data-state={failedN ? (queuedN ? "some" : "none") : "all"} role="status">
+            <strong>{failedN === 0 ? plural(tr, queuedN, "1 take queued.", "{n} takes queued.") : tr("{ok} queued, {bad} not queued.", { ok: queuedN, bad: failedN })}</strong>
+            {gpuNote && <span> {gpuNote}</span>}
+          </div>
+        )}
         {probe.length > 0 && (
           <div className="st-card st-row st-row--between">
             <span><strong>{tr("Probe first.")}</strong> <span className="st-muted">{batch.probe!.why}</span></span>
@@ -489,13 +556,15 @@ function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: 
         {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => tr("{shot} for {anchor}", { shot: slateOf.get(d.shotId) ?? d.shotId, anchor: slateOf.get(d.waitingFor) ?? d.waitingFor })).join(", ") })}</span>}
         <div className="st-row st-row--between">
           {render.busy ? (
-            <Button busy={stopping} onClick={() => { stopPass.current = true; setStopping(true); }} title={tr("Stop queuing, and cancel the takes this pass has queued so far")}>{tr("Stop and cancel")}</Button>
+            <Button busy={stopping} onClick={() => { stopPass.current = true; setStopping(true); }} title={tr("Stop queuing, and cancel the takes this pass has queued so far that have not begun")}>{tr("Stop and cancel")}</Button>
           ) : (
-            <Button kind="quiet" onClick={onClose}>{tr("Cancel")}</Button>
+            <Button kind="quiet" onClick={onClose}>{finished.length > 0 ? tr("Close") : tr("Cancel")}</Button>
           )}
-          <Button kind="tally" busy={render.busy} disabled={chosen.length === 0} onClick={() => void render.fire(chosen)}>
-            {tr("Render the ticked ({n})", { n: chosen.length })} <span className="st-btn-price">· ≈ {usd(price)}</span>
-          </Button>
+          {(finished.length === 0 || chosen.length > 0) && (
+            <Button kind="tally" busy={render.busy} disabled={chosen.length === 0} onClick={() => void render.fire(chosen)}>
+              {finished.length > 0 ? tr("Render the rest ({n})", { n: chosen.length }) : tr("Render the ticked ({n})", { n: chosen.length })} <span className="st-btn-price">· ≈ {usd(price)}</span>
+            </Button>
+          )}
         </div>
       </div>
     </Modal>
@@ -743,7 +812,7 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onNudge }: {
           <span className="st-shot-index">{slate ?? index + 1}</span>
           {latest && (
             <span className="st-shot-status">
-              <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
+              <Lamp state={latest.status} label={tr(statusLabel(latest.status, latest))} />
             </span>
           )}
         </button>
@@ -1082,7 +1151,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           <video className="st-video" src={playUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
         ) : (
           <div className="st-video" style={{ display: "grid", placeItems: "center" }}>
-            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
+            <Lamp state={take.status} label={tr(statusLabel(take.status, take))} />
           </div>
         )}
       </div>
@@ -1090,7 +1159,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
         <div className="st-row st-row--between">
           <div className="st-row">
             <strong className="st-num">{tr("Take {n}", { n: take.n })}</strong>
-            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
+            <Lamp state={take.status} label={tr(statusLabel(take.status, take))} />
             {selected && <span className="st-chip" aria-pressed="true">{tr("Selected")}</span>}
           </div>
           <span className="st-muted st-num">
@@ -1205,11 +1274,12 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
               {tr("Use this take")}
             </Button>
           )}
-          {active && (
+          {take.status === "queued" && (
             <Button size="sm" kind="quiet" busy={cancel.busy} onClick={() => void cancel.fire()}>
               {tr("Cancel")}
             </Button>
           )}
+          {take.status === "running" && <span className="st-muted">{tr("Rendering: it cannot be cancelled")}</span>}
           {(take.status === "failed" || take.status === "timeout") && (
             <Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>
               {tr("Retry")}

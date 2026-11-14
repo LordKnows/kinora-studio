@@ -14,9 +14,12 @@ export const board: Record<string, string> = {
   "Approve shotlist": "批准分镜", "Render batch": "批量拍摄",
   "Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.": "给本场还没有镜次的镜头排顺序：R2VA 在前，锚定镜头在衔接镜头之前，统一估价。你确认之前什么都不会拍。",
   /* a batch can be called off: before it is queued, while it is being queued, and once it is rolling */
-  "Cancel rendering · {n}": "取消拍摄 · {n}", "Cancel rendering": "取消拍摄", "Keep rolling": "继续拍", "Cancel the takes of this scene that are queued or rolling": "取消本场排队中和正在拍的镜次",
-  "Cancel the 1 take of this scene that is queued or rolling?": "取消本场排队中或正在拍的 1 条镜次？", "Cancel the {n} takes of this scene that are queued or rolling?": "取消本场排队中或正在拍的 {n} 条镜次？",
-  "Stop and cancel": "停止并取消", "Stop queuing, and cancel the takes this pass has queued so far": "停止排队，并取消这一轮已经排上的镜次", "{shot} for {anchor}": "{shot} 等 {anchor}",
+  "Cancel queued · {n}": "取消排队 · {n}", "Cancel queued": "取消排队", "Keep them": "保留", "Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled": "取消本场还在排队的镜次；正在拍的不会取消",
+  "Cancel the 1 queued take of this scene? A take that is already rendering keeps going.": "取消本场排队中的 1 条镜次？已经在拍的会继续拍完。", "Cancel the {n} queued takes of this scene? A take that is already rendering keeps going.": "取消本场排队中的 {n} 条镜次？已经在拍的会继续拍完。",
+  "Rendering: it cannot be cancelled": "正在拍，不能取消",
+  "Take {n} queued": "镜次 {n} 已排上", "The GPU is not up yet; the takes wait for it and are handed over as soon as it answers.": "GPU 还没起来；镜次先等着，GPU 一应答就交过去。", "Queued before you stopped": "停止前已排上",
+  "Queuing…": "正在排队…", "Not queued: {why}": "没排上：{why}", "1 take queued.": "已排上 1 条镜次。", "{n} takes queued.": "已排上 {n} 条镜次。", "{ok} queued, {bad} not queued.": "排上 {ok} 条，{bad} 条没排上。", "Render the rest ({n})": "拍剩下的（{n}）",
+  "Stop and cancel": "停止并取消", "Stop queuing, and cancel the takes this pass has queued so far that have not begun": "停止排队，并取消这一轮已排上、还没开拍的镜次", "{shot} for {anchor}": "{shot} 等 {anchor}",
   "Dismiss": "关闭",
   "No scenes yet": "还没有场次", "Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.": "让导演调用 save_shotlist，或点右上角的“加一场”，手动搭镜头。",
   "scene palette": "本场色板", "Palette||scene colours": "色板", "This scene's colour script; it compiles into every shot": "本场的色彩脚本，会编进每个镜头",
@@ -42,7 +45,7 @@ export const board: Record<string, string> = {
   "≈ {estimate} · {left} left": "≈ {estimate} · 剩 {left}",
   "Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.": "现在能拍的镜头默认全选，不想拍的取消勾选即可。先拍 R2VA 镜头；衔接镜头要等它的锚点有了镜次。",
   "Probe first.": "先试拍。", "Tick only the probe ({n})": "只选试拍镜头（{n}）", "No shot of this scene can render now.": "这一场现在没有能拍的镜头。",
-  "Tick all": "全选", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
+  "Tick all": "全选", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
   "Mode": "模式", "Link": "衔接", "Fragile": "易错", "Weak spots of AI video found in the shot (fragile.* in Lint)": "镜头里 AI 视频容易出错的地方（检查里的 fragile.*）", "Est.": "估价", " · careful": " · 谨慎",
   "Waiting for an anchor: {list}": "等锚点：{list}",
   "Render the ticked ({n})": "拍选中的（{n}）",
@@ -53,7 +56,7 @@ export const board: Record<string, string> = {
   "Show large": "看大图", "Picture": "图片",
   "continuous (long take)": "连续（长镜头）", "bridge (first → last frame)": "桥接（首帧 → 尾帧）", "insert, then return": "插入后返回", "shot / reverse shot": "正反打", "montage beat": "蒙太奇段落", "loop (periodic motion)": "循环（周期运动）",
   "insert_return": "插入后返回", "match_cut": "匹配剪辑", "jump_cut": "跳切",
-  "GPU starting": "GPU 启动中", "Rendering": "正在拍", "Done": "完成", "Failed": "失败", "Canceled": "已取消", "Timed out": "超时",
+  "Waiting for the GPU": "等 GPU", "Next in line on the GPU": "在 GPU 队列里", "GPU starting": "GPU 启动中", "Rendering": "正在拍", "Done": "完成", "Failed": "失败", "Canceled": "已取消", "Timed out": "超时",
 
   /* the shot drawer */
   "Deleted shot {slate}{takes}": "已删除镜头 {slate}{takes}", " and its 1 take": "及其 1 条镜次", " and its {n} takes": "及其 {n} 条镜次",

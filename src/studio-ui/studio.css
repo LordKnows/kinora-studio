@@ -522,11 +522,6 @@ button.st-pill {
 .studio .st-nav-menu-meter .st-rail-name {
   margin-top: 0;
 }
-.studio .st-nav-menu-ready {
-  margin-top: 10px;
-  font-size: 12.5px;
-  color: var(--tx3);
-}
 .studio .st-nav-menu a:hover {
   background: var(--hover);
   color: var(--tx);
@@ -1347,6 +1342,21 @@ button.st-pill {
   min-height: 30px;
   padding: 4px 9px;
   font-size: 12.5px;
+}
+/* the small padding above must not take the room the arrow needs: a select keeps its right side clear of
+   it, and what does not fit is cut off (hidden), not drawn under the arrow */
+.studio .st-select,
+.studio select.st-input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio .st-select.st-input--sm,
+.studio select.st-input.st-input--sm {
+  padding-right: 26px;
+  background-position:
+    calc(100% - 13px) 12px,
+    calc(100% - 8px) 12px;
 }
 .studio .st-toggle {
   display: inline-flex;
@@ -2312,6 +2322,38 @@ button.st-pill {
 }
 .studio .bp-table input[type="checkbox"]:disabled {
   cursor: default;
+}
+.studio .q-fixed {
+  font-size: 12px;
+  text-align: right;
+  max-width: 9em;
+}
+/* what became of a shot the batch asked for, under its name; and the line that sums it up */
+.studio .bp-result {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--tx3);
+}
+.studio .bp-result[data-state="queued"] {
+  color: var(--sig-ok);
+}
+.studio .bp-result[data-state="failed"] {
+  color: var(--sig-err);
+}
+.studio .bp-summary {
+  padding: 9px 12px;
+  border: 1px solid var(--line-2);
+  border-left-width: 3px;
+  font-size: 13px;
+}
+.studio .bp-summary[data-state="all"] {
+  border-left-color: var(--sig-ok);
+}
+.studio .bp-summary[data-state="some"] {
+  border-left-color: var(--sig-warn);
+}
+.studio .bp-summary[data-state="none"] {
+  border-left-color: var(--sig-err);
 }
 /* mode, link and fragility read under their headings; only the estimate is a figure to add up */
 .studio .bp-table td.st-num:not(:last-child) {

@@ -458,13 +458,17 @@ def test_wait_stops_comfy_when_the_job_is_cancelled():
     posted: list[tuple[str, dict | None]] = []
 
     class FakeHTTP:
+        running = [[0, "p1"]]
+
         def get(self, url, **kw):
+            running_now = self.running
+
             class R:
                 def raise_for_status(self):
                     pass
 
                 def json(self):
-                    return {}
+                    return {"queue_running": running_now}
             return R()
 
         def post(self, url, json=None, **kw):  # noqa: A002
@@ -476,6 +480,30 @@ def test_wait_stops_comfy_when_the_job_is_cancelled():
         comfy.wait("p1", timeout_s=5, poll_s=0.01, should_cancel=lambda: True)
     assert [u.rsplit("/", 1)[-1] for u, _ in posted] == ["queue", "interrupt"]
     assert posted[0][1] == {"delete": ["p1"]}
+
+
+def test_cancel_does_not_interrupt_comfy_when_the_prompt_is_not_the_one_running():
+    """A prompt that is only waiting, or already over, is dequeued; the interrupt would hit another take."""
+    posted: list[str] = []
+
+    class FakeHTTP:
+        def get(self, url, **kw):
+            class R:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return {"queue_running": [[1, "someone-else"]]}
+            return R()
+
+        def post(self, url, json=None, **kw):  # noqa: A002
+            posted.append(url.rsplit("/", 1)[-1])
+
+    comfy = h.ComfyClient()
+    comfy.http = FakeHTTP()
+    with pytest.raises(h.JobError, match="cancelled"):
+        comfy.wait("p1", timeout_s=5, poll_s=0.01, should_cancel=lambda: True)
+    assert posted == ["queue"]
 
 
 def test_ensure_loras_resolves_a_repo_link_to_its_weight_file(tmp_path):

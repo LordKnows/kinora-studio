@@ -487,6 +487,13 @@ export async function submitTake(take: Take): Promise<Take> {
   try {
     const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id);
     const { requestId } = await backend.submit(take.input, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+    /* Two submitters can meet on one take (the sweep and a page's stream): the one that comes second
+       calls its own job off, so a take is rendered, and paid for, once. */
+    const now = await repo.getTake(take.id);
+    if (now.requestId || now.status !== "queued") {
+      await backend.cancel(requestId).catch(() => undefined);
+      return now;
+    }
     return await repo.updateTake(take.id, { requestId, status: "queued", error: null });
   } catch (caught) {
     const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);
@@ -547,6 +554,20 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
     case "timeout":
       return repo.updateTake(take.id, { status: "timeout", error: "worker execution timed out", finishedAt: Date.now() });
   }
+}
+
+let lastGpuLook = 0;
+
+/** The takes that wait for the GPU, handed over as soon as it is up: the pod is asked where it stands
+    (not more than once in 8 s) and each take goes to it. Called from a project's event stream, so a take
+    does not wait for the minute-by-minute sweep once the pod answers. */
+export async function handOverWaitingTakes(takeIds: string[]): Promise<void> {
+  if (takeIds.length === 0) return;
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured() && Date.now() - lastGpuLook > 8_000) {
+    lastGpuLook = Date.now();
+    await gpu.refreshGpu().catch(() => undefined);
+  }
+  for (const id of takeIds) await refreshTake(id).catch(() => undefined);
 }
 
 /** Poll the backend for a take that is still in flight. Cheap enough to call
@@ -668,19 +689,41 @@ export async function cancelUpscale(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
   const up = take.upscale;
   if (!up || (up.status !== "queued" && up.status !== "running")) return take;
+  if (up.status === "running") throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
   if (up.requestId) {
     const backend = await videoBackend();
-    if (backend) await backend.cancel(up.requestId);
+    if (backend) {
+      /* the pod's queue may have reached it since the last look: then it is rendering, and is left to finish */
+      const now = await backend.status(up.requestId).catch(() => undefined);
+      if (now?.state === "running") {
+        await applyUpscaleStatus(take, now);
+        throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
+      }
+      await backend.cancel(up.requestId);
+    }
   }
   return repo.updateTake(take.id, { upscale: { ...up, status: "canceled", finishedAt: Date.now(), progress: undefined } });
 }
 
+const RENDERING_CANNOT_BE_CANCELLED = "a take that is rendering cannot be cancelled; only a queued one can be";
+
+/** Call off a take that is still waiting. One that is rendering is not: it runs to its end (its cost is
+    spent either way), so the answer is an error, and its status is brought up to date so the page shows it. */
 export async function cancelTake(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
+  if (take.status === "running") throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
   if (take.status === "queued" && !take.requestId) return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
-  if (take.requestId && (take.status === "queued" || take.status === "running")) {
+  if (take.requestId && take.status === "queued") {
     const backend = await videoBackend();
-    if (backend) await backend.cancel(take.requestId);
+    if (backend) {
+      /* the pod's queue may have reached it since the last look */
+      const now = await backend.status(take.requestId).catch(() => undefined);
+      if (now?.state === "running") {
+        await applyTakeStatus(take, now);
+        throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
+      }
+      await backend.cancel(take.requestId);
+    }
     return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
   }
   return take;
