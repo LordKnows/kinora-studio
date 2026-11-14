@@ -59,8 +59,13 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   const t = useT();
   const { projectId, reload } = useProjectContext();
   const shots = view ? filmShots(view) : [];
-  const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })));
-  const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })));
+  /* The line is in the order things were asked for: what is rendering first, then the rest by when each was
+     added, so what is added later stands last (the film's shot order is not the queue's). */
+  const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })))
+    .sort((a, b) => Number(b.take.status === "running") - Number(a.take.status === "running") || a.take.createdAt - b.take.createdAt);
+  const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })))
+    .sort((a, b) => Number(b.take.upscale!.status === "running") - Number(a.take.upscale!.status === "running") || a.take.upscale!.createdAt - b.take.upscale!.createdAt);
+  const lined = [...jobs].sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || a.createdAt - b.createdAt);
   /* only what is still waiting can be called off; what is rendering runs to its end */
   const waiting = takes.filter((x) => x.take.status === "queued");
 
@@ -124,7 +129,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
             <span className="st-num">{jobs.length}</span>
             {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
           </div>
-          {jobs.map((job) => (
+          {lined.map((job) => (
             <div key={job.id} className="q-row">
               <div className="q-what">
                 <strong>{jobLabel(job, t)}</strong>
