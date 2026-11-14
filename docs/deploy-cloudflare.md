@@ -227,8 +227,8 @@ RunPod 的 webhook 是主路径；定时轮询只是兜底。
 ## 9. RunPod Pod 模式
 
 Studio 自己管理一台 Secure Cloud 的 Pod：第一次生成时创建，网页侧栏和 Settings
-页可以 Start / Stop / Terminate，agent 有 `gpu_status` / `gpu_start` / `gpu_stop`
-工具，空闲超过 `RUNPOD_IDLE_STOP_MINUTES` 自动关机。Stop 后再 Start 若拿不到
+页可以 Start / Stop / Terminate，agent 只有 `gpu_status` / `gpu_stop`
+工具（只有人能开 GPU，agent 能关），空闲超过 `RUNPOD_IDLE_STOP_MINUTES` 自动关机。Stop 后再 Start 若拿不到
 GPU，会自动终止旧 Pod 并在允许的型号里重新创建；都没货就显示"暂时没资源"，
 稍后 Retry。
 

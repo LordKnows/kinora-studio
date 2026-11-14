@@ -1,4 +1,3 @@
-import { assertConfirmed } from "./checkpoints";
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
@@ -197,13 +196,16 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
 /** Make sure a pod is on its way up. Resume the stopped one if RunPod still
     has a card for it; otherwise terminate it and create a fresh pod on the
     allow-list. "unavailable" is the answer when no listed GPU has capacity. */
-export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState> {
+export const DIRECTOR_CANNOT_START_GPU = "The GPU is not running, and only the user can start it (it bills per hour): ask the user to start it from the GPU menu in the top bar, then try again. You can stop it when the work is done (gpu_stop).";
+
+export async function startGpu(actor: Actor, _confirm: boolean): Promise<GpuState> {
   if (!gpuConfigured()) throw new StudioError("backend_error", "RunPod pod mode is not configured (RUNPOD_API_KEY, RUNPOD_POD_IMAGE, STUDIO_WORKER_TOKEN, R2_*)");
   const pc = config.runpodPod();
   if (pc.gpuTypeIds.length === 0) throw new StudioError("validation", "RUNPOD_GPU_TYPES is empty: list the GPU types the pod may use");
   let pod = await refreshGpu();
   if (pod && (pod.status === "running" || pod.status === "starting" || pod.status === "creating")) return getGpuState();
-  if (actor.via === "mcp") assertConfirmed(confirm, estimatedPodUsdPerHour(pod), "starting the GPU pod (billed per hour while it runs)");
+  /* The pod bills by the hour: only a person starts it. The director can stop it, never start it. */
+  if (actor.via === "mcp") throw new StudioError("forbidden", DIRECTOR_CANNOT_START_GPU);
 
   const client = pods();
   /* A stopped pod the fallback started (no model volume) is let go: resuming it would download the models

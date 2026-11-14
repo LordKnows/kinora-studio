@@ -212,6 +212,8 @@ export type PodParams = InferenceParams & {
     draws while the pod runs (startPod starts it); otherwise, with no painter
     online and startPod, the GPU pod is started as the fallback painter. */
 export async function submitImage(projectId: string, req: ImageRequest, actor: Actor, opts: { startPod?: boolean } = {}): Promise<{ job: Job; runner: string; painters: painter.RunnerSummary }> {
+  /* the director never starts the GPU: its startPod is ignored, and the picture waits for the user to start it */
+  const startPod = Boolean(opts.startPod) && actor.via !== "mcp";
   const project = await repo.getProject(projectId);
   const left = req.op === "paint" ? await assertCanPaint(project) : 0;
   if (req.op === "paint" && !req.model) {
@@ -268,19 +270,19 @@ export async function submitImage(projectId: string, req: ImageRequest, actor: A
   if (summary.ready) return { job, runner: `queued; ${summary.drawers.join(" / ")} draws it`, painters: summary };
   if (podModel) {
     /* only the GPU pod draws it: start the pod when asked to, else say so */
-    if (opts.startPod && gpu.gpuConfigured()) {
+    if (startPod && gpu.gpuConfigured()) {
       const state = await gpu.startGpu(actor, true);
       if (state.status === "unavailable") throw new StudioError("backend_error", state.message ?? "no GPU available right now", { noResources: true, job: job.id });
       return { job, runner: `queued; the GPU pod is ${state.status}, it draws once its model is loaded (it bills per hour)`, painters: summary };
     }
-    return { job, runner: `queued; ${summary.note ?? "waiting for the GPU pod"}`, painters: summary };
+    return { job, runner: `queued; ${summary.note ?? "waiting for the GPU pod"}${actor.via === "mcp" ? " — only the user can start the GPU: ask them to (the GPU menu in the top bar)" : ""}`, painters: summary };
   }
   /* nobody can draw it now: wake the painter pod, if the Studio manages one */
   const { wakeForWork } = await import("./painter-pod");
   const woke = await wakeForWork();
   if (woke) return { job, runner: `queued; ${woke}`, painters: { ...summary, note: woke } };
   /* Qwen-Image 3.0 Pro is drawn by the CPU painter pod only (the GPU pod does not carry its key) */
-  if (opts.startPod && backend !== "qwen" && config.painterOnPod() && gpu.gpuConfigured()) {
+  if (startPod && backend !== "qwen" && config.painterOnPod() && gpu.gpuConfigured()) {
     const pod = await repo.currentGpuPod();
     if (!pod || pod.status !== "running") {
       const state = await gpu.startGpu(actor, true);

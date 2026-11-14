@@ -91,7 +91,7 @@ async function voiceBackend() {
   }
   const pod = await repo.currentGpuPod();
   if (!pod || pod.status !== "running" || !pod.hostUrl) {
-    throw new StudioError("validation", "the GPU pod is not running: start it (the GPU panel, or gpu_start) and speak again once it is up", { gpu: pod?.status ?? "none" });
+    throw new StudioError("validation", "the GPU pod is not running: only the user can start it (the GPU menu in the top bar); ask them, and speak again once it is up", { gpu: pod?.status ?? "none" });
   }
   await gpu.assertPodCanWork("a voice job");
   const voice = await gpu.podVoiceStatus();
