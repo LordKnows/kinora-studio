@@ -105,6 +105,58 @@ describe("the treatment is kept with the script", () => {
     expect(packet.reviewerPrompt.indexOf("--- SCRIPT ---")).toBeLessThan(packet.reviewerPrompt.indexOf("--- TREATMENT"));
   });
 
+  it("the director's save_script spells the treatment out, refuses a first script without one, and saves nothing on a broken one", async () => {
+    const { createStudioServer } = await import("@/mcp/server");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "0" });
+    await Promise.all([createStudioServer({ user: "agent-user@local", via: "mcp" }).connect(a), client.connect(b)]);
+    const call = async (args: Record<string, unknown>) => {
+      const res = (await client.callTool({ name: "save_script", arguments: args })) as { isError?: boolean; content: Array<{ text: string }> };
+      /* the Studio answers in JSON; an argument the tool's schema turns back is the SDK's own message, in plain text */
+      const said = res.content[0]!.text;
+      return { isError: Boolean(res.isError), body: (said.startsWith("{") ? JSON.parse(said) : { message: said }) as Record<string, never> };
+    };
+
+    /* the tool's schema names the treatment's fields, so a model need not guess them; it is not marked required (a later version may leave it out) */
+    const tool = (await client.listTools()).tools.find((t) => t.name === "save_script")!;
+    const schema = tool.inputSchema as { required?: string[]; properties: Record<string, { properties?: Record<string, unknown>; required?: string[] }> };
+    expect(Object.keys(schema.properties.treatment!.properties ?? {})).toEqual(expect.arrayContaining(["logline", "arc", "candidates", "chosen", "hook", "sequences", "soundDesign", "silences", "audioBridges", "turns"]));
+    expect(schema.required).toEqual(expect.arrayContaining(["projectId", "text"]));
+    expect(schema.required).not.toContain("treatment");
+
+    const project = await repo.createProject({ name: "Ferry by the director", budgetCapUsd: 20 });
+    const text = "EXT. RIVER - DAWN\nThe ferryman poles across.";
+    /* a first script with no treatment: refused, and nothing saved */
+    const bare = await call({ projectId: project.id, text });
+    expect(bare.isError).toBe(true);
+    expect(JSON.stringify(bare.body)).toContain("no treatment yet");
+    /* a treatment with an error: refused with what is wrong, and nothing saved, the script neither */
+    const broken = await call({ projectId: project.id, text, treatment: { ...treatment(), chosen: "nope" }, style: "ink-wash" });
+    expect(broken.isError).toBe(true);
+    expect(JSON.stringify(broken.body)).toContain("treatment.chosen");
+    /* one that does not have the fields at all is turned back by the schema */
+    const thin = await call({ projectId: project.id, text, treatment: { logline: "too little" } });
+    expect(thin.isError).toBe(true);
+    expect(JSON.stringify(thin.body)).toContain("candidates");
+    expect(await repo.listScripts(project.id)).toEqual([]);
+    expect(await treatments.currentTreatment(project.id)).toBeUndefined();
+
+    /* together: the script is v1 and the treatment is kept beside it */
+    const both = await call({ projectId: project.id, text, treatment: treatment(), style: "ink-wash" });
+    expect(both.isError).toBe(false);
+    expect(both.body).toMatchObject({ script: { version: 1 }, treatment: { kept: true } });
+    expect(await treatments.currentTreatment(project.id)).toMatchObject({ scriptVersion: 1 });
+
+    /* a later version may come alone: the treatment on file stands */
+    const v2 = await call({ projectId: project.id, text: `${text} The river rises.` });
+    expect(v2.isError).toBe(false);
+    expect(v2.body).toMatchObject({ script: { version: 2 }, treatment: { kept: false } });
+    expect(JSON.stringify(v2.body)).toContain("still stands");
+    expect(await treatments.currentTreatment(project.id)).toMatchObject({ scriptVersion: 1 });
+  });
+
   it("a script reviewed without one is told so", async () => {
     const project = await repo.createProject({ name: "Bare", budgetCapUsd: 5 });
     await repo.createScript(project.id, "A cat walks.");

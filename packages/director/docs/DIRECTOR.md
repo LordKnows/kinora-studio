@@ -50,7 +50,7 @@ Before writing anything, pick one or two reference works that set the bar for th
 7. at least two silences and two audio bridges (J-cut, L-cut) for films over 30 s;
 8. the turns: problem, solution, reaction, and why it can happen; and the structure (episodic or continuous).
 
-Send it with the script: `save_script(text, treatment)`. The Studio keeps it beside that script version and holds the film to it. The story reviewer reads it after the script and says where the two disagree; `lint_project` warns while there is none; the export names every planned silence and sound bridge that is not on the timeline; the user reads it on the Story page.
+Send it with the script: `save_script(text, treatment)`. The Studio refuses a project's first script without one, and saves nothing when the treatment has errors; a later version may leave it out when the film's shape did not change. The Studio keeps it beside that script version and holds the film to it. The story reviewer reads it after the script and says where the two disagree; `lint_project` warns while there is none; the export names every planned silence and sound bridge that is not on the timeline; the user reads it on the Story page.
 
 The script the user approves is this treatment plus the dialogue.
 

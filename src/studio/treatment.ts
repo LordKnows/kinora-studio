@@ -1,9 +1,10 @@
 import * as director from "@/director";
 
+import { StudioError } from "./errors";
 import * as repo from "./repo";
 import * as styles from "./styles";
 import type { TimelineInput } from "./schemas";
-import type { Scene } from "./types";
+import type { Scene, Script } from "./types";
 
 /* The treatment: why the film is shaped the way it is (logline, arc, three
    candidate structures and the one chosen, the benchmark, the hook, the
@@ -32,6 +33,34 @@ export async function saveTreatment(projectId: string, scriptVersion: number, ra
   const parsed = director.TreatmentSchema.parse(raw);
   await repo.insertNote(projectId, "treatment", "current", { scriptVersion, treatment: parsed, warnings, ...(s ? { style: s.style.slug } : {}) });
   return { kept: true, ok: true, warnings };
+}
+
+const NEEDS_TREATMENT = "this project has no treatment yet, so its script is saved with one: write the treatment (the fields of save_script's `treatment`: logline, arc, three candidate structures and the chosen one, benchmark, hook, ending echo, signature shot, native move, sequences with their paces, the sound design, silences and sound bridges, the turns) and call save_script again with the same text and the treatment. Nothing was saved.";
+
+/**
+ * A script version as the director saves it (the MCP's save_script), with the treatment that explains it.
+ *
+ * A project's first script is refused without a treatment: a field a model may leave out is a field it
+ * leaves out, and then nothing holds the film to a plan. A later version may come without one, and the
+ * treatment on file stands (the lint says which version it was written for). A treatment that is sent
+ * and has errors saves nothing, neither it nor the script, so a fixed one does not leave a second
+ * version with the same text. The Story page's own New version is not held to this: it is the user's.
+ */
+export async function saveScriptWithTreatment(projectId: string, text: string, raw: unknown, style?: string): Promise<{ script: Script; treatment: { kept: boolean; note?: string }; warnings: TreatmentWarning[] }> {
+  if (raw === undefined || raw === null) {
+    const onFile = await currentTreatment(projectId);
+    if (!onFile) throw new StudioError("validation", NEEDS_TREATMENT, { code: "treatment.missing" });
+    const script = await repo.createScript(projectId, text);
+    return { script, treatment: { kept: false, note: `no treatment sent; the one written for script v${onFile.scriptVersion} still stands. Send it again if the film's shape changed` }, warnings: [] };
+  }
+  const s = style ? await styles.resolveStyle(style) : undefined;
+  const check = director.validateTreatment(raw, s?.style.nativeMoves.map((m) => m.name));
+  if (!check.ok) {
+    throw new StudioError("validation", "the treatment has errors, so nothing was saved: fix them (details.warnings, severity error) and call save_script again with the same text", { warnings: check.warnings });
+  }
+  const script = await repo.createScript(projectId, text);
+  const saved = await saveTreatment(projectId, script.version, raw, style);
+  return { script, treatment: { kept: saved.kept }, warnings: saved.warnings };
 }
 
 export async function currentTreatment(projectId: string): Promise<StoredTreatment | undefined> {

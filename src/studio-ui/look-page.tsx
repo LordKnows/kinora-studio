@@ -4,13 +4,12 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { checkConstraint } from "@director/lint/constraints";
 
-import { planDurations } from "@/studio/editing";
 import type { LookSettings } from "@/studio/schemas";
 import type { Asset, Project } from "@/studio/types";
 
 import { get, patch } from "./api";
 import { Button, Chips, ErrorBanner, Field, Lamp, UploadButton, useAction } from "./common";
-import { type T, useT } from "./i18n";
+import { useT } from "./i18n";
 import { StyleGallery } from "./library-page";
 import { useProjectContext } from "./shell";
 import { PictureCaption, pictureTitle, useDeletePictures } from "./pictures";
@@ -49,15 +48,6 @@ function useSave(run: () => Promise<void>) {
   return { ...action, saved };
 }
 
-/** planDurations' note (editing.ts writes it in English), in the interface language. */
-function planNote(t: T, note: string): string {
-  const even = /^(\d+) shots averaging ([\d.]+) s\. Give establishing and emotional beats the longer slots; montage beats the 5 s ones\.$/.exec(note);
-  if (even) return t("{n} shots averaging {avg} s. Give establishing and emotional beats the longer slots; montage beats the 5 s ones.", { n: even[1]!, avg: even[2]! });
-  const tiled = /^(\d+) s cannot be tiled with (\d+) shots of 5–15 s; the plan uses (\d+) shots\.$/.exec(note);
-  if (tiled) return t("{total} s cannot be tiled with {n} shots of 5–15 s; the plan uses {m} shots.", { total: tiled[1]!, n: tiled[2]!, m: tiled[3]! });
-  return note;
-}
-
 /** The head of every card: its title (and "unsaved" while it differs from what is saved), its buttons on the right. */
 function CardHead({ title, dirty, aside, children }: { title: string; dirty?: boolean; aside?: ReactNode; children?: ReactNode }) {
   const t = useT();
@@ -92,7 +82,6 @@ export function BriefCard() {
   });
   const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
   const target = brief ? clampSeconds(brief.targetSeconds) ?? undefined : undefined;
-  const plan = target ? planDurations(target) : null;
   if (!view || !brief) return null;
   const briefDirty = brief.brief !== view.project.brief || clampSeconds(brief.targetSeconds) !== (view.project.targetSeconds ?? null);
   return (
@@ -116,7 +105,6 @@ export function BriefCard() {
           </span>
         </Field>
       </div>
-      {plan && <span className="st-muted st-num">{t("Plan: {n} shots · {durations} s. {note}", { n: plan.shots, durations: plan.durations.join(" + "), note: planNote(t, plan.note) })}</span>}
     </div>
   );
 }
