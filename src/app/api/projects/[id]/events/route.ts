@@ -46,6 +46,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
               takes = await repo.listProjectTakes(id);
             }
             busy = jobs.some((j) => j.status === "queued" || j.status === "running") || takes.some((t) => t.status === "queued" || t.status === "running" || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"))) || exports.some((x) => x.status === "queued" || x.status === "running");
+            /* "stop the GPU when done": once nothing of this project is in flight, ask whether the whole pod is idle */
+            if (!busy) await orch.stopGpuIfDone().catch(() => undefined);
             const snapshot = JSON.stringify({
               takes: takes.map((t) => ({ id: t.id, shotId: t.shotId, status: t.status, resultUrl: t.resultUrl, thumbUrls: t.thumbUrls, costUsd: t.costUsd, progress: t.progress, upscale: t.upscale ? { status: t.upscale.status, url: t.upscale.url, progress: t.upscale.progress } : undefined })),
               exports: exports.map((x) => ({ id: x.id, status: x.status, resultUrl: x.resultUrl })),

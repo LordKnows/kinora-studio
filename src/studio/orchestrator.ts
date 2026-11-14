@@ -419,8 +419,15 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
 
-  /* Pod mode: make sure the GPU is coming up. The agent has already confirmed
-     the take; starting the pod is part of that spend. */
+  /* A render waits for the GPU to be running: a person starts it on purpose (the pod bills per hour), never as a
+     side effect of a click or of the director's call. */
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
+    await gpu.refreshGpu().catch(() => undefined);
+    if ((await repo.currentGpuPod())?.status !== "running") {
+      throw new StudioError(actor.via === "mcp" ? "forbidden" : "validation", actor.via === "mcp" ? gpu.DIRECTOR_CANNOT_START_GPU : "The GPU is not running. Start it first (GPU, in the top bar), then render again.", { gpuNotRunning: true });
+    }
+  }
+
   let gpuState: gpu.GpuState | undefined;
   if (config.runpodMode() === "pod") {
     gpuState = await gpu.startGpu(actor, true);
@@ -1002,6 +1009,21 @@ export async function refreshExport(exportId: string): Promise<ExportJob> {
 
 /* ---------- sweep (cron) ---------- */
 
+/** The pod stops once it has been asked to ("stop when done") and nothing is left for it, in any project:
+    takes (also 2K regenerations), exports, voice jobs, and a picture the pod itself is drawing. Called by the
+    sweep and by a project's event stream. Nothing is stopped that is rendering. */
+export async function stopGpuIfDone(): Promise<boolean> {
+  if (config.runpodMode() !== "pod" || !gpu.gpuConfigured()) return false;
+  const pod = await repo.currentGpuPod();
+  if (!pod?.stopWhenDone || pod.status !== "running") return false;
+  const { podIsPainting } = await import("./painter");
+  const busy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveUpscales()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveVoiceJobs()).length > 0 || (await podIsPainting());
+  if (busy) return false;
+  await gpu.stopGpu();
+  await repo.updateGpuPod(pod.id, { message: "stopped: everything that was queued has rendered" });
+  return true;
+}
+
 export async function sweep(): Promise<{ takes: number; exports: number; images: number; gpu?: string; autoStopped?: boolean }> {
   let gpuStatus: string | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
@@ -1085,7 +1107,7 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
     const { podIsPainting } = await import("./painter");
     const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveVoiceJobs()).length > 0 || (await podIsPainting());
     try {
-      autoStopped = await gpu.autoStopIfIdle(stillBusy);
+      autoStopped = (await stopGpuIfDone()) || (await gpu.autoStopIfIdle(stillBusy));
     } catch {
       autoStopped = false;
     }

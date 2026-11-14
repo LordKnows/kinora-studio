@@ -23,6 +23,15 @@ type Delegation = { script: boolean; shotlist: boolean; grantedBy?: string; gran
 type Notes = { requirements: DirectorNote[]; decisions: DirectorNote[]; reviews: StageReview[] };
 type LogSection = "requirements" | "decisions" | "reviews";
 
+/* What is edited in "What the director may do" is a draft until Save: the switches and fields change here, and
+   one Save sends what differs from what the server has (image generation, voice generation, delegated approval). */
+type ImgDraft = { enabled: boolean; model: string; quality: "low" | "medium" | "high"; maxImages: string; agentCanvas: boolean; selfCheck: boolean; autoRedraws: number; loras: LoraRef[] };
+type VoiceDraft = { enabled: boolean; model: string; maxChars: string };
+type Draft = { img: ImgDraft | null; voice: VoiceDraft | null; deleg: { script: boolean; shotlist: boolean } | null };
+const imgDraftOf = (i: ImagingSummary): ImgDraft => ({ enabled: i.enabled, model: i.model, quality: i.quality, maxImages: String(i.maxImages), agentCanvas: !!i.agentCanvas, selfCheck: i.selfCheck, autoRedraws: i.autoRedraws, loras: (i.loras ?? []).map((l) => ({ id: l.id, strength: l.strength })) });
+const voiceDraftOf = (v: VoicingSummary): VoiceDraft => ({ enabled: v.enabled, model: v.model, maxChars: String(v.maxChars) });
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
 /* What the director may do and what it keeps for you, in two parts.
    `settings` (the project's Settings page): image and voice generation, the
    spend envelope you grant it, delegated approval. `log` (the Director panel
@@ -33,17 +42,15 @@ type LogSection = "requirements" | "decisions" | "reviews";
 export function DirectorPanel({ projectId, part }: { projectId: string; part: "settings" | "log" }) {
   const [ap, setAp] = useState<Autopilot | null>(null);
   const [notes, setNotes] = useState<Notes | null>(null);
-  const [deleg, setDeleg] = useState<Delegation | null>(null);
   const [img, setImg] = useState<ImagingSummary | null>(null);
   const [voice, setVoice] = useState<VoicingSummary | null>(null);
-  const [voiceMax, setVoiceMax] = useState("20000");
   const [ready, setReady] = useState<ModelReadiness[]>([]);
   const [adult, setAdult] = useState(false);
-  /* the LoRAs as picked, shown at once; a strength typed in is saved when the typing pauses */
-  const [loraDraft, setLoraDraft] = useState<LoraRef[] | null>(null);
-  const loraSave = useRef<{ timer?: ReturnType<typeof setTimeout>; seq: number }>({ seq: 0 });
   const { loras: library } = useLoraLibrary();
-  const [imgMax, setImgMax] = useState("40");
+  /* the draft being edited, and what the server had when it was last read (the draft is kept while it differs) */
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const server = useRef<Draft | null>(null);
+  const resetDraft = useRef(false);
   const [envelope, setEnvelope] = useState("5");
   const [hours, setHours] = useState("12");
   /* The project view every page shares (switches read it): refresh it with ours. */
@@ -53,15 +60,19 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     const [a, n, d] = await Promise.all([get<Autopilot>(`/api/projects/${projectId}/autopilot`), get<Notes>(`/api/projects/${projectId}/notes`), get<Delegation>(`/api/projects/${projectId}/delegation`)]);
     setAp(a);
     setNotes(n);
-    setDeleg(d);
     const im = await get<ImagingSummary>(`/api/projects/${projectId}/imaging`);
     setImg(im);
     void get<{ models: ModelReadiness[] }>("/api/models?kind=image").then((r) => setReady(r.models)).catch(() => undefined);
     void get<{ adultContent?: boolean }>("/api/me/settings").then((s) => setAdult(!!s.adultContent)).catch(() => undefined);
-    setImgMax(String(im.maxImages));
     const vo = await get<VoicingSummary>(`/api/projects/${projectId}/voicing`).catch(() => null);
     setVoice(vo);
-    if (vo) setVoiceMax(String(vo.maxChars));
+    /* an unsaved draft survives a refresh (a grant, a resume); after a Save it is read afresh */
+    const fresh: Draft = { img: imgDraftOf(im), voice: vo ? voiceDraftOf(vo) : null, deleg: { script: d.script, shotlist: d.shotlist } };
+    const was = server.current;
+    const force = resetDraft.current;
+    resetDraft.current = false;
+    server.current = fresh;
+    setDraft((prev) => (force || prev === null || same(prev, was) ? fresh : prev));
     await reload();
   }, [projectId, reload]);
   /* the first load of the log: until it answers the three headings say they are loading; if it fails they say so */
@@ -82,47 +93,74 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     await del(`/api/projects/${projectId}/autopilot`);
     await refresh();
   });
-  const delegate = useAction(async (_c, next: { script: boolean; shotlist: boolean }) => {
-    if ((next.script && !deleg?.script) || (next.shotlist && !deleg?.shotlist)) {
-      const ask = next.script && !deleg?.script
+  /* Save: every change in the draft, together. The questions about money and approval are asked first, for
+     all of it, so declining one saves nothing; then image generation, voice generation and delegated
+     approval are sent, each only if it changed. */
+  const save = useAction(async () => {
+    const now = draft;
+    const was = server.current;
+    if (!now || !was) return;
+    const ni = now.img, si = was.img, nv = now.voice, sv = was.voice, nd = now.deleg, sd = was.deleg;
+    const imgChanged = !!ni && !same(ni, si);
+    const voiceChanged = !!nv && !same(nv, sv);
+    const delegChanged = !!nd && !same(nd, sd);
+    if (imgChanged && ni!.enabled && !si?.enabled && !window.confirm(t("Allow image generation on this project? The director (Claude, Grok…) and the buttons may then draw pictures with {model}, up to the image limit below.", { model: findModel(ni!.model)?.label ?? img?.modelLabel ?? t("the model below") }))) return;
+    const pick = ni ? findModel(ni.model) : undefined;
+    if (imgChanged && ni!.enabled && si?.enabled && ni!.model !== si.model && pick?.runtime === "pod" && !window.confirm(t("{model} draws on the GPU pod, only while it runs (it bills per hour); its pictures get no Codex self-check. Use it for this project's pictures?", { model: pick.label }))) return;
+    const chosen = voice?.models.find((m) => m.id === nv?.model);
+    const onPod = chosen?.provider === "pod";
+    const voiceLabel = chosen?.label ?? t("the model below");
+    if (voiceChanged && nv!.enabled && !sv?.enabled && !window.confirm(onPod
+      ? t("Allow voice generation on this project? The director may then speak lines with {model} on the GPU pod, only while it runs (it bills per hour), several takes for you to pick from, up to the character budget below.", { model: voiceLabel })
+      : t("Allow voice generation on this project? The director may then make voices and speak lines through the voice API (TokenSail) with {model}, billed per character, up to the budget below.", { model: voiceLabel }))) return;
+    if (voiceChanged && nv!.enabled && sv?.enabled && nv!.model !== sv.model && onPod && !window.confirm(t("{model} speaks on the GPU pod, only while it runs (it bills per hour). Use it for this project's voices?", { model: voiceLabel }))) return;
+    if (delegChanged && ((nd!.script && !sd?.script) || (nd!.shotlist && !sd?.shotlist))) {
+      const ask = nd!.script && !sd?.script
         ? t("Let the director approve the script on your behalf? It still needs a fresh reviewer's pass (script) or a clean lint (shotlist), every approval is logged, and overturning it puts the checkpoint back in draft.")
         : t("Let the director approve the shotlist on your behalf? It still needs a fresh reviewer's pass (script) or a clean lint (shotlist), every approval is logged, and overturning it puts the checkpoint back in draft.");
       if (!window.confirm(ask)) return;
     }
-    await put(`/api/projects/${projectId}/delegation`, next);
+    try {
+      if (imgChanged && ni) {
+        const body: Record<string, unknown> = { enabled: ni.enabled };
+        if (ni.enabled) {
+          if (ni.model !== si?.model) body.model = ni.model;
+          if (ni.quality !== si?.quality) body.quality = ni.quality;
+          if (ni.maxImages !== si?.maxImages) body.maxImages = Math.max(1, Number(ni.maxImages) || 1);
+          if (ni.agentCanvas !== si?.agentCanvas) body.agentCanvas = ni.agentCanvas;
+          if (ni.selfCheck !== si?.selfCheck) body.selfCheck = ni.selfCheck;
+          if (ni.autoRedraws !== si?.autoRedraws) body.autoRedraws = ni.autoRedraws;
+          if (!same(ni.loras, si?.loras)) body.loras = ni.loras;
+        }
+        await put(`/api/projects/${projectId}/imaging`, body);
+      }
+      if (voiceChanged && nv) {
+        const body: Record<string, unknown> = { enabled: nv.enabled };
+        if (nv.enabled) {
+          if (nv.model !== sv?.model) body.model = nv.model;
+          if (nv.maxChars !== sv?.maxChars) body.maxChars = Math.max(100, Number(nv.maxChars) || 100);
+        }
+        await put(`/api/projects/${projectId}/voicing`, body);
+      }
+      if (delegChanged && nd) await put(`/api/projects/${projectId}/delegation`, nd);
+      resetDraft.current = true;
+    } finally {
+      await refresh();
+    }
+  });
+  /* not settings but things to do: let the stopped pictures go on, and zero the character count */
+  const resume = useAction(async () => {
+    await put(`/api/projects/${projectId}/imaging`, { enabled: img?.enabled ?? false, clearStop: true });
     await refresh();
   });
-  const setImaging = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; loras: LoraRef[]; agentCanvas: boolean; maxImages: number; quality: "low" | "medium" | "high"; selfCheck: boolean; autoRedraws: number; clearStop: boolean }>) => {
-    if (next.enabled && !img?.enabled && !window.confirm(t("Allow image generation on this project? The director (Claude, Grok…) and the buttons may then draw pictures with {model}, up to the image limit below.", { model: img?.modelLabel ?? t("the model below") }))) return;
-    const pick = next.model ? findModel(next.model) : undefined;
-    if (pick?.runtime === "pod" && img?.enabled && !window.confirm(t("{model} draws on the GPU pod, only while it runs (it bills per hour); its pictures get no Codex self-check. Use it for this project's pictures?", { model: pick.label }))) return;
-    await put(`/api/projects/${projectId}/imaging`, { enabled: next.enabled ?? img?.enabled ?? false, ...next });
+  const resetUsed = useAction(async () => {
+    await put(`/api/projects/${projectId}/voicing`, { enabled: voice?.enabled ?? false, resetUsed: true });
     await refresh();
   });
-  const setVoicing = useAction(async (_c, next: Partial<{ enabled: boolean; model: string; maxChars: number; resetUsed: boolean }>) => {
-    const chosen = voice?.models.find((m) => m.id === (next.model ?? voice?.model));
-    const label = chosen?.label ?? t("the model below");
-    const onPod = chosen?.provider === "pod";
-    if (next.enabled && !voice?.enabled && !window.confirm(onPod
-      ? t("Allow voice generation on this project? The director may then speak lines with {model} on the GPU pod, only while it runs (it bills per hour), several takes for you to pick from, up to the character budget below.", { model: label })
-      : t("Allow voice generation on this project? The director may then make voices and speak lines through the voice API (TokenSail) with {model}, billed per character, up to the budget below.", { model: label }))) return;
-    if (next.model && voice?.enabled && onPod && next.model !== voice.model && !window.confirm(t("{model} speaks on the GPU pod, only while it runs (it bills per hour). Use it for this project's voices?", { model: label }))) return;
-    await put(`/api/projects/${projectId}/voicing`, { enabled: next.enabled ?? voice?.enabled ?? false, ...next });
-    await refresh();
-  });
-  const pickLoras = (next: LoraRef[]) => {
-    const prev = loraDraft ?? img?.loras ?? [];
-    const sameSet = next.length === prev.length && next.every((r) => prev.some((p) => p.id === r.id));
-    setLoraDraft(next);
-    const save = loraSave.current;
-    clearTimeout(save.timer);
-    const seq = ++save.seq;
-    save.timer = setTimeout(() => {
-      void setImaging.fire({ loras: next }).finally(() => {
-        if (save.seq === seq) setLoraDraft(null);
-      });
-    }, sameSet ? 700 : 0);
-  };
+  const editImg = (p: Partial<ImgDraft>) => setDraft((d) => (d && d.img ? { ...d, img: { ...d.img, ...p } } : d));
+  const editVoice = (p: Partial<VoiceDraft>) => setDraft((d) => (d && d.voice ? { ...d, voice: { ...d.voice, ...p } } : d));
+  const editDeleg = (p: Partial<{ script: boolean; shotlist: boolean }>) => setDraft((d) => (d && d.deleg ? { ...d, deleg: { ...d.deleg, ...p } } : d));
+  const dirty = draft !== null && server.current !== null && !same(draft, server.current);
   const setReq = useAction(async (_c, id: string, status: "open" | "met" | "dropped") => {
     await patch(`/api/notes/${id}`, { status });
     await refresh();
@@ -141,10 +179,10 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     await post(`/api/notes/${id}/overturn`, { reason });
     await refresh();
   });
-  const error = grant.error ?? revoke.error ?? setReq.error ?? addReq.error ?? overturn.error ?? delegate.error ?? setImaging.error ?? setVoicing.error;
+  const error = grant.error ?? revoke.error ?? setReq.error ?? addReq.error ?? overturn.error ?? save.error ?? resume.error ?? resetUsed.error;
 
   const settings = part === "settings";
-  const banner = <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); delegate.dismiss(); setImaging.dismiss(); setVoicing.dismiss(); }} />;
+  const banner = <ErrorBanner error={error} onDismiss={() => { grant.dismiss(); revoke.dismiss(); setReq.dismiss(); addReq.dismiss(); overturn.dismiss(); save.dismiss(); resume.dismiss(); resetUsed.dismiss(); }} />;
   if (!settings) {
     const section = (id: LogSection, title: string, meta: string, children: ReactNode) => (
       <LogSectionBox id={id} title={title} meta={meta} open={openSection === id} onToggle={() => setOpenSection((now) => (now === id ? null : id))}>
@@ -217,6 +255,14 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       </div>
     );
   }
+  const di = draft?.img ?? null;
+  const dv = draft?.voice ?? null;
+  const dd = draft?.deleg ?? null;
+  const dm = di ? findModel(di.model) : undefined;
+  const runtime = dm?.runtime ?? img?.runtime;
+  const backend = dm?.backend ?? img?.backend;
+  /* what the server says about the model (notes, licence, settings) is about the saved one */
+  const savedModel = !!img && di?.model === img.model;
   return (
     <div className="st-card st-stack">
       <span className="st-h2">{t("What the director may do")}</span>
@@ -228,22 +274,22 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           {t("Lets the buttons and the director draw pictures with the model below. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
-          <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
+          <input type="checkbox" disabled={!di || save.busy} checked={!!di?.enabled} onChange={(e) => editImg({ enabled: e.target.checked })} />
           <span>{t("Allow image generation by agent")}</span>
         </label>
-        {img?.enabled && (
+        {img && di?.enabled && (
           <div className="st-row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
             <Field label={t("Model")}>
-              <select className="st-select st-input--sm" value={img.model} disabled={setImaging.busy} onChange={(e) => void setImaging.fire({ model: e.target.value })}>
+              <select className="st-select st-input--sm" value={di.model} disabled={save.busy} onChange={(e) => editImg({ model: e.target.value })}>
                 {AGENT_IMAGE_MODELS.map((m) => {
                   const r = ready.find((x) => x.id === m.id)?.painters;
                   return <option key={m.id} value={m.id}>{m.label}{m.runtime === "pod" ? t(" · GPU pod") : ""}{r && !r.ready && m.runtime !== "pod" ? t(" · not ready") : ""}</option>;
                 })}
               </select>
             </Field>
-            {(img.backend === "codex" || img.backend === "api") && (
+            {(backend === "codex" || backend === "api") && (
               <Field label={t("Quality")}>
-                <select className="st-select st-input--sm" value={img.quality} onChange={(e) => void setImaging.fire({ quality: e.target.value as "low" | "medium" | "high" })}>
+                <select className="st-select st-input--sm" value={di.quality} disabled={save.busy} onChange={(e) => editImg({ quality: e.target.value as "low" | "medium" | "high" })}>
                   <option value="low">{t("low (drafts)")}</option>
                   <option value="medium">{t("medium||quality")}</option>
                   <option value="high">{t("high||quality")}</option>
@@ -251,26 +297,26 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
               </Field>
             )}
             <Field label={t("Image limit")}>
-              <input className="st-input st-input--sm" type="number" min={1} max={2000} value={imgMax} onChange={(e) => setImgMax(e.target.value)} onBlur={() => Number(imgMax) !== img.maxImages && void setImaging.fire({ maxImages: Math.max(1, Number(imgMax) || 1) })} style={{ width: 90 }} />
+              <input className="st-input st-input--sm" type="number" min={1} max={2000} value={di.maxImages} disabled={save.busy} onChange={(e) => editImg({ maxImages: e.target.value })} style={{ width: 90 }} />
             </Field>
             <span className="st-muted st-num">{t("{used} used · {left} left", { used: img.usedImages, left: img.leftImages })}</span>
           </div>
         )}
-        {img?.enabled && img.runtime === "pod" && (() => {
-          const family = findModel(img.model)?.family;
+        {img && di?.enabled && runtime === "pod" && (() => {
+          const family = dm?.family;
           const has = library?.some((l) => l.baseModel === family);
-          const adultLora = img.loras?.find((l) => l.adult);
+          const adultLora = savedModel ? img.loras?.find((l) => l.adult) : undefined;
           return (
             <div className="st-stack st-stack--tight">
               {has && family ? (
                 <Field label={t("LoRAs")} hint={t("Picking one applies its card's settings to the director's pictures.")} group>
-                  <LoraPicker compact family={family} adult={adult} value={loraDraft ?? (img.loras ?? []).map((l) => ({ id: l.id, strength: l.strength }))} onChange={pickLoras} />
+                  <LoraPicker compact family={family} adult={adult} value={di.loras} onChange={(next) => editImg({ loras: next })} />
                 </Field>
               ) : (
-                <span className="st-muted">{t("No LoRA in the library is trained for {model} (Library → LoRAs).", { model: img.modelLabel })}</span>
+                <span className="st-muted">{t("No LoRA in the library is trained for {model} (Library → LoRAs).", { model: dm?.label ?? img.modelLabel })}</span>
               )}
-              {img.settings && <span className="st-muted st-num">{t("Settings: {s}", { s: img.settings })}{img.settingsFrom?.length ? t(" (from {list})", { list: img.settingsFrom.join(", ") }) : ""}</span>}
-              {(img.warnings ?? []).map((w) => <span key={w} className="st-warn">{w}</span>)}
+              {savedModel && img.settings && <span className="st-muted st-num">{t("Settings: {s}", { s: img.settings })}{img.settingsFrom?.length ? t(" (from {list})", { list: img.settingsFrom.join(", ") }) : ""}</span>}
+              {savedModel && (img.warnings ?? []).map((w) => <span key={w} className="st-warn">{w}</span>)}
               {adultLora && (
                 <span className="st-warn">
                   {adult
@@ -281,27 +327,27 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
             </div>
           );
         })()}
-        {img?.enabled && (
+        {di?.enabled && (
           <div className="st-stack st-stack--tight">
             <label className="st-row" style={{ gap: 8 }}>
-              <input type="checkbox" disabled={setImaging.busy} checked={!!img.agentCanvas} onChange={(e) => void setImaging.fire({ agentCanvas: e.target.checked })} />
+              <input type="checkbox" disabled={save.busy} checked={di.agentCanvas} onChange={(e) => editImg({ agentCanvas: e.target.checked })} />
               <span>{t("Agent use Canvas")}</span>
             </label>
             <span className="st-muted">
-              {img.agentCanvas
+              {di.agentCanvas
                 ? t("The director may build a character's look from the Canvas library. It counts against the image limit.")
                 : t("Off: the director draws characters from element sheets only.")}
             </span>
           </div>
         )}
-        {img?.enabled && img.runtime !== "pod" && (
+        {di?.enabled && runtime !== "pod" && (
           <div className="st-row" style={{ alignItems: "center", flexWrap: "wrap", gap: 12 }}>
             <label className="st-row" style={{ gap: 8 }} title={t("A fresh Codex session looks at every drawn picture beside its references and brief (anatomy, extra people, identity, mirrored features, text, framing) before it reaches you. Uses Codex usage, not image quota.")}>
-              <input type="checkbox" disabled={setImaging.busy} checked={img.selfCheck} onChange={(e) => void setImaging.fire({ selfCheck: e.target.checked })} />
+              <input type="checkbox" disabled={save.busy} checked={di.selfCheck} onChange={(e) => editImg({ selfCheck: e.target.checked })} />
               <span>{t("Self-check every picture")}</span>
             </label>
             <Field label={t("Redraws on a blocker")}>
-              <select className="st-select st-input--sm" value={img.autoRedraws} disabled={!img.selfCheck} onChange={(e) => void setImaging.fire({ autoRedraws: Number(e.target.value) })}>
+              <select className="st-select st-input--sm" value={di.autoRedraws} disabled={!di.selfCheck || save.busy} onChange={(e) => editImg({ autoRedraws: Number(e.target.value) })}>
                 <option value={0}>{t("0 (just flag it)")}</option>
                 <option value={1}>1</option>
                 <option value={2}>2</option>
@@ -313,15 +359,15 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
         {img?.stoppedReason && (
           <div className="st-row st-row--between">
             <span className="st-warn">{t("Stopped: {reason}", { reason: img.stoppedReason })}</span>
-            <Button size="sm" onClick={() => void setImaging.fire({ clearStop: true })}>{t("Resume||images")}</Button>
+            <Button size="sm" busy={resume.busy} onClick={() => void resume.fire()}>{t("Resume||images")}</Button>
           </div>
         )}
-        {img?.enabled && img.note && <span className="st-muted">{img.note}</span>}
-        {img?.enabled && (() => {
+        {savedModel && img?.enabled && img.note && <span className="st-muted">{img.note}</span>}
+        {savedModel && img?.enabled && (() => {
           const r = ready.find((x) => x.id === img.model)?.painters;
           return r && !r.ready && r.note ? <span className="st-warn">{r.note}</span> : null;
         })()}
-        {img?.enabled && img.license && <span className="st-warn">{img.license}</span>}
+        {savedModel && img?.enabled && img.license && <span className="st-warn">{img.license}</span>}
       </div>
 
       <div className="st-stack st-stack--tight">
@@ -330,25 +376,25 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           {t("Lets the director make character voices and speak lines with the model below, up to the character budget. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
-          <input type="checkbox" disabled={!voice || setVoicing.busy} checked={!!voice?.enabled} onChange={(e) => void setVoicing.fire({ enabled: e.target.checked })} />
+          <input type="checkbox" disabled={!dv || save.busy} checked={!!dv?.enabled} onChange={(e) => editVoice({ enabled: e.target.checked })} />
           <span>{t("Allow voice API use by agent")}</span>
         </label>
-        {voice?.enabled && (
+        {voice && dv?.enabled && (
           <div className="st-row" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
             <Field label={t("Voice model")}>
-              <select className="st-select st-input--sm" value={voice.model} disabled={setVoicing.busy} onChange={(e) => void setVoicing.fire({ model: e.target.value })}>
+              <select className="st-select st-input--sm" value={dv.model} disabled={save.busy} onChange={(e) => editVoice({ model: e.target.value })}>
                 {voice.models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.provider === "pod" ? t(" · our GPU, takes to pick from") : m.modes.includes("design") ? t(" · clone or design") : t(" · clone")}</option>)}
               </select>
             </Field>
             <Field label={t("Character budget")}>
-              <input className="st-input st-input--sm" type="number" min={100} max={10000000} value={voiceMax} onChange={(e) => setVoiceMax(e.target.value)} onBlur={() => Number(voiceMax) !== voice.maxChars && void setVoicing.fire({ maxChars: Math.max(100, Number(voiceMax) || 100) })} style={{ width: 110 }} />
+              <input className="st-input st-input--sm" type="number" min={100} max={10000000} value={dv.maxChars} disabled={save.busy} onChange={(e) => editVoice({ maxChars: e.target.value })} style={{ width: 110 }} />
             </Field>
             <span className="st-muted">{t("{used} used · {left} left", { used: voice.usedChars.toLocaleString(), left: voice.leftChars.toLocaleString() })}</span>
-            {voice.usedChars > 0 && <Button size="sm" onClick={() => void setVoicing.fire({ resetUsed: true })}>{t("Reset count")}</Button>}
+            {voice.usedChars > 0 && <Button size="sm" busy={resetUsed.busy} onClick={() => void resetUsed.fire()}>{t("Reset count")}</Button>}
           </div>
         )}
-        {voice?.enabled && <span className="st-muted">{voice.models.find((m) => m.id === voice.model)?.note}</span>}
-        {voice?.enabled && !voice.keyReady && (voice.models.find((m) => m.id === voice.model)?.provider === "pod"
+        {voice && dv?.enabled && <span className="st-muted">{voice.models.find((m) => m.id === dv.model)?.note}</span>}
+        {voice && dv?.enabled && !voice.keyReady && (voice.models.find((m) => m.id === dv.model)?.provider === "pod"
           ? <span className="st-warn">{t("Without the Worker's TOKENSAIL_API_KEY the takes get no pronunciation check.")}</span>
           : voice.note && <span className="st-warn">{voice.note}</span>)}
       </div>
@@ -382,13 +428,22 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           {t("Lets the director approve for you: the script after a fresh review passes, the shotlist with no lint errors. Overturn any under Decisions. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
-          <input type="checkbox" disabled={!deleg || delegate.busy} checked={!!deleg?.script} onChange={(e) => void delegate.fire({ script: e.target.checked, shotlist: !!deleg?.shotlist })} />
+          <input type="checkbox" disabled={!dd || save.busy} checked={!!dd?.script} onChange={(e) => editDeleg({ script: e.target.checked })} />
           <span>{t("Let the director approve the script")}</span>
         </label>
         <label className="st-row" style={{ gap: 8 }}>
-          <input type="checkbox" disabled={!deleg || delegate.busy} checked={!!deleg?.shotlist} onChange={(e) => void delegate.fire({ script: !!deleg?.script, shotlist: e.target.checked })} />
+          <input type="checkbox" disabled={!dd || save.busy} checked={!!dd?.shotlist} onChange={(e) => editDeleg({ shotlist: e.target.checked })} />
           <span>{t("Let the director approve the shotlist")}</span>
         </label>
+      </div>
+
+      {/* the changes above are only a draft until this: image generation, voice generation and delegated approval are saved together */}
+      <div className="dir-save" data-dirty={dirty ? "true" : undefined}>
+        <span className="st-muted">{dirty ? t("Unsaved changes") : t("All saved")}</span>
+        <span className="st-row">
+          <Button kind="quiet" disabled={!dirty || save.busy} onClick={() => setDraft(server.current)}>{t("Discard changes")}</Button>
+          <Button kind="primary" busy={save.busy} disabled={!dirty} onClick={() => void save.fire()}>{t("Save")}</Button>
+        </span>
       </div>
     </div>
   );

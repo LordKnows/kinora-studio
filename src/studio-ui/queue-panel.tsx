@@ -10,6 +10,7 @@ import { del, get, post } from "./api";
 import { Button, ErrorBanner, Lamp, statusLabel, useAction, whenT } from "./common";
 import { filmShots } from "./film";
 import { useT } from "./i18n";
+import { useGpu } from "./gpu-panel";
 import { useProjectContext } from "./shell";
 
 /* The queue: everything of this project that is waiting or under way and
@@ -59,8 +60,13 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   const t = useT();
   const { projectId, reload } = useProjectContext();
   const shots = view ? filmShots(view) : [];
-  const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })));
-  const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })));
+  /* The line is in the order things were asked for: what is rendering first, then the rest by when each was
+     added, so what is added later stands last (the film's shot order is not the queue's). */
+  const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })))
+    .sort((a, b) => Number(b.take.status === "running") - Number(a.take.status === "running") || a.take.createdAt - b.take.createdAt);
+  const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })))
+    .sort((a, b) => Number(b.take.upscale!.status === "running") - Number(a.take.upscale!.status === "running") || a.take.upscale!.createdAt - b.take.upscale!.createdAt);
+  const lined = [...jobs].sort((a, b) => Number(b.status === "running") - Number(a.status === "running") || a.createdAt - b.createdAt);
   /* only what is still waiting can be called off; what is rendering runs to its end */
   const waiting = takes.filter((x) => x.take.status === "queued");
 
@@ -77,10 +83,36 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
     await refreshJobs();
   });
   const empty = takes.length === 0 && regens.length === 0 && jobs.length === 0;
+  /* Ask for where everything stands, now: the GPU first (its state decides whether a waiting take can go), then each
+     shot with a take in flight (the server asks the pod, and hands a waiting take over), then the page's own view and
+     the pictures. The page also follows by itself, a few seconds behind; this is for when it has not caught up. */
+  const refreshAll = useAction(async () => {
+    await gpuReload();
+    const inFlight = new Set(shots.filter((s) => s.shot.takes.some((x) => ACTIVE(x.status) || (x.upscale && ACTIVE(x.upscale.status)))).map((s) => s.shot.id));
+    await Promise.all([...inFlight].map((id) => get(`/api/shots/${id}/takes`).catch(() => undefined)));
+    await Promise.all([reload(), refreshJobs()]);
+  });
+  /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
+  const gpu = useGpu();
+  const gpuReload = gpu.reload;
+  const gpuUp = gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
+  const stopWhenDone = useAction(async (_c, enabled: boolean) => {
+    await post("/api/gpu/stop-when-done", { enabled });
+    await gpu.reload();
+  });
 
   return (
     <div className="side-body">
-      <ErrorBanner error={cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); }} />
+      <div className="q-top">
+        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
+      </div>
+      <ErrorBanner error={refreshAll.error ?? cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); refreshAll.dismiss(); }} />
+      {gpuUp && (
+        <label className="q-autostop" title={t("Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.")}>
+          <input type="checkbox" checked={!!gpu.state?.stopWhenDone} disabled={stopWhenDone.busy} onChange={(e) => void stopWhenDone.fire(e.target.checked)} />
+          <span>{t("Stop the GPU when everything has rendered")}</span>
+        </label>
+      )}
       {empty && <p className="st-muted">{t("Nothing is queued or under way.")}</p>}
 
       {(takes.length > 0 || regens.length > 0) && (
@@ -100,7 +132,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
                 </span>
               </div>
-              {take.status === "queued" ? <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
+              {take.status === "queued" && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>}
             </div>
           ))}
           {regens.map(({ s, take }) => (
@@ -111,7 +143,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <Lamp state={take.upscale!.status} label={t("Regenerate {res}: {status}", { res: take.upscale!.resolution.toUpperCase(), status: t(take.upscale!.status) })} />
                 </span>
               </div>
-              {take.upscale!.status === "queued" ? <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
+              {take.upscale!.status === "queued" && <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>}
             </div>
           ))}
         </section>
@@ -124,7 +156,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
             <span className="st-num">{jobs.length}</span>
             {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
           </div>
-          {jobs.map((job) => (
+          {lined.map((job) => (
             <div key={job.id} className="q-row">
               <div className="q-what">
                 <strong>{jobLabel(job, t)}</strong>

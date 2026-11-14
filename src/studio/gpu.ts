@@ -1,4 +1,3 @@
-import { assertConfirmed } from "./checkpoints";
 import { config } from "./config";
 import { StudioError } from "./errors";
 import * as repo from "./repo";
@@ -26,6 +25,8 @@ export type GpuState = {
   allowedGpuTypes: string[];
   idleStopMinutes: number;
   pendingTakes: number;
+  /** The pod stops by itself once everything queued has rendered (set from the Queue panel; one time). */
+  stopWhenDone: boolean;
 };
 
 const UNAVAILABLE_PREFIX = "unavailable_";
@@ -140,7 +141,7 @@ export async function getGpuState(): Promise<GpuState> {
   }
   const pod = await repo.currentGpuPod();
   const pending = (await repo.listPendingTakes()).length;
-  if (!pod) return { mode, configured, status: "none", uptimeSeconds: 0, sessionUsd: 0, lifetimeUsd: 0, allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending };
+  if (!pod) return { mode, configured, status: "none", uptimeSeconds: 0, sessionUsd: 0, lifetimeUsd: 0, allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending, stopWhenDone: false };
   const uptime = pod.status === "running" || pod.status === "starting" ? Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000)) : 0;
   const rate = (pod.costPerHr ?? 0) / 3600;
   return {
@@ -149,7 +150,7 @@ export async function getGpuState(): Promise<GpuState> {
     uptimeSeconds: uptime,
     sessionUsd: round(uptime * rate),
     lifetimeUsd: round((pod.accumulatedSeconds + uptime) * rate),
-    allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending,
+    allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending, stopWhenDone: pod.stopWhenDone,
   };
 }
 
@@ -195,13 +196,16 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
 /** Make sure a pod is on its way up. Resume the stopped one if RunPod still
     has a card for it; otherwise terminate it and create a fresh pod on the
     allow-list. "unavailable" is the answer when no listed GPU has capacity. */
-export async function startGpu(actor: Actor, confirm: boolean): Promise<GpuState> {
+export const DIRECTOR_CANNOT_START_GPU = "The GPU is not running, and only the user can start it (it bills per hour): ask the user to start it from the GPU menu in the top bar, then try again. You can stop it when the work is done (gpu_stop).";
+
+export async function startGpu(actor: Actor, _confirm: boolean): Promise<GpuState> {
   if (!gpuConfigured()) throw new StudioError("backend_error", "RunPod pod mode is not configured (RUNPOD_API_KEY, RUNPOD_POD_IMAGE, STUDIO_WORKER_TOKEN, R2_*)");
   const pc = config.runpodPod();
   if (pc.gpuTypeIds.length === 0) throw new StudioError("validation", "RUNPOD_GPU_TYPES is empty: list the GPU types the pod may use");
   let pod = await refreshGpu();
   if (pod && (pod.status === "running" || pod.status === "starting" || pod.status === "creating")) return getGpuState();
-  if (actor.via === "mcp") assertConfirmed(confirm, estimatedPodUsdPerHour(pod), "starting the GPU pod (billed per hour while it runs)");
+  /* The pod bills by the hour: only a person starts it. The director can stop it, never start it. */
+  if (actor.via === "mcp") throw new StudioError("forbidden", DIRECTOR_CANNOT_START_GPU);
 
   const client = pods();
   /* A stopped pod the fallback started (no model volume) is let go: resuming it would download the models
@@ -345,6 +349,19 @@ export async function stopGpu(asker?: { actor: Actor; confirm: boolean }): Promi
   }
   const uptime = Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000));
   await repo.updateGpuPod(pod.id, { status: "stopped", message: null, stoppedAt: Date.now(), startedAt: null, accumulatedSeconds: pod.accumulatedSeconds + uptime });
+  /* a pod that has stopped, for whatever reason, has done what "stop when done" asked */
+  await repo.setGpuStopWhenDone(pod.id, false);
+  return getGpuState();
+}
+
+/** "Stop the GPU when everything has rendered": on or off for the pod that is up (it is one for all projects,
+    so it waits for every project's work). Cleared by any stop. */
+export async function setStopWhenDone(on: boolean): Promise<GpuState> {
+  const pod = await repo.currentGpuPod();
+  if (!pod || pod.id.startsWith(UNAVAILABLE_PREFIX) || !["running", "starting", "creating"].includes(pod.status)) {
+    throw new StudioError("validation", "There is no GPU running, so there is nothing to stop afterwards.");
+  }
+  await repo.setGpuStopWhenDone(pod.id, on);
   return getGpuState();
 }
 

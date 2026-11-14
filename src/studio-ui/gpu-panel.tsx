@@ -7,8 +7,9 @@ import type { GpuState } from "@/studio/gpu";
 import type { GpuTypeStats } from "@/studio/types";
 
 import { describe, get, post, usd } from "./api";
-import { Button, CopyRow, ErrorBanner, Lamp, useAction, usePopover } from "./common";
+import { Button, CopyRow, ErrorBanner, Lamp, Loading, useAction, usePopover } from "./common";
 import { useT } from "./i18n";
+import { WarningIcon } from "./icons";
 
 /* The GPU pod — one for the whole Studio, shared by every project. Its state
    lives in ONE store for the page (the top-bar menu, the Machine page and any
@@ -73,6 +74,45 @@ export function useGpu() {
     channel()?.postMessage("changed");
   }, []);
   return { state: gpuStore.state, error: gpuStore.error, reload };
+}
+
+/** Whether a render has to wait for the GPU: pod mode, set up, and the pod not running. (Serverless has no pod to start.) */
+export function gpuBlocksRender(state: GpuState | null): boolean {
+  return !!state && state.mode === "pod" && state.configured && state.status !== "running";
+}
+
+/** The GPU as a thing to settle before a render: while it is off or coming up, a notice with the way to
+    start it; once it runs, one quiet line. Nothing for serverless or an unconfigured pod. `what` is what is
+    about to be done ("rendering", "rolling a take"). */
+export function GpuGate({ what }: { what: string }) {
+  const t = useT();
+  const { state, error, reload } = useGpu();
+  const start = useAction(async (confirm) => {
+    await post("/api/gpu/start", { confirm });
+    await reload();
+  });
+  if (!state) return error ? <span className="st-warn">{t("Could not read the GPU state: {error}", { error })}</span> : <Loading label={t("Checking the GPU…")} />;
+  if (state.mode !== "pod" || !state.configured) return null;
+  if (state.status === "running") return <span className="st-muted"><Lamp state="approved" label={t("GPU running||gpu")} /></span>;
+  const coming = state.status === "starting" || state.status === "creating";
+  return (
+    <div className="st-stack st-stack--tight">
+      <div className="st-alert st-alert--accent" role="alert">
+        <WarningIcon size={14} />
+        <span>
+          <strong>{t("The GPU is not running.")}</strong>{" "}
+          {coming
+            ? t("It is {status}; {what} can begin once it runs.", { status: t(`${GPU_LABEL[state.status] ?? state.status}||gpu`), what })
+            : t("Start it before {what}. It bills per hour while it runs.", { what })}
+          {state.message ? ` ${state.message}` : ""}
+        </span>
+        <Button kind="primary" size="sm" busy={start.busy || coming} onClick={() => void start.fire()}>
+          {state.status === "unavailable" ? t("Retry||gpu") : coming ? t("Starting…") : t("Start the GPU")}
+        </Button>
+      </div>
+      <ErrorBanner error={start.error} onConfirm={() => void start.confirm()} onDismiss={start.dismiss} />
+    </div>
+  );
 }
 
 const SHORT: Record<string, string> = { none: "GPU off", off: "GPU off", starting: "GPU starting", creating: "GPU creating", running: "GPU on", stopping: "GPU stopping", stopped: "GPU off", unavailable: "no GPU", terminated: "GPU off" };

@@ -625,6 +625,21 @@ button.st-pill {
   border-right-color: transparent;
   animation: st-spin 0.8s linear infinite;
 }
+/* a page or a tab being fetched: a large ring, centred where the content will be */
+.studio .st-loading[data-big="true"] {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100%;
+  min-height: 45vh;
+  gap: 16px;
+  font-size: 14px;
+}
+.studio .st-loading[data-big="true"] i {
+  width: 38px;
+  height: 38px;
+  border-width: 3px;
+}
 /* a count by severity, on the Lint button */
 .studio .st-sev {
   display: inline-flex;
@@ -2323,10 +2338,41 @@ button.st-pill {
 .studio .bp-table input[type="checkbox"]:disabled {
   cursor: default;
 }
-.studio .q-fixed {
-  font-size: 12px;
-  text-align: right;
-  max-width: 9em;
+/* the Save of "What the director may do": stays at the foot of the panel while its card is in view */
+.studio .dir-save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -2px;
+  padding: 12px 2px 2px;
+  background: var(--s1, var(--bg));
+  border-top: 1px solid var(--line-2);
+  z-index: 1;
+}
+.studio .dir-save[data-dirty="true"] > .st-muted {
+  color: var(--sig-warn);
+}
+.studio .q-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+.studio .q-autostop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.studio .q-autostop input {
+  margin: 0;
+  accent-color: var(--accent);
 }
 /* what became of a shot the batch asked for, under its name; and the line that sums it up */
 .studio .bp-result {

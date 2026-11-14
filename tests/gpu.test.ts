@@ -110,7 +110,7 @@ describe("pod mode", () => {
   let projectId = "";
   let shotId = "";
 
-  it("starts with no pod and refuses to start without confirm from the agent", async () => {
+  it("starts with no pod; the director cannot start one, a person can", async () => {
     const project = await repo.createProject({ name: "Pod film", budgetCapUsd: 50 });
     projectId = project.id;
     const script = await repo.createScript(projectId, "A street.");
@@ -119,7 +119,10 @@ describe("pod mode", () => {
     shotId = view.scenes[0]!.shots[0]!.id;
     await repo.setShotlistApproval(projectId, "approved");
     expect((await gpu.getGpuState()).status).toBe("none");
-    await expect(gpu.startGpu(mcp, false)).rejects.toMatchObject({ code: "needs_confirm" });
+    /* only a person starts the pod (it bills by the hour): the director is refused, confirmed or not, and nothing is created */
+    await expect(gpu.startGpu(mcp, false)).rejects.toMatchObject({ code: "forbidden" });
+    await expect(gpu.startGpu(mcp, true)).rejects.toMatchObject({ code: "forbidden" });
+    expect((await gpu.getGpuState()).status).toBe("none");
   });
 
   it("reports 暂时没资源 when no allowed GPU has capacity, and does not create takes", async () => {
@@ -127,16 +130,27 @@ describe("pod mode", () => {
     const state = await gpu.startGpu(web, true);
     expect(state.status).toBe("unavailable");
     expect(state.message).toContain("暂时没资源");
-    await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "backend_error", details: { noResources: true } });
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
     expect(await repo.listShotTakes(shotId)).toHaveLength(0);
   });
 
-  it("creates the pod on the allow-list and parks takes until it is healthy", async () => {
+  it("a render is refused while the GPU is not running, from the page and from the director", async () => {
+    /* the pod is "unavailable" here: no GPU to render on */
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true }, web)).rejects.toMatchObject({ code: "validation", details: { gpuNotRunning: true } });
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
+    expect(await repo.listShotTakes(shotId)).toHaveLength(0);
+  });
+
+  it("a person creates the pod on the allow-list; a take rolled while it does not answer is parked until it is healthy", async () => {
     scenario.createMode = "ok";
-    scenario.healthy = false;
+    scenario.healthy = true;
     const before = calls.length;
+    expect((await gpu.startGpu(web, true)).status).toBe("starting");
+    await gpu.refreshGpu();
+    /* it is up; now it stops answering (busy): a take rolled meanwhile waits for it */
+    scenario.healthy = false;
     const { takes, gpu: state } = await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp);
-    expect(state?.status).toBe("starting");
+    expect(state?.status).toBe("running");
     expect(takes[0]!.status).toBe("queued");
     expect(takes[0]!.requestId).toBeUndefined();
     const creates = calls.slice(before).filter((c) => c.method === "POST" && c.url === "https://api.runpod.io/v2/pods");
@@ -235,6 +249,48 @@ describe("pod mode", () => {
     expect(seen?.message).toContain("did not answer just now");
     scenario.healthy = true;
     expect((await gpu.refreshGpu())?.message ?? null).toBeNull();
+  });
+
+  it("stops the pod once, when asked and nothing is left to render", async () => {
+    const pod = (await repo.currentGpuPod())!;
+    await repo.updateGpuPod(pod.id, { status: "running" });
+    scenario.healthy = true;
+    /* what the tests before left in flight is not part of this one */
+    for (const t of await repo.listActiveTakes()) await repo.updateTake(t.id, { status: "canceled", finishedAt: Date.now() });
+    /* not asked: an idle pod is left to the idle timer */
+    expect(await orch.stopGpuIfDone()).toBe(false);
+    expect((await gpu.setStopWhenDone(true)).stopWhenDone).toBe(true);
+    /* a take in flight: it is not stopped */
+    const take = (await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).takes[0]!;
+    expect(await orch.stopGpuIfDone()).toBe(false);
+    expect((await repo.currentGpuPod())!.status).toBe("running");
+    /* everything has rendered: it stops, and the switch is spent */
+    await repo.updateTake(take.id, { status: "canceled", finishedAt: Date.now() });
+    expect(await orch.stopGpuIfDone()).toBe(true);
+    const after = (await repo.currentGpuPod())!;
+    expect(after.status).toBe("stopped");
+    expect(after.stopWhenDone).toBe(false);
+    /* with no pod up there is nothing to ask for */
+    await expect(gpu.setStopWhenDone(true)).rejects.toMatchObject({ code: "validation" });
+    /* a stop by hand spends the switch too */
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null });
+    await gpu.setStopWhenDone(true);
+    await gpu.stopGpu();
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(false);
+    /* leave the pod running for the tests after this one */
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null, startedAt: Date.now() });
+  });
+
+  it("the director can stop the GPU", async () => {
+    const pod = (await repo.currentGpuPod())!;
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null });
+    for (const t of await repo.listActiveTakes()) await repo.updateTake(t.id, { status: "canceled", finishedAt: Date.now() });
+    expect((await gpu.stopGpu({ actor: mcp, confirm: true })).status).toBe("stopped");
+    /* and cannot bring it back (RunPod says it is stopped) */
+    scenario.podStatus = "EXITED";
+    await expect(gpu.startGpu(mcp, true)).rejects.toMatchObject({ code: "forbidden" });
+    scenario.podStatus = "RUNNING";
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null, startedAt: Date.now() });
   });
 
   it("does not auto-stop while work is in flight, and stops once idle", async () => {
@@ -438,6 +494,8 @@ describe("gpu stats and loras", () => {
     /* a running pod at $2.5/h on an H100 (from the earlier tests' replacement pod) */
     scenario.podStatus = "RUNNING";
     scenario.healthy = true;
+    /* from the page a render waits for a running GPU: it is started first, as the Start button does */
+    await gpu.startGpu(web, true);
     await gpu.refreshGpu();
     const { takes } = await orch.createTakes(sid, { n: 2, confirm: true }, web);
     for (const take of takes) {

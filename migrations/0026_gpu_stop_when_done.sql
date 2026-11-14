@@ -1,0 +1,1 @@
+ALTER TABLE gpu_pods ADD COLUMN stop_when_done INTEGER NOT NULL DEFAULT 0;

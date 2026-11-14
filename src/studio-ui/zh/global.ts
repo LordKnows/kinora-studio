@@ -126,7 +126,7 @@ export const global: Record<string, string> = {
   "None selected = applies to every workflow.": "都不选 = 适用于所有工作流。", "Notes": "备注",
 
   /* Library: models */
-  "GPU pod: {status}": "GPU 机器：{status}", "not set up": "未配置", "painter · API": "绘图机 · API", "no filter": "无过滤", "set by the service": "由服务设定",
+  "GPU pod: {status}": "GPU 机器：{status}", "The GPU is not running.": "GPU 没有在运行。", "It is {status}; {what} can begin once it runs.": "它{status}；运行起来之后才能{what}。", "Start it before {what}. It bills per hour while it runs.": "请先启动它再{what}；运行期间按小时计费。", "Start the GPU": "启动 GPU", "Starting…": "启动中…", "Checking the GPU…": "正在检查 GPU…", "GPU running||gpu": "GPU 运行中", "not set up": "未配置", "painter · API": "绘图机 · API", "no filter": "无过滤", "set by the service": "由服务设定",
   "up to {n} per call": "每次最多 {n} 张", " · named <Picture 1>…": " · 以 <Picture 1>… 指代", "Licence": "许可", " · not for commercial use": " · 不可商用", "Files": "文件",
   "{gb} GB, downloaded onto the pod at boot": "{gb} GB，开机时下载到 GPU 机器上", "LoRAs for {family}": "{family} 的 LoRA",
   "speed||lora": "加速", "style||lora": "风格", "effect||lora": "特效",
