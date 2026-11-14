@@ -8,16 +8,19 @@ import { ElementsPage } from "./elements-page";
 import { useT } from "./i18n";
 import { LookPage } from "./look-page";
 import { PicturesPage } from "./pictures";
+import { VoicesPage } from "./voices-page";
 
-/* The Design page: the art department. Three tabs, kept in the address
+/* The Design page: the art department. Four tabs, kept in the address
    (?tab=): the Look every shot inherits, the Elements (characters, locations,
-   props and their sheets), and every Picture the project has (review, where
-   each is used, clearing out drafts). */
+   props and their sheets), every Picture the project has (review, where each
+   is used, clearing out drafts), and the Voices (the voice cards, and which
+   character speaks with which). */
 
 export const DESIGN_TABS = [
   { id: "look", label: "Look||design tab" },
   { id: "elements", label: "Elements" },
   { id: "pictures", label: "Pictures" },
+  { id: "voices", label: "Voices" },
 ] as const;
 
 export type DesignTab = (typeof DESIGN_TABS)[number]["id"];
@@ -46,7 +49,7 @@ function DesignPageInner() {
           ))}
         </nav>
       </div>
-      {tab === "look" ? <LookPage /> : tab === "elements" ? <ElementsPage /> : <PicturesPage />}
+      {tab === "look" ? <LookPage /> : tab === "elements" ? <ElementsPage /> : tab === "voices" ? <VoicesPage /> : <PicturesPage />}
     </>
   );
 }

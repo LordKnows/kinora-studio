@@ -12,7 +12,23 @@ export const pages: Record<string, string> = {
   "just now": "刚刚", "{n} min ago": "{n} 分钟前", "{n} hr ago": "{n} 小时前", "{n} d ago": "{n} 天前",
   /* everyday words */
   "Save": "保存", "Saved": "已保存", "Cancel": "取消", "Delete": "删除", "Create": "创建", "Remove": "移除", "Undo": "撤销", "Put back": "恢复",
-  "Back": "返回", "Back to top": "返回顶部", "Back to the page you came from": "回到来时的页面", "Earlier shots": "前面的镜头", "Later shots": "后面的镜头", "Try again": "重试", "Could not load this.": "加载失败。",
+  /* the Design page's Voices tab */
+  "Voices": "音色", "Voice cards: who speaks with which voice. A card's description goes into the prompt as written; its recordings are what the voice is matched to.": "音色卡：谁用哪种声音说话。卡上的描述会原样写进提示词；录音是声音对照的样本。",
+  "Import a voice card": "导入音色卡", "Who speaks with which": "角色的音色", "No characters yet. Add them on the Elements tab; each can then be given a voice here.": "还没有角色。先到“元素”里添加，再回来给每个角色选音色。",
+  "Character": "角色", "Voice card": "音色卡", "Speaks as||voice state": "状态", "Listen": "试听", "Voice card of {name}": "{name} 的音色卡", "State {name} speaks in": "{name} 说话的状态",
+  "— no voice —": "— 不设音色 —", " · library": " · 共用库", "no recording": "没有录音", "Voice cards": "音色卡", "No voice cards yet": "还没有音色卡",
+  "Import one from a description and a recording, or ask the director to make one.": "用一句描述和一段录音导入一张，或者让导演建一张。",
+  "draft||voice card status": "草稿", "auditioning||voice card status": "试音中", "locked||voice card status": "已定", "Library||voice cards": "共用库", "This project": "本项目",
+  "Spoken by {names}": "使用它的角色：{names}", "No character of this film speaks with it yet.": "这部片里还没有角色用它。", "default||voice state": "默认",
+  "Source: {kind}": "来源：{kind}", "synthetic||voice source": "合成", "licensed||voice source": "授权素材", "recorded||voice source": "真人录音",
+  "Give the card a name.": "给音色卡起个名字。", "Describe the voice in a sentence.": "用一句话描述这个声音。", "Say whose voice the recording is and why it may be used.": "说明这段录音是谁的声音、为什么可以用。",
+  "Usually the character's name.": "一般用角色的名字。", "The voice, in one English sentence": "用一句英文描述这个声音",
+  "Gender, age, pitch, timbre, pace, accent, usual mood. It goes into the prompt as written.": "性别、年龄、音高、音色、语速、口音、常见情绪。会原样写进提示词。",
+  "Recording (optional)": "录音（可选）", "MP3 or WAV: 10 to 15 seconds of the voice alone, no music. Only a voice you may use: synthetic, licensed, or a performer who agreed.": "MP3 或 WAV：10 到 15 秒的干声，不带音乐。只能用你有权使用的声音：合成的、有授权的，或本人同意的配音。",
+  "Upload a recording": "上传录音", "Replace the recording": "换一段录音", "Whose voice it is": "这是谁的声音", "Where it comes from": "来源说明",
+  "The model and prompt, the library and licence, or the performer and their consent.": "模型和提示词、素材库和授权，或者配音者及其同意记录。",
+  "Give it to (optional)": "给哪个角色用（可选）", "— nobody yet —": "— 先不指定 —", "Import": "导入",
+  "Back": "返回", "Back to top": "返回顶部", "Back to the page you came from": "回到来时的页面", "Earlier shots": "上一页", "Later shots": "下一页", "Shots {range}, page {a} of {b}": "镜头 {range}，第 {a}/{b} 页", "Try again": "重试", "Could not load this.": "加载失败。",
   "Generate": "生成", "Rename": "改名", "Screening": "放映", "{n} s": "{n} 秒", ", ||list": "、", "; ||list": "；", "{why}.": "{why}。",
 
   /* Script */

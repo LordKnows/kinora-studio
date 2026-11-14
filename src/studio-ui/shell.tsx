@@ -409,50 +409,50 @@ function TakeWatch({ view, base }: { view: ProjectView | null; base: string }) {
 /* The line: the film to scale. A gap before a segment is a cut, none is a
    continuous join; a heavier edge starts a scene. The shot in the address
    (?shot=) is where you are, and is the red one. */
-/* More shots than this and the line no longer fits them all: it keeps this many to a screen and scrolls sideways. */
+/* More shots than this and the line no longer fits them all: it shows a page of this many, with the
+   page before at its far left and the page after at its far right. */
 const SHOTS_ON_THE_LINE = 30;
 
 export function FilmLine({ projectId, shots }: { projectId: string; shots: FilmShot[] }) {
   const here = useSearchParams().get("shot");
   const t = useT();
   const total = filmSeconds(shots);
-  const scroller = useRef<HTMLDivElement>(null);
-  const long = shots.length > SHOTS_ON_THE_LINE;
-  /* a long line: the wheel moves it sideways, and the shot you are on is brought to its middle */
+  const pages = Math.max(1, Math.ceil(shots.length / SHOTS_ON_THE_LINE));
+  const [page, setPage] = useState(0);
+  const hereAt = here ? shots.findIndex((s) => s.shot.id === here) : -1;
+  /* the line turns to the page of the shot you are on */
   useEffect(() => {
-    const el = scroller.current;
-    if (!el || !long) return;
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      e.preventDefault();
-      el.scrollLeft += e.deltaY;
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [long]);
-  useEffect(() => {
-    const el = scroller.current;
-    const seg = el?.querySelector<HTMLElement>('[aria-current="true"]');
-    if (el && seg && long) el.scrollLeft = seg.offsetLeft - (el.clientWidth - seg.offsetWidth) / 2;
-  }, [here, long, shots.length]);
+    if (hereAt >= 0) setPage(Math.floor(hereAt / SHOTS_ON_THE_LINE));
+  }, [hereAt]);
+  const at = Math.min(page, pages - 1);
+  const shown = pages > 1 ? shots.slice(at * SHOTS_ON_THE_LINE, (at + 1) * SHOTS_ON_THE_LINE) : shots;
+  /* a last page with fewer shots keeps the scale of a full one: the rest of the line stays empty */
+  const missing = pages > 1 ? SHOTS_ON_THE_LINE - shown.length : 0;
+  const first = shown[0], last = shown[shown.length - 1];
+  const range = first && last ? `${first.slate}–${last.slate}` : "";
   return (
     <nav className="sc-line" aria-label={t("Film")}>
-      <div className="sc-line-scroll" ref={scroller} data-long={long ? "true" : undefined}>
-        <div className="sc-line-track" style={long ? { width: `${(shots.length / SHOTS_ON_THE_LINE) * 100}%` } : undefined}>
-          {shots.map((s) => {
-            const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
-            const state = s.shot.id === here ? "here" : rolling ? "rolling" : s.picked ? "picked" : s.shot.takes.some((t) => t.status === "completed") ? "taken" : "planned";
-            return (
-              <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
-                data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
-                title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || t("Untitled shot")}`}>
-                {s.slate}
-              </Link>
-            );
-          })}
-        </div>
+      {pages > 1 && (
+        <button type="button" className="sc-line-page" disabled={at === 0} aria-label={t("Earlier shots")} title={t("Earlier shots")} onClick={() => setPage(at - 1)}>‹</button>
+      )}
+      <div className="sc-line-track">
+        {shown.map((s) => {
+          const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
+          const state = s.shot.id === here ? "here" : rolling ? "rolling" : s.picked ? "picked" : s.shot.takes.some((t) => t.status === "completed") ? "taken" : "planned";
+          return (
+            <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
+              data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
+              title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || t("Untitled shot")}`}>
+              {s.slate}
+            </Link>
+          );
+        })}
+        {missing > 0 && <span className="sc-seg-rest" style={{ flexGrow: (missing * total) / shots.length }} />}
       </div>
-      <span className="sc-line-end st-num">{tc(total)}</span>
+      <span className="sc-line-end st-num">{pages > 1 ? <span title={t("Shots {range}, page {a} of {b}", { range, a: at + 1, b: pages })}>{at + 1}/{pages} · </span> : null}{tc(total)}</span>
+      {pages > 1 && (
+        <button type="button" className="sc-line-page" disabled={at >= pages - 1} aria-label={t("Later shots")} title={t("Later shots")} onClick={() => setPage(at + 1)}>›</button>
+      )}
     </nav>
   );
 }

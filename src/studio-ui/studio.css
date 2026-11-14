@@ -5,8 +5,10 @@
    writing and planning; .st-lightsdown flips the same tokens to a dark room
    where the picture is the only bright thing, for watching and judging.
    The chrome has no hue. The one accent (--accent, the tally red) means
-   three things only: you are here, the camera is rolling (money is being
-   spent), and the next step. Selection, approval, warnings and failures are
+   three things: you are here, the camera is rolling (money is being
+   spent), and the next step — which is every primary button. The buttons,
+   from loudest: primary (the accent), secondary (filled ink; a kind kept
+   ready, not used yet), plain (outlined), quiet (text alone). Selection, approval, warnings and failures are
    ink marks that differ in shape, not colour — except on a state's own mark
    where it has to be told apart at a glance, which takes one of four signal
    hues (--sig-ok / -warn / -err / -info): the shotlist's status on the
@@ -643,6 +645,13 @@ button.st-pill {
 .studio .st-sev[data-severity="warn"] {
   color: var(--sig-warn);
 }
+/* on a filled button the count takes the button's ink: the hues are too dark on it, and the mark's shape still says which it is */
+.studio .st-btn--primary .st-sev,
+.studio .st-btn--secondary .st-sev,
+.studio .st-btn--tally .st-sev,
+.studio .st-btn--destroy .st-sev {
+  color: inherit;
+}
 
 .studio .st-lamp {
   display: inline-flex;
@@ -990,15 +999,25 @@ button.st-pill {
   transform: none;
 }
 .studio .st-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.studio .st-btn--primary:hover {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+/* secondary: filled ink, a step below primary. A kind kept ready; nothing wears it yet. */
+.studio .st-btn--secondary {
   background: var(--tx);
   border-color: var(--tx);
   color: var(--bg);
 }
-.studio .st-btn--primary:hover {
+.studio .st-btn--secondary:hover {
   background: var(--tx2);
   border-color: var(--tx2);
 }
-/* the tally: the one red button on a page is the next step, or a spend */
+/* the tally: a primary button with its lamp lit — the next step, or a spend */
 .studio .st-btn--tally {
   background: var(--accent);
   border-color: var(--accent);
@@ -1816,21 +1835,31 @@ button.st-pill {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.studio .st-shot[data-held="true"] {
-  position: relative;
-  z-index: 2;
-  outline: 2px solid var(--tx);
-  outline-offset: 2px;
+.studio .st-shot[data-shot-id] {
+  cursor: grab;
+}
+/* Dragging a card (shot-sort.ts, SortableJS). The slot: the card itself, where it would land if let
+   go now — a dashed frame in the accent, its content faint, so the place reads before the card does. */
+.studio .st-shot.st-shot--slot {
+  border-color: transparent;
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-08);
+  box-shadow: none;
+  transform: none;
+}
+.studio .st-shot.st-shot--slot > * {
+  opacity: 0.22;
+}
+/* The lifted card: a copy that follows the pointer, a little see-through, with a shadow under it. */
+.studio .st-shot.st-shot--lifted {
+  opacity: 0.86 !important;
+  border-color: var(--tx);
   box-shadow: var(--shadow-3);
-  transform: scale(1.02);
   cursor: grabbing;
 }
-/* while one is held the others do not react to the pointer passing over them */
-.studio .st-shots[data-sorting="true"] .st-shot:not([data-held="true"]) {
-  opacity: 0.72;
-}
-.studio .st-shots[data-sorting="true"] .st-shot * {
-  pointer-events: none;
+.studio .st-shot.st-shot--lifted .st-zoom {
+  display: none;
 }
 /* the heading is the fold: a chevron and the scene's name */
 .studio .st-scene-fold {
@@ -1992,6 +2021,10 @@ button.st-pill {
     opacity: 0;
   }
 }
+/* a list to read beside the page: the Lint */
+.studio .st-drawer[data-size="narrow"] {
+  width: min(520px, 100vw);
+}
 .studio .st-drawer-head {
   display: flex;
   align-items: center;
@@ -2109,9 +2142,48 @@ button.st-pill {
   border-color: var(--tx);
   box-shadow: inset 2px 0 0 var(--tx);
 }
+/* A take's row keeps one height (its player's, at the widest the player gets). The column beside the
+   player is as tall as the row; what was said about the take (.st-take-said) has no height of its
+   own, takes what the rest leaves and is cut with an ellipsis. The row grows only when something
+   is opened in it (the faults, the Remake panel). */
+.studio .st-take {
+  min-height: 248px;
+}
+.studio .st-take-info {
+  min-height: 0;
+}
+.studio .st-take-info > * {
+  flex: none;
+}
+.studio .st-take-info > .st-take-said {
+  flex: 1 1 0;
+  min-height: 18px;
+  overflow: hidden;
+}
+/* the text is cut to whole lines (the count is set from the box's height, 3 until it is) */
+.studio .st-take-said > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 720px) {
   .studio .st-take {
     grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  /* stacked under the player there is no height to share: a few lines, then the ellipsis */
+  .studio .st-take-info > .st-take-said {
+    flex: none;
+  }
+  .studio .st-take-said > span {
+    -webkit-line-clamp: 4;
+  }
+  /* the popup's table on a phone: the mode gives its width to the shot's name */
+  .studio .bp-table th:nth-child(3),
+  .studio .bp-table td:nth-child(3) {
+    display: none;
   }
 }
 .studio .st-stars {
@@ -2223,6 +2295,34 @@ button.st-pill {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+/* The render batch popup: a tick before each shot. A shot that is not ticked, or waits for
+   its anchor, is dimmed, so what will roll is read down the column at a glance. */
+.studio .bp-table .bp-tick {
+  width: 34px;
+  padding-right: 0;
+}
+.studio .bp-table input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.studio .bp-table input[type="checkbox"]:disabled {
+  cursor: default;
+}
+/* mode, link and fragility read under their headings; only the estimate is a figure to add up */
+.studio .bp-table td.st-num:not(:last-child) {
+  text-align: left;
+}
+.studio .bp-table th,
+.studio .bp-table td.st-num {
+  white-space: nowrap;
+}
+.studio .bp-table tr[data-off="true"] td:not(.bp-tick) {
+  color: var(--tx3);
 }
 /* around a table that stands outside a card: too wide for a phone, it scrolls
    sideways here and does not widen the page */
@@ -2680,14 +2780,25 @@ button.st-pill {
   overflow: auto;
   padding: 16px;
 }
+/* The popup of one picture (picture-zoom.tsx). --fit is the picture's width over its height, --room
+   the height the screen leaves for it under the popup's head: the popup is as wide as the picture
+   is at that height, and no wider than 1100px, so a 16:9 frame fills it edge to edge. */
+.studio .st-modal[data-size="picture"] {
+  --room: calc(100dvh - 180px);
+  width: min(1100px, 100%, calc(var(--room) * var(--fit, 1.7778) + 34px));
+  min-width: min(320px, 100%);
+}
 .studio .st-lightbox-img {
   display: block;
   width: 100%;
-  height: 100%;
-  max-height: calc(100dvh - 170px);
+  height: auto;
+  max-height: var(--room, calc(100dvh - 180px));
   object-fit: contain;
   background: #000;
   border-radius: 0;
+}
+.studio .st-lightbox-facts {
+  margin-top: 8px;
 }
 
 /* ---------- the Frames tab ---------- */
@@ -3377,14 +3488,30 @@ button.st-pill {
 .studio .sc-bar-end {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px 18px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 /* the three tools beside the pages: Screening, the Director panel, Settings */
+/* Screen, Queue, Director and Settings: one group of joined buttons, at the right edge of the bar */
 .studio .sc-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
+  margin-left: auto;
+}
+.studio .sc-tools .sc-tool + .sc-tool {
+  margin-left: -1px;
+}
+.studio .sc-tools .sc-tool:hover,
+.studio .sc-tools .sc-tool[aria-expanded="true"],
+.studio .sc-tools .sc-tool:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+.studio .sc-tools .sc-tool[aria-expanded="true"] {
+  background: var(--s3);
 }
 .studio .sc-tool {
   display: inline-flex;
@@ -3722,7 +3849,54 @@ button.st-pill {
   margin-top: 6px;
 }
 
-/* the Design page's tabs: Look, Elements, Pictures */
+/* The Design page's Voices tab: who speaks with which card, then the cards. */
+.studio .vc-part + .vc-part {
+  margin-top: 32px;
+}
+.studio .vc-part-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .vc-cast td {
+  vertical-align: middle;
+}
+.studio .vc-cast .st-select {
+  min-width: 160px;
+  max-width: 100%;
+}
+.studio .vc-audio {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: 32px;
+}
+.studio .vc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.studio .vc-name {
+  font-size: 15px;
+}
+/* a state of the voice: its name, the sentence the model reads, its recordings */
+.studio .vc-state {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--line);
+}
+.studio .vc-says {
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+/* the Design page's tabs: Look, Elements, Pictures, Voices */
 .studio .dz-tabs-row {
   padding: 24px 36px 0;
 }
@@ -3782,23 +3956,36 @@ button.st-pill {
   padding: 0 20px 8px;
   min-height: 34px;
 }
-.studio .sc-line-scroll {
+.studio .sc-line-track {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-}
-/* a film of more than thirty shots: thirty or so to a screen, the rest a scroll away */
-.studio .sc-line-scroll[data-long="true"] {
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
-  overscroll-behavior-x: contain;
-}
-.studio .sc-line-track {
-  position: relative;
   display: flex;
-  min-width: 100%;
   border-right: 1px solid var(--line-3);
+}
+/* a film of more than thirty shots is shown a page at a time: the page before at the far left, the page after at the far right */
+.studio .sc-line-page {
+  flex: none;
+  width: 24px;
+  height: 26px;
+  border: 1px solid var(--line-3);
+  color: var(--tx);
+  font-size: 16px;
+  line-height: 22px;
+  text-align: center;
+}
+.studio .sc-line-page:hover:not(:disabled) {
+  background: var(--tx);
+  color: var(--bg);
+}
+.studio .sc-line-page:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* what a last, shorter page leaves empty */
+.studio .sc-seg-rest {
+  flex: 1 1 0;
+  min-width: 0;
+  border-left: 1px solid var(--line-3);
 }
 .studio .sc-line-end {
   flex: none;
@@ -4651,7 +4838,7 @@ button.st-pill {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--tx);
+  background: currentColor;
 }
 .studio .scr-main {
   display: flex;
@@ -5298,6 +5485,7 @@ button.st-pill {
 /* takes that failed for one reason, said once */
 .studio .st-take--ng {
   grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 0;
 }
 .studio .st-take-ng-mark {
   display: grid;
