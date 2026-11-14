@@ -254,6 +254,17 @@ export function ConfirmButton({ children, question, confirmLabel, onConfirm, kin
   );
 }
 
+/** Something is being fetched: a turning ring and a word, where the content will be. */
+export function Loading({ label }: { label?: string }) {
+  const t = useT();
+  return (
+    <span className="st-loading" role="status">
+      <i aria-hidden="true" />
+      {label ?? t("Loading…")}
+    </span>
+  );
+}
+
 /** Back to the top of a long page: shows once the page has scrolled a screen or so. */
 export function BackToTop() {
   const t = useT();

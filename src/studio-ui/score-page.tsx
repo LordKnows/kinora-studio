@@ -14,7 +14,8 @@ import { plural, useLang, useT } from "./i18n";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
 import { ProblemsList } from "./problems-list";
 import { useProjectContext } from "./shell";
-import { useLint } from "./use-lint";
+import { Loading } from "./common";
+import { useLintState } from "./use-lint";
 import { lintLine } from "./zh/lint";
 
 /* The Score: a project's home. One time axis, and on it every layer of the
@@ -36,7 +37,7 @@ function Score() {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const lint = useLint(projectId, view);
+  const { lint, loading: lintLoading } = useLintState(projectId, view);
   const t = useT();
   const shots = useMemo(() => (view ? filmShots(view) : []), [view]);
   if (!view) return null;
@@ -70,7 +71,7 @@ function Score() {
         <Link className="st-btn st-btn--tally sc-next" href={step.href}>{step.label}</Link>
       </header>
 
-      <NeedsYou needs={needs} base={base} />
+      <NeedsYou needs={needs} base={base} loading={lintLoading} />
 
       {shots.length === 0 ? (
         <div className="st-empty"><strong>{t("No shots yet")}</strong>{t("The score fills in as the film is planned: scenes and shots first, then frames, takes and the cut.")}</div>
@@ -86,7 +87,8 @@ function Score() {
   );
 }
 
-export function NeedsYou({ needs, full }: { needs: Need[]; base: string; full?: boolean }) {
+/* `loading`: the lint has not answered yet, so the list may still grow (its checks add needs). */
+export function NeedsYou({ needs, full, loading }: { needs: Need[]; base: string; full?: boolean; loading?: boolean }) {
   const t = useT();
   const [all, setAll] = useState(false);
   const shown = full || all ? needs : needs.slice(0, 4);
@@ -94,11 +96,11 @@ export function NeedsYou({ needs, full }: { needs: Need[]; base: string; full?: 
     <section className="sc-needs" aria-label={t("Needs you")} data-full={full ? "true" : undefined}>
       <div className="sc-needs-head">
         <h2>{t("Needs you")}</h2>
-        <span className="st-num">{needs.length}</span>
+        {loading ? <Loading label={t("Checking…")} /> : <span className="st-num">{needs.length}</span>}
         {!full && needs.length > 4 && <button type="button" className="st-link" onClick={() => setAll((v) => !v)}>{all ? t("Fewer") : t("All {n}", { n: needs.length })}</button>}
       </div>
       {needs.length === 0 ? (
-        <p className="sc-needs-none">{t("Nothing waits for you. The director carries on, and anything it stops to ask lands here.")}</p>
+        loading ? null : <p className="sc-needs-none">{t("Nothing waits for you. The director carries on, and anything it stops to ask lands here.")}</p>
       ) : (
         shown.map((n, i) => (
           <div className="sc-need" key={n.key}>

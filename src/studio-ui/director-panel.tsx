@@ -7,7 +7,7 @@ import type { LoraRef } from "@/studio/schemas";
 import type { DirectorNote, StageReview } from "@/studio/types";
 
 import { del, get, patch, post, put } from "./api";
-import { Button, ErrorBanner, Field, useAction, whenT } from "./common";
+import { Button, ErrorBanner, Field, Loading, useAction, whenT } from "./common";
 import { useT } from "./i18n";
 import { BanIcon, CheckCircleIcon, CheckIcon, ChevronIcon, UndoIcon } from "./icons";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
@@ -64,9 +64,15 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
     if (vo) setVoiceMax(String(vo.maxChars));
     await reload();
   }, [projectId, reload]);
-  useEffect(() => {
-    void refresh().catch(() => undefined);
+  /* the first load of the log: until it answers the three headings say they are loading; if it fails they say so */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const firstLoad = useCallback(() => {
+    setLoadFailed(false);
+    void refresh().catch(() => setLoadFailed(true));
   }, [refresh]);
+  useEffect(() => {
+    firstLoad();
+  }, [firstLoad]);
 
   const grant = useAction(async () => {
     await post(`/api/projects/${projectId}/autopilot`, { envelopeUsd: Number(envelope), ...(Number(hours) ? { hours: Number(hours) } : {}) });
@@ -146,6 +152,12 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       </LogSectionBox>
     );
     const openReqs = notes?.requirements.filter((r) => r.status === "open").length ?? 0;
+    const waiting = notes ? null : loadFailed ? (
+      <div className="st-row">
+        <span className="st-muted">{t("Could not load this.")}</span>
+        <Button size="sm" onClick={firstLoad}>{t("Try again")}</Button>
+      </div>
+    ) : <Loading />;
     return (
       <div className="dir-log">
         {banner}
@@ -154,6 +166,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
             <input className="st-input" style={{ flex: 1, minWidth: 160 }} aria-label={t("A requirement in your own words")} placeholder={t("In your own words, e.g. the cat never looks into the camera")} maxLength={500} value={newReq} onChange={(e) => setNewReq(e.target.value)} />
             <Button type="submit" busy={addReq.busy} disabled={!newReq.trim()}>{t("Add")}</Button>
           </form>
+          {waiting}
           {notes?.requirements.length === 0 && <span className="st-muted">{t("A requirement is a sentence the film is held to at every review. The director records what you ask for here; you can add one yourself.")}</span>}
           {notes?.requirements.map((r) => (
             <div key={r.id} className="dir-entry dir-req" data-status={r.status}>
@@ -170,6 +183,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           ))}
         </>)}
         {section("decisions", t("Decisions"), notes ? String(notes.decisions.length) : "", <>
+          {waiting}
           {notes?.decisions.length === 0 && <span className="st-muted">{t("None logged yet.")}</span>}
           {notes?.decisions.slice().reverse().slice(0, 30).map((d) => (
             <div key={d.id} className="dir-entry dir-decision" data-status={d.status}>
@@ -183,6 +197,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           ))}
         </>)}
         {section("reviews", t("Reviews"), notes ? String(notes.reviews.length) : "", <>
+          {waiting}
           {notes?.reviews.length === 0 && <span className="st-muted">{t("No cold-reader reviews yet (review_packet → a fresh agent → record_review).")}</span>}
           {notes?.reviews.slice(0, 20).map((r) => (
             <details key={r.id} className="dir-entry dir-review" data-verdict={r.verdict}>

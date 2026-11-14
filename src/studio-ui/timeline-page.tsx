@@ -13,6 +13,7 @@ import { RoughCut } from "./rough-cut";
 import { plural, useLang, useT } from "./i18n";
 import { useNotify } from "./notices";
 import { useProjectContext } from "./shell";
+import { REGENERATE_ENABLED } from "./flags";
 import { useLint } from "./use-lint";
 import { lintLine } from "./zh/lint";
 
@@ -260,10 +261,10 @@ export function TimelinePage() {
               <div className="cut-full">
                 <span className="sc-cap">{tr("Full resolution · {a} of {b} picks", { a: picks.length - missingFull.length, b: picks.length })}{runningFull.length ? tr(" · {n} rolling", { n: runningFull.length }) : ""}</span>
                 <div className="st-row">
-                  <select className="st-input st-input--sm" aria-label={tr("Final quality")} value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} style={{ width: 92 }}>
+                  <select className="st-input st-input--sm" aria-label={tr("Final quality")} value={resolution} disabled={!REGENERATE_ENABLED} onChange={(e) => setResolution(e.target.value as typeof resolution)} style={{ width: 92 }}>
                     <option value="1080p">1080p</option><option value="2k">2K</option><option value="4k">4K</option>
                   </select>
-                  <label className="st-toggle"><input type="checkbox" checked={closeToDraft} onChange={(e) => setCloseToDraft(e.target.checked)} />{tr("close to the draft")}</label>
+                  <label className="st-toggle"><input type="checkbox" checked={closeToDraft} disabled={!REGENERATE_ENABLED} onChange={(e) => setCloseToDraft(e.target.checked)} />{tr("close to the draft")}</label>
                 </div>
                 <p className="st-muted">
                   {measuredFull.length > 0
@@ -272,9 +273,9 @@ export function TimelinePage() {
                 </p>
                 <div className="st-row">
                   {selected && takes.get(selected.takeId)?.take.upscale?.status !== "completed" && takes.get(selected.takeId)?.take.status === "completed" && (
-                    <Button busy={batch.busy} onClick={() => void batch.fire([takes.get(selected.takeId)!.take])}>{tr("Probe {slate} at {res}", { slate: takes.get(selected.takeId)!.s.slate, res: fullLabel })}</Button>
+                    <Button busy={batch.busy} disabled={!REGENERATE_ENABLED} title={REGENERATE_ENABLED ? undefined : tr("Regenerating at a higher resolution is switched off for now")} onClick={() => void batch.fire([takes.get(selected.takeId)!.take])}>{tr("Probe {slate} at {res}", { slate: takes.get(selected.takeId)!.s.slate, res: fullLabel })}</Button>
                   )}
-                  <Button kind="primary" busy={batch.busy} disabled={missingFull.length === 0} onClick={() => void batch.fire(missingFull)}>
+                  <Button kind="primary" busy={batch.busy} disabled={!REGENERATE_ENABLED || missingFull.length === 0} title={REGENERATE_ENABLED ? undefined : tr("Regenerating at a higher resolution is switched off for now")} onClick={() => void batch.fire(missingFull)}>
                     {missingFull.length === 0 ? tr("All picks are at {res}", { res: fullLabel }) : plural(tr, missingFull.length, "Regenerate 1 pick at {res}", "Regenerate {n} picks at {res}", { res: fullLabel })}
                   </Button>
                 </div>

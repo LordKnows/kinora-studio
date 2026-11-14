@@ -8,7 +8,8 @@ import type { StoredTreatment, TreatmentWarning } from "@/studio/treatment";
 import type { Script } from "@/studio/types";
 
 import { get, patch, post } from "./api";
-import { Button, Empty, ErrorBanner, Lamp, Section, useAction, whenT } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Lamp, Loading, Modal, useAction, whenT } from "./common";
+import { PlusIcon, WarningIcon } from "./icons";
 import { filmShots, shotPicture, tc } from "./film";
 import { Markdown } from "./markdown";
 import { coverage, normalize } from "@/studio/coverage";
@@ -19,9 +20,12 @@ import { BriefCard } from "./look-page";
 import { useProjectContext } from "./shell";
 import { lintLine } from "./zh/lint";
 
-/* The Story page: the brief and running time the director reads first, then
-   the script — its versions, the lined script beside the Board, the changes
-   between versions — and the treatment that explains its shape. */
+/* The Story page, in two parts. Brief: the brief and running time the
+   director reads first. Versions: the script's versions in a narrow rail on
+   the left, and the one picked beside it — read, lined against the Board, or
+   as the changes from the version before. A new version is written in a
+   popup, and the treatment that explains the film's shape opens in a drawer;
+   both from the buttons at the head of Versions. */
 export function StoryPage() {
   return (
     <Suspense fallback={null}>
@@ -39,6 +43,8 @@ function StoryPageInner() {
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [treatmentOpen, setTreatmentOpen] = useState(false);
   const params = useSearchParams();
   const [mode, setMode] = useState<"read" | "board" | "changes">(params.get("view") === "lined" ? "board" : "read");
 
@@ -56,8 +62,10 @@ function StoryPageInner() {
 
   const save = useAction(async () => {
     if (!draft.trim()) return;
-    await post(`/api/projects/${projectId}/scripts`, { text: draft });
+    const { script } = await post<{ script: Script }>(`/api/projects/${projectId}/scripts`, { text: draft });
     setDraft("");
+    setWriting(false);
+    setOpen(script.id);
     await load();
     await reload();
   });
@@ -108,91 +116,103 @@ function StoryPageInner() {
           )}
         </div>
       </div>
-      <ErrorBanner error={save.error ?? approve.error} onDismiss={() => { save.dismiss(); approve.dismiss(); }} />
+      <ErrorBanner error={approve.error} onDismiss={approve.dismiss} />
 
-      <div style={{ marginBottom: 20 }}>
+      <section className="sp-part" aria-label={t("Brief")}>
         <BriefCard />
-      </div>
+      </section>
 
-      {/* versions | the script | its treatment: three columns on a wide screen, the treatment under the script otherwise */}
-      <div className="sp-story">
-        <div className="st-stack sp-left">
-          <div className="st-card st-stack">
-            <span className="st-label">{t("New version")}</span>
-            <textarea className="st-textarea" rows={12} placeholder={t("Paste the screenplay here, or let the director agent call save_script.")} value={draft} onChange={(e) => setDraft(e.target.value)} />
-            <div className="st-row st-row--between">
-              <span className="st-muted st-num">{t("{n} chars", { n: draft.length.toLocaleString() })}</span>
-              <Button kind="primary" busy={save.busy} disabled={!draft.trim()} onClick={() => void save.fire()}>
-                {t("Save as v{v}", { v: (latest?.version ?? 0) + 1 })}
-              </Button>
-            </div>
-          </div>
-          <Section title={t("Versions")} aside={<small>{scripts?.length ?? 0}</small>}>
-            {!scripts ? null : scripts.length === 0 ? (
-              <Empty title={t("No script yet")} hint={t("Paste one above or ask your director agent for a draft.")} />
-            ) : (
-              <div className="st-card st-card--pad0">
-                <table className="st-table">
-                  <thead>
-                    <tr>
-                      <th>{t("Version")}</th>
-                      <th>{t("State")}</th>
-                      <th>{t("Saved||when")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {scripts.map((s) => (
-                      <tr key={s.id} style={{ cursor: "pointer", background: s.id === current?.id ? "var(--s2)" : undefined }} onClick={() => setOpen(s.id)}>
-                        <td>v{s.version}</td>
-                        <td>
-                          <Lamp state={s.approval} label={t(s.approval)} />
-                        </td>
-                        <td>{whenT(t, s.createdAt)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      <section className="sp-part" aria-label={t("Versions")}>
+        <div className="sp-part-head">
+          <h2 className="st-h2">{t("Versions")}</h2>
+          {scripts && <span className="st-num st-muted">{scripts.length}</span>}
+        </div>
+        <div className="st-row sp-tools">
+          <Button kind="primary" onClick={() => setWriting(true)}>
+            <PlusIcon size={13} />
+            {t("New version")}
+          </Button>
+          <Button onClick={() => setTreatmentOpen(true)} title={t("Why the film is shaped the way it is: logline, arc, structure, sound design")}>
+            {t("Treatment")}
+            {treatmentWarnings.length > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{treatmentWarnings.length}</span>}
+          </Button>
+        </div>
+        {!scripts ? (
+          <Loading />
+        ) : scripts.length === 0 ? (
+          <Empty title={t("No script yet")} hint={t("Write one with New version, or ask your director agent for a draft.")} />
+        ) : (
+          /* the versions in a rail | the one picked */
+          <div className="sp-versions">
+            <nav className="sp-rail" aria-label={t("Versions")}>
+              {scripts.map((s) => (
+                <button key={s.id} type="button" className="sp-rail-item" aria-current={s.id === current?.id ? "true" : undefined} onClick={() => setOpen(s.id)}>
+                  <strong className="st-num">v{s.version}</strong>
+                  <Lamp state={s.approval} label={t(s.approval)} />
+                  <span className="st-muted">{whenT(t, s.createdAt)}</span>
+                </button>
+              ))}
+            </nav>
+            <div className="st-card st-stack sp-read">
+              <div className="st-row st-row--between">
+                <span className="st-row">
+                  <span className="st-h2">{current ? `v${current.version}` : t("Preview")}</span>
+                  {current && <Lamp state={current.approval} label={t(current.approval)} />}
+                </span>
+                {current && (
+                  <div className="st-seg" role="group" aria-label={t("How to show the script")}>
+                    <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>{t("Read")}</button>
+                    <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>{t("Lined")}</button>
+                    <button type="button" aria-pressed={mode === "changes"} disabled={!scripts.some((x) => x.version < current.version)} onClick={() => setMode("changes")}>{t("Changes")}</button>
+                  </div>
+                )}
               </div>
-            )}
-          </Section>
-        </div>
-        <div className="st-stack sp-read">
-          <div className="st-card st-stack">
-            <div className="st-row st-row--between">
-              <span className="st-row">
-                <span className="st-label" style={{ marginBottom: 0 }}>{current ? `v${current.version}` : t("Preview")}</span>
-                {current && <Lamp state={current.approval} label={t(current.approval)} />}
-              </span>
-              {current && (
-                <div className="st-seg" role="group" aria-label={t("How to show the script")}>
-                  <button type="button" aria-pressed={mode === "read"} onClick={() => setMode("read")}>{t("Read")}</button>
-                  <button type="button" aria-pressed={mode === "board"} onClick={() => setMode("board")}>{t("Lined")}</button>
-                  <button type="button" aria-pressed={mode === "changes"} disabled={!scripts?.some((x) => x.version < current.version)} onClick={() => setMode("changes")}>{t("Changes")}</button>
-                </div>
-              )}
+              {!current ? <span className="st-muted">{t("Select a version to read it.")}</span>
+                : mode === "board" ? <BesideTheBoard text={current.text} latest={current.id === latest?.id} version={current.version} />
+                : mode === "changes" ? <Changes before={scripts.find((x) => x.version < current.version)} after={current} />
+                : <Markdown source={current.text} />}
             </div>
-            {!current ? <span className="st-muted">{t("Select a version to read it.")}</span>
-              : mode === "board" ? <BesideTheBoard text={current.text} latest={current.id === latest?.id} version={current.version} />
-              : mode === "changes" ? <Changes before={scripts?.find((x) => x.version < current.version)} after={current} />
-              : <div style={{ maxHeight: 720, overflow: "auto" }}><Markdown source={current.text} /></div>}
           </div>
-        </div>
-        {scripts && scripts.length > 0 && <div className="st-stack sp-treat"><TreatmentPanel treatment={treatment} warnings={treatmentWarnings} /></div>}
-      </div>
+        )}
+      </section>
+
+      {writing && (
+        <Modal title={t("New version · v{v}", { v: (latest?.version ?? 0) + 1 })} onClose={() => setWriting(false)} size="lg">
+          <form className="st-stack" onSubmit={(e) => { e.preventDefault(); void save.fire(); }}>
+            <textarea className="st-textarea sp-draft" rows={18} autoFocus aria-label={t("New version")} placeholder={t("Paste the screenplay here, or let the director agent call save_script.")} value={draft} onChange={(e) => setDraft(e.target.value)} />
+            <ErrorBanner error={save.error} onDismiss={save.dismiss} />
+            <div className="st-row st-row--between">
+              <span className="st-muted st-num">{t("{n} chars", { n: draft.length.toLocaleString() })}{latest ? t(" · v{v} goes back to draft until it is approved", { v: latest.version + 1 }) : ""}</span>
+              <span className="st-row">
+                <Button kind="quiet" onClick={() => setWriting(false)}>{t("Cancel")}</Button>
+                <Button type="submit" kind="primary" busy={save.busy} disabled={!draft.trim()}>
+                  {t("Save as v{v}", { v: (latest?.version ?? 0) + 1 })}
+                </Button>
+              </span>
+            </div>
+          </form>
+        </Modal>
+      )}
+      {treatmentOpen && (
+        <Drawer title={treatment ? t("Treatment · for v{v}", { v: treatment.scriptVersion }) : t("Treatment")} onClose={() => setTreatmentOpen(false)}>
+          <TreatmentPanel treatment={treatment} warnings={treatmentWarnings} />
+        </Drawer>
+      )}
     </div>
   );
 }
 
 /* Why the film is shaped the way it is: what the director wrote down before
-   the screenplay, and what the lint says is missing from it. */
+   the screenplay (it sends it with save_script), and, above it, what the
+   lint says is missing from it. Shown in a drawer from the head of Versions. */
 function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | null; warnings: TreatmentWarning[] }) {
   const tr = useT();
   const lang = useLang();
   const t = treatment?.treatment;
   const sep = tr("; ||list");
   return (
-    <Section title={tr("Treatment")} aside={treatment ? <small>{tr("for v{v}", { v: treatment.scriptVersion })}</small> : undefined}>
       <div className="st-stack">
+      <p className="st-muted">{tr("The plan behind the script: what the film is about, the shape chosen for it and the ones turned down, its pace and its sound. The lint, the story review and the export hold the film to it.")}</p>
       {warnings.length > 0 && (
         <div className="st-card st-stack" style={{ gap: 6 }}>
           {warnings.map((w, i) => (
@@ -269,7 +289,6 @@ function TreatmentPanel({ treatment, warnings }: { treatment: StoredTreatment | 
         </div>
       )}
       </div>
-    </Section>
   );
 }
 

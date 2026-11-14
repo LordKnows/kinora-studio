@@ -12,7 +12,7 @@ export const pages: Record<string, string> = {
   "just now": "刚刚", "{n} min ago": "{n} 分钟前", "{n} hr ago": "{n} 小时前", "{n} d ago": "{n} 天前",
   /* everyday words */
   "Save": "保存", "Saved": "已保存", "Cancel": "取消", "Delete": "删除", "Create": "创建", "Remove": "移除", "Undo": "撤销", "Put back": "恢复",
-  "Back": "返回", "Back to top": "返回顶部",
+  "Back": "返回", "Back to top": "返回顶部", "Try again": "重试", "Could not load this.": "加载失败。",
   "Generate": "生成", "Rename": "改名", "Screening": "放映", "{n} s": "{n} 秒", ", ||list": "、", "; ||list": "；", "{why}.": "{why}。",
 
   /* Script */
@@ -22,7 +22,10 @@ export const pages: Record<string, string> = {
   "Approved by the director": "导演已批准", "Approve v{v}": "批准 v{v}",
   "New version": "新版本", "Paste the screenplay here, or let the director agent call save_script.": "把剧本粘贴到这里，或者让导演调用 save_script。",
   "{n} chars": "{n} 字符", "Save as v{v}": "存为 v{v}", "Versions": "版本",
-  "No script yet": "还没有剧本", "Paste one above or ask your director agent for a draft.": "在上面粘贴一份，或者让导演先写一稿。",
+  "New version · v{v}": "新版本 · v{v}", " · v{v} goes back to draft until it is approved": " · v{v} 在批准前是草稿", "Write one with New version, or ask your director agent for a draft.": "点“新版本”写一份，或者让导演起草。",
+  "Why the film is shaped the way it is: logline, arc, structure, sound design": "这部片为什么是这个样子：一句话梗概、弧线、结构、声音设计", "Treatment · for v{v}": "处理稿 · 对应 v{v}",
+  "The plan behind the script: what the film is about, the shape chosen for it and the ones turned down, its pace and its sound. The lint, the story review and the export hold the film to it.": "剧本背后的方案：这部片讲什么、选了哪种结构、放弃了哪几种、节奏和声音怎么安排。检查、故事评审和导出都拿它来对照成片。",
+  "No script yet": "还没有剧本",
   "Version": "版本", "State": "状态", "Saved||when": "保存于", "Preview": "预览",
   "How to show the script": "剧本的显示方式", "Read": "阅读", "Lined": "贯线", "Changes": "改动", "Select a version to read it.": "选一个版本来读。",
   /* the treatment */
