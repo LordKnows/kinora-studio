@@ -7,7 +7,7 @@ import { TITLE_KINDS, TRANSITIONS, type TimelineInput } from "@/studio/schemas";
 import type { ExportJob, Take } from "@/studio/types";
 
 import { get, post, put, usd } from "./api";
-import { Button, Empty, ErrorBanner, Field, Lamp, Section, useAction, UploadButton, whenT } from "./common";
+import { Button, Drawer, Empty, ErrorBanner, Field, InfoTip, Lamp, useAction, UploadButton, whenT } from "./common";
 import { clipSeconds, filmShots, seamTrims, takePicture, tc, type FilmShot } from "./film";
 import { RoughCut } from "./rough-cut";
 import { plural, useLang, useT } from "./i18n";
@@ -44,6 +44,7 @@ export function TimelinePage() {
   const [past, setPast] = useState<TimelineInput[]>([]);
   const [sel, setSel] = useState(0);
   const [exports, setExports] = useState<ExportJob[]>([]);
+  const [history, setHistory] = useState(false);
   const [preset, setPreset] = useState<(typeof PRESETS)[number]>("master-768p");
   const [burnIn, setBurnIn] = useState(false);
   const [exportNote, setExportNote] = useState<string[] | null>(null);
@@ -246,7 +247,10 @@ export function TimelinePage() {
             )}
 
             <section className="cut-panel" aria-label={tr("Export")}>
-              <h2 className="cut-h">{tr("Export")}</h2>
+              <div className="cut-h-row">
+                <h2 className="cut-h">{tr("Export")}</h2>
+                <Button size="sm" kind="quiet" onClick={() => setHistory(true)}>{tr("Exports")} · {exports.length}</Button>
+              </div>
               <fieldset className="cut-presets">
                 <legend className="sc-cap">{tr("Preset")}</legend>
                 {PRESETS.map((p) => (
@@ -286,24 +290,26 @@ export function TimelinePage() {
           <Tracks timeline={timeline} total={total} takes={takes} sel={selIndex} seams={seams} onSelect={setSel} onMove={move}
             onTrimStart={() => setPast((p) => [...p.slice(-49), timeline])} onTrim={(i, change) => patchClip(i, change, { keepHistory: true })} music={music.find((a) => a.id === timeline.music)?.name ?? (timeline.music ? tr("music track") : undefined)} />
 
-          <div className="cut-panels">
-            <section className="cut-panel cut-panel--wide" id="seams" aria-label={tr("Seams")}>
+          {/* three columns, each about one thing: what is seen, what is heard, when it falls. Every panel has the same head (its
+              name and count, its one action at the right); what a panel is for is behind its info icon. */}
+          <div className="cut-groups">
+            <div className="cut-group st-card" aria-label={tr("Picture||cut")}>
+              <h3 className="cut-group-h">{tr("Picture||cut")}</h3>
+            <section className="cut-panel" id="seams" aria-label={tr("Seams")}>
               <div className="cut-h-row">
-                <h2 className="cut-h">{seams.length + otherSeams.length === 0 ? tr("Seams · none jump") : tr("Seams · {n} jump", { n: seams.length + otherSeams.length })}</h2>
+                <h2 className="cut-h">{seams.length + otherSeams.length === 0 ? tr("Seams · none jump") : tr("Seams · {n} jump", { n: seams.length + otherSeams.length })}<InfoTip text={tr("A continuous shot starts on its anchor's last frame. A shot renders on H3's frame grid, so a 5 s shot is 5.17 s long; trimming the anchor to 5.00 s makes the picture jump at the join.")} /></h2>
                 {seams.length > 0 && <Button kind="primary" onClick={() => fixSeams(seams)}>{seams.length === 1 ? tr("Run it to the last frame · +{s} s", { s: seams.reduce((n, s) => n + s.gapS, 0).toFixed(2) }) : tr("Run all {n} to the last frame · +{s} s", { n: seams.length, s: seams.reduce((n, s) => n + s.gapS, 0).toFixed(2) })}</Button>}
               </div>
-              {seams.length === 0 && otherSeams.length === 0 ? (
-                <p className="st-muted">{tr("Every continuous shot starts on the last frame its anchor shows in the cut.")}</p>
-              ) : (
+              {seams.length === 0 && otherSeams.length === 0 ? null : (
                 <>
                   {seams.length > 0 && (
                     <div className="st-table-scroll">
                       <table className="st-table cut-seams st-num">
-                        <thead><tr><th>{tr("At||seam")}</th><th>{tr("Join")}</th><th>{tr("Anchor is cut at")}</th><th>{tr("Its take ends at")}</th><th>{tr("Gap")}</th><th></th></tr></thead>
+                        <thead><tr><th>{tr("At||seam")}</th><th>{tr("Join")}</th><th>{tr("Gap")}</th><th></th></tr></thead>
                         <tbody>
                           {seams.map((s) => (
-                            <tr key={s.clipIndex}>
-                              <td>{tc(s.atS, true)}</td><td>{s.anchorSlate} → {s.slate}</td><td>{s.cutAtS.toFixed(2)} s</td><td>{s.takeEndS.toFixed(2)} s</td><td>−{s.gapS.toFixed(2)} s</td>
+                            <tr key={s.clipIndex} title={tr("The anchor is cut at {a} s; its take ends at {b} s", { a: s.cutAtS.toFixed(2), b: s.takeEndS.toFixed(2) })}>
+                              <td>{tc(s.atS, true)}</td><td>{s.anchorSlate} → {s.slate}</td><td>−{s.gapS.toFixed(2)} s</td>
                               <td><button type="button" className="st-link st-link--btn" onClick={() => { setSel(s.clipIndex); fixSeams([s]); }}>{tr("Fix")}</button></td>
                             </tr>
                           ))}
@@ -315,17 +321,20 @@ export function TimelinePage() {
                     const line = lintLine(lang, w);
                     return <p key={i} className="cut-seam-other" title={line.detail}><i className="sc-bang">!</i>{w.scene} #{w.shot}: {line.text}</p>;
                   })}
-                  <p className="st-muted">{tr("A continuous shot starts on its anchor's last frame. A shot renders on H3's frame grid, so a 5 s shot is 5.17 s long; trimming the anchor to 5.00 s makes the picture jump at the join.")}</p>
                 </>
               )}
             </section>
 
-            <TitlesPanel timeline={timeline} total={total} onChange={set} />
-
+              <TitlesPanel timeline={timeline} total={total} onChange={set} />
+            </div>
+            <div className="cut-group st-card" aria-label={tr("Sound||cut")}>
+              <h3 className="cut-group-h">{tr("Sound||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Mix")}>
-              <h2 className="cut-h">{tr("Mix")}</h2>
-              <Field label={tr("Music track")} group>
+              <div className="cut-h-row">
+                <h2 className="cut-h">{tr("Mix")}</h2>
                 <UploadButton accept="audio/mpeg,audio/wav,audio/x-wav" projectId={projectId} label={tr("Upload music")} title={tr("Upload from this device")} onUploaded={async ({ assetId }) => { await reload(); set({ ...timeline, music: assetId }); }} />
+              </div>
+              <Field label={tr("Music track")}>
                 <select className="st-select" value={timeline.music ?? ""} onChange={(e) => set({ ...timeline, music: e.target.value || undefined })}>
                   <option value="">{tr("None")}</option>
                   {music.map((a) => <option key={a.id} value={a.id}>{a.name ?? String(a.meta.key ?? a.id)}</option>)}
@@ -342,11 +351,15 @@ export function TimelinePage() {
               </div>
             </section>
 
-            <SilencesPanel timeline={timeline} audio={music} onChange={set} />
-
+              <SilencesPanel timeline={timeline} audio={music} onChange={set} />
+            </div>
+            <div className="cut-group st-card" aria-label={tr("Timing||cut")}>
+              <h3 className="cut-group-h">{tr("Timing||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Beat grid")}>
-              <h2 className="cut-h">{tr("Beat grid")}</h2>
-              <p className="st-muted">{tr("Snap every cut to the music: each clip ends on a beat, bar or half beat within what its take can give.")}</p>
+              <div className="cut-h-row">
+                <h2 className="cut-h">{tr("Beat grid")}<InfoTip text={tr("Snap every cut to the music: each clip ends on a beat, bar or half beat within what its take can give.")} /></h2>
+                <Button size="sm" busy={snap.busy} onClick={() => void snap.fire()}>{tr("Snap cuts to the grid")}</Button>
+              </div>
               <div className="st-fields cut-fields">
                 <Field label="BPM"><input className="st-input st-input--sm" type="number" min={20} max={300} value={grid.bpm} onChange={(e) => setGrid({ ...grid, bpm: Number(e.target.value) || 120 })} /></Field>
                 <Field label={tr("Beats per bar")}><input className="st-input st-input--sm" type="number" min={1} max={12} value={grid.beatsPerBar} onChange={(e) => setGrid({ ...grid, beatsPerBar: Number(e.target.value) || 4 })} /></Field>
@@ -356,16 +369,14 @@ export function TimelinePage() {
                   </select>
                 </Field>
               </div>
-              <div className="st-row st-row--between">
-                <span className="st-muted st-num">{gridResult ? tr("{n} cuts snapped · last at {s} s", { n: gridResult.cuts.length, s: gridResult.cuts.at(-1)?.cutAtS.toFixed(2) ?? "—" }) : tr("not applied")}</span>
-                <Button busy={snap.busy} onClick={() => void snap.fire()}>{tr("Snap cuts to the grid")}</Button>
-              </div>
+              {gridResult && <span className="st-muted st-num">{tr("{n} cuts snapped · last at {s} s", { n: gridResult.cuts.length, s: gridResult.cuts.at(-1)?.cutAtS.toFixed(2) ?? "—" })}</span>}
             </section>
 
             <section className="cut-panel" aria-label={tr("Subtitles")}>
-              <h2 className="cut-h">{tr("Subtitles")}</h2>
-              <p className="st-muted">{tr("The dialogue lines of the clips in order. Each is checked for reading time: CJK ÷ 4.5 + Latin ÷ 15 + 1.5 s, at least 1.8 s. The SRT is what burn-in uses.")}</p>
-              <div className="st-row"><Button busy={checkSubs.busy} onClick={() => void checkSubs.fire()}>{tr("Check subtitles")}</Button></div>
+              <div className="cut-h-row">
+                <h2 className="cut-h">{tr("Subtitles")}<InfoTip text={tr("The dialogue lines of the clips in order. Each is checked for reading time: CJK ÷ 4.5 + Latin ÷ 15 + 1.5 s, at least 1.8 s. The SRT is what burn-in uses.")} /></h2>
+                <Button size="sm" busy={checkSubs.busy} onClick={() => void checkSubs.fire()}>{tr("Check subtitles")}</Button>
+              </div>
               {subs && (
                 <>
                   {subs.issues.length === 0 ? <Lamp state="ok" label={tr("every line has time to be read")} /> : (
@@ -383,34 +394,38 @@ export function TimelinePage() {
                 </>
               )}
             </section>
+
+            </div>
           </div>
         </>
       )}
 
-      <Section title={tr("Exports")} aside={<small>{exports.length}</small>}>
-        {exports.length === 0 ? (
-          <Empty title={tr("No exports yet")} />
-        ) : (
-          <div className="st-card st-card--pad0">
-            <table className="st-table">
-              <thead><tr><th>{tr("Preset")}</th><th>{tr("Status")}</th><th>{tr("Started")}</th><th></th></tr></thead>
-              <tbody>
-                {exports.map((e) => (
-                  <tr key={e.id}>
-                    <td className="st-num">{e.preset}</td>
-                    <td><Lamp state={e.status} label={tr(`${e.status}||status`)} />{e.error && <span className="st-muted"> · {e.error}</span>}</td>
-                    <td>{whenT(tr, e.createdAt)}</td>
-                    <td style={{ textAlign: "right" }}>
-                      {e.resultUrl && <a className="st-link" href={e.resultUrl} target="_blank" rel="noreferrer">{tr("Download")}</a>}
-                      {e.srtUrl && <>{" · "}<a className="st-link" href={e.srtUrl} target="_blank" rel="noreferrer">SRT</a></>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Section>
+      {history && (
+        <Drawer title={tr("Exports")} onClose={() => setHistory(false)}>
+          {exports.length === 0 ? (
+            <Empty title={tr("No exports yet")} />
+          ) : (
+            <div className="st-card st-card--pad0">
+              <table className="st-table">
+                <thead><tr><th>{tr("Preset")}</th><th>{tr("Status")}</th><th>{tr("Started")}</th><th></th></tr></thead>
+                <tbody>
+                  {exports.map((e) => (
+                    <tr key={e.id}>
+                      <td className="st-num">{e.preset}</td>
+                      <td><Lamp state={e.status} label={tr(`${e.status}||status`)} />{e.error && <span className="st-muted"> · {e.error}</span>}</td>
+                      <td>{whenT(tr, e.createdAt)}</td>
+                      <td style={{ textAlign: "right" }}>
+                        {e.resultUrl && <a className="st-link" href={e.resultUrl} target="_blank" rel="noreferrer">{tr("Download")}</a>}
+                        {e.srtUrl && <>{" · "}<a className="st-link" href={e.srtUrl} target="_blank" rel="noreferrer">SRT</a></>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Drawer>
+      )}
       <p className="st-muted" style={{ marginTop: 12 }}>{tr("Spent so far: {spent} of {cap}.", { spent: usd(view.project.spentUsd), cap: usd(view.project.budgetCapUsd) })}</p>
     </div>
   );
@@ -606,15 +621,12 @@ function TitlesPanel({ timeline, total, onChange }: { timeline: TimelineInput; t
   const tr = useT();
   const patch = (i: number, change: Partial<NonNullable<TimelineInput["titles"]>[number]>) => onChange({ ...timeline, titles: titles.map((t, j) => (j === i ? { ...t, ...change } : t)) });
   return (
-    <section className="cut-panel cut-panel--wide" aria-label={tr("Titles")}>
+    <section className="cut-panel" aria-label={tr("Titles")}>
       <div className="cut-h-row">
-        <h2 className="cut-h">{tr("Titles · {n}", { n: titles.length })}</h2>
+        <h2 className="cut-h">{tr("Titles · {n}", { n: titles.length })}<InfoTip text={tr("Titles, captions, signs and on-screen displays are added here and drawn by the assembler, so they are exact. The model is never asked for text.")} /></h2>
         <Button size="sm" onClick={() => onChange({ ...timeline, titles: [...titles, { text: "Title", atS: 0, durationS: 3, kind: "overlay" }] })}>{tr("Add a title")}</Button>
       </div>
-      {titles.length === 0 ? (
-        <p className="st-muted">{tr("Titles, captions, signs and on-screen displays are added here and drawn by the assembler, so they are exact. The model is never asked for text.")}</p>
-      ) : (
-        titles.map((t, i) => (
+      {titles.map((t, i) => (
           <div key={i} className="cut-title-row">
             <textarea className="st-textarea" rows={1} aria-label={tr("Text||title")} value={t.text} onChange={(e) => patch(i, { text: e.target.value || " " })} />
             <Field label={tr("At (s)")}><input className="st-input st-input--sm" type="number" min={0} max={Math.max(0, total)} step={0.1} value={t.atS} onChange={(e) => patch(i, { atS: Math.max(0, Number(e.target.value)) })} /></Field>
@@ -626,8 +638,7 @@ function TitlesPanel({ timeline, total, onChange }: { timeline: TimelineInput; t
             </Field>
             <Button size="sm" kind="danger" onClick={() => onChange({ ...timeline, titles: titles.filter((_, j) => j !== i) })}>{tr("Remove")}</Button>
           </div>
-        ))
-      )}
+      ))}
     </section>
   );
 }
@@ -639,12 +650,12 @@ function SilencesPanel({ timeline, audio, onChange }: { timeline: TimelineInput;
   const narration = timeline.narration ?? [];
   const tr = useT();
   return (
-    <section className="cut-panel" aria-label={tr("Silences and narration")}>
+    <>
+    <section className="cut-panel" aria-label={tr("Silences")}>
       <div className="cut-h-row">
-        <h2 className="cut-h">{tr("Silences · {n}", { n: silences.length })}</h2>
+        <h2 className="cut-h">{tr("Silences · {n}", { n: silences.length })}<InfoTip text={tr("A silence takes the whole mix out for a stretch: the breath before a turn.")} /></h2>
         <Button size="sm" onClick={() => onChange({ ...timeline, silences: [...silences, { atS: 0, durationS: 1 }] })}>{tr("Mark a silence")}</Button>
       </div>
-      {silences.length === 0 && <p className="st-muted">{tr("A silence takes the whole mix out for a stretch: the breath before a turn.")}</p>}
       {silences.map((s, i) => (
         <div key={i} className="cut-row">
           <Field label={tr("At (s)")}><input className="st-input st-input--sm" type="number" min={0} step={0.1} value={s.atS} onChange={(e) => onChange({ ...timeline, silences: silences.map((x, j) => (j === i ? { ...x, atS: Math.max(0, Number(e.target.value)) } : x)) })} /></Field>
@@ -652,11 +663,12 @@ function SilencesPanel({ timeline, audio, onChange }: { timeline: TimelineInput;
           <Button size="sm" kind="danger" onClick={() => onChange({ ...timeline, silences: silences.filter((_, j) => j !== i) })}>{tr("Remove")}</Button>
         </div>
       ))}
-      <div className="cut-h-row cut-h-row--next">
-        <h2 className="cut-h">{tr("Narration · {n}", { n: narration.length })}</h2>
+    </section>
+    <section className="cut-panel" aria-label={tr("Narration")}>
+      <div className="cut-h-row">
+        <h2 className="cut-h">{tr("Narration · {n}", { n: narration.length })}<InfoTip text={tr("Off-screen and inner lines are laid on the film at their times; the music ducks under them.")} /></h2>
         <Button size="sm" disabled={audio.length === 0} title={audio.length === 0 ? tr("Upload a recording first, or have the director speak a line") : undefined} onClick={() => onChange({ ...timeline, narration: [...narration, { assetId: audio[0]!.id, atS: 0 }] })}>{tr("Add a line")}</Button>
       </div>
-      {narration.length === 0 && <p className="st-muted">{tr("Off-screen and inner lines are laid on the film at their times; the music ducks under them.")}</p>}
       {narration.map((n, i) => (
         <div key={i} className="cut-row">
           <Field label={tr("Recording||narration")}>
@@ -669,5 +681,6 @@ function SilencesPanel({ timeline, audio, onChange }: { timeline: TimelineInput;
         </div>
       ))}
     </section>
+    </>
   );
 }

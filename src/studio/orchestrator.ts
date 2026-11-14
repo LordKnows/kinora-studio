@@ -250,6 +250,30 @@ export async function removeShot(shotId: string, by?: string): Promise<{ trashId
   return { trashId };
 }
 
+/** Delete a finished take (kept in the trash, so it can be put back). A take still waiting or rendering is not
+    deleted (cancel the one that waits; the one that renders runs to its end), nor one the cut uses. If it is the
+    shot's pick, the pick is cleared, and put back with it. What it cost stays spent. */
+export async function removeTake(takeId: string, by?: string): Promise<{ trashId: string; wasPicked: boolean }> {
+  const take = await repo.getTake(takeId);
+  if (take.status === "queued" || take.status === "running" || (take.upscale && (take.upscale.status === "queued" || take.upscale.status === "running"))) {
+    throw new StudioError("validation", "a take that is waiting or rendering cannot be deleted: cancel it if it waits, or let it finish");
+  }
+  const timeline = await repo.getTimeline(take.projectId);
+  const used = timeline.clips.findIndex((c) => c.takeId === takeId);
+  if (used >= 0) throw new StudioError("validation", `this take is in the cut (clip ${used + 1}): take it out of the timeline first`);
+  const shot = await repo.getShot(take.shotId);
+  const wasPicked = shot.selectedTakeId === takeId;
+  const scenes = await repo.listScenes(take.projectId);
+  const sceneNo = scenes.findIndex((s) => s.id === shot.sceneId) + 1;
+  const trashId = await trash.put(
+    { projectId: take.projectId, kind: "take", label: `take ${take.n} · shot ${sceneNo}·${shot.index + 1}${wasPicked ? " (the pick)" : ""}`, by },
+    { ...(await trash.snapshot("take", takeId)), ...(wasPicked ? { reattach: [{ kind: "selected_take" as const, shotId: shot.id, takeId }] } : {}) },
+  );
+  if (wasPicked) await repo.updateShot(shot.id, { selectedTakeId: null });
+  await repo.deleteTake(takeId);
+  return { trashId, wasPicked };
+}
+
 export async function removeScene(sceneId: string, by?: string): Promise<{ trashId: string }> {
   const scene = await repo.getScene(sceneId);
   const shots = (await repo.listSceneShots(sceneId)).length;
@@ -776,7 +800,9 @@ export async function reviewTake(takeId: string, score: number, notes: string, a
   } });
 }
 
-export async function selectTake(shotId: string, takeId: string): Promise<Shot> {
+/** Pick a completed take for the shot, or (takeId null) leave the shot with no pick. */
+export async function selectTake(shotId: string, takeId: string | null): Promise<Shot> {
+  if (takeId === null) return repo.updateShot(shotId, { selectedTakeId: null });
   const take = await repo.getTake(takeId);
   if (take.shotId !== shotId) throw new StudioError("validation", "take belongs to another shot");
   if (take.status !== "completed") throw new StudioError("validation", "only completed takes can be selected");

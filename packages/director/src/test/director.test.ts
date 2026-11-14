@@ -460,7 +460,7 @@ test("plan_ab: two arms that differ in one thing, the same seeds in both", async
   assert.match(abFits("restate_frame", { ...shot, mode: "reference" })!, /keyframe mode/);
 
   /* shot length is not a test: long action as two chained shots is the user's decision */
-  assert.deepEqual([...AB_TESTS], ["format", "restate_frame", "steps"]);
+  assert.deepEqual([...AB_TESTS], ["format", "restate_frame", "steps", "dialogue"]);
 
   /* split_shot: the same action as 6 + 6, the second from the first's last frame */
   assert.equal(splitPoint(shot), 6);

@@ -260,3 +260,48 @@ describe("voice cards are a global library", () => {
     await expect(repo.createElement(p.id, { kind: "character", name: "Y", description: "", voiceCardId: "vc_missing" })).rejects.toThrow();
   });
 });
+
+describe("Chinese and quotes that the model may speak", () => {
+  it("warns when the intent has Chinese or a quotation mark, and when a character has a Chinese name", () => {
+    const clean = compile(shotOf());
+    expect(clean.warnings.join(" ")).not.toContain("may speak");
+    const intent = compile(shotOf({ intent: "她说“你来了”，递过茶" }));
+    expect(intent.warnings.join(" ")).toContain("the shot's intent goes into the prompt and has Chinese in it");
+    const quoted = compile(shotOf({ intent: 'She says "you came" and offers the tea' }));
+    expect(quoted.warnings.join(" ")).toContain("a quotation mark");
+    const named = compile(shotOf(), { elements: new Map([["mara", { ...mara, name: "沈知微（十八岁·女装）" }], ["theo", theo]]) });
+    expect(named.warnings.join(" ")).toContain("沈知微（十八岁·女装）");
+    expect(named.warnings.join(" ")).toContain("called by a Chinese name");
+  });
+});
+
+describe("experiments.dialogueInBeats", () => {
+  const two = () => shotOf({
+    durationS: 8, mode: "text",
+    beats: [{ from: 0, to: 4, action: "She pours the tea and looks up" }, { from: 4, to: 8, action: "He sets the cup down and answers" }],
+    dialogue: [
+      { speaker: "mara", text: "You came.", delivery: "neutral", startS: 1, endS: 2.5 },
+      { speaker: "theo", text: "I said I would.", delivery: "neutral", startS: 5, endS: 7 },
+      { speaker: "mara", text: "No time given.", delivery: "neutral" },
+    ],
+    characters: ["mara", "theo"],
+  });
+  const prompt = (on: boolean) => compile(two(), { experiments: on ? { dialogueInBeats: true } : {} }).input.prompt;
+
+  it("writes each timed line inside the beat it starts in, and leaves the rest where they were", () => {
+    const off = prompt(false);
+    const on = prompt(true);
+    /* off: the lines come after every beat */
+    expect(off.indexOf("You came.")).toBeGreaterThan(off.indexOf("He sets the cup down and answers"));
+    /* on: the first line sits in beat 1, the second in beat 2, in order */
+    const beat1 = on.indexOf("0–4s: She pours the tea and looks up");
+    const beat2 = on.indexOf("4–8s: He sets the cup down and answers");
+    expect(on.indexOf("You came.")).toBeGreaterThan(beat1);
+    expect(on.indexOf("You came.")).toBeLessThan(beat2);
+    expect(on.indexOf("I said I would.")).toBeGreaterThan(beat2);
+    /* each line once; the line with no time stays after the beats */
+    expect(on.split("You came.").length - 1).toBe(1);
+    expect(on.split("I said I would.").length - 1).toBe(1);
+    expect(on.indexOf("No time given.")).toBeGreaterThan(on.indexOf("I said I would."));
+  });
+});

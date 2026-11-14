@@ -118,9 +118,7 @@ describe("what waits for the person", () => {
     const zh = translate("zh");
     const needs = needsOf(film(), lint(["seam.trim"]), "/p/p", zh);
     expect(needs[0]!.title).toBe("处接缝跳帧");
-    expect(zh("starts at {s}", { s: "1·2" })).toBe("从 1·2 开始");
     expect(zh("A sentence nobody translated")).toBe("A sentence nobody translated");
-    expect(translate("en")("starts at {s}", { s: "1·2" })).toBe("starts at 1·2");
     expect(translate("en")("Score||rating")).toBe("Score");
     expect(zh("Score||no such context")).toBe("总谱");
   });

@@ -20,7 +20,6 @@ export type Need = {
   title: string;
   detail: string;
   action: { label: string; href: string };
-  note?: string;
 };
 
 const EN = translate("en");
@@ -70,7 +69,7 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
     out.push({
       key: "unreviewed", count: unreviewed.length, title: plural(t, unreviewed.length, "circled take unreviewed", "circled takes unreviewed"),
       detail: reviewed === 0 ? t("No take in the cut has a score yet.") : t(reviewed === 1 ? "{p} takes are in the cut; {r} has a score." : "{p} takes are in the cut; {r} have a score.", { p: picked.length, r: reviewed }),
-      action: { label: t("Screen them in order"), href: `${base}/screening?shot=${unreviewed[0]!.shot.id}` }, note: t("starts at {s}", { s: unreviewed[0]!.slate }),
+      action: { label: t("Screen them in order"), href: `${base}/screening?shot=${unreviewed[0]!.shot.id}` },
     });
   }
 

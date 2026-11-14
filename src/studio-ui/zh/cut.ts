@@ -49,7 +49,7 @@ export const cut: Record<string, string> = {
   "No titles. Text is laid over the picture here; the model never draws it.": "没有画面文字。文字在这里叠加到画面上，模型从不画字。",
   "{kind} · {at} for {d} s": "{kind} · {at} 起，{d} 秒", "{at} for {d} s": "{at} 起，{d} 秒",
   "card||title kind": "字幕卡", "overlay||title kind": "叠加文字", "caption||title kind": "说明字幕",
-  "Picture||track": "画面", "Clip {i}: {slate} take {n}, {a} to {b}": "片段 {i}：{slate} 镜次 {n}，{a} 到 {b}",
+  "Picture||track": "画面", "Picture||cut": "画面", "Sound||cut": "声音", "Timing||cut": "节奏", "The anchor is cut at {a} s; its take ends at {b} s": "锚点镜头在 {a} 秒处被剪断；它的镜次到 {b} 秒才结束", "Clip {i}: {slate} take {n}, {a} to {b}": "片段 {i}：{slate} 镜次 {n}，{a} 到 {b}",
   "cut||transition": "硬切", "dissolve||transition": "叠化", "fade black||transition": "黑场过渡", "fade white||transition": "白场过渡", "iris||transition": "圆形划像", "wipe||transition": "划像",
   "The next shot starts on this take's last frame, and the cut leaves before it": "下一个镜头从这条镜次的最后一帧开始，而剪辑在那之前就切走了",
   "Take sound": "镜次原声", "effects {db} dB": "音效 {db} dB", "muted": "已静音",

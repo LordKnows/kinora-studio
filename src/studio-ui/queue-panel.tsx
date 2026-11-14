@@ -92,6 +92,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
     await Promise.all([...inFlight].map((id) => get(`/api/shots/${id}/takes`).catch(() => undefined)));
     await Promise.all([reload(), refreshJobs()]);
   });
+  const refreshButton = <Button size="sm" kind="secondary" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>;
   /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
   const gpu = useGpu();
   const gpuReload = gpu.reload;
@@ -120,7 +121,10 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <div className="q-head">
             <h3>{t("Takes")}</h3>
             <span className="st-num">{takes.length + regens.length}</span>
-            {waiting.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(waiting.map((x) => x.take))}>{t("Cancel all {n}", { n: waiting.length })}</Button>}
+            <span className="q-acts">
+              {refreshButton}
+              {waiting.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(waiting.map((x) => x.take))}>{t("Cancel all {n}", { n: waiting.length })}</Button>}
+            </span>
           </div>
           {takes.map(({ s, take }) => (
             <div key={take.id} className="q-row">
@@ -171,9 +175,6 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <p className="st-muted">{t("A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.")}</p>
         </section>
       )}
-      <div className="q-top">
-        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
-      </div>
     </div>
   );
 }

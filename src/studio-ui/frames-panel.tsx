@@ -49,7 +49,26 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
   const { projectId, view, reload } = useProjectContext();
   const tr = useT();
   const aspect = aspectCss(view?.project.look.aspectRatio);
-  const [keyMode, setFrameMode] = useState<"hero" | "first_last">(shot.endAssetId || shot.spec.frames?.last ? "first_last" : "hero");
+  /* hero frame or first + end frame: what the shot has says which, until it is chosen; the choice is kept per shot
+     (the panel is gone while the Takes tab is open, and must come back the way it was left) */
+  const memoKey = `studio.frames.mode.${shot.id}`;
+  const [keyMode, setKeyMode] = useState<"hero" | "first_last">(shot.endAssetId || shot.spec.frames?.last ? "first_last" : "hero");
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(memoKey);
+      if (v === "hero" || v === "first_last") setKeyMode(v);
+    } catch {
+      /* no storage: it follows the shot */
+    }
+  }, [memoKey]);
+  const setFrameMode = (m: "hero" | "first_last") => {
+    setKeyMode(m);
+    try {
+      localStorage.setItem(memoKey, m);
+    } catch {
+      /* private mode: kept while the panel stays */
+    }
+  };
   const [lightbox, setLightbox] = useState<Asset | null>(null);
   const [plan, setPlan] = useState<PlanRow | null>(null);
   useEffect(() => {
@@ -62,7 +81,7 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
   });
   const mode = shot.spec.mode;
   /* "No frame" is the shot's text mode: nothing starts the take, the model draws it from the shot's description */
-  const frameMode: "none" | "hero" | "first_last" = mode === "text" ? "none" : keyMode;
+  const frameMode: "none" | "hero" | "first_last" = mode === "text" ? "none" : shot.endAssetId ? "first_last" : keyMode;
   const setShotMode = useAction(async (_c, next: "text" | "keyframe") => {
     await patch(`/api/shots/${shot.id}`, { mode: next });
     await reload();
@@ -70,7 +89,6 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
   const chooseMode = async (m: "none" | "hero" | "first_last") => {
     if (m === "none") {
       if (mode === "text") return;
-      if ((shot.heroAssetId || shot.endAssetId) && !window.confirm(tr("Draw this shot from its description alone? The frames stay on the shot and in Pictures, but the take does not use them."))) return;
       await setShotMode.fire("text");
       return;
     }

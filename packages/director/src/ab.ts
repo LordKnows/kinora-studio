@@ -8,6 +8,7 @@ import type { Shot } from "./types.js";
  *   restate_frame  a first-frame shot that trusts the frame against one that restates it
  *                  (MiniMax's guide says restate; the project's guide says do not)
  *   steps          the 8-step turbo LoRA against the base chain at 20 steps, on prompt following
+ *   dialogue       timed lines written after all the beats against each line inside the beat it starts in
  *
  * Shot length is not among them: long action as chained shots is the user's
  * decision (split.ts), not a question left open.
@@ -18,7 +19,7 @@ import type { Shot } from "./types.js";
  * pick and tags, blind votes, and what was measured on each file.
  */
 
-export const AB_TESTS = ["format", "restate_frame", "steps"] as const;
+export const AB_TESTS = ["format", "restate_frame", "steps", "dialogue"] as const;
 export type AbTest = (typeof AB_TESTS)[number];
 
 export interface AbArm {
@@ -55,6 +56,8 @@ const READ_COMMON = [
 /** Whether a shot can carry a test, and why not when it cannot. */
 export function abFits(test: AbTest, shot: Shot): string | undefined {
   if (test === "restate_frame" && shot.mode !== "keyframe") return "restate_frame is about a shot that starts from a first frame: it needs keyframe mode";
+  if (test === "dialogue" && !(shot.dialogue ?? []).some((l) => (l.kind ?? "onscreen") === "onscreen" && l.startS !== undefined)) return "dialogue is about a timed line: the shot needs an on-screen line with a startS";
+  if (test === "dialogue" && shot.promptOverride?.trim()) return "this shot has a promptOverride: the compiler does not reach it";
   if (test === "format" && shot.promptOverride?.trim()) return "this shot has a promptOverride: the compiler's format does not reach it";
   return undefined;
 }
@@ -77,6 +80,18 @@ export function planAb(test: AbTest, shot: Shot, opts: { seeds?: number[] } = {}
       ],
       read: [...READ_COMMON, "beats and lines above all: the official format writes no time inside a shot, so look at whether the actions come in order and take their share of the take, and whether a line lands in its beat"],
       limits: [few, "the two formats differ in five places at once (instruction line, the first-and-last-frame sentence, the text-to-video header, time inside a shot, the camera as a sentence): a win says the bundle is better, not which part", "what captions the turbo LoRA was distilled with is not published, so neither format is the trained one by definition"],
+    };
+  }
+  if (test === "dialogue") {
+    return {
+      test, seeds, hold: [...hold.slice(0, 2), "the steps and the LoRAs", "the words: every line is written once in each arm, only where it sits in the prompt changes"],
+      question: "Does a line land in its own beat, at its own time, more often when the prompt writes it inside the beat it starts in than when every line follows all the beats with an \"At 3.0s\" in front?",
+      arms: [
+        { arm: "A", label: "the lines come after all the beats, each with its time (the default)" },
+        { arm: "B", label: "each line is written inside the beat it starts in (experiments.dialogueInBeats)", experiments: { dialogueInBeats: true } },
+      ],
+      read: ["when each line is spoken against its window, and by whom (the user on the video; get_take → measured has the sound level over time)", "nothing spoken before its beat, nothing spoken twice, no line missing", ...READ_COMMON],
+      limits: [few, "pick a shot with two or more timed lines in different beats: with one line and one beat the arms write nearly the same text", "the sound level cannot tell a voice from music or ambience: a line the measurement finds quiet is a lead, and a loud window is not proof that the line is in it"],
     };
   }
   if (test === "restate_frame") {
