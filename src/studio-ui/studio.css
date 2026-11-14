@@ -2355,10 +2355,17 @@ button.st-pill {
 .studio .dir-save[data-dirty="true"] > .st-muted {
   color: var(--sig-warn);
 }
+/* Refresh: fixed at the bottom right of the panel, over whatever scrolls under it */
 .studio .q-top {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 10px;
+  position: sticky;
+  bottom: 14px;
+  z-index: 2;
+  align-self: flex-end;
+  margin-top: auto;
+}
+.studio .q-top .st-btn {
+  background: var(--bg);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
 }
 .studio .q-autostop {
   display: flex;

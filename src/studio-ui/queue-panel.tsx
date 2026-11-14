@@ -103,9 +103,6 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
 
   return (
     <div className="side-body">
-      <div className="q-top">
-        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
-      </div>
       <ErrorBanner error={refreshAll.error ?? cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); refreshAll.dismiss(); }} />
       {gpuUp && (
         <label className="q-autostop" title={t("Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.")}>
@@ -171,6 +168,9 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <p className="st-muted">{t("A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.")}</p>
         </section>
       )}
+      <div className="q-top">
+        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
+      </div>
     </div>
   );
 }

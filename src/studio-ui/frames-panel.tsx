@@ -101,9 +101,8 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
       <div className="st-stack">
         <ErrorBanner error={setShotMode.error ?? setFrame.error} projectId={projectId} onDismiss={() => { setShotMode.dismiss(); setFrame.dismiss(); }} />
         {chooser}
-        <Empty title={tr("No frame")} hint={plan?.first === "anchor"
-          ? tr("H3 draws this shot from its prompt alone. It is linked to its anchor shot, so the take still starts on the anchor take's last frame; change the link in the Edit tab to start free.")
-          : tr("H3 draws this shot from its prompt alone: the description, the camera and the elements. To start from a picture, choose a hero frame or a first and an end frame above.")} />
+        {/* nothing to choose or draw here: no frame section. Only what the link does is said, since it can still start the take */}
+        {plan?.first === "anchor" && <span className="st-muted">{tr("This shot is linked to its anchor shot, so the take still starts on the anchor take's last frame; change the link in the Edit tab to start free.")}</span>}
       </div>
     );
   }
