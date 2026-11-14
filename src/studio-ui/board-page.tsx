@@ -14,7 +14,7 @@ import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
-import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
+import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
 import { Zoomable } from "./picture-zoom";
 import { useShotSort } from "./shot-sort";
@@ -127,7 +127,7 @@ function Board() {
   const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintFailed, setLintFailed] = useState(false);
-  /* the Lint drawer and the Render batch drawer belong to a scene: each is opened from that scene's buttons */
+  /* the Lint drawer and the Render batch popup belong to a scene: each is opened from that scene's buttons */
   const [lintScene, setLintScene] = useState<string | null>(null);
   /* the sketch is opened from a scene; `whole` shows the film instead of that scene */
   const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
@@ -136,8 +136,6 @@ function Board() {
   const [batch, setBatch] = useState<BatchPlan | null>(null);
   const [batchScene, setBatchScene] = useState<string | null>(null);
   const [planning, setPlanning] = useState<string | null>(null);
-  const stopPass = useRef(false);
-  const [stopping, setStopping] = useState(false);
   /* a scene just added from the top of the page: brought into view once the board has it */
   const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
@@ -169,25 +167,6 @@ function Board() {
       setBatchScene(sceneId);
     } finally {
       setPlanning(null);
-    }
-  });
-  /* A pass queues its takes one shot after another. Stop ends it between two shots and cancels the
-     takes this pass had already queued, so a stopped batch leaves nothing of its own rolling. */
-  const renderPass = useAction(async (confirm, ids: string[]) => {
-    stopPass.current = false;
-    setStopping(false);
-    const queued: string[] = [];
-    try {
-      for (const id of ids) {
-        if (stopPass.current) break;
-        const r = await post<{ takes?: Array<{ id: string }> }>(`/api/shots/${id}/takes`, { n: 1, confirm });
-        for (const t of r.takes ?? []) queued.push(t.id);
-      }
-      if (stopPass.current) for (const id of queued) await post(`/api/takes/${id}/cancel`).catch(() => undefined);
-      else setBatchScene(null);
-    } finally {
-      setStopping(false);
-      await reload();
     }
   });
   /* a batch that is already rolling: every queued or running take of the scene is cancelled */
@@ -417,70 +396,109 @@ function Board() {
         );
       })()}
       {batchOf && batch && (
-        <Drawer title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} onClose={() => { if (!renderPass.busy) setBatchScene(null); }}>
-          <div className="st-stack">
-            <div className="st-card st-stack st-stack--tight">
-              <div className="st-row st-row--between">
-                <span className="st-h2">{plural(tr, batch.order.length, "1 shot to render", "{n} shots to render")} · {plural(tr, batch.passes.length, "1 pass", "{n} passes")}</span>
-                <span className="st-num" style={{ color: batch.withinCap ? "var(--tx)" : "var(--danger)" }}>{tr("≈ {estimate} · {left} left", { estimate: usd(batch.totalEstimateUsd), left: usd(batch.remainingCapUsd) })}</span>
-              </div>
-              <span className="st-muted">{tr("R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.")}</span>
-              {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
-            </div>
-            <ErrorBanner error={renderPass.error} projectId={projectId} onConfirm={() => void renderPass.confirm()} onDismiss={renderPass.dismiss} />
-            {batch.probe && batch.probe.shotIds.length > 0 && (
-              <div className="st-card st-row st-row--between">
-                <span><strong>{tr("Probe first.")}</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
-                <Button busy={renderPass.busy} onClick={() => void renderPass.fire(batch.probe!.shotIds)}>{tr("Render probe ({n})", { n: batch.probe.shotIds.length })} <span className="st-btn-price">· ≈ {usd(batch.probe.estimateUsd)}</span></Button>
-              </div>
-            )}
-            {batch.passes.map((pass, pi) => (
-              <div key={pi} className="st-card st-card--pad0">
-                <table className="st-table">
-                  <thead>
-                    <tr>
-                      <th>{tr("Pass {n}", { n: pi + 1 })}</th>
-                      <th>{tr("Mode")}</th>
-                      <th>{tr("Link")}</th>
-                      <th title={tr("Weak spots of AI video found in the shot (fragile.* in Lint)")}>{tr("Fragile")}</th>
-                      <th className="st-num">{tr("Est.")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pass.map((id) => {
-                      const sh = batch.shots.find((x) => x.shotId === id);
-                      const est = batch.estimates.find((x) => x.shotId === id);
-                      return (
-                        <tr key={id}>
-                          <td>{sh?.label ?? id}</td>
-                          <td className="st-num">{sh?.mode && tr(sh.mode)}</td>
-                          <td className="st-num">{tr(sh?.link ?? "cut")}</td>
-                          <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? tr(" · careful") : ""}` : "—"}</td>
-                          <td className="st-num">{est ? `${usd(est.usd)}${est.source === "fallback" ? " ~" : ""}` : "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ))}
-            {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => tr("{shot} for {anchor}", { shot: slateOf.get(d.shotId) ?? d.shotId, anchor: slateOf.get(d.waitingFor) ?? d.waitingFor })).join(", ") })}</span>}
-            <span className="st-muted">{tr("Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.")}</span>
-            <div className="st-row st-row--between">
-              {/* the way out: before anything is queued, Cancel; while the pass is being queued, Stop */}
-              {renderPass.busy ? (
-                <Button busy={stopping} onClick={() => { stopPass.current = true; setStopping(true); }} title={tr("Stop queuing, and cancel the takes this pass has queued so far")}>{tr("Stop and cancel")}</Button>
-              ) : (
-                <Button kind="quiet" onClick={() => setBatchScene(null)}>{tr("Cancel")}</Button>
-              )}
-              <Button kind="tally" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
-                {tr("Render pass 1 ({n})", { n: batch.passes[0]?.length ?? 0 })} <span className="st-btn-price">· ≈ {usd((batch.passes[0] ?? []).reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0))}</span>
-              </Button>
-            </div>
-          </div>
-        </Drawer>
+        <BatchPopup key={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} batch={batch} slateOf={slateOf} onClose={() => setBatchScene(null)} />
       )}
     </div>
+  );
+}
+
+/* The render batch of a scene, in a popup. The shots that can render now each have a tick, all
+   ticked to begin with, so the whole pass is rolled or only some of it; a shot of a later pass
+   waits for its anchor and cannot be ticked yet. The way out: Cancel before anything is queued,
+   Stop and cancel while the ticked shots are being queued (the takes queued so far are cancelled). */
+function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
+  const { projectId, reload } = useProjectContext();
+  const tr = useT();
+  const now = batch.passes[0] ?? [];
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(now));
+  const stopPass = useRef(false);
+  const [stopping, setStopping] = useState(false);
+  /* The ticked shots are queued one after another. Stop ends it between two shots and cancels the
+     takes already queued, so a stopped batch leaves nothing of its own rolling. */
+  const render = useAction(async (confirm, ids: string[]) => {
+    stopPass.current = false;
+    setStopping(false);
+    const queued: string[] = [];
+    try {
+      for (const id of ids) {
+        if (stopPass.current) break;
+        const r = await post<{ takes?: Array<{ id: string }> }>(`/api/shots/${id}/takes`, { n: 1, confirm });
+        for (const t of r.takes ?? []) queued.push(t.id);
+      }
+      if (stopPass.current) for (const id of queued) await post(`/api/takes/${id}/cancel`).catch(() => undefined);
+      else onClose();
+    } finally {
+      setStopping(false);
+      await reload();
+    }
+  });
+  const chosen = now.filter((id) => picked.has(id));
+  const priceOf = (ids: string[]) => ids.reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0);
+  const price = priceOf(chosen);
+  const tick = (id: string) => setPicked((p) => { const next = new Set(p); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  const probe = (batch.probe?.shotIds ?? []).filter((id) => now.includes(id));
+  const row = (id: string, pass: number) => {
+    const sh = batch.shots.find((x) => x.shotId === id);
+    const est = batch.estimates.find((x) => x.shotId === id);
+    const waits = pass > 0;
+    return (
+      <tr key={id} data-off={waits || !picked.has(id) ? "true" : undefined}>
+        <td className="bp-tick"><input type="checkbox" aria-label={tr("Render {shot}", { shot: sh?.label ?? id })} checked={!waits && picked.has(id)} disabled={waits || render.busy} onChange={() => tick(id)} /></td>
+        <td><span className="st-num">{slateOf.get(id) ?? ""}</span> {sh?.label.split(" · ").slice(1).join(" · ") || sh?.label || id}</td>
+        <td className="st-num">{sh?.mode && tr(sh.mode)}</td>
+        <td className="st-num">{tr(sh?.link ?? "cut")}</td>
+        <td className="st-num" title={sh?.fragile?.join(", ")}>{sh?.fragility ? `${sh.fragility}${sh.tier === "careful" ? tr(" · careful") : ""}` : "—"}</td>
+        <td className="st-num">{est ? `${usd(est.usd)}${est.source === "fallback" ? " ~" : ""}` : "—"}</td>
+      </tr>
+    );
+  };
+  return (
+    <Modal title={title} size="lg" onClose={() => { if (!render.busy) onClose(); }}>
+      <div className="st-stack">
+        <div className="st-row st-row--between">
+          <span className="st-h2">{tr("{n} of {m} shots ticked", { n: chosen.length, m: now.length })}{batch.passes.length > 1 ? ` · ${plural(tr, batch.passes.length, "1 pass", "{n} passes")}` : ""}</span>
+          <span className="st-num" style={{ color: price <= batch.remainingCapUsd ? "var(--tx)" : "var(--sig-err)" }}>{tr("≈ {estimate} · {left} left", { estimate: usd(price), left: usd(batch.remainingCapUsd) })}</span>
+        </div>
+        <span className="st-muted">{tr("Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.")}</span>
+        {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
+        <ErrorBanner error={render.error} projectId={projectId} onConfirm={() => void render.confirm()} onDismiss={render.dismiss} />
+        {probe.length > 0 && (
+          <div className="st-card st-row st-row--between">
+            <span><strong>{tr("Probe first.")}</strong> <span className="st-muted">{batch.probe!.why}</span></span>
+            <Button size="sm" disabled={render.busy} onClick={() => setPicked(new Set(probe))}>{tr("Tick only the probe ({n})", { n: probe.length })}</Button>
+          </div>
+        )}
+        {now.length === 0 && <p className="st-muted">{tr("No shot of this scene can render now.")}</p>}
+        {batch.passes.map((pass, pi) => (
+          <div key={pi} className="st-card st-card--pad0 st-table-scroll">
+            <table className="st-table bp-table">
+              <thead>
+                <tr>
+                  <th className="bp-tick">{pi === 0 && <input type="checkbox" aria-label={tr("Tick all")} title={tr("Tick all")} checked={chosen.length === now.length && now.length > 0} disabled={render.busy} onChange={() => setPicked(chosen.length === now.length ? new Set() : new Set(now))} />}</th>
+                  <th>{pi === 0 ? tr("Can render now") : tr("Pass {n} · waits for its anchors", { n: pi + 1 })}</th>
+                  <th>{tr("Mode")}</th>
+                  <th>{tr("Link")}</th>
+                  <th title={tr("Weak spots of AI video found in the shot (fragile.* in Lint)")}>{tr("Fragile")}</th>
+                  <th className="st-num">{tr("Est.")}</th>
+                </tr>
+              </thead>
+              <tbody>{pass.map((id) => row(id, pi))}</tbody>
+            </table>
+          </div>
+        ))}
+        {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => tr("{shot} for {anchor}", { shot: slateOf.get(d.shotId) ?? d.shotId, anchor: slateOf.get(d.waitingFor) ?? d.waitingFor })).join(", ") })}</span>}
+        <div className="st-row st-row--between">
+          {render.busy ? (
+            <Button busy={stopping} onClick={() => { stopPass.current = true; setStopping(true); }} title={tr("Stop queuing, and cancel the takes this pass has queued so far")}>{tr("Stop and cancel")}</Button>
+          ) : (
+            <Button kind="quiet" onClick={onClose}>{tr("Cancel")}</Button>
+          )}
+          <Button kind="tally" busy={render.busy} disabled={chosen.length === 0} onClick={() => void render.fire(chosen)}>
+            {tr("Render the ticked ({n})", { n: chosen.length })} <span className="st-btn-price">· ≈ {usd(price)}</span>
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1057,6 +1075,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   /* another take was picked and nobody said what was wrong with this one */
   const passedOver = Boolean(shot.selectedTakeId) && !selected && take.status === "completed" && !take.review;
   return (
+    /* a take's row keeps one height: what was said about it takes the room that is left and is cut with an ellipsis */
     <div className="st-take" data-selected={selected}>
       <div>
         {playUrl ? (
@@ -1067,7 +1086,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           </div>
         )}
       </div>
-      <div className="st-stack st-stack--tight">
+      <div className="st-stack st-stack--tight st-take-info">
         <div className="st-row st-row--between">
           <div className="st-row">
             <strong className="st-num">{tr("Take {n}", { n: take.n })}</strong>
@@ -1141,7 +1160,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           </div>
         )}
         {take.status === "completed" && (
-          <details open={passedOver || faults.length > 0}>
+          <details open={passedOver}>
             <summary className="st-muted">{passedOver ? tr("Passed over — one click says why (feeds the retro)") : tr("What went wrong (feeds the retro)")}{faults.length ? ` · ${faults.length}` : ""}</summary>
             <div className="st-chips" style={{ marginTop: 6 }}>
               {TAKE_FAULTS.map((f) => (
@@ -1170,15 +1189,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             </label>
           </details>
         )}
-        {take.review && (
-          <span className="st-muted">
-            {tr("Reviewed {score}/5 by {by}", { score: take.review.score, by: tr(`${take.review.by}||reviewer`) })}
-            {take.review.notes ? ` — ${take.review.notes}` : ""}
-            {take.review.faults?.length ? ` · ${take.review.faults.map((f) => tr(f.replaceAll("_", " "))).join(", ")}` : ""}
-            {take.review.audioOk === false ? tr(" · audio muted") : ""}
-            {take.review.basis ? tr(" · basis: {basis}", { basis: take.review.basis }) : ""}
-          </span>
-        )}
+        {take.review && <ReviewSaid review={take.review} />}
         {take.workflow === "REMAKE" && typeof take.input.studio_remake === "object" && take.input.studio_remake ? (
           <span className="st-muted">{tr("Remake ({mode}) of take #{n}", { mode: tr(String((take.input.studio_remake as { mode?: string }).mode)), n: String((take.input.studio_remake as { sourceN?: number }).sourceN ?? "?") })}</span>
         ) : null}
@@ -1215,6 +1226,39 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   );
 }
 
+
+/* What was said about a take: who scored it, the notes, the faults, what it was judged from. It can
+   be long, and it is the one part of a take's row that gives: it takes the height the row has left
+   and ends in an ellipsis (as many whole lines as fit; the full text is in its title). Where the
+   row is not held to a height (a phone, the column stacked) it shows a few lines instead. */
+function ReviewSaid({ review }: { review: NonNullable<Take["review"]> }) {
+  const tr = useT();
+  const box = useRef<HTMLSpanElement>(null);
+  /* The box has the height the row leaves; the text in it is cut to the whole lines that fit, so no
+     half line shows under the ellipsis. Stacked under the player (a phone) the stylesheet's count stands. */
+  useEffect(() => {
+    const el = box.current;
+    const text = el?.firstElementChild as HTMLElement | null;
+    if (!el || !text) return;
+    const fit = () => {
+      if (getComputedStyle(el).flexGrow === "0") return text.style.removeProperty("-webkit-line-clamp");
+      const line = parseFloat(getComputedStyle(text).lineHeight) || 18;
+      text.style.setProperty("-webkit-line-clamp", String(Math.max(1, Math.floor((el.clientHeight + 1) / line))));
+    };
+    fit();
+    const watch = new ResizeObserver(fit);
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
+  const said = [
+    tr("Reviewed {score}/5 by {by}", { score: review.score, by: tr(`${review.by}||reviewer`) }),
+    review.notes ? ` — ${review.notes}` : "",
+    review.faults?.length ? ` · ${review.faults.map((f) => tr(f.replaceAll("_", " "))).join(", ")}` : "",
+    review.audioOk === false ? tr(" · audio muted") : "",
+    review.basis ? tr(" · basis: {basis}", { basis: review.basis }) : "",
+  ].join("");
+  return <span ref={box} className="st-muted st-take-said" title={said}><span>{said}</span></span>;
+}
 
 const STAGE_LABEL: Record<string, string> = {
   inputs: "fetching inputs", queued: "queued on ComfyUI", preparing: "preparing", loading: "loading models", encoding: "encoding the draft", upscaling: "upscaling the latent", sampling: "sampling",

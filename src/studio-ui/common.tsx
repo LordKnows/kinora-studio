@@ -54,9 +54,10 @@ export function Button({
 }: {
   children: ReactNode;
   onClick?: () => void;
-  /** tally: the one red button of a page — the next step, or a spend.
-      destroy: the button that confirms a deletion, inside its question. */
-  kind?: "default" | "primary" | "quiet" | "danger" | "tally" | "destroy";
+  /** primary: the accent. secondary: filled ink, a step below it (kept ready; nothing uses it yet).
+      default: outlined. quiet: text alone. tally: a primary with its lamp lit — the next step, or a
+      spend. destroy: the button that confirms a deletion, inside its question. */
+  kind?: "default" | "primary" | "secondary" | "quiet" | "danger" | "tally" | "destroy";
   size?: "sm";
   busy?: boolean;
   disabled?: boolean;

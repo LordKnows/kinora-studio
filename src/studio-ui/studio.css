@@ -6,9 +6,9 @@
    where the picture is the only bright thing, for watching and judging.
    The chrome has no hue. The one accent (--accent, the tally red) means
    three things: you are here, the camera is rolling (money is being
-   spent), and the next step — which is every primary button: a primary
-   button is the accent, a plain (secondary) one is filled ink, a quiet one
-   is text alone. Selection, approval, warnings and failures are
+   spent), and the next step — which is every primary button. The buttons,
+   from loudest: primary (the accent), secondary (filled ink; a kind kept
+   ready, not used yet), plain (outlined), quiet (text alone). Selection, approval, warnings and failures are
    ink marks that differ in shape, not colour — except on a state's own mark
    where it has to be told apart at a glance, which takes one of four signal
    hues (--sig-ok / -warn / -err / -info): the shotlist's status on the
@@ -646,7 +646,10 @@ button.st-pill {
   color: var(--sig-warn);
 }
 /* on a filled button the count takes the button's ink: the hues are too dark on it, and the mark's shape still says which it is */
-.studio .st-btn:not(.st-btn--quiet):not(.st-btn--danger) .st-sev {
+.studio .st-btn--primary .st-sev,
+.studio .st-btn--secondary .st-sev,
+.studio .st-btn--tally .st-sev,
+.studio .st-btn--destroy .st-sev {
   color: inherit;
 }
 
@@ -970,12 +973,11 @@ button.st-pill {
   height: 36px;
   padding: 0 14px;
   border-radius: 0;
-  border: 1.5px solid var(--tx);
-  /* the plain button is the secondary one: ink, filled. Primary is the accent; quiet is text alone. */
-  background: var(--tx);
+  border: 1.5px solid var(--line-3);
+  background: transparent;
   font-size: 13px;
   font-weight: 600;
-  color: var(--bg);
+  color: var(--tx);
   white-space: nowrap;
   text-decoration: none;
   transition:
@@ -985,8 +987,8 @@ button.st-pill {
     opacity 0.13s ease;
 }
 .studio .st-btn:hover {
-  background: var(--tx2);
-  border-color: var(--tx2);
+  background: var(--hover);
+  border-color: var(--line-3);
 }
 .studio .st-btn:active {
   transform: scale(0.985);
@@ -1004,6 +1006,16 @@ button.st-pill {
 .studio .st-btn--primary:hover {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+}
+/* secondary: filled ink, a step below primary. A kind kept ready; nothing wears it yet. */
+.studio .st-btn--secondary {
+  background: var(--tx);
+  border-color: var(--tx);
+  color: var(--bg);
+}
+.studio .st-btn--secondary:hover {
+  background: var(--tx2);
+  border-color: var(--tx2);
 }
 /* the tally: a primary button with its lamp lit — the next step, or a spend */
 .studio .st-btn--tally {
@@ -2130,9 +2142,48 @@ button.st-pill {
   border-color: var(--tx);
   box-shadow: inset 2px 0 0 var(--tx);
 }
+/* A take's row keeps one height (its player's, at the widest the player gets). The column beside the
+   player is as tall as the row; what was said about the take (.st-take-said) has no height of its
+   own, takes what the rest leaves and is cut with an ellipsis. The row grows only when something
+   is opened in it (the faults, the Remake panel). */
+.studio .st-take {
+  min-height: 248px;
+}
+.studio .st-take-info {
+  min-height: 0;
+}
+.studio .st-take-info > * {
+  flex: none;
+}
+.studio .st-take-info > .st-take-said {
+  flex: 1 1 0;
+  min-height: 18px;
+  overflow: hidden;
+}
+/* the text is cut to whole lines (the count is set from the box's height, 3 until it is) */
+.studio .st-take-said > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 720px) {
   .studio .st-take {
     grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  /* stacked under the player there is no height to share: a few lines, then the ellipsis */
+  .studio .st-take-info > .st-take-said {
+    flex: none;
+  }
+  .studio .st-take-said > span {
+    -webkit-line-clamp: 4;
+  }
+  /* the popup's table on a phone: the mode gives its width to the shot's name */
+  .studio .bp-table th:nth-child(3),
+  .studio .bp-table td:nth-child(3) {
+    display: none;
   }
 }
 .studio .st-stars {
@@ -2244,6 +2295,34 @@ button.st-pill {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+/* The render batch popup: a tick before each shot. A shot that is not ticked, or waits for
+   its anchor, is dimmed, so what will roll is read down the column at a glance. */
+.studio .bp-table .bp-tick {
+  width: 34px;
+  padding-right: 0;
+}
+.studio .bp-table input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  vertical-align: middle;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.studio .bp-table input[type="checkbox"]:disabled {
+  cursor: default;
+}
+/* mode, link and fragility read under their headings; only the estimate is a figure to add up */
+.studio .bp-table td.st-num:not(:last-child) {
+  text-align: left;
+}
+.studio .bp-table th,
+.studio .bp-table td.st-num {
+  white-space: nowrap;
+}
+.studio .bp-table tr[data-off="true"] td:not(.bp-tick) {
+  color: var(--tx3);
 }
 /* around a table that stands outside a card: too wide for a phone, it scrolls
    sideways here and does not widen the page */
@@ -3734,10 +3813,6 @@ button.st-pill {
   height: 28px;
   padding: 0 10px;
 }
-/* outlined in their own colour, not the filled ink of a plain button */
-.studio .dir-act[data-act] {
-  background: transparent;
-}
 /* met is green with a tick, drop is red with a bar through a circle: two answers that must not be mistaken */
 .studio .dir-act[data-act="met"] {
   color: var(--sig-ok);
@@ -3774,7 +3849,54 @@ button.st-pill {
   margin-top: 6px;
 }
 
-/* the Design page's tabs: Look, Elements, Pictures */
+/* The Design page's Voices tab: who speaks with which card, then the cards. */
+.studio .vc-part + .vc-part {
+  margin-top: 32px;
+}
+.studio .vc-part-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .vc-cast td {
+  vertical-align: middle;
+}
+.studio .vc-cast .st-select {
+  min-width: 160px;
+  max-width: 100%;
+}
+.studio .vc-audio {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: 32px;
+}
+.studio .vc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.studio .vc-name {
+  font-size: 15px;
+}
+/* a state of the voice: its name, the sentence the model reads, its recordings */
+.studio .vc-state {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--line);
+}
+.studio .vc-says {
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+/* the Design page's tabs: Look, Elements, Pictures, Voices */
 .studio .dz-tabs-row {
   padding: 24px 36px 0;
 }
@@ -5363,6 +5485,7 @@ button.st-pill {
 /* takes that failed for one reason, said once */
 .studio .st-take--ng {
   grid-template-columns: 72px minmax(0, 1fr);
+  min-height: 0;
 }
 .studio .st-take-ng-mark {
   display: grid;
