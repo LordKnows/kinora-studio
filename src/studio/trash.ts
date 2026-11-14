@@ -8,7 +8,7 @@ import { deleteObject } from "./storage/r2";
 
 /* What a delete removed, kept for a while so it can be put back.
 
-   A delete of a shot, a scene, an element, some pictures or a whole project
+   A delete of a shot, a scene, an element, a take, some pictures or a whole project
    first copies every row it is about to remove (and the rows the database
    removes with it: a scene's shots, a shot's takes, a project's everything)
    into the trash as they are, then deletes as before. Restoring writes the
@@ -21,13 +21,14 @@ import { deleteObject } from "./storage/r2";
 
 export const TRASH_DAYS = 14;
 
-export type TrashKind = "shot" | "scene" | "element" | "pictures" | "project";
+export type TrashKind = "shot" | "scene" | "element" | "take" | "pictures" | "project";
 
 /** Something the delete changed outside the rows it removed, to change back on restore. */
 export type Reattach =
   | { kind: "shot_frame"; shotId: string; field: "hero_asset_id" | "end_asset_id"; assetId: string }
   | { kind: "element_ref"; elementId: string; assetId: string; view?: unknown; index: number }
-  | { kind: "style_frame"; projectId: string; assetId: string };
+  | { kind: "style_frame"; projectId: string; assetId: string }
+  | { kind: "selected_take"; shotId: string; takeId: string };
 
 type Payload = {
   rows: Array<{ table: string; row: Record<string, SqlValue> }>; reattach?: Reattach[]; files?: string[]; owner?: string; visibility?: string;
@@ -75,6 +76,7 @@ export async function snapshot(kind: Exclude<TrashKind, "pictures">, id: string)
     return { rows: [...(await rows(d, "scenes", "id = ?", [id])), ...shots, ...(shotIds.length ? await rows(d, "takes", `shot_id IN (${inList(shotIds.length)})`, shotIds) : [])] };
   }
   if (kind === "element") return { rows: await rows(d, "elements", "id = ?", [id]) };
+  if (kind === "take") return { rows: await rows(d, "takes", "id = ?", [id]) };
   /* a project: every table that hangs off it; tables an older database does not have yet are skipped */
   const out: Payload = { rows: [] };
   const project = await rows(d, "projects", "id = ?", [id]);
@@ -178,6 +180,9 @@ async function reattach(r: Reattach): Promise<void> {
       const shot = await repo.getShot(r.shotId);
       if (r.field === "hero_asset_id" && !shot.heroAssetId) await repo.updateShot(r.shotId, { heroAssetId: r.assetId });
       if (r.field === "end_asset_id" && !shot.endAssetId) await repo.updateShot(r.shotId, { endAssetId: r.assetId });
+    } else if (r.kind === "selected_take") {
+      const shot = await repo.getShot(r.shotId);
+      if (!shot.selectedTakeId) await repo.updateShot(r.shotId, { selectedTakeId: r.takeId });
     } else if (r.kind === "element_ref") {
       const el = await repo.getElement(r.elementId);
       if (el.refAssetIds.includes(r.assetId)) return;

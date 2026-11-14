@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { assertVisible } from "@/auth/scope";
 import { getDb, setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
-import { getProjectView, removeElement, removeProject, removeScene, removeShot } from "@/studio/orchestrator";
+import { getProjectView, removeElement, removeProject, removeScene, removeShot, removeTake } from "@/studio/orchestrator";
 import { deletePictures } from "@/studio/pictures";
 import * as repo from "@/studio/repo";
 import { ShotInput } from "@/studio/schemas";
@@ -170,5 +170,33 @@ describe("a whole project", () => {
     const { trashId } = await removeShot(shots[2]!);
     expect(await trash.purgeExpired(Date.now() + (trash.TRASH_DAYS + 1) * 86_400_000)).toBeGreaterThan(0);
     await expect(trash.get(trashId)).rejects.toThrow();
+  });
+});
+
+describe("a take", () => {
+  it("is deleted, loses its place as the pick, and comes back as the pick; a take that waits, or is in the cut, is kept", async () => {
+    const shotId = shots[0]!;
+    const make = async (status: "completed" | "queued") => {
+      const t = await repo.createTake({ projectId, shotId, backend: "runpod", workflow: "T2VA", prompt: "p", input: {} });
+      return status === "queued" ? t : repo.updateTake(t.id, { status: "completed", finishedAt: Date.now(), resultUrl: "https://r2/x.mp4" });
+    };
+    const waiting = await make("queued");
+    await expect(removeTake(waiting.id, alice.user)).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("waiting or rendering") });
+    await repo.updateTake(waiting.id, { status: "canceled", finishedAt: Date.now() });
+
+    const done = await make("completed");
+    await repo.updateShot(shotId, { selectedTakeId: done.id });
+    const inCut = await make("completed");
+    await repo.setTimeline(projectId, { clips: [{ shotId, takeId: inCut.id, inS: 0, outS: 5 }] } as never);
+    await expect(removeTake(inCut.id, alice.user)).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("in the cut") });
+
+    const { trashId, wasPicked } = await removeTake(done.id, alice.user);
+    expect(wasPicked).toBe(true);
+    await expect(repo.getTake(done.id)).rejects.toThrow();
+    expect((await repo.getShot(shotId)).selectedTakeId).toBeUndefined();
+    expect((await trash.listForProject(projectId)).some((e) => e.kind === "take" && e.label.includes("the pick"))).toBe(true);
+    await trash.restore(trashId);
+    expect((await repo.getTake(done.id)).status).toBe("completed");
+    expect((await repo.getShot(shotId)).selectedTakeId).toBe(done.id);
   });
 });

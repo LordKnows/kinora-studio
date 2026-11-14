@@ -965,6 +965,10 @@ export async function updateShot(id: string, patch: Partial<{
   return getShot(id);
 }
 
+export async function deleteTake(id: string): Promise<void> {
+  await (await db()).run("DELETE FROM takes WHERE id = ?", [id]);
+}
+
 export async function deleteShot(id: string): Promise<void> {
   await (await db()).run("DELETE FROM shots WHERE id = ?", [id]);
 }

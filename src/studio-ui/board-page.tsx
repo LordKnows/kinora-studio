@@ -1109,7 +1109,15 @@ function TakesPanel({ shot }: { shot: ShotView }) {
 function NgGroup({ takes }: { takes: Take[] }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
+  const undoable = useUndoable(reload);
   const newest = takes[0]!;
+  const removeAll = useAction(async () => {
+    for (const t of takes) {
+      const { trashId } = await del<{ trashId?: string }>(`/api/takes/${t.id}`);
+      undoable(trashId, tr("Deleted take {n}", { n: t.n }));
+    }
+    await reload();
+  });
   const retry = useAction(async (confirm) => {
     await post(`/api/takes/${newest.id}/retry`, { confirm });
     await reload();
@@ -1121,8 +1129,14 @@ function NgGroup({ takes }: { takes: Take[] }) {
         <strong>{tr("Takes {list} · the same failure", { list: takes.map((t) => t.n).sort((a, b) => a - b).join(", ") })}</strong>
         <span className="st-muted st-num">{tr("{workflow} · {cost} together", { workflow: newest.workflow, cost: usd(takes.reduce((n, t) => n + (t.costUsd ?? 0), 0)) })}</span>
         <div className="st-alert"><span>{newest.error ?? tr("failed")}</span></div>
-        <ErrorBanner error={retry.error} projectId={projectId} onConfirm={() => void retry.confirm()} onDismiss={retry.dismiss} />
-        <div className="st-row"><Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>{tr("Retry take {n}", { n: newest.n })}</Button></div>
+        <ErrorBanner error={retry.error ?? removeAll.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : undefined} onDismiss={() => { retry.dismiss(); removeAll.dismiss(); }} />
+        <div className="st-row">
+          <Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>{tr("Retry take {n}", { n: newest.n })}</Button>
+          <ConfirmButton size="sm" busy={removeAll.busy} confirmLabel={tr("Delete takes")} onConfirm={() => void removeAll.fire()}
+            question={tr("Delete these {n} takes? They can be put back from Recently deleted for 14 days.", { n: takes.length })}>
+            {tr("Delete these {n}", { n: takes.length })}
+          </ConfirmButton>
+        </div>
       </div>
     </div>
   );
@@ -1131,6 +1145,12 @@ function NgGroup({ takes }: { takes: Take[] }) {
 function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
+  const undoable = useUndoable(reload);
+  const removeTake = useAction(async () => {
+    const { trashId } = await del<{ trashId?: string }>(`/api/takes/${take.id}`);
+    await reload();
+    undoable(trashId, tr("Deleted take {n}", { n: take.n }));
+  });
   const [notes, setNotes] = useState(take.review?.notes ?? "");
   const [score, setScore] = useState<number | undefined>(take.review?.score);
   const [faults, setFaults] = useState<TakeFault[]>(take.review?.faults ?? []);
@@ -1214,7 +1234,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             <span>{take.error}</span>
           </div>
         )}
-        <ErrorBanner error={review.error ?? tag.error ?? select.error ?? cancel.error ?? retry.error ?? regen.error ?? cancelRegen.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : regen.error ? () => void regen.confirm() : undefined} onDismiss={() => { review.dismiss(); tag.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); regen.dismiss(); cancelRegen.dismiss(); }} />
+        <ErrorBanner error={review.error ?? tag.error ?? select.error ?? cancel.error ?? retry.error ?? regen.error ?? cancelRegen.error ?? removeTake.error} projectId={projectId} onConfirm={retry.error ? () => void retry.confirm() : regen.error ? () => void regen.confirm() : undefined} onDismiss={() => { review.dismiss(); tag.dismiss(); select.dismiss(); cancel.dismiss(); retry.dismiss(); regen.dismiss(); cancelRegen.dismiss(); }} />
         {take.status === "completed" && (
           <div className="st-row" style={{ flexWrap: "wrap", gap: 8 }}>
             {up?.status === "completed" && up.url ? (
@@ -1329,6 +1349,12 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             <a className="st-btn st-btn--quiet st-btn--sm" href={take.resultUrl} download target="_blank" rel="noreferrer">
               {tr("Download")}
             </a>
+          )}
+          {take.status !== "queued" && take.status !== "running" && !(take.upscale && (take.upscale.status === "queued" || take.upscale.status === "running")) && (
+            <ConfirmButton size="sm" busy={removeTake.busy} confirmLabel={tr("Delete take")} onConfirm={() => void removeTake.fire()}
+              question={selected ? tr("Delete take {n}, the pick of this shot? It can be put back from Recently deleted for 14 days.", { n: take.n }) : tr("Delete take {n}? It can be put back from Recently deleted for 14 days.", { n: take.n })}>
+              {tr("Delete")}
+            </ConfirmButton>
           )}
         </div>
       </div>

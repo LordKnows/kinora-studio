@@ -205,7 +205,7 @@ export const pages: Record<string, string> = {
 
   /* Recently deleted */
   "Recently deleted": "最近删除", "kept {n} days": "保留 {n} 天", "Nothing deleted in the last {n} days.": "最近 {n} 天没有删除任何东西。",
-  "shot||deleted": "镜头", "scene||deleted": "场", "element||deleted": "元素", "pictures||deleted": "图片", "project||deleted": "项目",
+  "shot||deleted": "镜头", "scene||deleted": "场", "element||deleted": "元素", "take||deleted": "镜次", "pictures||deleted": "图片", "project||deleted": "项目",
 
   /* notices */
   "Take {n} of {slate} finished": "{slate} 的镜次 {n} 拍完了", "Tell me in the background too": "在后台时也通知我", "Screen it": "去看",
