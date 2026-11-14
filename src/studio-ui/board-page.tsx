@@ -18,7 +18,6 @@ import { ApiError, del, describe, get, patch, post, put, usd } from "./api";
 import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
 import { GpuGate, gpuBlocksRender, useGpu } from "./gpu-panel";
-import { Zoomable } from "./picture-zoom";
 import { useShotSort } from "./shot-sort";
 import { plural, type T, useLang, useT } from "./i18n";
 import { CheckCircleIcon, ChevronIcon, CloseIcon, DraftIcon, ErrorIcon, InfoIcon, PlusIcon, WarningIcon } from "./icons";
@@ -835,17 +834,15 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onNudge }: {
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); onNudge(-1); }
         else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); onNudge(1); }
       }}>
-      <Zoomable url={poster} title={`${slate ?? index + 1} · ${shot.spec.intent || tr("Untitled shot")}`}>
-        <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
-          {poster ? <img src={poster} alt="" draggable={false} /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>}
-          <span className="st-shot-index">{slate ?? index + 1}</span>
-          {latest && (
-            <span className="st-shot-status">
-              <Lamp state={latest.status} label={tr(statusLabel(latest.status, latest))} />
-            </span>
-          )}
-        </button>
-      </Zoomable>
+      <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
+        {poster ? <img src={poster} alt="" draggable={false} /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>}
+        <span className="st-shot-index">{slate ?? index + 1}</span>
+        {latest && (
+          <span className="st-shot-status">
+            <Lamp state={latest.status} label={tr(statusLabel(latest.status, latest))} />
+          </span>
+        )}
+      </button>
       <div className="st-shot-body">
         <div className="st-shot-tags">
           {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
