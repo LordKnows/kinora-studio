@@ -283,6 +283,16 @@ describe("pod mode", () => {
     await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null, startedAt: Date.now() });
   });
 
+  it("adds the stop_when_done column itself on a deploy that has not applied the migration", async () => {
+    const { getDb } = await import("@/db");
+    const pod = (await repo.currentGpuPod())!;
+    await (await getDb()).run("ALTER TABLE gpu_pods DROP COLUMN stop_when_done");
+    await repo.setGpuStopWhenDone(pod.id, true);
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(true);
+    await repo.setGpuStopWhenDone(pod.id, false);
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(false);
+  });
+
   it("the director can stop the GPU", async () => {
     const pod = (await repo.currentGpuPod())!;
     await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null });

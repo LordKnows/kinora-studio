@@ -1612,7 +1612,16 @@ export async function updateGpuPod(id: string, patch: Partial<{
 }
 
 export async function setGpuStopWhenDone(id: string, on: boolean): Promise<void> {
-  await (await db()).run("UPDATE gpu_pods SET stop_when_done = ?, updated_at = ? WHERE id = ?", [on ? 1 : 0, Date.now(), id]);
+  const run = async () => (await db()).run("UPDATE gpu_pods SET stop_when_done = ?, updated_at = ? WHERE id = ?", [on ? 1 : 0, Date.now(), id]);
+  try {
+    await run();
+  } catch (caught) {
+    /* A deploy that has not had migration 0026 applied yet: add the column here (the same statement as the
+       migration), once, and go on. The migration then finds it there and is the one to be marked done. */
+    if (!/no such column: stop_when_done/i.test(caught instanceof Error ? caught.message : String(caught))) throw caught;
+    await (await db()).run("ALTER TABLE gpu_pods ADD COLUMN stop_when_done INTEGER NOT NULL DEFAULT 0");
+    await run();
+  }
 }
 
 /** Back to the pending queue: no request id, no finish time. */

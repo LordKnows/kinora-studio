@@ -1551,6 +1551,47 @@ button.st-pill {
   border-color: var(--tx);
 }
 
+/* an explanation kept out of the way: an info icon that shows it on hover or focus */
+.studio .st-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 6px;
+  color: var(--tx3);
+  cursor: help;
+}
+.studio .st-info:hover,
+.studio .st-info:focus-visible {
+  color: var(--tx);
+  outline: none;
+}
+.studio .st-info-pop {
+  display: none;
+  position: absolute;
+  z-index: 90;
+  left: -8px;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: 250px;
+  padding: 8px 10px;
+  background: var(--tx);
+  color: var(--bg);
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.45;
+  text-align: left;
+  text-transform: none;
+  white-space: normal;
+  pointer-events: none;
+}
+.studio .st-info:hover .st-info-pop,
+.studio .st-info:focus-visible .st-info-pop {
+  display: block;
+}
+
 /* ---------- alerts ---------- */
 
 .studio .st-alert {
@@ -1560,7 +1601,8 @@ button.st-pill {
   padding: 12px 14px;
   border-radius: 0;
   background: var(--s1);
-  border: 1px solid var(--line-3);
+  /* an error: always red-bordered. The variants below (a question about money, a plain note) are not errors. */
+  border: 1px solid var(--sig-err);
   font-size: 13px;
   color: var(--tx);
   animation: st-rise 0.22s var(--ease);
@@ -1571,7 +1613,7 @@ button.st-pill {
   align-self: flex-start;
   width: 18px;
   height: 18px;
-  background: var(--tx);
+  background: var(--sig-err);
   color: var(--bg);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1581,6 +1623,9 @@ button.st-pill {
 }
 .studio .st-alert--info {
   border-color: var(--line-2);
+}
+.studio .st-alert--accent {
+  border-color: var(--line-3);
 }
 .studio .st-alert--info::before {
   display: none;

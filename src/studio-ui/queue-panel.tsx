@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 import type { Job, Take } from "@/studio/types";
@@ -95,7 +95,10 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
   const gpu = useGpu();
   const gpuReload = gpu.reload;
-  const gpuUp = gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
+  /* the GPU store is the browser's: drawn after mount, so the page the server sent and the first draw agree */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const gpuUp = mounted && gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
   const stopWhenDone = useAction(async (_c, enabled: boolean) => {
     await post("/api/gpu/stop-when-done", { enabled });
     await gpu.reload();

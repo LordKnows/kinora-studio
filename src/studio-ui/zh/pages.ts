@@ -179,16 +179,13 @@ export const pages: Record<string, string> = {
   "Delete \"{name}\" and everything in it? For 14 days it can be put back from the Projects page (Recently deleted).": "删除“{name}”及其全部内容？14 天内可以在项目页（最近删除）恢复。",
   "Name, budget and who sees the film. What the director may do is on the Director page; the GPU, the library and the connection live under Machine, Library and Connect.": "名称、预算，以及谁能看到这部片子。导演能做什么在导演台页；GPU、素材库和连接分别在机器、素材库和连接页。",
   "Project name": "项目名称", "Budget cap (USD)": "预算上限（美元）",
-  "Past it, takes and exports are refused.": "超过后不再拍摄和导出。",
   "spent so far {usd}": "已花费 {usd}", "Elsewhere": "其他页面", "Delete the project": "删除项目",
   "Everything in it goes. For 14 days it can be put back from the Projects page.": "项目里的所有内容都会删除。14 天内可以在项目页恢复。",
   "Delete project": "删除项目",
   "Share this project? Every signed-in user of this studio will see its script, pictures, takes and exports, and can change them.": "共享这个项目？这个工作室里每个已登录的用户都能看到它的剧本、图片、镜次和导出，也能修改。",
   "Sharing": "共享", "Who sees it": "谁能看到", "Shared": "共享", "every signed-in user": "所有已登录用户", "Private": "私有", "only you": "仅你", "only its owner": "仅所有者",
   "Owner: {who}. ": "所有者：{who}。", "you": "你",
-  "This project is from before private projects and has no owner{rest} ": "这个项目建于私有项目功能之前，没有所有者{rest}",
   ": making it private makes it yours.": "：设为私有后就归你。", "; an admin can make it private.": "；管理员可以把它设为私有。",
-  "Private hides it from everyone else, on the web and through their connectors.": "私有：其他人在网页和连接器里都看不到。",
 
   /* Projects */
   "One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.": "一部片子一个项目。故事、美术、分镜、镜次、剪辑——按这个顺序，中间有两次批准。项目打开时是它的全片：整部片子排在一条时间线上，还有等你决定的事。",
