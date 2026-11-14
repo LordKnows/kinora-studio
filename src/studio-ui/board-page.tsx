@@ -181,12 +181,10 @@ function Board() {
         <div>
           <h1 className="st-title">{tr("Board")}</h1>
           <p className="st-subtitle">
-            {/* the shotlist's state: a green tick once approved, an amber pencil while it is a draft */}
+            {/* the shotlist's state and nothing else: a green tick once approved, an amber pencil while it is a draft */}
             <Status tone={approved ? "ok" : "warn"} icon={approved ? <CheckCircleIcon /> : <DraftIcon />}>
               {approved ? (view.delegated?.shotlist ? tr("Shotlist approved by the director") : tr("Shotlist approved")) : tr("Shotlist draft")}
             </Status>
-            {" · "}
-            {tr("Checkpoint 2. Structural edits return the shotlist to draft.")} {view.canGenerate ? tr("Ready to render.") : tr("Blocked: {list}.", { list: view.blockers.join(", ") })}
           </p>
         </div>
         <div className="st-actions">

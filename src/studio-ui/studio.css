@@ -1068,6 +1068,8 @@ button.st-pill {
   text-align: left;
   white-space: normal;
   color: var(--tx);
+  /* moved sideways by the script that keeps it on the screen (common.tsx, PopPanel) */
+  translate: var(--pop-dx, 0px) 0;
   animation: st-rise 0.16s var(--ease);
 }
 .studio .st-pop[data-align="start"] {
@@ -1087,7 +1089,8 @@ button.st-pill {
   content: "";
   position: absolute;
   top: -6px;
-  right: 18px;
+  /* the notch stays under its button when the bubble is moved */
+  right: calc(18px + var(--pop-dx, 0px));
   width: 10px;
   height: 10px;
   background: var(--s2);
@@ -1097,7 +1100,7 @@ button.st-pill {
 }
 .studio .st-pop[data-tip="true"][data-align="start"]::before {
   right: auto;
-  left: 18px;
+  left: calc(18px - var(--pop-dx, 0px));
 }
 .studio .st-pop[data-tip="true"][data-placement="above"]::before {
   top: auto;
@@ -1127,6 +1130,7 @@ button.st-pill {
     bottom: calc(70px + env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
+    translate: none;
     box-shadow: var(--shadow-3);
   }
   .studio .st-pop[data-tip="true"]::before {
@@ -1767,6 +1771,10 @@ button.st-pill {
   padding-bottom: 10px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
+}
+/* a long summary wraps the head: the scene's buttons keep to the right, where they are on a short one */
+.studio .st-scene-head > .st-row {
+  margin-left: auto;
 }
 .studio .st-scene-slug {
   font-size: 15px;

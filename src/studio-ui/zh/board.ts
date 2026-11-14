@@ -7,7 +7,6 @@ export const board: Record<string, string> = {
   "e.g. warm practicals against a cold window; red only on the scarf": "例如：暖色实景灯对冷色窗光；只有围巾是红的",
   "A colour is six hex digits after #, like #1d2430.": "颜色写成 # 加六位十六进制数，如 #1d2430。", "Clear the palette": "清除色板",
   "Deleted scene {i} · {slug}{shots}": "已删除第 {i} 场 · {slug}{shots}", " and its 1 shot": "及其 1 个镜头", " and its {n} shots": "及其 {n} 个镜头",
-  "Checkpoint 2. Structural edits return the shotlist to draft.": "第 2 道关口。改动结构会让分镜回到草稿。", "Ready to render.": "可以开拍。", "Blocked: {list}.": "卡住了：{list}。",
   "Shotlist approved by the director": "分镜已由导演代为批准", "Shotlist approved": "分镜已批准", "Shotlist draft": "分镜草稿",
   "Sketch": "草图", "Colour-block storyboard from the shotlist: sizes, 38/62 composition, blocking, scene palettes": "按分镜画的色块故事板：景别、38/62 构图、走位、各场色板",
   "Lint": "检查", "Rhythm and craft lint of the shotlist": "检查分镜的节奏和手艺",

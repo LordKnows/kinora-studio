@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ArrowUpIcon, CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
@@ -206,7 +206,10 @@ export function usePopover() {
 /** A button with a small panel that drops from it (or rises: `placement`),
     for a short form or a question asked where it was raised. `children` gets
     `close`. A press outside or Escape closes it, and only it: inside a
-    drawer, Escape does not close the drawer as well. */
+    drawer, Escape does not close the drawer as well. The panel is lined up
+    with its button's edge (`align`) and then moved sideways as far as it
+    takes to stay on the screen: a button at the left of a row that wrapped
+    would otherwise open its panel off the left edge. */
 export function Popover({ label, children, kind, size, title, busy, disabled, placement = "below", align = "end", tip, panelLabel }: {
   label: ReactNode; children: (close: () => void) => ReactNode; kind?: "default" | "primary" | "quiet" | "danger"; size?: "sm"; title?: string; busy?: boolean; disabled?: boolean;
   placement?: "below" | "above"; align?: "start" | "end";
@@ -224,10 +227,39 @@ export function Popover({ label, children, kind, size, title, busy, disabled, pl
         {label}
       </Button>
       {open && (
-        <div className="st-pop" role="dialog" aria-label={panelLabel ?? title} data-placement={placement} data-align={align} data-tip={tip ? "true" : undefined}>
+        <PopPanel label={panelLabel ?? title} placement={placement} align={align} tip={tip}>
           {children(close)}
-        </div>
+        </PopPanel>
       )}
+    </div>
+  );
+}
+
+const POP_MARGIN = 12;
+
+function PopPanel({ label, placement, align, tip, children }: { label?: string; placement: "below" | "above"; align: "start" | "end"; tip?: boolean; children: ReactNode }) {
+  const panel = useRef<HTMLDivElement>(null);
+  /* keep it inside the screen, or inside the drawer or popup it was opened in (those clip what leaves them) */
+  useLayoutEffect(() => {
+    const el = panel.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.setProperty("--pop-dx", "0px");
+      const r = el.getBoundingClientRect();
+      const box = el.closest(".st-drawer-body, .st-modal-body")?.getBoundingClientRect();
+      const left = (box?.left ?? 0) + POP_MARGIN;
+      const right = (box?.right ?? document.documentElement.clientWidth) - POP_MARGIN;
+      /* the left edge wins when the panel is wider than the room there is */
+      const dx = r.left < left ? left - r.left : r.right > right ? Math.max(left - r.left, right - r.right) : 0;
+      el.style.setProperty("--pop-dx", `${Math.round(dx)}px`);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, []);
+  return (
+    <div ref={panel} className="st-pop" role="dialog" aria-label={label} data-placement={placement} data-align={align} data-tip={tip ? "true" : undefined}>
+      {children}
     </div>
   );
 }
