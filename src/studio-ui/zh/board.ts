@@ -12,7 +12,7 @@ export const board: Record<string, string> = {
   "Lint": "检查", "Rhythm and craft lint of this scene's shots": "检查本场镜头的节奏和手艺",
   "Errors||lint": "错误", "Warnings||lint": "警告", "Notes||lint": "提示", "No errors.": "没有错误。",
   "Approve shotlist": "批准分镜", "Render batch": "批量拍摄",
-  "Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.": "给本场还没有镜次的镜头排顺序：R2VA 在前，锚定镜头在衔接镜头之前，统一估价。你确认之前什么都不会拍。",
+  "Pick this scene's shots to render: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.": "选本场要拍的镜头：R2VA 在前，锚定镜头在衔接镜头之前，统一估价。你确认之前什么都不会拍。",
   /* a batch can be called off: before it is queued, while it is being queued, and once it is rolling */
   "Cancel queued · {n}": "取消排队 · {n}", "Cancel queued": "取消排队", "Keep them": "保留", "Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled": "取消本场还在排队的镜次；正在拍的不会取消",
   "Cancel the 1 queued take of this scene? A take that is already rendering keeps going.": "取消本场排队中的 1 条镜次？已经在拍的会继续拍完。", "Cancel the {n} queued takes of this scene? A take that is already rendering keeps going.": "取消本场排队中的 {n} 条镜次？已经在拍的会继续拍完。",
@@ -42,7 +42,8 @@ export const board: Record<string, string> = {
   "Nothing to fix": "没有要改的", "Rhythm, variety, breath, links and cinematography all pass in this scene.": "这一场的节奏、变化、呼吸、衔接和摄影都通过了。", "film": "全片",
   "{n} of {m} shots ticked": "已选 {n} / {m} 个镜头", "1 pass": "1 轮", "{n} passes": "{n} 轮",
   "≈ {estimate} · {left} left": "≈ {estimate} · 剩 {left}",
-  "Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.": "现在能拍的镜头默认全选，不想拍的取消勾选即可。先拍 R2VA 镜头；衔接镜头要等它的锚点有了镜次。",
+  "Shots without a take are ticked. Ones already rendered or in the queue are listed, not ticked; tick one to render it again. R2VA shots go first; a shot linked to another waits until its anchor has a take.": "还没有镜次的镜头默认勾选；已经拍过或在队列里的也列出来，但不勾选，要重拍就勾上。先拍 R2VA 镜头；衔接镜头要等它的锚点有了镜次。",
+  "In the queue": "在队列里", "Rendered": "已拍", "A take of this shot is queued or rendering": "这个镜头有镜次在排队或正在拍", "This shot already has a finished take": "这个镜头已经有拍好的镜次",
   "Probe first.": "先试拍。", "Tick only the probe ({n})": "只选试拍镜头（{n}）", "No shot of this scene can render now.": "这一场现在没有能拍的镜头。",
   "Tick all": "全选", "Ask where everything stands, now": "立刻问一遍现在的进度", "Stop the GPU when everything has rendered": "全部渲染完后自动关闭 GPU", "Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.": "只关一次：所有项目的镜次、导出和图片都做完之后关闭 GPU。下一轮要再勾一次。", "Start the GPU first": "先启动 GPU", "Roll the take now": "现在拍这一条", "rendering": "拍摄", "rolling a take": "拍镜次", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
   "Mode": "模式", "Link": "衔接", "Fragile": "易错", "Weak spots of AI video found in the shot (fragile.* in Lint)": "镜头里 AI 视频容易出错的地方（检查里的 fragile.*）", "Est.": "估价", " · careful": " · 谨慎",

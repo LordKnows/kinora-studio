@@ -285,7 +285,7 @@ function Board() {
                 {warns > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{warns}</span>}
               </Button>
               {approved && scene.shots.length > 0 && (
-                <Button size="sm" onClick={() => setBatchScene(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
+                <Button size="sm" onClick={() => setBatchScene(scene.id)} title={tr("Pick this scene's shots to render: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
                   {tr("Render batch")}
                 </Button>
               )}
@@ -388,7 +388,9 @@ function Board() {
         );
       })()}
       {batchOf && (
-        <BatchPopup key={batchOf.id} sceneId={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} slateOf={slateOf} onClose={() => setBatchScene(null)} />
+        <BatchPopup key={batchOf.id} sceneId={batchOf.id} taken={new Map(batchOf.shots.flatMap((sh): Array<[string, "rendered" | "queued"]> => (
+          sh.takes.some((t) => t.status === "queued" || t.status === "running") ? [[sh.id, "queued"]] : sh.takes.some((t) => t.status === "completed") ? [[sh.id, "rendered"]] : []
+        ))) } title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} slateOf={slateOf} onClose={() => setBatchScene(null)} />
       )}
     </div>
   );
@@ -398,7 +400,7 @@ function Board() {
    ticked to begin with, so the whole pass is rolled or only some of it; a shot of a later pass
    waits for its anchor and cannot be ticked yet. The way out: Cancel before anything is queued,
    Stop and cancel while the ticked shots are being queued (the takes queued so far are cancelled). */
-function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; title: string; slateOf: Map<string, string>; onClose: () => void }) {
+function BatchPopup({ sceneId, title, slateOf, taken, onClose }: { sceneId: string; title: string; slateOf: Map<string, string>; taken: Map<string, "rendered" | "queued">; onClose: () => void }) {
   const { projectId } = useProjectContext();
   const tr = useT();
   const [batch, setBatch] = useState<BatchPlan | null>(null);
@@ -408,7 +410,7 @@ function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; tit
   const planIt = useCallback(async () => {
     setFailed(null);
     try {
-      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
+      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: false, sceneId }));
     } catch (caught) {
       setFailed(caught);
     }
@@ -434,17 +436,18 @@ function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; tit
         </div>
       </Modal>
     );
-  return <BatchPicker title={title} batch={batch} slateOf={slateOf} onClose={onClose} />;
+  return <BatchPicker title={title} batch={batch} slateOf={slateOf} taken={taken} onClose={onClose} />;
 }
 
-function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
+function BatchPicker({ title, batch, slateOf, taken, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; taken: Map<string, "rendered" | "queued">; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   /* nothing renders while the GPU is not running: it is started from here, and the button waits for it */
   const gpu = useGpu();
   const gpuOff = gpu.state ? gpuBlocksRender(gpu.state) : !gpu.error;
   const now = batch.passes[0] ?? [];
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(now));
+  /* the shots that have no take are ticked; the ones already rendered (or in the queue) are listed, not ticked: tick one to render it again */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(now.filter((id) => !taken.has(id))));
   const stopPass = useRef(false);
   const [stopping, setStopping] = useState(false);
   /* what became of each shot that was asked for: being queued, queued (as which take), or why it was not */
@@ -509,6 +512,7 @@ function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch:
         <td className="bp-tick"><input type="checkbox" aria-label={tr("Render {shot}", { shot: sh?.label ?? id })} checked={!waits && !over && picked.has(id)} disabled={waits || over || render.busy} onChange={() => tick(id)} /></td>
         <td>
           <span className="st-num">{slateOf.get(id) ?? ""}</span> {sh?.label.split(" · ").slice(1).join(" · ") || sh?.label || id}
+          {taken.has(id) && <> <span className="st-chip" title={taken.get(id) === "queued" ? tr("A take of this shot is queued or rendering") : tr("This shot already has a finished take")}>{taken.get(id) === "queued" ? tr("In the queue") : tr("Rendered")}</span></>}
           {had && <div className="bp-result" data-state={had.state} role="status">{had.state === "queuing" ? tr("Queuing…") : had.state === "failed" ? tr("Not queued: {why}", { why: had.detail ?? "" }) : had.detail}</div>}
         </td>
         <td className="st-num">{sh?.mode && tr(sh.mode)}</td>
@@ -525,7 +529,7 @@ function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch:
           <span className="st-h2">{tr("{n} of {m} shots ticked", { n: chosen.length, m: now.length })}{batch.passes.length > 1 ? ` · ${plural(tr, batch.passes.length, "1 pass", "{n} passes")}` : ""}</span>
           <span className="st-num" style={{ color: price <= batch.remainingCapUsd ? "var(--tx)" : "var(--sig-err)" }}>{tr("≈ {estimate} · {left} left", { estimate: usd(price), left: usd(batch.remainingCapUsd) })}</span>
         </div>
-        <span className="st-muted">{tr("Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.")}</span>
+        <span className="st-muted">{tr("Shots without a take are ticked. Ones already rendered or in the queue are listed, not ticked; tick one to render it again. R2VA shots go first; a shot linked to another waits until its anchor has a take.")}</span>
         {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
         <GpuGate what={tr("rendering")} />
         <ErrorBanner error={render.error} projectId={projectId} onConfirm={() => void render.confirm()} onDismiss={render.dismiss} />
