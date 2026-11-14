@@ -115,8 +115,6 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
         </label>
       )}
       {empty && <p className="st-muted">{t("Nothing is queued or under way.")}</p>}
-      {/* Refresh sits by the Cancel all of the first heading there is; with nothing queued, on its own */}
-      {empty && <div className="q-acts q-acts--alone">{refreshButton}</div>}
 
       {(takes.length > 0 || regens.length > 0) && (
         <section className="q-sec" aria-label={t("Takes")}>
@@ -160,10 +158,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <div className="q-head">
             <h3>{t("Pictures")}</h3>
             <span className="st-num">{jobs.length}</span>
-            <span className="q-acts">
-              {takes.length + regens.length === 0 && refreshButton}
-              {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
-            </span>
+            {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
           </div>
           {lined.map((job) => (
             <div key={job.id} className="q-row">
