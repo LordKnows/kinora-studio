@@ -981,6 +981,12 @@ class ComfyClient:
         """Stop whatever ComfyUI is executing right now."""
         self.http.post(f"{self.base}/interrupt", timeout=10)
 
+    def is_running(self, prompt_id: str) -> bool:
+        """Whether ComfyUI is executing this prompt now (not waiting in its queue, not finished)."""
+        res = self.http.get(f"{self.base}/queue", timeout=10)
+        res.raise_for_status()
+        return any(len(item) > 1 and item[1] == prompt_id for item in (res.json().get("queue_running") or []))
+
     def free(self) -> None:
         """Unload ComfyUI's cached models and free its GPU memory (the voice worker needs room)."""
         self.http.post(f"{self.base}/free", json={"unload_models": True, "free_memory": True}, timeout=30)
@@ -993,11 +999,14 @@ class ComfyClient:
         deadline = time.monotonic() + timeout_s
         while time.monotonic() < deadline:
             if should_cancel and should_cancel():
-                for stop in (lambda: self.dequeue(prompt_id), self.interrupt):
-                    try:
-                        stop()
-                    except requests.RequestException:
-                        pass
+                # Only this prompt is stopped. /interrupt stops whatever ComfyUI runs, and one sent when
+                # this prompt is already gone would be left standing to hit the next take in the line.
+                try:
+                    self.dequeue(prompt_id)
+                    if self.is_running(prompt_id):
+                        self.interrupt()
+                except requests.RequestException:
+                    pass
                 raise JobError("cancelled")
             res = self.http.get(f"{self.base}/history/{prompt_id}", timeout=30)
             res.raise_for_status()

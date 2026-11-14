@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
@@ -174,6 +174,28 @@ describe("pod mode", () => {
     expect(run.url).toBe("https://pod1-8000.proxy.runpod.net/run");
     expect(String((run.body as { webhook: string }).webhook)).toContain("https://studio.example/api/runpod/hook?id=");
     expect((await gpu.getGpuState()).status).toBe("running");
+  });
+
+  it("hands a waiting take over as soon as the pod answers, without waiting for the sweep", async () => {
+    scenario.healthy = false;
+    const { takes } = await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp);
+    const id = takes[0]!.id;
+    expect(takes[0]!.requestId).toBeUndefined();
+    /* still not answering: it keeps waiting */
+    await orch.handOverWaitingTakes([id]);
+    expect((await repo.getTake(id)).requestId).toBeUndefined();
+    /* answering: the call that a project's event stream makes submits it (the pod is asked at most every 8 s) */
+    scenario.healthy = true;
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 10_000 });
+    await orch.handOverWaitingTakes([id]);
+    vi.useRealTimers();
+    expect((await repo.getTake(id)).requestId).toMatch(/^job-/);
+    /* and a second hand-over of the same take submits nothing more */
+    const runs = calls.filter((c) => c.url.endsWith("/run")).length;
+    await orch.handOverWaitingTakes([id]);
+    expect(calls.filter((c) => c.url.endsWith("/run")).length).toBe(runs);
+    /* nothing of this test is left in flight for the ones after it */
+    await orch.cancelTake(id);
   });
 
   it("does not auto-stop while work is in flight, and stops once idle", async () => {

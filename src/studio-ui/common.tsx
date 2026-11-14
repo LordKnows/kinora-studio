@@ -497,11 +497,14 @@ export function Skeleton({ height = 120 }: { height?: number }) {
   return <div className="st-skeleton" style={{ height }} />;
 }
 
-/** A take's status in a word. English: the components that show it pass it through t(). */
-export function statusLabel(status: string): string {
+/** A take's status in a word. English: the components that show it pass it through t().
+    "Queued" is two states: not yet handed to the GPU (it is starting, or the hand-over is due), and
+    handed over and waiting its turn on the GPU, which does one take at a time. Say which, when the
+    take is known. */
+export function statusLabel(status: string, take?: { requestId?: string | null }): string {
   switch (status) {
     case "queued":
-      return "GPU starting";
+      return take ? (take.requestId ? "Next in line on the GPU" : "Waiting for the GPU") : "Waiting for the GPU";
     case "running":
       return "Rendering";
     case "completed":

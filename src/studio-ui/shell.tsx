@@ -319,8 +319,11 @@ function usePanel(): { panel: PanelName | null; open: (panel: PanelName | null) 
   const panel = PANELS.find((p) => p === params.get("panel")) ?? null;
   const open = (next: PanelName | null) => {
     const q = new URLSearchParams(params.toString());
-    if (next) q.set("panel", next);
-    else q.delete("panel");
+    if (next) {
+      q.set("panel", next);
+      /* the shot's drawer and a panel both open from the right: one at a time, the one just asked for */
+      if (q.has("shot")) { q.delete("shot"); q.delete("tab"); }
+    } else q.delete("panel");
     router.replace(q.size ? `${pathname}?${q}` : (pathname ?? "/"), { scroll: false });
   };
   return { panel, open };

@@ -94,7 +94,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                 <Link className="st-link" href={`/p/${projectId}/board?shot=${s.shot.id}&tab=takes`}><span className="st-num">{s.slate}</span> · {t("Take {n}", { n: take.n })}</Link>
                 <span className="st-muted">{s.shot.spec.intent}</span>
                 <span className="st-row q-state">
-                  <Lamp state={take.status} label={t(statusLabel(take.status))} />
+                  <Lamp state={take.status} label={t(statusLabel(take.status, take))} />
                   <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
                 </span>
               </div>

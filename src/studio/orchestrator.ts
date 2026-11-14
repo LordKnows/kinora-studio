@@ -487,6 +487,13 @@ export async function submitTake(take: Take): Promise<Take> {
   try {
     const webhook = await signHookUrl(config.publicUrl(), "/api/runpod/hook", rp.webhookSecret, take.id);
     const { requestId } = await backend.submit(take.input, { webhook, executionTimeoutMs: rp.executionTimeoutMs });
+    /* Two submitters can meet on one take (the sweep and a page's stream): the one that comes second
+       calls its own job off, so a take is rendered, and paid for, once. */
+    const now = await repo.getTake(take.id);
+    if (now.requestId || now.status !== "queued") {
+      await backend.cancel(requestId).catch(() => undefined);
+      return now;
+    }
     return await repo.updateTake(take.id, { requestId, status: "queued", error: null });
   } catch (caught) {
     const unreachable = caught instanceof StudioError && Boolean((caught.details as { unreachable?: boolean } | undefined)?.unreachable);
@@ -547,6 +554,20 @@ export async function applyTakeStatus(take: Take, status: BackendStatus): Promis
     case "timeout":
       return repo.updateTake(take.id, { status: "timeout", error: "worker execution timed out", finishedAt: Date.now() });
   }
+}
+
+let lastGpuLook = 0;
+
+/** The takes that wait for the GPU, handed over as soon as it is up: the pod is asked where it stands
+    (not more than once in 8 s) and each take goes to it. Called from a project's event stream, so a take
+    does not wait for the minute-by-minute sweep once the pod answers. */
+export async function handOverWaitingTakes(takeIds: string[]): Promise<void> {
+  if (takeIds.length === 0) return;
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured() && Date.now() - lastGpuLook > 8_000) {
+    lastGpuLook = Date.now();
+    await gpu.refreshGpu().catch(() => undefined);
+  }
+  for (const id of takeIds) await refreshTake(id).catch(() => undefined);
 }
 
 /** Poll the backend for a take that is still in flight. Cheap enough to call

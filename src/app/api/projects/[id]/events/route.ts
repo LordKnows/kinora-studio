@@ -34,6 +34,12 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
             /* Project-level state the pages read (GPT Image switch and quota, approvals, envelope, delegation) and image jobs. */
             const [project, jobs] = await Promise.all([repo.getProject(id), repo.listProjectJobs(id, 30)]);
             /* Ask the pod about the takes in flight so their progress (stage, step, ETA) rides along. */
+            /* A take that has not been handed to the GPU yet goes as soon as the GPU answers. */
+            const waiting = takes.filter((t) => t.status === "queued" && !t.requestId);
+            if (waiting.length) {
+              await orch.handOverWaitingTakes(waiting.map((t) => t.id));
+              takes = await repo.listProjectTakes(id);
+            }
             const inFlight = takes.filter((t) => ((t.status === "queued" || t.status === "running") && t.requestId) || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running"))).slice(0, 4);
             if (inFlight.length) {
               await Promise.all(inFlight.map((t) => orch.refreshTake(t.id).catch(() => undefined)));

@@ -88,7 +88,7 @@ function useShotAddress() {
   return {
     openId: params.get("shot"),
     tab: params.get("tab"),
-    open: (id: string) => go((q) => { q.set("shot", id); q.delete("tab"); }, "push"),
+    open: (id: string) => go((q) => { q.set("shot", id); q.delete("tab"); q.delete("panel"); }, "push"),
     close: () => go((q) => { q.delete("shot"); q.delete("tab"); }, "replace"),
     setTab: (tab: string) => go((q) => q.set("tab", tab), "replace"),
   };
@@ -771,7 +771,7 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onNudge }: {
           <span className="st-shot-index">{slate ?? index + 1}</span>
           {latest && (
             <span className="st-shot-status">
-              <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
+              <Lamp state={latest.status} label={tr(statusLabel(latest.status, latest))} />
             </span>
           )}
         </button>
@@ -1110,7 +1110,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           <video className="st-video" src={playUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
         ) : (
           <div className="st-video" style={{ display: "grid", placeItems: "center" }}>
-            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
+            <Lamp state={take.status} label={tr(statusLabel(take.status, take))} />
           </div>
         )}
       </div>
@@ -1118,7 +1118,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
         <div className="st-row st-row--between">
           <div className="st-row">
             <strong className="st-num">{tr("Take {n}", { n: take.n })}</strong>
-            <Lamp state={take.status} label={tr(statusLabel(take.status))} />
+            <Lamp state={take.status} label={tr(statusLabel(take.status, take))} />
             {selected && <span className="st-chip" aria-pressed="true">{tr("Selected")}</span>}
           </div>
           <span className="st-muted st-num">

@@ -53,7 +53,7 @@ export const board: Record<string, string> = {
   "Show large": "看大图", "Picture": "图片",
   "continuous (long take)": "连续（长镜头）", "bridge (first → last frame)": "桥接（首帧 → 尾帧）", "insert, then return": "插入后返回", "shot / reverse shot": "正反打", "montage beat": "蒙太奇段落", "loop (periodic motion)": "循环（周期运动）",
   "insert_return": "插入后返回", "match_cut": "匹配剪辑", "jump_cut": "跳切",
-  "GPU starting": "GPU 启动中", "Rendering": "正在拍", "Done": "完成", "Failed": "失败", "Canceled": "已取消", "Timed out": "超时",
+  "Waiting for the GPU": "等 GPU", "Next in line on the GPU": "在 GPU 队列里", "GPU starting": "GPU 启动中", "Rendering": "正在拍", "Done": "完成", "Failed": "失败", "Canceled": "已取消", "Timed out": "超时",
 
   /* the shot drawer */
   "Deleted shot {slate}{takes}": "已删除镜头 {slate}{takes}", " and its 1 take": "及其 1 条镜次", " and its {n} takes": "及其 {n} 条镜次",
