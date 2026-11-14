@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
@@ -16,6 +16,8 @@ import { RemakePanel } from "./remake-panel";
 import { del, describe, get, patch, post, put, usd } from "./api";
 import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
+import { Zoomable } from "./picture-zoom";
+import { useShotSort } from "./shot-sort";
 import { plural, type T, useLang, useT } from "./i18n";
 import { CheckCircleIcon, ChevronIcon, CloseIcon, DraftIcon, ErrorIcon, InfoIcon, PlusIcon, WarningIcon } from "./icons";
 import { lintLine } from "./zh/lint";
@@ -203,13 +205,21 @@ function Board() {
     document.getElementById(`scene-${addedScene}`)?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     setAddedScene(null);
   }, [addedScene, view]);
-  const reorder = useAction(async (_c, scene: SceneView, from: number, to: number) => {
+  /* a scene's shots in a new order: from a card dragged to its place, or nudged one place with Alt and an arrow key */
+  const reorder = useAction(async (_c, sceneId: string, ids: string[]) => {
+    await post("/api/shots/reorder", { sceneId, shotIds: ids });
+    await reload();
+  });
+  const reorderFire = reorder.fire;
+  const sort = useShotSort(useCallback((sceneId: string, ids: string[]) => reorderFire(sceneId, ids), [reorderFire]));
+  const nudge = (scene: SceneView, from: number, by: -1 | 1) => {
+    const to = from + by;
+    if (to < 0 || to >= scene.shots.length || reorder.busy) return;
     const ids = scene.shots.map((s) => s.id);
     const [moved] = ids.splice(from, 1);
     ids.splice(to, 0, moved!);
-    await post("/api/shots/reorder", { sceneId: scene.id, shotIds: ids });
-    await reload();
-  });
+    void reorder.fire(scene.id, ids);
+  };
   const removeScene = useAction(async (_c, scene: SceneView) => {
     const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
@@ -322,20 +332,25 @@ function Board() {
           {isFolded ? null : scene.shots.length === 0 ? (
             <Empty title={tr("Empty scene")} />
           ) : (
-            <div className="st-shots" id={`scene-shots-${scene.id}`}>
-              {scene.shots.map((shot, i) => (
-                <ShotCard
-                  key={shot.id}
-                  shot={shot}
-                  index={i}
-                  slate={`${view.scenes.indexOf(scene) + 1}·${i + 1}`}
-                  lint={lintByShot.get(shotKey(scene.slug, i)) ?? []}
-                  open={openId === shot.id}
-                  onOpen={() => setOpenId(shot.id)}
-                  onUp={i > 0 ? () => void reorder.fire(scene, i, i - 1) : undefined}
-                  onDown={i < scene.shots.length - 1 ? () => void reorder.fire(scene, i, i + 1) : undefined}
-                />
-              ))}
+            <div className="st-shots" id={`scene-shots-${scene.id}`} data-sorting={sort.drag?.sceneId === scene.id ? "true" : undefined}>
+              {/* while a card is held, the grid shows the order it would leave */}
+              {(sort.drag?.sceneId === scene.id ? sort.drag.order.map((id) => scene.shots.find((s) => s.id === id)).filter((s): s is ShotView => Boolean(s)) : scene.shots).map((shot, i) => {
+                const was = scene.shots.indexOf(shot);
+                return (
+                  <ShotCard
+                    key={shot.id}
+                    shot={shot}
+                    index={i}
+                    slate={`${view.scenes.indexOf(scene) + 1}·${i + 1}`}
+                    lint={lintByShot.get(shotKey(scene.slug, was)) ?? []}
+                    open={openId === shot.id}
+                    onOpen={() => setOpenId(shot.id)}
+                    held={sort.drag?.id === shot.id}
+                    onPress={sort.press(scene.id, scene.shots.map((s) => s.id), shot.id)}
+                    onNudge={(by) => nudge(scene, was, by)}
+                  />
+                );
+              })}
             </div>
           )}
         </section>
@@ -668,7 +683,12 @@ function linkLabel(spec: ShotView["spec"]): string | null {
   return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
 }
 
-function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
+/* A shot on the board. It is picked up by holding it (shot-sort.ts) and dragged to its place in the
+   scene; from the keyboard, Alt with an arrow key moves it one place. */
+function ShotCard({ shot, index, slate, lint, open, onOpen, held, onPress, onNudge }: {
+  shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void;
+  held?: boolean; onPress?: (e: ReactPointerEvent) => void; onNudge?: (by: -1 | 1) => void;
+}) {
   const tr = useT();
   const lang = useLang();
   const latest = shot.takes[0];
@@ -678,21 +698,27 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
   const problems = lint.filter((w) => w.severity !== "info").length;
   const { loras: library } = useLoraLibrary();
   const loraChips = shotLoraChips(shot.spec, library);
+  /* Poster order: the selected take, else the newest completed take, else the hero frame. */
+  const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
   return (
-    <div className="st-shot" aria-pressed={open}>
-      <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
-        {(() => {
-          /* Poster order: the selected take, else the newest completed take, else the hero frame. */
-          const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
-          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>;
-        })()}
-        <span className="st-shot-index">{slate ?? index + 1}</span>
-        {latest && (
-          <span className="st-shot-status">
-            <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
-          </span>
-        )}
-      </button>
+    <div className="st-shot" aria-pressed={open} data-shot-id={shot.id} data-scene-id={shot.sceneId} data-held={held ? "true" : undefined} title={tr("Hold and drag to reorder (Alt + arrow keys from the keyboard)")}
+      onPointerDown={onPress}
+      onKeyDown={(e) => {
+        if (!e.altKey || !onNudge) return;
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); onNudge(-1); }
+        else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); onNudge(1); }
+      }}>
+      <Zoomable url={poster} title={`${slate ?? index + 1} · ${shot.spec.intent || tr("Untitled shot")}`}>
+        <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
+          {poster ? <img src={poster} alt="" draggable={false} /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>}
+          <span className="st-shot-index">{slate ?? index + 1}</span>
+          {latest && (
+            <span className="st-shot-status">
+              <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
+            </span>
+          )}
+        </button>
+      </Zoomable>
       <div className="st-shot-body">
         <div className="st-shot-tags">
           {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
@@ -710,14 +736,6 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
         <div className="st-shot-facts">
           {tr("{d} s · {mode} · {move}", { d: shot.spec.durationS, mode: tr(shot.spec.mode), move: tr(shot.spec.camera.move.replace("_", " ")) })}
           {shot.takes.length > 0 && plural(tr, shot.takes.length, " · 1 take · {cost}", " · {n} takes · {cost}", { cost: usd(cost) })}
-        </div>
-        <div className="st-row" style={{ gap: 4 }}>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onUp} onClick={onUp} aria-label={tr("Move up")}>
-            ↑
-          </button>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onDown} onClick={onDown} aria-label={tr("Move down")}>
-            ↓
-          </button>
         </div>
       </div>
     </div>

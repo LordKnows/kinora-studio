@@ -1772,6 +1772,53 @@ button.st-pill {
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
+/* A picture with the button in its corner that shows it large (picture-zoom.tsx). The button sits at
+   the bottom right, clear of the marks a thumbnail carries in its other corners. */
+.studio .st-zoomable {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.studio .st-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: var(--plate);
+  color: var(--plate-ink);
+  opacity: 0.72;
+  transition: opacity 0.13s ease;
+}
+.studio .st-zoom:hover,
+.studio .st-zoom:focus-visible {
+  opacity: 1;
+}
+/* a shot card can be picked up: holding it must not select its text or open the picture's menu */
+.studio .st-shot[data-shot-id] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.studio .st-shot[data-held="true"] {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--tx);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-3);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+/* while one is held the others do not react to the pointer passing over them */
+.studio .st-shots[data-sorting="true"] .st-shot:not([data-held="true"]) {
+  opacity: 0.72;
+}
+.studio .st-shots[data-sorting="true"] .st-shot * {
+  pointer-events: none;
+}
 /* the heading is the fold: a chevron and the scene's name */
 .studio .st-scene-fold {
   display: inline-flex;

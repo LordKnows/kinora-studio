@@ -52,6 +52,10 @@ export function MenuIcon({ size = 16 }: IconProps) {
 export function GridIcon({ size = 14 }: IconProps) {
   return <Svg size={size}><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></Svg>;
 }
+/* two corners pulled apart: show it large */
+export function ExpandIcon({ size = 13 }: IconProps) {
+  return <Svg size={size}><path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9" /></Svg>;
+}
 export function ArrowLeftIcon({ size = 13 }: IconProps) {
   return <Svg size={size}><path d="M13 8H3M7 4L3 8l4 4" /></Svg>;
 }

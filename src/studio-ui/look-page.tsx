@@ -12,7 +12,8 @@ import { Button, Chips, ErrorBanner, Field, Lamp, UploadButton, useAction } from
 import { useT } from "./i18n";
 import { StyleGallery } from "./library-page";
 import { useProjectContext } from "./shell";
-import { PictureCaption, pictureTitle, useDeletePictures } from "./pictures";
+import { Zoomable } from "./picture-zoom";
+import { PictureCaption, pictureSize, pictureTitle, useDeletePictures } from "./pictures";
 import { ImageButton } from "./image-tools";
 
 function clampSeconds(raw: string): number | null {
@@ -299,11 +300,13 @@ function StyleFrameTile({ asset, chosen, onChoose, onDeleted }: { asset: Asset; 
   const del = useDeletePictures(onDeleted);
   return (
     <div className="st-pic">
-      <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? t("The style frame (click to clear)") : t("Use as the style frame")}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
-        {chosen && <span className="st-thumb-tag">{t("STYLE")}</span>}
-      </button>
+      <Zoomable url={asset.url} title={pictureTitle(asset)} facts={pictureSize(asset)}>
+        <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? t("The style frame (click to clear)") : t("Use as the style frame")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
+          {chosen && <span className="st-thumb-tag">{t("STYLE")}</span>}
+        </button>
+      </Zoomable>
       <div className="st-row" style={{ gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
         <span style={{ flex: 1, minWidth: 0 }}>
           <PictureCaption asset={asset} />

@@ -12,6 +12,7 @@ import { describeVerdict, faceLabel, pictureTag, type FaceVerdict } from "@/stud
 
 import { type T, plural, useT } from "./i18n";
 import { EditRegion, reviewChip, useImagingOn } from "./image-tools";
+import { Zoomable } from "./picture-zoom";
 import { useUndoable } from "./notices";
 import { useProjectContext } from "./shell";
 
@@ -25,6 +26,11 @@ type Listed = Asset & { uses: Use[] };
 
 export function pictureTitle(a: Asset): string {
   return [a.handle, a.name].filter(Boolean).join(" · ") || a.id;
+}
+
+/** A picture's pixel size and what it was drawn for, under the picture shown large. */
+export function pictureSize(a: Asset): string | undefined {
+  return [a.width ? `${a.width}×${a.height}` : "", a.meta.purpose ? String(a.meta.purpose) : ""].filter(Boolean).join(" · ") || undefined;
 }
 
 /* face-verdict.ts words its verdicts and tag titles in English; these put
@@ -289,12 +295,14 @@ function Pictures() {
             const review = reviewChip(a);
             return (
               <div key={a.id} className="st-pic">
-                <button type="button" className="st-thumb" aria-pressed={sel.selecting ? on : open === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : setOpen(open === a.id ? null : a.id))} title={pictureTitle(a)}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
-                  {sel.selecting && <SelectMark on={on} />}
-                  {a.uses.length > 0 && <span className="st-thumb-tag">{t("IN USE")}</span>}
-                </button>
+                <Zoomable url={a.kind === "image" ? a.url : undefined} title={pictureTitle(a)} facts={pictureSize(a)}>
+                  <button type="button" className="st-thumb" aria-pressed={sel.selecting ? on : open === a.id} onClick={() => (sel.selecting ? sel.toggle(a.id) : setOpen(open === a.id ? null : a.id))} title={pictureTitle(a)}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
+                    {sel.selecting && <SelectMark on={on} />}
+                    {a.uses.length > 0 && <span className="st-thumb-tag">{t("IN USE")}</span>}
+                  </button>
+                </Zoomable>
                 <PictureCaption asset={a} extra={review || chip || twins.has(a.id) ? <span className={chip?.fail ? "st-warn" : "st-muted"}>{[review && t(review), chip?.text, twins.has(a.id) ? `= ${twins.get(a.id)!.handle ?? t("another")}` : undefined].filter(Boolean).join(" · ")}</span> : undefined} />
               </div>
             );
@@ -320,8 +328,10 @@ function Pictures() {
               <span className="st-muted">{t("The edit is a new picture next to this one; choose it where you need it (a shot's frame, an element sheet).")}</span>
             </>
           ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={current.url} alt={pictureTitle(current)} style={{ width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 0 }} />
+            <Zoomable url={current.kind === "image" ? current.url : undefined} title={pictureTitle(current)} facts={pictureSize(current)}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={current.url} alt={pictureTitle(current)} style={{ display: "block", width: "100%", maxHeight: 520, objectFit: "contain", background: "#000", borderRadius: 0 }} />
+            </Zoomable>
           )}
           {current.kind === "image" && editing !== current.id && (
             <div className="pic-verdict">
