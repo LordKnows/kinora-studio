@@ -103,7 +103,7 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
   }
 
   if (view.project.budgetCapUsd > 0 && view.project.spentUsd > view.project.budgetCapUsd) {
-    out.push({ key: "budget", count: 1, title: t("budget cap passed"), detail: t("No new take will render until the cap is raised."), action: { label: t("Project settings"), href: `${base}/settings` } });
+    out.push({ key: "budget", count: 1, title: t("budget cap passed"), detail: t("No new take will render until the cap is raised."), action: { label: t("Project settings"), href: `${base}?panel=settings` } });
   }
   return out;
 }

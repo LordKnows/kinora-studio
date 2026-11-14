@@ -1,0 +1,142 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef } from "react";
+
+import type { ProjectView } from "@/studio/orchestrator";
+import type { Job, Take } from "@/studio/types";
+
+import { del, get, post } from "./api";
+import { Button, ErrorBanner, Lamp, statusLabel, useAction, whenT } from "./common";
+import { filmShots } from "./film";
+import { useT } from "./i18n";
+import { useProjectContext } from "./shell";
+
+/* The queue: everything of this project that is waiting or under way and
+   costs money or a painter's time — takes on the GPU, regenerations, and
+   pictures — each with a way to call it off. It opens beside any page
+   (?panel=queue), from the Queue button of the project bar, whose number is
+   how many are in it. */
+
+const ACTIVE = (s: string) => s === "queued" || s === "running";
+
+/** The project's image jobs that are queued or being drawn. Asked for when the project loads, every
+    few seconds while any is under way or the panel is open, and now and then otherwise. */
+export function useImageQueue(projectId: string, watching: boolean, onJobs: (jobs: Job[]) => void): () => Promise<void> {
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const load = useCallback(async () => {
+    let active: Job[] = [];
+    try {
+      active = (await get<{ jobs: Job[] }>(`/api/projects/${projectId}/images`)).jobs.filter((j) => ACTIVE(j.status));
+      onJobs(active);
+    } catch {
+      /* keep what was last known */
+    }
+    return active.length;
+  }, [projectId, onJobs]);
+  useEffect(() => {
+    let stopped = false;
+    const tick = async () => {
+      const n = await load();
+      if (!stopped) timer.current = setTimeout(() => void tick(), n > 0 || watching ? 5_000 : 30_000);
+    };
+    void tick();
+    return () => {
+      stopped = true;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [load, watching]);
+  return async () => { await load(); };
+}
+
+/** What a picture job is drawing, in a few words. */
+function jobLabel(job: Job, t: ReturnType<typeof useT>): string {
+  const i = job.input as { label?: string; purpose?: string; op?: string };
+  return i.label || (i.purpose ? t(i.purpose.replaceAll("_", " ")) : i.op ? t(i.op) : t("picture"));
+}
+
+export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | null; jobs: Job[]; refreshJobs: () => Promise<void> }) {
+  const t = useT();
+  const { projectId, reload } = useProjectContext();
+  const shots = view ? filmShots(view) : [];
+  const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })));
+  const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })));
+
+  const cancelTakes = useAction(async (_c, list: Take[]) => {
+    for (const take of list) await post(`/api/takes/${take.id}/cancel`);
+    await reload();
+  });
+  const cancelRegen = useAction(async (_c, take: Take) => {
+    await del(`/api/takes/${take.id}/regenerate`);
+    await reload();
+  });
+  const cancelJobs = useAction(async (_c, list: Job[]) => {
+    for (const job of list) await post(`/api/jobs/${job.id}/cancel`);
+    await refreshJobs();
+  });
+  const empty = takes.length === 0 && regens.length === 0 && jobs.length === 0;
+
+  return (
+    <div className="side-body">
+      <ErrorBanner error={cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); }} />
+      {empty && <p className="st-muted">{t("Nothing is queued or under way.")}</p>}
+
+      {(takes.length > 0 || regens.length > 0) && (
+        <section className="q-sec" aria-label={t("Takes")}>
+          <div className="q-head">
+            <h3>{t("Takes")}</h3>
+            <span className="st-num">{takes.length + regens.length}</span>
+            {takes.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(takes.map((x) => x.take))}>{t("Cancel all {n}", { n: takes.length })}</Button>}
+          </div>
+          {takes.map(({ s, take }) => (
+            <div key={take.id} className="q-row">
+              <div className="q-what">
+                <Link className="st-link" href={`/p/${projectId}/board?shot=${s.shot.id}&tab=takes`}><span className="st-num">{s.slate}</span> · {t("Take {n}", { n: take.n })}</Link>
+                <span className="st-muted">{s.shot.spec.intent}</span>
+                <span className="st-row q-state">
+                  <Lamp state={take.status} label={t(statusLabel(take.status))} />
+                  <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
+                </span>
+              </div>
+              <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>
+            </div>
+          ))}
+          {regens.map(({ s, take }) => (
+            <div key={`up-${take.id}`} className="q-row">
+              <div className="q-what">
+                <Link className="st-link" href={`/p/${projectId}/board?shot=${s.shot.id}&tab=takes`}><span className="st-num">{s.slate}</span> · {t("Take {n}", { n: take.n })}</Link>
+                <span className="st-row q-state">
+                  <Lamp state={take.upscale!.status} label={t("Regenerate {res}: {status}", { res: take.upscale!.resolution.toUpperCase(), status: t(take.upscale!.status) })} />
+                </span>
+              </div>
+              <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {jobs.length > 0 && (
+        <section className="q-sec" aria-label={t("Pictures")}>
+          <div className="q-head">
+            <h3>{t("Pictures")}</h3>
+            <span className="st-num">{jobs.length}</span>
+            {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
+          </div>
+          {jobs.map((job) => (
+            <div key={job.id} className="q-row">
+              <div className="q-what">
+                <strong>{jobLabel(job, t)}</strong>
+                <span className="st-row q-state">
+                  <Lamp state={job.status} label={job.status === "running" || job.claimedAt ? t("drawing||picture job") : t("waiting for a painter")} />
+                  <span className="st-muted st-num">{typeof job.input.model === "string" ? `${job.input.model} · ` : ""}{whenT(t, job.createdAt)}</span>
+                </span>
+              </div>
+              <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire([job])}>{t("Cancel")}</Button>
+            </div>
+          ))}
+          <p className="st-muted">{t("A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.")}</p>
+        </section>
+      )}
+    </div>
+  );
+}

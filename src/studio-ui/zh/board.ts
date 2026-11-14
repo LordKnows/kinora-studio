@@ -25,7 +25,7 @@ export const board: Record<string, string> = {
   "One sentence: what this shot is for, at least {n} characters. It is the line on the shot's card; the rest is filled in under Edit.": "一句话说明这个镜头是干什么的，至少 {n} 个字。它就是镜头卡片上的那行字；其余内容到“编辑”里补全。",
   "e.g. the courier crosses the wet square": "例如：信使穿过湿漉漉的广场", "Saved as shot {slate}": "已保存为镜头 {slate}", "Add another": "再加一个", "The shot was not saved": "镜头没有保存",
   "The lint could not be loaded.": "检查结果加载失败。", "Compiling…": "编译中…", "Regenerating at a higher resolution is switched off for now": "高分辨率重生成暂时停用",
-  "Add shot": "加镜头", "Delete scene": "删除这一场", "Delete": "删除", "Empty scene": "空场",
+  "Add shot": "加镜头", "Fold all": "全部折叠", "Unfold all": "全部展开", "Show this scene's shots": "展开这一场的镜头", "Fold this scene": "折叠这一场", "Delete scene": "删除这一场", "Delete": "删除", "Empty scene": "空场",
   "New scene slug, e.g. alley-chase": "新场次的简称，如 alley-chase", "Add scene": "加一场", "Add a scene at the end of the board": "在分镜末尾加一场",
   "Scene slug": "场次简称", "A short name for the scene. It is added at the end of the board, and the shotlist goes back to draft.": "场次的简短名字。会加在分镜末尾，分镜回到草稿。",
   "Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.": "删除第 {i} 场 · {slug}{shots}？14 天内可以在设置页的“最近删除”里恢复。",

@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { createContext, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { BRAND } from "@/brand";
 import type { ProjectView } from "@/studio/orchestrator";
+import type { Job } from "@/studio/types";
 
 import { usd } from "./api";
 import { BrandMark, BrandWord } from "./brand-mark";
@@ -17,6 +18,8 @@ import { plural, setLang, useLang, useT } from "./i18n";
 import { MenuIcon } from "./icons";
 import { NavIcon, type NavIconName } from "./nav-icons";
 import { NoticeProvider, useTakeNotices } from "./notices";
+import { QueuePanel, useImageQueue } from "./queue-panel";
+import { SettingsPanel } from "./settings-page";
 import { useProject } from "./use-project";
 
 /* Two shells. TopBar is on every surface: brand, where you are, the GPU
@@ -25,8 +28,10 @@ import { useProject } from "./use-project";
    Board, Cut), each with its icon, the budget, the three tools (Screening,
    the Director panel, Settings), and the line — the whole film to scale, one
    segment a shot, which is how you move through a project. On phones the
-   five pages sit in a bar at the bottom. The Director panel opens beside any
-   page (?panel=director): what you asked for, what it decided, the reviews. GlobalShell is
+   five pages sit in a bar at the bottom. Three panels open beside any page,
+   one at a time (?panel=): the Director (what you asked for, what it decided,
+   the reviews), the Queue (the takes and pictures that wait or are under way,
+   each with a way to call it off) and Settings (the project's own). GlobalShell is
    the plain frame for the home, Canvas, Library, Machine and Connect pages.
    Pages read the shared project view through ProjectContext so one SSE
    subscription serves the whole project. The Screening page is lights down:
@@ -171,7 +176,8 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
     }
     return null;
   };
-  const settingsHref = `${base}/settings`;
+  /* the pictures that are queued or being drawn: the Queue button counts them, its panel lists them */
+  const [imageJobs, setImageJobs] = useState<Job[]>([]);
   /* the director is at work while takes are rolling: its chair's back turns red */
   const rolling = shots.reduce((n, s) => n + s.shot.takes.filter((x) => x.status === "queued" || x.status === "running").length, 0);
   const name = view?.project.name ?? (loading ? "…" : "Project");
@@ -190,7 +196,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
         <div className="sc-meter">{meter}</div>
         {readiness && <div className="st-nav-menu-ready">{readiness}</div>}
       </div>
-      <Link href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>{t("Project settings")}</Link>
+      <Link href={`${pathname ?? base}?panel=settings`}>{t("Project settings")}</Link>
     </nav>
   );
   const items = PROJECT_NAV.map((item) => {
@@ -224,12 +230,12 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
                   <span className="sc-tool-label">{t("Screen")}</span>
                 </Link>
                 <Suspense fallback={<span className="sc-tool"><NavIcon name="director" on={rolling > 0} /><span className="sc-tool-label">{t("Director")}</span></span>}>
-                  <DirectorToggle rolling={rolling} />
+                  <PanelToggle panel="queue" icon="queue" label={t("Queue")} on={rolling + imageJobs.length > 0} count={rolling + imageJobs.length}
+                    title={rolling + imageJobs.length ? t("{takes} take(s) and {pictures} picture(s) queued or under way", { takes: rolling, pictures: imageJobs.length }) : t("The takes and pictures that wait or are under way; cancel any")} />
+                  <PanelToggle panel="director" icon="director" label={t("Director")} on={rolling > 0}
+                    title={rolling ? plural(t, rolling, "The director is at work: 1 take is rolling", "The director is at work: {n} takes are rolling") : t("What you asked the director for, what it decided, the reviews")} />
+                  <PanelToggle panel="settings" icon="settings" label={t("Settings")} title={t("This project's name, budget, sharing and what the director may do")} />
                 </Suspense>
-                <Link className="sc-tool" href={settingsHref} aria-current={pathname === settingsHref ? "page" : undefined}>
-                  <NavIcon name="settings" on={pathname === settingsHref} />
-                  <span className="sc-tool-label">{t("Settings")}</span>
-                </Link>
               </div>
             </div>
           </div>
@@ -241,7 +247,7 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
         </div>
       )}
       <Suspense fallback={null}>
-        <DirectorDrawer projectId={projectId} view={view} rolling={rolling} />
+        <Panels projectId={projectId} view={view} rolling={rolling} imageJobs={imageJobs} onJobs={setImageJobs} />
         <WhereFrom room={`${base}/screening`} into={lastPage} />
       </Suspense>
       <main className="st-main st-main--project">
@@ -273,60 +279,76 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
   );
 }
 
-/** The address with the Director panel open or closed (?panel=director), the rest of the query kept. */
-function useDirectorPanel(): { open: boolean; setOpen: (open: boolean) => void } {
+type PanelName = "director" | "queue" | "settings";
+const PANELS: PanelName[] = ["director", "queue", "settings"];
+
+/** Which panel is open beside the page (?panel=director | queue | settings), the rest of the query kept. One at a time. */
+function usePanel(): { panel: PanelName | null; open: (panel: PanelName | null) => void } {
   const params = useSearchParams();
   const pathname = usePathname();
   const router = useRouter();
-  const open = params.get("panel") === "director";
-  const setOpen = (next: boolean) => {
+  const panel = PANELS.find((p) => p === params.get("panel")) ?? null;
+  const open = (next: PanelName | null) => {
     const q = new URLSearchParams(params.toString());
-    if (next) q.set("panel", "director");
+    if (next) q.set("panel", next);
     else q.delete("panel");
     router.replace(q.size ? `${pathname}?${q}` : (pathname ?? "/"), { scroll: false });
   };
-  return { open, setOpen };
+  return { panel, open };
 }
 
-function DirectorToggle({ rolling }: { rolling: number }) {
-  const t = useT();
-  const { open, setOpen } = useDirectorPanel();
+function PanelToggle({ panel, icon, label, title, on, count }: { panel: PanelName; icon: NavIconName; label: string; title: string; on?: boolean; count?: number }) {
+  const { panel: now, open } = usePanel();
   return (
-    <button type="button" className="sc-tool" aria-expanded={open} aria-controls="dir-drawer" onClick={() => setOpen(!open)}
-      title={rolling ? plural(t, rolling, "The director is at work: 1 take is rolling", "The director is at work: {n} takes are rolling") : t("What you asked the director for, what it decided, the reviews")}>
-      <NavIcon name="director" on={rolling > 0} />
-      <span className="sc-tool-label">{t("Director")}</span>
+    <button type="button" className="sc-tool" aria-expanded={now === panel} aria-controls="side-panel" onClick={() => open(now === panel ? null : panel)} title={title}>
+      <NavIcon name={icon} on={on ?? now === panel} />
+      <span className="sc-tool-label">{label}</span>
+      {count ? <span className="sc-tool-count st-num">{count}</span> : null}
     </button>
   );
 }
 
-/* The Director panel, beside any page: what you asked for (requirements),
-   what it decided (overturn any), the cold-reader reviews. What it may do
-   without asking is on the Settings page. */
-function DirectorDrawer({ projectId, view, rolling }: { projectId: string; view: ProjectView | null; rolling: number }) {
+/* The panel beside the page: the Director's log, the Queue, or the project's Settings. */
+function Panels({ projectId, view, rolling, imageJobs, onJobs }: { projectId: string; view: ProjectView | null; rolling: number; imageJobs: Job[]; onJobs: (jobs: Job[]) => void }) {
   const t = useT();
-  const { open, setOpen } = useDirectorPanel();
+  const { panel, open } = usePanel();
+  const refresh = useImageQueue(projectId, panel === "queue", onJobs);
   useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    if (!panel) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") open(null); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
-  if (!open) return null;
+  if (!panel) return null;
+  const title = panel === "director" ? t("Director") : panel === "queue" ? t("Queue") : t("Project settings");
   return (
-    <aside id="dir-drawer" className="dir-drawer" aria-label={t("Director")}>
+    <aside id="side-panel" className="dir-drawer" data-panel={panel} aria-label={title}>
       <div className="dir-drawer-head">
-        <NavIcon name="director" on={rolling > 0} size={22} />
-        <h2>{t("Director")}</h2>
-        <button type="button" className="st-iconbtn dir-drawer-close" aria-label={t("Close")} onClick={() => setOpen(false)}>×</button>
+        <NavIcon name={panel} on={panel === "director" ? rolling > 0 : panel === "queue" ? rolling + imageJobs.length > 0 : false} size={22} />
+        <h2>{title}</h2>
+        {/* the panel covers the bar's own buttons, so the way to the other two panels is here */}
+        <div className="dir-drawer-switch" role="group" aria-label={t("Panels")}>
+          {PANELS.map((p) => (
+            <button key={p} type="button" aria-pressed={p === panel} aria-label={p === "director" ? t("Director") : p === "queue" ? t("Queue") : t("Project settings")} title={p === "director" ? t("Director") : p === "queue" ? t("Queue") : t("Project settings")} onClick={() => open(p)}>
+              <NavIcon name={p} size={18} />
+            </button>
+          ))}
+        </div>
+        <button type="button" className="st-iconbtn dir-drawer-close" aria-label={t("Close")} onClick={() => open(null)}>×</button>
       </div>
-      <div className="dir-drawer-status">
-        {rolling
-          ? <span className="st-lamp" data-state="running">{plural(t, rolling, "1 take is rolling", "{n} takes are rolling")}</span>
-          : view && <span className="st-lamp" data-state="draft">{t("Nothing is rolling · last change {when}", { when: whenT(t, view.project.updatedAt) })}</span>}
-        <Link className="st-link" href={`/p/${projectId}/settings`}>{t("What it may do")}</Link>
-      </div>
-      <DirectorPanel projectId={projectId} part="log" />
+      {panel === "director" && (
+        <>
+          <div className="dir-drawer-status">
+            {rolling
+              ? <span className="st-lamp" data-state="running">{plural(t, rolling, "1 take is rolling", "{n} takes are rolling")}</span>
+              : view && <span className="st-lamp" data-state="draft">{t("Nothing is rolling · last change {when}", { when: whenT(t, view.project.updatedAt) })}</span>}
+            <button type="button" className="st-link st-link--btn" onClick={() => open("settings")}>{t("What it may do")}</button>
+          </div>
+          <DirectorPanel projectId={projectId} part="log" />
+        </>
+      )}
+      {panel === "queue" && <QueuePanel view={view} jobs={imageJobs} refreshJobs={refresh} />}
+      {panel === "settings" && <SettingsPanel onDone={() => open(null)} />}
     </aside>
   );
 }
@@ -349,24 +371,48 @@ function TakeWatch({ view, base }: { view: ProjectView | null; base: string }) {
 /* The line: the film to scale. A gap before a segment is a cut, none is a
    continuous join; a heavier edge starts a scene. The shot in the address
    (?shot=) is where you are, and is the red one. */
+/* More shots than this and the line no longer fits them all: it keeps this many to a screen and scrolls sideways. */
+const SHOTS_ON_THE_LINE = 30;
+
 export function FilmLine({ projectId, shots }: { projectId: string; shots: FilmShot[] }) {
   const here = useSearchParams().get("shot");
   const t = useT();
   const total = filmSeconds(shots);
+  const scroller = useRef<HTMLDivElement>(null);
+  const long = shots.length > SHOTS_ON_THE_LINE;
+  /* a long line: the wheel moves it sideways, and the shot you are on is brought to its middle */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !long) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [long]);
+  useEffect(() => {
+    const el = scroller.current;
+    const seg = el?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (el && seg && long) el.scrollLeft = seg.offsetLeft - (el.clientWidth - seg.offsetWidth) / 2;
+  }, [here, long, shots.length]);
   return (
     <nav className="sc-line" aria-label={t("Film")}>
-      <div className="sc-line-track">
-        {shots.map((s) => {
-          const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
-          const state = s.shot.id === here ? "here" : rolling ? "rolling" : s.picked ? "picked" : s.shot.takes.some((t) => t.status === "completed") ? "taken" : "planned";
-          return (
-            <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
-              data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
-              title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || t("Untitled shot")}`}>
-              {s.slate}
-            </Link>
-          );
-        })}
+      <div className="sc-line-scroll" ref={scroller} data-long={long ? "true" : undefined}>
+        <div className="sc-line-track" style={long ? { width: `${(shots.length / SHOTS_ON_THE_LINE) * 100}%` } : undefined}>
+          {shots.map((s) => {
+            const rolling = s.shot.takes.some((t) => t.status === "queued" || t.status === "running");
+            const state = s.shot.id === here ? "here" : rolling ? "rolling" : s.picked ? "picked" : s.shot.takes.some((t) => t.status === "completed") ? "taken" : "planned";
+            return (
+              <Link key={s.shot.id} href={`/p/${projectId}/board?shot=${s.shot.id}`} className="sc-seg" style={{ flexGrow: s.durationS }} data-state={state} data-scene={s.firstOfScene ? "true" : undefined}
+                data-join={s.linkIn === "continuous" ? "true" : undefined} aria-current={s.shot.id === here ? "true" : undefined}
+                title={`${s.slate} · ${tc(s.startS)}–${tc(s.startS + s.durationS)} · ${s.shot.spec.intent || t("Untitled shot")}`}>
+                {s.slate}
+              </Link>
+            );
+          })}
+        </div>
       </div>
       <span className="sc-line-end st-num">{tc(total)}</span>
     </nav>

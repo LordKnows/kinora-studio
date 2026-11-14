@@ -23,6 +23,7 @@ export const MOVED_PAGES: Array<[string, string]> = [
   ["timeline", "/cut"],
   ["finals", "/cut"],
   ["director", "?panel=director"],
+  ["settings", "?panel=settings"],
 ];
 
 export default nextConfig;

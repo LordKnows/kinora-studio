@@ -1772,6 +1772,32 @@ button.st-pill {
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
+/* the heading is the fold: a chevron and the scene's name */
+.studio .st-scene-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  text-align: left;
+}
+.studio .st-scene-fold:hover .st-scene-slug {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.studio .st-scene-fold svg {
+  flex: none;
+  color: var(--tx2);
+  transition: transform 0.15s ease;
+}
+.studio .st-scene-fold[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+.studio .st-scene[data-folded="true"] {
+  margin-top: 14px;
+}
+.studio .st-scene[data-folded="true"] .st-scene-head {
+  margin-bottom: 0;
+}
 /* a long summary wraps the head: the scene's buttons keep to the right, where they are on a short one */
 .studio .st-scene-head > .st-row {
   margin-left: auto;
@@ -3353,8 +3379,29 @@ button.st-pill {
   font-size: 18px;
   font-weight: 800;
 }
-.studio .dir-drawer-close {
+.studio .dir-drawer-switch {
   margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line-3);
+}
+.studio .dir-drawer-switch button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--tx2);
+}
+.studio .dir-drawer-switch button + button {
+  border-left: 1px solid var(--line-3);
+}
+.studio .dir-drawer-switch button:hover {
+  background: var(--hover);
+}
+.studio .dir-drawer-switch button[aria-pressed="true"] {
+  background: var(--s3);
+  color: var(--tx);
+}
+.studio .dir-drawer-close {
   font-size: 20px;
   line-height: 1;
 }
@@ -3367,6 +3414,78 @@ button.st-pill {
   gap: 8px;
   padding: 12px 22px 14px;
   font-size: 13px;
+}
+/* the Queue and Settings panels: one scrolling column under the panel's head */
+.studio .dir-drawer[data-panel="settings"] {
+  width: min(520px, 100vw);
+}
+.studio .side-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 22px calc(24px + env(safe-area-inset-bottom));
+}
+.studio .side-body::-webkit-scrollbar {
+  display: none;
+}
+.studio .side-body > * {
+  flex: none;
+}
+/* the queue: a heading a kind, a row a job, its Cancel at the right */
+.studio .q-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.studio .q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .q-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+.studio .q-head .st-num {
+  color: var(--tx3);
+}
+.studio .q-head .st-btn {
+  margin-left: auto;
+}
+.studio .q-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--s1);
+  border: 1px solid var(--line-2);
+}
+.studio .q-what {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.studio .q-state {
+  gap: 10px;
+}
+/* how many are in the queue, on its button */
+.studio .sc-tool-count {
+  min-width: 18px;
+  padding: 0 5px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
 }
 .studio .dir-log {
   flex: 1 1 0;
@@ -3603,10 +3722,22 @@ button.st-pill {
   padding: 0 20px 8px;
   min-height: 34px;
 }
-.studio .sc-line-track {
+.studio .sc-line-scroll {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+}
+/* a film of more than thirty shots: thirty or so to a screen, the rest a scroll away */
+.studio .sc-line-scroll[data-long="true"] {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  overscroll-behavior-x: contain;
+}
+.studio .sc-line-track {
+  position: relative;
   display: flex;
+  min-width: 100%;
   border-right: 1px solid var(--line-3);
 }
 .studio .sc-line-end {

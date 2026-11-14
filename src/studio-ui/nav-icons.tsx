@@ -9,7 +9,7 @@
 
 type Layers = { stroke?: string; ground?: string; dots?: string; accent: string; pin?: string };
 
-export type NavIconName = "reel" | "story" | "design" | "board" | "cut" | "screen" | "director" | "settings";
+export type NavIconName = "reel" | "story" | "design" | "board" | "cut" | "screen" | "queue" | "director" | "settings";
 
 const ICONS: Record<NavIconName, Layers> = {
   /* a film reel, the film running off it; its last card is the frame at the lens */
@@ -43,6 +43,11 @@ const ICONS: Record<NavIconName, Layers> = {
   screen: {
     stroke: "M4.5 3.75L19.5 3.75A2 2 0 0 1 21.5 5.75L21.5 14.25A2 2 0 0 1 19.5 16.25L4.5 16.25A2 2 0 0 1 2.5 14.25L2.5 5.75A2 2 0 0 1 4.5 3.75ZM12 16.25V20.25M8.5 20.25H15.5",
     accent: "M10.4 7.6L14.9 10L10.4 12.4Z",
+  },
+  /* a stack of jobs: the one on top is the one under way, the line below is what still waits */
+  queue: {
+    stroke: "M5.5 10.5L18.5 10.5A1.5 1.5 0 0 1 20 12L20 14A1.5 1.5 0 0 1 18.5 15.5L5.5 15.5A1.5 1.5 0 0 1 4 14L4 12A1.5 1.5 0 0 1 5.5 10.5ZM4.75 19.5H19.25",
+    accent: "M5.5 3.5L18.5 3.5A1.5 1.5 0 0 1 20 5L20 7A1.5 1.5 0 0 1 18.5 8.5L5.5 8.5A1.5 1.5 0 0 1 4 7L4 5A1.5 1.5 0 0 1 5.5 3.5Z",
   },
   /* the director's chair; its back is the accent */
   director: {

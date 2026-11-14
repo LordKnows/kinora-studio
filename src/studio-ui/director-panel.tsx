@@ -225,7 +225,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       <div className="st-stack st-stack--tight">
         <strong>{t("Image generation")}</strong>
         <span className="st-muted">
-          {t("Off by default. Switched on, character sheets, first and last frames, region edits, style frames and Remake keyframes can be drawn — by the buttons on the Design page (Look and Elements), the Board and its Takes, and by the director (Claude, Grok…) — with the model picked here, the same models as Canvas. GPT Image and Qwen-Image 3.0 Pro are drawn by a painter away from the GPU (Machine page → Painters): Codex uses your ChatGPT plan, the API models are paid per picture. MiniMax H3 Image draws on the GPU pod, only while it runs.")}
+          {t("Lets the buttons and the director draw pictures with the model below. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!img || setImaging.busy} checked={!!img?.enabled} onChange={(e) => void setImaging.fire({ enabled: e.target.checked })} />
@@ -263,7 +263,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
           return (
             <div className="st-stack st-stack--tight">
               {has && family ? (
-                <Field label={t("LoRAs")} hint={t("Trained for this model; picking one applies its card's settings to every picture the director draws")} group>
+                <Field label={t("LoRAs")} hint={t("Picking one applies its card's settings to the director's pictures.")} group>
                   <LoraPicker compact family={family} adult={adult} value={loraDraft ?? (img.loras ?? []).map((l) => ({ id: l.id, strength: l.strength }))} onChange={pickLoras} />
                 </Field>
               ) : (
@@ -274,8 +274,8 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
               {adultLora && (
                 <span className="st-warn">
                   {adult
-                    ? t("{name} is 18+: the director's pictures with it are drawn only from pictures the Studio drew and the reference library — a picture that is, or was drawn from, an upload or an imported image is refused (it may be a real person).", { name: adultLora.name })
-                    : t("{name} is 18+: the director's pictures with it are drawn only from pictures the Studio drew and the reference library — a picture that is, or was drawn from, an upload or an imported image is refused (it may be a real person). 18+ is off for you now: show 18+ on the Canvas page, or the pictures are refused.", { name: adultLora.name })}
+                    ? t("{name} is 18+: it draws only from Studio pictures and the reference library; uploads and imports are refused.", { name: adultLora.name })
+                    : t("{name} is 18+: it draws only from Studio pictures and the reference library; uploads and imports are refused. 18+ is off for you: switch it on on the Canvas page, or its pictures are refused.", { name: adultLora.name })}
                 </span>
               )}
             </div>
@@ -289,8 +289,8 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
             </label>
             <span className="st-muted">
               {img.agentCanvas
-                ? t("The director may compose a character from the Canvas library — a portrait, a costume, a pose — when it decides a look is needed (compose_character), drawn with {model}{loras}, and put it on the character as its look. It counts against the image limit.", { model: img.modelLabel, loras: img.loras?.length ? t(" and the LoRAs above") : "" })
-                : t("Off: the director draws characters with element sheets only; the Canvas page stays yours.")}
+                ? t("The director may build a character's look from the Canvas library. It counts against the image limit.")
+                : t("Off: the director draws characters from element sheets only.")}
             </span>
           </div>
         )}
@@ -327,7 +327,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       <div className="st-stack st-stack--tight">
         <strong>{t("Voice generation")}</strong>
         <span className="st-muted">
-          {t("Off by default. Switched on, the director may make and use character voices: on the voice API (TokenSail, with the Worker's TOKENSAIL_API_KEY), cloned from a voice card's reference audio or designed from its description with CosyVoice; or with Qwen3-TTS VoiceDesign on the Studio's GPU pod, which speaks each line from the card's description with the line's delivery as the emotion, several takes for you to pick from. For off-screen lines, inner monologue and audition samples; audio is transcribed to check pronunciation. The budget counts characters spoken (TokenSail bills per character; a GPU job counts each take).")}
+          {t("Lets the director make character voices and speak lines with the model below, up to the character budget. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!voice || setVoicing.busy} checked={!!voice?.enabled} onChange={(e) => void setVoicing.fire({ enabled: e.target.checked })} />
@@ -356,7 +356,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       <div className="st-stack st-stack--tight">
         <strong>{t("Spend envelope")}</strong>
         <span className="st-muted">
-          {t("Inside it the director renders a shot without asking — only when a fresh reviewer passed that exact prompt and those frames, and never a re-run of a rejected take. Every spend lands in the decision log. Script and shotlist approvals stay yours.")}
+          {t("Inside it the director renders reviewed shots without asking. Every spend is logged under Decisions.")}
         </span>
         {ap?.active ? (
           <div className="st-row st-row--between">
@@ -379,7 +379,7 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
       <div className="st-stack st-stack--tight">
         <strong>{t("Delegated approval")}</strong>
         <span className="st-muted">
-          {t("Off by default: you approve the script and the shotlist yourself. Switched on, the director may approve for you — the script only after a fresh reviewer passed the current text, the shotlist only with the script approved and no lint errors. Each approval appears under Decisions; overturn it and the checkpoint goes back to draft.")}
+          {t("Lets the director approve for you: the script after a fresh review passes, the shotlist with no lint errors. Overturn any under Decisions. Off by default.")}
         </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!deleg || delegate.busy} checked={!!deleg?.script} onChange={(e) => void delegate.fire({ script: e.target.checked, shotlist: !!deleg?.shotlist })} />

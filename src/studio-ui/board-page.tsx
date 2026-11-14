@@ -92,8 +92,31 @@ function useShotAddress() {
   };
 }
 
+/* Which scenes are folded to their heading: kept per project in this browser, so a long board opens the way it was left. */
+function useFoldedScenes(projectId: string): [Set<string>, (next: Set<string>) => void] {
+  const key = `studio.board.folded.${projectId}`;
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      setFolded(new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]));
+    } catch {
+      setFolded(new Set());
+    }
+  }, [key]);
+  const set = useCallback((next: Set<string>) => {
+    setFolded(next);
+    try {
+      localStorage.setItem(key, JSON.stringify([...next]));
+    } catch {
+      /* private mode: the folds hold for this page only */
+    }
+  }, [key]);
+  return [folded, set];
+}
+
 function Board() {
   const { projectId, view, reload } = useProjectContext();
+  const [folded, setFolded] = useFoldedScenes(projectId);
   const tr = useT();
   const lang = useLang();
   const undoable = useUndoable(reload);
@@ -220,6 +243,11 @@ function Board() {
           </p>
         </div>
         <div className="st-actions">
+          {view.scenes.length > 1 && (
+            <Button kind="quiet" onClick={() => setFolded(folded.size >= view.scenes.length ? new Set() : new Set(view.scenes.map((s) => s.id)))}>
+              {folded.size >= view.scenes.length ? tr("Unfold all") : tr("Fold all")}
+            </Button>
+          )}
           <Popover label={<><PlusIcon size={13} />{tr("Add scene")}</>} title={tr("Add a scene at the end of the board")} panelLabel={tr("Add scene")}>
             {(close) => <AddSceneForm onAdded={(id) => { close(); setAddedScene(id); }} />}
           </Popover>
@@ -241,11 +269,18 @@ function Board() {
         const errors = found.filter((w) => w.severity === "error").length;
         const warns = found.filter((w) => w.severity === "warn").length;
         const rolling = scene.shots.flatMap((sh) => sh.takes).filter((t) => t.status === "queued" || t.status === "running").length;
+        const isFolded = folded.has(scene.id);
+        const fold = (to: boolean) => { const next = new Set(folded); if (to) next.add(scene.id); else next.delete(scene.id); setFolded(next); };
         return (
-        <section key={scene.id} id={`scene-${scene.id}`} className="st-scene">
+        <section key={scene.id} id={`scene-${scene.id}`} className="st-scene" data-folded={isFolded ? "true" : undefined}>
           <div className="st-scene-head">
             <div>
-              <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
+              {/* the heading folds the scene to this line and opens it again */}
+              <button type="button" className="st-scene-fold" aria-expanded={!isFolded} aria-controls={`scene-shots-${scene.id}`} onClick={() => fold(!isFolded)} title={isFolded ? tr("Show this scene's shots") : tr("Fold this scene")}>
+                <ChevronIcon size={12} />
+                <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
+              </button>
+              {isFolded && <span className="st-scene-summary"> ·{plural(tr, scene.shots.length, "1 shot", "{n} shots")} · {tr("{s} s", { s: scene.shots.reduce((n, sh) => n + sh.spec.durationS, 0) })}</span>}
               {scene.summary && <span className="st-scene-summary"> · {scene.summary}</span>}
               {scene.palette && (
                 <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? tr("scene palette")}>
@@ -276,7 +311,7 @@ function Board() {
                 </Button>
               ))}
               <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot at the end of this scene")} panelLabel={tr("Add shot")}>
-                {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
+                {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onSaved={() => fold(false)} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
               </Popover>
               <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
                 question={tr("Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.", { i: view.scenes.indexOf(scene) + 1, slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" })}>
@@ -284,10 +319,10 @@ function Board() {
               </ConfirmButton>
             </div>
           </div>
-          {scene.shots.length === 0 ? (
+          {isFolded ? null : scene.shots.length === 0 ? (
             <Empty title={tr("Empty scene")} />
           ) : (
-            <div className="st-shots">
+            <div className="st-shots" id={`scene-shots-${scene.id}`}>
               {scene.shots.map((shot, i) => (
                 <ShotCard
                   key={shot.id}
@@ -516,7 +551,7 @@ function AddSceneForm({ onAdded }: { onAdded: (sceneId: string) => void }) {
    on its card), and the popup says whether the save went through. */
 const SHOT_NAME_MIN = 5;
 
-function AddShotForm({ scene, sceneNumber, onOpen, onClose }: { scene: SceneView; sceneNumber: number; onOpen: (shotId: string) => void; onClose: () => void }) {
+function AddShotForm({ scene, sceneNumber, onSaved, onOpen, onClose }: { scene: SceneView; sceneNumber: number; onSaved?: () => void; onOpen: (shotId: string) => void; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   const [name, setName] = useState("");
@@ -529,6 +564,7 @@ function AddShotForm({ scene, sceneNumber, onOpen, onClose }: { scene: SceneView
     await reload();
     setSaved({ id: shot.id, slate: `${sceneNumber}·${shot.index + 1}`, name: intent });
     setName("");
+    onSaved?.();
   });
   if (saved) {
     return (
