@@ -582,17 +582,14 @@ function BatchPicker({ title, batch, slateOf, taken, onClose }: { title: string;
 
 /* Shown when Roll take is clicked while the GPU is not running: the GPU first. The roll waits for it
    and goes on from here once it runs; Close leaves nothing sent. */
-function RollGate({ onClose, onRoll }: { onClose: () => void; onRoll: () => void }) {
+function RollGate({ onClose }: { onClose: () => void }) {
   const tr = useT();
-  const gpu = useGpu();
-  const off = gpu.state ? gpuBlocksRender(gpu.state) : true;
   return (
     <Modal title={tr("Start the GPU first")} onClose={onClose}>
       <div className="st-stack">
         <GpuGate what={tr("rolling a take")} />
-        <div className="st-row st-row--between">
+        <div className="st-row">
           <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
-          <Button kind="tally" disabled={off} title={off ? tr("Start the GPU first") : undefined} onClick={onRoll}>{tr("Roll the take now")}</Button>
         </div>
       </div>
     </Modal>
@@ -1078,7 +1075,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
   }
   return (
     <div className="st-stack">
-      {gate && <RollGate onClose={() => setGate(false)} onRoll={() => { setGate(false); void generate.fire(); }} />}
+      {gate && <RollGate onClose={() => setGate(false)} />}
       <ErrorBanner error={generate.error} projectId={projectId} onConfirm={() => void generate.confirm()} onDismiss={generate.dismiss} />
       <div className="st-card st-row st-row--between">
         <div className="st-row">
