@@ -419,6 +419,15 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
 
+  /* From the page a render waits for the GPU to be running: it is started on purpose (the pod bills per hour),
+     not as a side effect of a click. The agent's confirmed take still brings the pod up itself, below. */
+  if (config.runpodMode() === "pod" && gpu.gpuConfigured() && actor.via === "web") {
+    await gpu.refreshGpu().catch(() => undefined);
+    if ((await repo.currentGpuPod())?.status !== "running") {
+      throw new StudioError("validation", "The GPU is not running. Start it first (GPU, in the top bar), then render again.", { gpuNotRunning: true });
+    }
+  }
+
   /* Pod mode: make sure the GPU is coming up. The agent has already confirmed
      the take; starting the pod is part of that spend. */
   let gpuState: gpu.GpuState | undefined;

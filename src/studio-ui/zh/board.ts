@@ -16,7 +16,6 @@ export const board: Record<string, string> = {
   /* a batch can be called off: before it is queued, while it is being queued, and once it is rolling */
   "Cancel queued · {n}": "取消排队 · {n}", "Cancel queued": "取消排队", "Keep them": "保留", "Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled": "取消本场还在排队的镜次；正在拍的不会取消",
   "Cancel the 1 queued take of this scene? A take that is already rendering keeps going.": "取消本场排队中的 1 条镜次？已经在拍的会继续拍完。", "Cancel the {n} queued takes of this scene? A take that is already rendering keeps going.": "取消本场排队中的 {n} 条镜次？已经在拍的会继续拍完。",
-  "Rendering: it cannot be cancelled": "正在拍，不能取消",
   "Take {n} queued": "镜次 {n} 已排上", "The GPU is not up yet; the takes wait for it and are handed over as soon as it answers.": "GPU 还没起来；镜次先等着，GPU 一应答就交过去。", "Queued before you stopped": "停止前已排上",
   "Queuing…": "正在排队…", "Not queued: {why}": "没排上：{why}", "1 take queued.": "已排上 1 条镜次。", "{n} takes queued.": "已排上 {n} 条镜次。", "{ok} queued, {bad} not queued.": "排上 {ok} 条，{bad} 条没排上。", "Render the rest ({n})": "拍剩下的（{n}）",
   "Stop and cancel": "停止并取消", "Stop queuing, and cancel the takes this pass has queued so far that have not begun": "停止排队，并取消这一轮已排上、还没开拍的镜次", "{shot} for {anchor}": "{shot} 等 {anchor}",
@@ -45,7 +44,7 @@ export const board: Record<string, string> = {
   "≈ {estimate} · {left} left": "≈ {estimate} · 剩 {left}",
   "Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.": "现在能拍的镜头默认全选，不想拍的取消勾选即可。先拍 R2VA 镜头；衔接镜头要等它的锚点有了镜次。",
   "Probe first.": "先试拍。", "Tick only the probe ({n})": "只选试拍镜头（{n}）", "No shot of this scene can render now.": "这一场现在没有能拍的镜头。",
-  "Tick all": "全选", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
+  "Tick all": "全选", "Start the GPU first": "先启动 GPU", "Roll the take now": "现在拍这一条", "rendering": "拍摄", "rolling a take": "拍镜次", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
   "Mode": "模式", "Link": "衔接", "Fragile": "易错", "Weak spots of AI video found in the shot (fragile.* in Lint)": "镜头里 AI 视频容易出错的地方（检查里的 fragile.*）", "Est.": "估价", " · careful": " · 谨慎",
   "Waiting for an anchor: {list}": "等锚点：{list}",
   "Render the ticked ({n})": "拍选中的（{n}）",

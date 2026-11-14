@@ -131,6 +131,12 @@ describe("pod mode", () => {
     expect(await repo.listShotTakes(shotId)).toHaveLength(0);
   });
 
+  it("a render from the page is refused while the GPU is not running; the agent's confirmed take still starts it", async () => {
+    /* the pod is "unavailable" here: no GPU to render on */
+    await expect(orch.createTakes(shotId, { n: 1, confirm: true }, web)).rejects.toMatchObject({ code: "validation", details: { gpuNotRunning: true } });
+    expect(await repo.listShotTakes(shotId)).toHaveLength(0);
+  });
+
   it("creates the pod on the allow-list and parks takes until it is healthy", async () => {
     scenario.createMode = "ok";
     scenario.healthy = false;
@@ -438,6 +444,8 @@ describe("gpu stats and loras", () => {
     /* a running pod at $2.5/h on an H100 (from the earlier tests' replacement pod) */
     scenario.podStatus = "RUNNING";
     scenario.healthy = true;
+    /* from the page a render waits for a running GPU: it is started first, as the Start button does */
+    await gpu.startGpu(web, true);
     await gpu.refreshGpu();
     const { takes } = await orch.createTakes(sid, { n: 2, confirm: true }, web);
     for (const take of takes) {

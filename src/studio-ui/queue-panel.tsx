@@ -100,7 +100,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
                 </span>
               </div>
-              {take.status === "queued" ? <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
+              {take.status === "queued" && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>}
             </div>
           ))}
           {regens.map(({ s, take }) => (
@@ -111,7 +111,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <Lamp state={take.upscale!.status} label={t("Regenerate {res}: {status}", { res: take.upscale!.resolution.toUpperCase(), status: t(take.upscale!.status) })} />
                 </span>
               </div>
-              {take.upscale!.status === "queued" ? <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
+              {take.upscale!.status === "queued" && <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>}
             </div>
           ))}
         </section>

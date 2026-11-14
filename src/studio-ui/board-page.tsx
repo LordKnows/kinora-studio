@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import type { GpuState } from "@/studio/gpu";
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
 import { TAKE_FAULTS, type ShotInput, type TakeFault } from "@/studio/schemas";
@@ -16,6 +17,7 @@ import { RemakePanel } from "./remake-panel";
 import { ApiError, del, describe, get, patch, post, put, usd } from "./api";
 import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
+import { GpuGate, gpuBlocksRender, useGpu } from "./gpu-panel";
 import { Zoomable } from "./picture-zoom";
 import { useShotSort } from "./shot-sort";
 import { plural, type T, useLang, useT } from "./i18n";
@@ -438,6 +440,9 @@ function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; tit
 function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
+  /* nothing renders while the GPU is not running: it is started from here, and the button waits for it */
+  const gpu = useGpu();
+  const gpuOff = gpu.state ? gpuBlocksRender(gpu.state) : !gpu.error;
   const now = batch.passes[0] ?? [];
   const [picked, setPicked] = useState<Set<string>>(() => new Set(now));
   const stopPass = useRef(false);
@@ -522,6 +527,7 @@ function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch:
         </div>
         <span className="st-muted">{tr("Every shot that can render now is ticked; untick the ones to leave for later. R2VA shots go first; a shot linked to another waits until its anchor has a take.")}</span>
         {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
+        <GpuGate what={tr("rendering")} />
         <ErrorBanner error={render.error} projectId={projectId} onConfirm={() => void render.confirm()} onDismiss={render.dismiss} />
         {!render.busy && finished.length > 0 && (
           <div className="bp-summary" data-state={failedN ? (queuedN ? "some" : "none") : "all"} role="status">
@@ -561,10 +567,29 @@ function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch:
             <Button kind="quiet" onClick={onClose}>{finished.length > 0 ? tr("Close") : tr("Cancel")}</Button>
           )}
           {(finished.length === 0 || chosen.length > 0) && (
-            <Button kind="tally" busy={render.busy} disabled={chosen.length === 0} onClick={() => void render.fire(chosen)}>
+            <Button kind="tally" busy={render.busy} disabled={chosen.length === 0 || gpuOff} title={gpuOff ? tr("Start the GPU first") : undefined} onClick={() => void render.fire(chosen)}>
               {finished.length > 0 ? tr("Render the rest ({n})", { n: chosen.length }) : tr("Render the ticked ({n})", { n: chosen.length })} <span className="st-btn-price">· ≈ {usd(price)}</span>
             </Button>
           )}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* Shown when Roll take is clicked while the GPU is not running: the GPU first. The roll waits for it
+   and goes on from here once it runs; Close leaves nothing sent. */
+function RollGate({ onClose, onRoll }: { onClose: () => void; onRoll: () => void }) {
+  const tr = useT();
+  const gpu = useGpu();
+  const off = gpu.state ? gpuBlocksRender(gpu.state) : true;
+  return (
+    <Modal title={tr("Start the GPU first")} onClose={onClose}>
+      <div className="st-stack">
+        <GpuGate what={tr("rolling a take")} />
+        <div className="st-row st-row--between">
+          <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
+          <Button kind="tally" disabled={off} title={off ? tr("Start the GPU first") : undefined} onClick={onRoll}>{tr("Roll the take now")}</Button>
         </div>
       </div>
     </Modal>
@@ -1023,6 +1048,23 @@ function TakesPanel({ shot }: { shot: ShotView }) {
     await post(`/api/shots/${shot.id}/takes`, { n, ...(steps ? { steps } : {}), confirm });
     await reload();
   });
+  /* A take is rolled only on a running GPU: asked at the click, and if it is not, the GPU is offered
+     (a popup to start it) and nothing is sent. */
+  const [gate, setGate] = useState(false);
+  const [looking, setLooking] = useState(false);
+  const roll = async () => {
+    setLooking(true);
+    let now: GpuState | null = null;
+    try {
+      now = await get<GpuState>("/api/gpu");
+    } catch {
+      /* unreadable: the server decides */
+    } finally {
+      setLooking(false);
+    }
+    if (gpuBlocksRender(now)) setGate(true);
+    else void generate.fire();
+  };
   const next = Math.max(0, ...shot.takes.map((t) => t.n)) + 1;
   const left = view ? view.project.budgetCapUsd - view.project.spentUsd : undefined;
   /* failures that say the same thing are one line, not a wall of them */
@@ -1035,6 +1077,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
   }
   return (
     <div className="st-stack">
+      {gate && <RollGate onClose={() => setGate(false)} onRoll={() => { setGate(false); void generate.fire(); }} />}
       <ErrorBanner error={generate.error} projectId={projectId} onConfirm={() => void generate.confirm()} onDismiss={generate.dismiss} />
       <div className="st-card st-row st-row--between">
         <div className="st-row">
@@ -1046,7 +1089,7 @@ function TakesPanel({ shot }: { shot: ShotView }) {
           </Field>
         </div>
         <div className="st-stack st-stack--tight" style={{ alignItems: "flex-end" }}>
-          <Button kind="tally" busy={generate.busy} onClick={() => void generate.fire()}>
+          <Button kind="tally" busy={generate.busy || looking} onClick={() => void roll()}>
             {n > 1 ? tr("Roll takes {a}–{b}", { a: next, b: next + n - 1 }) : tr("Roll take {n}", { n: next })}{est ? <span className="st-btn-price"> · ≈ {usd(est.usd * n)}</span> : null}
           </Button>
           <span className="st-muted st-num">
@@ -1279,7 +1322,6 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
               {tr("Cancel")}
             </Button>
           )}
-          {take.status === "running" && <span className="st-muted">{tr("Rendering: it cannot be cancelled")}</span>}
           {(take.status === "failed" || take.status === "timeout") && (
             <Button size="sm" busy={retry.busy} onClick={() => void retry.fire()}>
               {tr("Retry")}
