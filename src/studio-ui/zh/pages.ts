@@ -12,7 +12,7 @@ export const pages: Record<string, string> = {
   "just now": "刚刚", "{n} min ago": "{n} 分钟前", "{n} hr ago": "{n} 小时前", "{n} d ago": "{n} 天前",
   /* everyday words */
   "Save": "保存", "Saved": "已保存", "Cancel": "取消", "Delete": "删除", "Create": "创建", "Remove": "移除", "Undo": "撤销", "Put back": "恢复",
-  "Back": "返回", "Back to top": "返回顶部", "Try again": "重试", "Could not load this.": "加载失败。",
+  "Back": "返回", "Back to top": "返回顶部", "Back to the page you came from": "回到来时的页面", "Earlier shots": "前面的镜头", "Later shots": "后面的镜头", "Try again": "重试", "Could not load this.": "加载失败。",
   "Generate": "生成", "Rename": "改名", "Screening": "放映", "{n} s": "{n} 秒", ", ||list": "、", "; ||list": "；", "{why}.": "{why}。",
 
   /* Script */

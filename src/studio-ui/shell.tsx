@@ -15,7 +15,7 @@ import { DirectorPanel } from "./director-panel";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
 import { plural, setLang, useLang, useT } from "./i18n";
-import { MenuIcon } from "./icons";
+import { ArrowLeftIcon, MenuIcon } from "./icons";
 import { NavIcon, type NavIconName } from "./nav-icons";
 import { NoticeProvider, useTakeNotices } from "./notices";
 import { QueuePanel, useImageQueue } from "./queue-panel";
@@ -85,11 +85,48 @@ function LangSwitch() {
   );
 }
 
-export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: ReactNode }) {
+/* How many pages of the Studio this tab has been through, counted by the top bar (it is on every
+   page): Back has somewhere to go once there is more than one. */
+let pagesSeen = 0;
+let lastSeenPath: string | null = null;
+
+/* Counts the page; first in the bar, so its count is made before the Back button reads it. */
+function Trail() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (pathname === lastSeenPath) return;
+    lastSeenPath = pathname;
+    pagesSeen += 1;
+  }, [pathname]);
+  return null;
+}
+
+/* Back, on the pages of the top bar (Projects, Canvas, Library, Machine, Connect and what hangs off
+   them): to the page you came from, a film's page as a rule; to Projects when the tab opened here.
+   On Projects itself it shows only when there is a page to go back to. */
+function BackButton() {
+  const pathname = usePathname();
+  const router = useRouter();
+  const t = useT();
+  const [canGoBack, setCanGoBack] = useState(false);
+  useEffect(() => {
+    setCanGoBack(pagesSeen > 1);
+  }, [pathname]);
+  if (pathname === "/" && !canGoBack) return null;
+  return (
+    <button type="button" className="st-btn st-btn--sm st-topbar-back" onClick={() => (pagesSeen > 1 ? router.back() : router.push("/"))} title={t("Back to the page you came from")}>
+      <ArrowLeftIcon size={12} />
+      <span>{t("Back")}</span>
+    </button>
+  );
+}
+
+export function TopBar({ crumb, menuHead, back }: { crumb?: ReactNode; menuHead?: ReactNode; back?: boolean }) {
   const pathname = usePathname();
   const t = useT();
   return (
     <header className="st-topbar">
+      <Trail />
       <Link className="st-brand" href="/" aria-label={`${BRAND.name} ${BRAND.zh}`}>
         {/* the ink plate on the grey card; in the dark room (.st-lightsdown) the plate raised one step, with its edge */}
         <BrandMark className="st-brand-mark st-brand-mark--ink" size={22} />
@@ -97,6 +134,7 @@ export function TopBar({ crumb, menuHead }: { crumb?: ReactNode; menuHead?: Reac
         <BrandWord className="st-brand-name" />
         <span className="st-brand-zh" lang="zh-Hans" aria-hidden="true">{BRAND.zh}</span>
       </Link>
+      {back && <BackButton />}
       {crumb && <div className="st-topbar-crumb">{crumb}</div>}
       <div className="st-topbar-spacer" />
       <GpuMenu />
@@ -145,7 +183,7 @@ function NavMenu({ pathname, head }: { pathname: string | null; head?: ReactNode
 export function GlobalShell({ children, crumb }: { children: ReactNode; crumb?: ReactNode }) {
   return (
     <NoticeProvider>
-      <TopBar crumb={crumb} />
+      <TopBar crumb={crumb} back />
       <main className="st-main">{children}</main>
     </NoticeProvider>
   );

@@ -305,7 +305,7 @@ function Board() {
               <Popover size="sm" kind="quiet" label={tr("Palette||scene colours")} title={tr("This scene's colour script; it compiles into every shot")} panelLabel={tr("Colour script · {slug}", { slug: scene.slug })}>
                 {(close) => <PaletteForm scene={scene} onDone={close} />}
               </Popover>
-              <Button size="sm" kind={errors || warns ? "default" : "quiet"} disabled={scene.shots.length === 0} onClick={() => setLintScene(scene.id)} title={tr("Rhythm and craft lint of this scene's shots")}>
+              <Button size="sm" kind="quiet" disabled={scene.shots.length === 0} onClick={() => setLintScene(scene.id)} title={tr("Rhythm and craft lint of this scene's shots")}>
                 {tr("Lint")}
                 {errors > 0 && <span className="st-sev" data-severity="error"><ErrorIcon size={13} />{errors}</span>}
                 {warns > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{warns}</span>}

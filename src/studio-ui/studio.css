@@ -344,6 +344,19 @@
 .studio .st-topbar-spacer {
   flex: 1;
 }
+/* Back, on the pages of the top bar */
+.studio .st-topbar-back {
+  flex: none;
+  gap: 5px;
+}
+@media (max-width: 640px) {
+  .studio .st-topbar-back {
+    padding: 0 9px;
+  }
+  .studio .st-topbar-back span {
+    display: none;
+  }
+}
 .studio .st-topbar-nav {
   display: flex;
   align-items: center;
@@ -4163,9 +4176,76 @@ button.st-pill {
   height: 30px;
   border-bottom-color: var(--line-3);
 }
+/* the labels stay at the left while the staves scroll under them; the playhead passes behind */
 .studio .sc-stave-label {
   flex: 0 0 var(--sc-label);
   padding: 10px 8px 10px 0;
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--bg);
+}
+/* a film of more than five shots: five or so to a screen, the rest a scroll or a page away */
+.studio .sc-score[data-wide="true"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  overscroll-behavior-x: contain;
+}
+.studio .sc-scene-in {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+/* What is written once for a long stretch (a scene's name, its ambience, the script's opening,
+   the music line) stays in view while that stretch is on screen, instead of scrolling off with
+   its left edge. 100cqw is the width of the scrolling score. */
+.studio .sc-score[data-wide="true"] {
+  container-type: inline-size;
+}
+.studio .sc-score[data-wide="true"] .sc-band,
+.studio .sc-score[data-wide="true"] .sc-music {
+  position: sticky;
+  left: var(--sc-label);
+  width: calc(100cqw - var(--sc-label));
+}
+.studio .sc-score[data-wide="true"] .sc-scene,
+.studio .sc-score[data-wide="true"] .sc-sound > div {
+  overflow: visible;
+}
+.studio .sc-score[data-wide="true"] .sc-scene-in,
+.studio .sc-score[data-wide="true"] .sc-sound > div > span {
+  position: sticky;
+  left: calc(var(--sc-label) + 10px);
+  max-width: calc(100cqw - var(--sc-label) - 28px);
+}
+.studio .sc-score[data-wide="true"] .sc-sound > div > span {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+.studio .sc-stave--ruler .sc-stave-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.studio .sc-pager {
+  display: inline-flex;
+  border: 1px solid var(--line-3);
+}
+.studio .sc-pager button {
+  width: 24px;
+  height: 20px;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--tx2);
+}
+.studio .sc-pager button + button {
+  border-left: 1px solid var(--line-3);
+}
+.studio .sc-pager button:hover {
+  background: var(--hover);
+  color: var(--tx);
 }
 .studio .sc-stave--ruler .sc-stave-label {
   padding-top: 7px;
