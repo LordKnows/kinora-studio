@@ -559,6 +559,8 @@ type Sections = {
   intent: string;
   who: string[];
   timeline: string[];
+  /** experiments.dialogueInBeats: the serialiser ties each timed line to the beat it starts in. */
+  dialogueInBeats?: boolean;
   camera: string;
   cinematography: string[];
   dialogue: string[];
@@ -619,6 +621,7 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
   const out: Sections = {
     references: refLines, look: [], intent: spec.intent, who: [], timeline: [], camera: "", cinematography: [], dialogue: [], spoken: [], voiceRefs: [], sound: { sfx: "", ambience: "", music: "" }, constraints: [],
     official: { beats: spec.mode === "edit" ? [] : spec.beats, camera: spec.camera, frameHolds: false, spoken: [], effectiveS: h3EffectiveSeconds(spec.durationS) },
+    dialogueInBeats: !!ctx.experiments?.dialogueInBeats,
   };
 
   /* LOOK — always; style LoRAs contribute their trigger words here, the
@@ -770,6 +773,30 @@ function buildSections(ctx: CompileContext, images: WorkerImage[], workflow: Wor
    verify_handoff.py): "field: value" paragraphs separated by blank lines,
    [Shot k] segment markers, <Picture 1>/<Picture 2> for the first/last frame,
    <Subject N> for reference image N, and "N/A" for no music. */
+/* The timeline with each timed on-screen line added to the beat it starts in (the last beat takes a line that
+   starts at its end), and which of the section's lines that took (by index into `spoken`). A line without a
+   time, or starting outside every beat, is left for the end as before. */
+function placeLinesInBeats(sec: Sections): { timeline: string[]; used: Set<number> } {
+  const beats = sec.official.beats;
+  const used = new Set<number>();
+  const timeline = sec.timeline.map((line) => {
+    const k = beats.findIndex((b) => line.startsWith(`${fmt(b.from)}–${fmt(b.to)}s:`));
+    if (k < 0) return line;
+    const b = beats[k]!;
+    const isLast = k === beats.length - 1;
+    const here: string[] = [];
+    sec.official.spoken.forEach((d, i) => {
+      if (used.has(i) || d.startS === undefined) return;
+      if (d.startS >= b.from - 1e-6 && (d.startS < b.to - 1e-6 || (isLast && d.startS >= b.to - 1e-6))) {
+        here.push(d.text);
+        used.add(i);
+      }
+    });
+    return here.length ? `${line.replace(/\s+$/, "")}${/[.!?。！？]$/.test(line.trim()) ? "" : "."} ${here.join(" ")}` : line;
+  });
+  return { timeline, used };
+}
+
 function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[], format: PromptFormat): string {
   if (format === "blocks") return (sec as Sections & { blocks?: string }).blocks ?? "";
   const refs = images.filter((i) => i.role === "reference");
@@ -779,9 +806,14 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
   const music = sec.sound.music && sec.sound.music.toUpperCase() !== "N/A" ? sec.sound.music : "N/A";
   const soundscape = sentence([sec.sound.sfx !== "only what the action makes" ? sec.sound.sfx : "", sec.sound.ambience]) || "Natural room tone.";
 
+  /* experiments.dialogueInBeats: a timed line is written inside the beat it starts in, and not again after them */
+  const placed = sec.dialogueInBeats ? placeLinesInBeats(sec) : undefined;
+  const timelineLines = placed?.timeline ?? sec.timeline;
+  const spokenLeft = placed ? (sec.spoken ?? []).filter((_d, i) => !placed.used.has(i)) : (sec.spoken ?? []);
+
   /* Beats become [Shot k] segments: a new segment opens at every hard cut. */
   const segments: string[][] = [[]];
-  for (const line of sec.timeline) {
+  for (const line of timelineLines) {
     if (/^Hard cut\. /.test(line) || /: Hard cut\. /.test(line)) segments.push([]);
     segments[segments.length - 1]!.push(line.replace(": Hard cut. ", ": "));
   }
@@ -789,7 +821,7 @@ function serializePrompt(sec: Sections, workflow: Workflow, images: WorkerImage[
   const camera = `Camera: ${sec.camera}`;
   const tail = sentence([...sec.cinematography, ...sec.constraints]);
   const last = segments.length - 1;
-  const spokenIn = (k: number) => (sec.spoken ?? []).filter((d) => Math.min(d.segment < 0 ? last : d.segment, last) === k).map((d) => d.text);
+  const spokenIn = (k: number) => (spokenLeft).filter((d) => Math.min(d.segment < 0 ? last : d.segment, last) === k).map((d) => d.text);
   const shotBlocks = segments.map((lines, k) => {
     const first = k === 0 ? (hasFirst && hasLast ? "One single continuous take with no cuts that starts exactly on <Picture 1> and ends exactly on <Picture 2>." : hasFirst ? "One single continuous take with no cuts, continuing directly from <Picture 1>." : "") : "";
     return `[Shot ${k + 1}] ${sentence([k === 0 ? look : "", first, sec.edit !== undefined ? `Edit the source video: ${sec.edit}` : k === 0 ? sec.intent : "", ...(k === 0 ? sec.who : []), ...lines, ...spokenIn(k), camera, k === last ? tail : ""])}`;

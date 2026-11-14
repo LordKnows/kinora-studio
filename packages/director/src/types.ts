@@ -34,6 +34,10 @@ export interface DialogueLine {
   text: string;
   language?: string;
   delivery?: string;
+  /** onscreen (default), offscreen or inner */
+  kind?: "onscreen" | "offscreen" | "inner";
+  startS?: number;
+  endS?: number;
 }
 
 export interface Sound {

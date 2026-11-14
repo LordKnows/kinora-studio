@@ -104,7 +104,7 @@ describe("plan_ab", () => {
   it("refuses a shot that cannot carry the test, and says why", async () => {
     await expect(planAb(shotId, "restate_frame")).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("keyframe mode") });
     /* shot length is not a test: long action as two chained shots is the user's decision, and the lint asks for it */
-    expect([...director.AB_TESTS]).toEqual(["format", "restate_frame", "steps"]);
+    expect([...director.AB_TESTS]).toEqual(["format", "restate_frame", "steps", "dialogue"]);
     const { first, second } = director.splitShot((await repo.getShot(longId)).spec as never);
     expect([first.durationS, second.durationS, second.link?.type]).toEqual([6, 6, "continuous"]);
     const lint = await orch.lintProject(projectId);
