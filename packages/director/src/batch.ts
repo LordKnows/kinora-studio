@@ -45,7 +45,9 @@ export interface BatchPlan {
 
 const FRAME_LINKS = new Set<LinkType>(["continuous", "bridge", "insert_return", "reverse", "jump_cut", "match_cut"]);
 
-export function planBatch(shots: BatchShot[], budget: { capUsd: number; spentUsd: number }, opts: { perSecondUsd?: number; takesPerShot?: number; onlyMissing?: boolean } = {}): BatchPlan {
+/* `only`: plan these shots and no others (one scene of a film). The rest are still read for what they
+   are: an anchor outside the list that has a take unblocks its shot, one that has none defers it. */
+export function planBatch(shots: BatchShot[], budget: { capUsd: number; spentUsd: number }, opts: { perSecondUsd?: number; takesPerShot?: number; onlyMissing?: boolean; only?: string[] } = {}): BatchPlan {
   const perSec = opts.perSecondUsd ?? 0.02;
   const takes = opts.takesPerShot ?? 1;
   const byIndex = [...shots].sort((a, b) => a.index - b.index);
@@ -56,7 +58,8 @@ export function planBatch(shots: BatchShot[], budget: { capUsd: number; spentUsd
     const off = s.link.anchor ?? (s.link.type === "insert_return" || s.link.type === "reverse" ? -2 : -1);
     return idAt(s.index + off);
   };
-  const wanted = byIndex.filter((s) => !(opts.onlyMissing ?? true) || !s.hasTake);
+  const only = opts.only ? new Set(opts.only) : undefined;
+  const wanted = byIndex.filter((s) => (!only || only.has(s.shotId)) && (!(opts.onlyMissing ?? true) || !s.hasTake));
   const has = new Set(byIndex.filter((s) => s.hasTake).map((s) => s.shotId));
   const passes: string[][] = [];
   const deferred: { shotId: string; waitingFor: string }[] = [];

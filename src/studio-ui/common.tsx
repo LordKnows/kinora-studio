@@ -266,8 +266,10 @@ function PopPanel({ label, placement, align, tip, children }: { label?: string; 
 
 /** A button that asks before it acts: the question opens in a bubble at the
     button, with the action and a way out. For deletions. */
-export function ConfirmButton({ children, question, confirmLabel, onConfirm, kind = "quiet", size, busy, title, placement, align }: {
+export function ConfirmButton({ children, question, confirmLabel, cancelLabel, onConfirm, kind = "quiet", size, busy, title, placement, align }: {
   children: ReactNode; question: ReactNode; confirmLabel: string; onConfirm: () => void; kind?: "quiet" | "danger" | "default"; size?: "sm"; busy?: boolean; title?: string;
+  /** the way out, when "Cancel" would read as the action itself (cancelling takes) */
+  cancelLabel?: string;
   placement?: "below" | "above"; align?: "start" | "end";
 }) {
   const t = useT();
@@ -278,7 +280,7 @@ export function ConfirmButton({ children, question, confirmLabel, onConfirm, kin
           <p>{question}</p>
           <div className="st-row">
             <Button size="sm" kind="destroy" onClick={() => { close(); onConfirm(); }}>{confirmLabel}</Button>
-            <Button size="sm" kind="quiet" onClick={close}>{t("Cancel")}</Button>
+            <Button size="sm" kind="quiet" onClick={close}>{cancelLabel ?? t("Cancel")}</Button>
           </div>
         </div>
       )}

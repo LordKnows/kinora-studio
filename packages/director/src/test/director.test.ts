@@ -198,6 +198,24 @@ test("extended timeline: studio projection, totals, checks and ffmpeg graph", ()
   assert.ok(cmd.args.includes("-filter_complex"));
 });
 
+test("batch planning for some shots only: an anchor outside them unblocks with a take and defers without one", () => {
+  const shots = (aHasTake: boolean) => [
+    { shotId: "a", index: 0, durationS: 5, mode: "text" as const, link: { type: "cut" as const }, hasTake: aHasTake },
+    { shotId: "b", index: 1, durationS: 5, mode: "keyframe" as const, link: { type: "continuous" as const } },
+    { shotId: "c", index: 2, durationS: 5, mode: "text" as const, link: { type: "cut" as const } },
+  ];
+  /* the scene is b and c; a, its anchor, belongs to the scene before and has no take */
+  const waits = planBatch(shots(false), { capUsd: 10, spentUsd: 0 }, { perSecondUsd: 0.05, only: ["b", "c"] });
+  assert.deepEqual(waits.passes, [["c"]]);
+  assert.deepEqual(waits.deferred, [{ shotId: "b", waitingFor: "a" }]);
+  assert.deepEqual(waits.order, ["c"]);
+  /* with a take on a, b renders in the first pass; a is never planned */
+  const ready = planBatch(shots(true), { capUsd: 10, spentUsd: 0 }, { perSecondUsd: 0.05, only: ["b", "c"] });
+  assert.deepEqual([...ready.passes[0]].sort(), ["b", "c"]);
+  assert.equal(ready.deferred.length, 0);
+  assert.equal(ready.estimates.length, 2);
+});
+
 test("batch planning: R2VA first, anchors wait, cap check", () => {
   const plan = planBatch([
     { shotId: "a", index: 0, durationS: 10, mode: "reference", link: { type: "cut" } },

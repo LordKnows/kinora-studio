@@ -1315,8 +1315,13 @@ export const CAREFUL_FRAGILITY = 3;
     shots) with one estimate against the cap, a probe of the hardest shots to
     render first, and a tier suggestion per shot. Per-shot estimates come from
     the compiler when the shot compiles; otherwise the planner's fallback. */
-export async function planProjectBatch(projectId: string, opts?: { takesPerShot?: number; onlyMissing?: boolean }): Promise<ProjectBatch> {
+/* `sceneId`: the plan for that scene's shots alone. The other scenes are still read: a shot linked to
+   an anchor in another scene renders once that anchor has a take, and is listed as waiting until then. */
+export async function planProjectBatch(projectId: string, opts?: { takesPerShot?: number; onlyMissing?: boolean; sceneId?: string }): Promise<ProjectBatch> {
   const view = await getProjectView(projectId);
+  const scene = opts?.sceneId ? view.scenes.find((s) => s.id === opts.sceneId) : undefined;
+  if (opts?.sceneId && !scene) throw new StudioError("not_found", "no such scene in this project");
+  const mine = scene ? new Set(scene.shots.map((s) => s.id)) : undefined;
   const measured = await gpu.measuredForEstimate();
   const elements = view.elements.map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures }));
   const flat = view.scenes.flatMap((s) => s.shots.map((sh) => ({ scene: s, shot: sh })));
@@ -1325,10 +1330,13 @@ export async function planProjectBatch(projectId: string, opts?: { takesPerShot?
     const { scene, shot } = flat[index]!;
     const hasTake = Boolean(shot.selectedTake ?? shot.takes.find((t) => t.status === "completed"));
     let estimateUsd: number | undefined;
-    try {
-      estimateUsd = (await compileForShot(shot.id)).estimate.usd;
-    } catch {
-      estimateUsd = undefined;
+    /* only the shots being planned are compiled for their price */
+    if (!mine || mine.has(shot.id)) {
+      try {
+        estimateUsd = (await compileForShot(shot.id)).estimate.usd;
+      } catch {
+        estimateUsd = undefined;
+      }
     }
     const f = director.shotFragility(shot.spec as never, elements);
     shots.push({
@@ -1339,14 +1347,14 @@ export async function planProjectBatch(projectId: string, opts?: { takesPerShot?
     });
   }
   const perSecondUsd = measured.secondsPerOutputSecond && measured.usdPerHr ? (measured.secondsPerOutputSecond * measured.usdPerHr) / 3600 : undefined;
-  const plan = director.planBatch(shots as never, { capUsd: view.project.budgetCapUsd, spentUsd: view.project.spentUsd }, { perSecondUsd, takesPerShot: opts?.takesPerShot ?? 1, onlyMissing: opts?.onlyMissing ?? true });
+  const plan = director.planBatch(shots as never, { capUsd: view.project.budgetCapUsd, spentUsd: view.project.spentUsd }, { perSecondUsd, takesPerShot: opts?.takesPerShot ?? 1, onlyMissing: opts?.onlyMissing ?? true, ...(mine ? { only: [...mine] } : {}) });
   /* The probe: the one or two most fragile shots still to render that do
      not wait on an anchor. If they come out, the rest of the plan holds. */
-  const pending = shots.filter((x) => !x.hasTake && (!x.link || ["cut", "montage", "match_cut", "loop"].includes(x.link.type)) && x.fragility > 0);
+  const pending = shots.filter((x) => (!mine || mine.has(x.shotId)) && !x.hasTake && (!x.link || ["cut", "montage", "match_cut", "loop"].includes(x.link.type)) && x.fragility > 0);
   const probe = [...pending].sort((a, b) => b.fragility - a.fragility).slice(0, 2);
   return {
     ...plan,
-    shots: shots.map(({ index: _i, link, ...x }) => ({ ...x, link: link?.type })),
+    shots: shots.filter((x) => !mine || mine.has(x.shotId)).map(({ index: _i, link, ...x }) => ({ ...x, link: link?.type })),
     probe: {
       shotIds: probe.map((x) => x.shotId),
       estimateUsd: Math.round(probe.reduce((a, x) => a + (x.estimateUsd ?? 0), 0) * 100) / 100,
