@@ -2427,17 +2427,15 @@ button.st-pill {
 .studio .dir-save[data-dirty="true"] > .st-muted {
   color: var(--sig-warn);
 }
-/* Refresh: fixed at the bottom right of the panel, over whatever scrolls under it */
-.studio .q-top {
-  position: sticky;
-  bottom: 14px;
-  z-index: 2;
-  align-self: flex-end;
-  margin-top: auto;
+/* Refresh (secondary) and Cancel all, together at the right of a heading */
+.studio .q-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
-.studio .q-top .st-btn {
-  background: var(--bg);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.14);
+.studio .q-acts--alone {
+  justify-content: flex-end;
 }
 .studio .q-autostop {
   display: flex;
@@ -3810,7 +3808,7 @@ button.st-pill {
 .studio .q-head .st-num {
   color: var(--tx3);
 }
-.studio .q-head .st-btn {
+.studio .q-head > .st-btn {
   margin-left: auto;
 }
 .studio .q-row {
