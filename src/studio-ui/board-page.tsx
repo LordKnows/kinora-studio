@@ -133,9 +133,7 @@ function Board() {
   const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
   const [sketchGray, setSketchGray] = useState(false);
   const [sketchKey, setSketchKey] = useState(0);
-  const [batch, setBatch] = useState<BatchPlan | null>(null);
   const [batchScene, setBatchScene] = useState<string | null>(null);
-  const [planning, setPlanning] = useState<string | null>(null);
   /* a scene just added from the top of the page: brought into view once the board has it */
   const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
@@ -160,15 +158,6 @@ function Board() {
     }
     return m;
   }, [lint]);
-  const plan = useAction(async (_c, sceneId: string) => {
-    setPlanning(sceneId);
-    try {
-      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
-      setBatchScene(sceneId);
-    } finally {
-      setPlanning(null);
-    }
-  });
   /* a batch that is already rolling: every queued or running take of the scene is cancelled */
   const cancelScene = useAction(async (_c, scene: SceneView) => {
     for (const t of scene.shots.flatMap((sh) => sh.takes)) if (t.status === "queued" || t.status === "running") await post(`/api/takes/${t.id}/cancel`);
@@ -251,7 +240,7 @@ function Board() {
           )}
         </div>
       </div>
-      <ErrorBanner error={error ?? plan.error ?? cancelScene.error} projectId={projectId} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); cancelScene.dismiss(); }} />
+      <ErrorBanner error={error ?? cancelScene.error} projectId={projectId} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); cancelScene.dismiss(); }} />
 
       {view.scenes.length === 0 && (
         <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.")} />
@@ -299,7 +288,7 @@ function Board() {
                   {tr("Cancel rendering · {n}", { n: rolling })}
                 </ConfirmButton>
               ) : (
-                <Button size="sm" busy={plan.busy && planning === scene.id} disabled={plan.busy && planning !== scene.id} onClick={() => void plan.fire(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
+                <Button size="sm" onClick={() => setBatchScene(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
                   {tr("Render batch")}
                 </Button>
               ))}
@@ -395,8 +384,8 @@ function Board() {
           </Drawer>
         );
       })()}
-      {batchOf && batch && (
-        <BatchPopup key={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} batch={batch} slateOf={slateOf} onClose={() => setBatchScene(null)} />
+      {batchOf && (
+        <BatchPopup key={batchOf.id} sceneId={batchOf.id} title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} slateOf={slateOf} onClose={() => setBatchScene(null)} />
       )}
     </div>
   );
@@ -406,7 +395,46 @@ function Board() {
    ticked to begin with, so the whole pass is rolled or only some of it; a shot of a later pass
    waits for its anchor and cannot be ticked yet. The way out: Cancel before anything is queued,
    Stop and cancel while the ticked shots are being queued (the takes queued so far are cancelled). */
-function BatchPopup({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
+function BatchPopup({ sceneId, title, slateOf, onClose }: { sceneId: string; title: string; slateOf: Map<string, string>; onClose: () => void }) {
+  const { projectId } = useProjectContext();
+  const tr = useT();
+  const [batch, setBatch] = useState<BatchPlan | null>(null);
+  const [failed, setFailed] = useState<unknown>(null);
+  /* The popup opens at the click and plans inside itself, so there is always something to see: the
+     wait, then the shots, or what went wrong with a way to try again (not a banner far up the page). */
+  const planIt = useCallback(async () => {
+    setFailed(null);
+    try {
+      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
+    } catch (caught) {
+      setFailed(caught);
+    }
+  }, [projectId, sceneId]);
+  useEffect(() => {
+    void planIt();
+  }, [planIt]);
+  if (!batch)
+    return (
+      <Modal title={title} size="lg" onClose={onClose}>
+        <div className="st-stack">
+          {failed ? (
+            <>
+              <ErrorBanner error={failed} projectId={projectId} onDismiss={() => setFailed(null)} />
+              <div className="st-row st-row--between">
+                <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
+                <Button onClick={() => void planIt()}>{tr("Try again")}</Button>
+              </div>
+            </>
+          ) : (
+            <Loading label={tr("Ordering this scene's shots…")} />
+          )}
+        </div>
+      </Modal>
+    );
+  return <BatchPicker title={title} batch={batch} slateOf={slateOf} onClose={onClose} />;
+}
+
+function BatchPicker({ title, batch, slateOf, onClose }: { title: string; batch: BatchPlan; slateOf: Map<string, string>; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   const now = batch.passes[0] ?? [];

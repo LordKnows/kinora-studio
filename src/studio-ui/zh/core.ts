@@ -9,8 +9,7 @@ export const core: Record<string, string> = {
   /* the Queue panel */
   "Nothing is queued or under way.": "没有在排队或进行中的任务。", "Cancel all {n}": "全部取消（{n}）", "drawing||picture job": "正在画", "picture": "图片",
   "A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.": "已经在画的图取消后，绘图机会画完，但这张图不保留，也不计入额度。",
-  "Ready to render": "可以开拍",
-  "board {b} s · target {t} s": "分镜 {b} 秒 · 目标 {t} 秒", "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
+  "approved": "已批准", "draft": "草稿", "empty": "空", "none": "无",
   "Language": "语言", "Studio pages": "工作室页面", "Project and studio pages": "项目与工作室页面", "Project": "项目", "Film": "影片",
 
   /* the Score */
