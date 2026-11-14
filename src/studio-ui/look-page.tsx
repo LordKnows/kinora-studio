@@ -4,16 +4,16 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { checkConstraint } from "@director/lint/constraints";
 
-import { planDurations } from "@/studio/editing";
 import type { LookSettings } from "@/studio/schemas";
 import type { Asset, Project } from "@/studio/types";
 
 import { get, patch } from "./api";
 import { Button, Chips, ErrorBanner, Field, Lamp, UploadButton, useAction } from "./common";
-import { type T, useT } from "./i18n";
+import { useT } from "./i18n";
 import { StyleGallery } from "./library-page";
 import { useProjectContext } from "./shell";
-import { PictureCaption, pictureTitle, useDeletePictures } from "./pictures";
+import { Zoomable } from "./picture-zoom";
+import { PictureCaption, pictureSize, pictureTitle, useDeletePictures } from "./pictures";
 import { ImageButton } from "./image-tools";
 
 function clampSeconds(raw: string): number | null {
@@ -47,15 +47,6 @@ function useSave(run: () => Promise<void>) {
     window.setTimeout(() => setSaved(false), 1500);
   });
   return { ...action, saved };
-}
-
-/** planDurations' note (editing.ts writes it in English), in the interface language. */
-function planNote(t: T, note: string): string {
-  const even = /^(\d+) shots averaging ([\d.]+) s\. Give establishing and emotional beats the longer slots; montage beats the 5 s ones\.$/.exec(note);
-  if (even) return t("{n} shots averaging {avg} s. Give establishing and emotional beats the longer slots; montage beats the 5 s ones.", { n: even[1]!, avg: even[2]! });
-  const tiled = /^(\d+) s cannot be tiled with (\d+) shots of 5–15 s; the plan uses (\d+) shots\.$/.exec(note);
-  if (tiled) return t("{total} s cannot be tiled with {n} shots of 5–15 s; the plan uses {m} shots.", { total: tiled[1]!, n: tiled[2]!, m: tiled[3]! });
-  return note;
 }
 
 /** The head of every card: its title (and "unsaved" while it differs from what is saved), its buttons on the right. */
@@ -92,7 +83,6 @@ export function BriefCard() {
   });
   const boardSeconds = (view?.scenes ?? []).flatMap((s) => s.shots).reduce((n, s) => n + s.spec.durationS, 0);
   const target = brief ? clampSeconds(brief.targetSeconds) ?? undefined : undefined;
-  const plan = target ? planDurations(target) : null;
   if (!view || !brief) return null;
   const briefDirty = brief.brief !== view.project.brief || clampSeconds(brief.targetSeconds) !== (view.project.targetSeconds ?? null);
   return (
@@ -116,7 +106,6 @@ export function BriefCard() {
           </span>
         </Field>
       </div>
-      {plan && <span className="st-muted st-num">{t("Plan: {n} shots · {durations} s. {note}", { n: plan.shots, durations: plan.durations.join(" + "), note: planNote(t, plan.note) })}</span>}
     </div>
   );
 }
@@ -311,11 +300,13 @@ function StyleFrameTile({ asset, chosen, onChoose, onDeleted }: { asset: Asset; 
   const del = useDeletePictures(onDeleted);
   return (
     <div className="st-pic">
-      <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? t("The style frame (click to clear)") : t("Use as the style frame")}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
-        {chosen && <span className="st-thumb-tag">{t("STYLE")}</span>}
-      </button>
+      <Zoomable url={asset.url} title={pictureTitle(asset)} facts={pictureSize(asset)}>
+        <button type="button" className="st-thumb" aria-pressed={chosen} onClick={onChoose} title={chosen ? t("The style frame (click to clear)") : t("Use as the style frame")}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
+          {chosen && <span className="st-thumb-tag">{t("STYLE")}</span>}
+        </button>
+      </Zoomable>
       <div className="st-row" style={{ gap: 6, flexWrap: "nowrap", alignItems: "center" }}>
         <span style={{ flex: 1, minWidth: 0 }}>
           <PictureCaption asset={asset} />

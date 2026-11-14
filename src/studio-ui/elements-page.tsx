@@ -13,7 +13,8 @@ import { type T, plural, useT } from "./i18n";
 import { useProjectContext } from "./shell";
 import { useUndoable } from "./notices";
 import { ImageButton, useImagingOn } from "./image-tools";
-import { PictureCaption, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
+import { Zoomable } from "./picture-zoom";
+import { PictureCaption, pictureSize, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 
 type ElementRow = Element & { refs: Asset[] };
 
@@ -302,6 +303,7 @@ function ElementEditor({
                     const ticked = pickSel.selected.includes(a.id);
                     return (
                       <div key={a.id} className="st-pic">
+                        <Zoomable url={a.url} title={pictureTitle(a)} facts={pictureSize(a)}>
                         <button
                           type="button"
                           className={`st-thumb${kind === "character" ? " st-thumb--tall" : ""}`}
@@ -317,6 +319,7 @@ function ElementEditor({
                           )}
                           {idx === 0 && <span className="st-thumb-tag">{t("PRIMARY")}</span>}
                         </button>
+                        </Zoomable>
                         <PictureCaption asset={a} />
                       </div>
                     );

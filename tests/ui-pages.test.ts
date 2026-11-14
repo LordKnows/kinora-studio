@@ -29,13 +29,14 @@ describe("the old addresses", () => {
       "/p/:id/timeline": "/p/:id/cut",
       "/p/:id/finals": "/p/:id/cut",
       "/p/:id/director": "/p/:id?panel=director",
+      "/p/:id/settings": "/p/:id?panel=settings",
     });
     expect(rules.every((r) => r.permanent === false)).toBe(true);
   });
 
   it("have no pages of their own any more", async () => {
     const { existsSync } = await import("node:fs");
-    for (const old of ["look", "script", "elements", "pictures", "timeline", "finals", "director"]) expect(existsSync(`src/app/p/[id]/${old}`), old).toBe(false);
+    for (const old of ["look", "script", "elements", "pictures", "timeline", "finals", "director", "settings"]) expect(existsSync(`src/app/p/[id]/${old}`), old).toBe(false);
   });
 });
 

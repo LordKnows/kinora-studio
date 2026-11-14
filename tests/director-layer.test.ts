@@ -71,6 +71,21 @@ describe("director layer on a saved project", () => {
     expect(plan.passes[0]).toHaveLength(3);
     expect(plan.shots[0]!.label).toContain("a #1");
     expect(plan.totalEstimateUsd).toBeGreaterThan(0);
+
+    /* one scene of a film: only its shots are planned, and a shot whose anchor is in another scene and has no take waits for it */
+    const two = await repo.createProject({ name: "Two scenes", budgetCapUsd: 20 });
+    const saved = await orch.saveShotlist(two.id, ShotlistInput.parse({ scenes: [
+      { slug: "one", shots: [bare(1), bare(2)] },
+      { slug: "two", shots: [{ ...bare(3), mode: "keyframe", link: { type: "continuous" } }, bare(4)] },
+    ] }));
+    const [one, second] = saved.scenes;
+    const scenePlan = await orch.planProjectBatch(two.id, { sceneId: second!.id });
+    expect(scenePlan.shots.map((x) => x.shotId)).toEqual(second!.shots.map((x) => x.id));
+    expect(scenePlan.order).toEqual([second!.shots[1]!.id]);
+    expect(scenePlan.deferred).toEqual([{ shotId: second!.shots[0]!.id, waitingFor: one!.shots[1]!.id }]);
+    expect((await orch.planProjectBatch(two.id, { sceneId: one!.id })).order).toEqual(one!.shots.map((x) => x.id));
+    expect((await orch.planProjectBatch(two.id)).order).toHaveLength(4);
+    await expect(orch.planProjectBatch(two.id, { sceneId: "scn_nowhere" })).rejects.toThrow(/no such scene/);
   });
 });
 

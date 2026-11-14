@@ -344,6 +344,19 @@
 .studio .st-topbar-spacer {
   flex: 1;
 }
+/* Back, on the pages of the top bar */
+.studio .st-topbar-back {
+  flex: none;
+  gap: 5px;
+}
+@media (max-width: 640px) {
+  .studio .st-topbar-back {
+    padding: 0 9px;
+  }
+  .studio .st-topbar-back span {
+    display: none;
+  }
+}
 .studio .st-topbar-nav {
   display: flex;
   align-items: center;
@@ -1068,6 +1081,8 @@ button.st-pill {
   text-align: left;
   white-space: normal;
   color: var(--tx);
+  /* moved sideways by the script that keeps it on the screen (common.tsx, PopPanel) */
+  translate: var(--pop-dx, 0px) 0;
   animation: st-rise 0.16s var(--ease);
 }
 .studio .st-pop[data-align="start"] {
@@ -1087,7 +1102,8 @@ button.st-pill {
   content: "";
   position: absolute;
   top: -6px;
-  right: 18px;
+  /* the notch stays under its button when the bubble is moved */
+  right: calc(18px + var(--pop-dx, 0px));
   width: 10px;
   height: 10px;
   background: var(--s2);
@@ -1097,7 +1113,7 @@ button.st-pill {
 }
 .studio .st-pop[data-tip="true"][data-align="start"]::before {
   right: auto;
-  left: 18px;
+  left: calc(18px - var(--pop-dx, 0px));
 }
 .studio .st-pop[data-tip="true"][data-placement="above"]::before {
   top: auto;
@@ -1127,6 +1143,7 @@ button.st-pill {
     bottom: calc(70px + env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
+    translate: none;
     box-shadow: var(--shadow-3);
   }
   .studio .st-pop[data-tip="true"]::before {
@@ -1767,6 +1784,83 @@ button.st-pill {
   padding-bottom: 10px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--line);
+}
+/* A picture with the button in its corner that shows it large (picture-zoom.tsx). The button sits at
+   the bottom right, clear of the marks a thumbnail carries in its other corners. */
+.studio .st-zoomable {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+.studio .st-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: var(--plate);
+  color: var(--plate-ink);
+  opacity: 0.72;
+  transition: opacity 0.13s ease;
+}
+.studio .st-zoom:hover,
+.studio .st-zoom:focus-visible {
+  opacity: 1;
+}
+/* a shot card can be picked up: holding it must not select its text or open the picture's menu */
+.studio .st-shot[data-shot-id] {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.studio .st-shot[data-held="true"] {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--tx);
+  outline-offset: 2px;
+  box-shadow: var(--shadow-3);
+  transform: scale(1.02);
+  cursor: grabbing;
+}
+/* while one is held the others do not react to the pointer passing over them */
+.studio .st-shots[data-sorting="true"] .st-shot:not([data-held="true"]) {
+  opacity: 0.72;
+}
+.studio .st-shots[data-sorting="true"] .st-shot * {
+  pointer-events: none;
+}
+/* the heading is the fold: a chevron and the scene's name */
+.studio .st-scene-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  text-align: left;
+}
+.studio .st-scene-fold:hover .st-scene-slug {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.studio .st-scene-fold svg {
+  flex: none;
+  color: var(--tx2);
+  transition: transform 0.15s ease;
+}
+.studio .st-scene-fold[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+.studio .st-scene[data-folded="true"] {
+  margin-top: 14px;
+}
+.studio .st-scene[data-folded="true"] .st-scene-head {
+  margin-bottom: 0;
+}
+/* a long summary wraps the head: the scene's buttons keep to the right, where they are on a short one */
+.studio .st-scene-head > .st-row {
+  margin-left: auto;
 }
 .studio .st-scene-slug {
   font-size: 15px;
@@ -3345,8 +3439,29 @@ button.st-pill {
   font-size: 18px;
   font-weight: 800;
 }
-.studio .dir-drawer-close {
+.studio .dir-drawer-switch {
   margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--line-3);
+}
+.studio .dir-drawer-switch button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: var(--tx2);
+}
+.studio .dir-drawer-switch button + button {
+  border-left: 1px solid var(--line-3);
+}
+.studio .dir-drawer-switch button:hover {
+  background: var(--hover);
+}
+.studio .dir-drawer-switch button[aria-pressed="true"] {
+  background: var(--s3);
+  color: var(--tx);
+}
+.studio .dir-drawer-close {
   font-size: 20px;
   line-height: 1;
 }
@@ -3359,6 +3474,78 @@ button.st-pill {
   gap: 8px;
   padding: 12px 22px 14px;
   font-size: 13px;
+}
+/* the Queue and Settings panels: one scrolling column under the panel's head */
+.studio .dir-drawer[data-panel="settings"] {
+  width: min(520px, 100vw);
+}
+.studio .side-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 22px calc(24px + env(safe-area-inset-bottom));
+}
+.studio .side-body::-webkit-scrollbar {
+  display: none;
+}
+.studio .side-body > * {
+  flex: none;
+}
+/* the queue: a heading a kind, a row a job, its Cancel at the right */
+.studio .q-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.studio .q-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .q-head h3 {
+  font-size: 14px;
+  font-weight: 700;
+}
+.studio .q-head .st-num {
+  color: var(--tx3);
+}
+.studio .q-head .st-btn {
+  margin-left: auto;
+}
+.studio .q-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--s1);
+  border: 1px solid var(--line-2);
+}
+.studio .q-what {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.studio .q-state {
+  gap: 10px;
+}
+/* how many are in the queue, on its button */
+.studio .sc-tool-count {
+  min-width: 18px;
+  padding: 0 5px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
 }
 .studio .dir-log {
   flex: 1 1 0;
@@ -3595,10 +3782,22 @@ button.st-pill {
   padding: 0 20px 8px;
   min-height: 34px;
 }
-.studio .sc-line-track {
+.studio .sc-line-scroll {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+}
+/* a film of more than thirty shots: thirty or so to a screen, the rest a scroll away */
+.studio .sc-line-scroll[data-long="true"] {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  overscroll-behavior-x: contain;
+}
+.studio .sc-line-track {
+  position: relative;
   display: flex;
+  min-width: 100%;
   border-right: 1px solid var(--line-3);
 }
 .studio .sc-line-end {
@@ -3977,9 +4176,76 @@ button.st-pill {
   height: 30px;
   border-bottom-color: var(--line-3);
 }
+/* the labels stay at the left while the staves scroll under them; the playhead passes behind */
 .studio .sc-stave-label {
   flex: 0 0 var(--sc-label);
   padding: 10px 8px 10px 0;
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--bg);
+}
+/* a film of more than five shots: five or so to a screen, the rest a scroll or a page away */
+.studio .sc-score[data-wide="true"] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+  overscroll-behavior-x: contain;
+}
+.studio .sc-scene-in {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+/* What is written once for a long stretch (a scene's name, its ambience, the script's opening,
+   the music line) stays in view while that stretch is on screen, instead of scrolling off with
+   its left edge. 100cqw is the width of the scrolling score. */
+.studio .sc-score[data-wide="true"] {
+  container-type: inline-size;
+}
+.studio .sc-score[data-wide="true"] .sc-band,
+.studio .sc-score[data-wide="true"] .sc-music {
+  position: sticky;
+  left: var(--sc-label);
+  width: calc(100cqw - var(--sc-label));
+}
+.studio .sc-score[data-wide="true"] .sc-scene,
+.studio .sc-score[data-wide="true"] .sc-sound > div {
+  overflow: visible;
+}
+.studio .sc-score[data-wide="true"] .sc-scene-in,
+.studio .sc-score[data-wide="true"] .sc-sound > div > span {
+  position: sticky;
+  left: calc(var(--sc-label) + 10px);
+  max-width: calc(100cqw - var(--sc-label) - 28px);
+}
+.studio .sc-score[data-wide="true"] .sc-sound > div > span {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+}
+.studio .sc-stave--ruler .sc-stave-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.studio .sc-pager {
+  display: inline-flex;
+  border: 1px solid var(--line-3);
+}
+.studio .sc-pager button {
+  width: 24px;
+  height: 20px;
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--tx2);
+}
+.studio .sc-pager button + button {
+  border-left: 1px solid var(--line-3);
+}
+.studio .sc-pager button:hover {
+  background: var(--hover);
+  color: var(--tx);
 }
 .studio .sc-stave--ruler .sc-stave-label {
   padding-top: 7px;

@@ -10,7 +10,8 @@ import { get, post } from "./api";
 import { Button, Empty, ErrorBanner, Field, Modal, Section, UploadButton, useAction } from "./common";
 import { useT } from "./i18n";
 import { hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
-import { PictureCaption, pictureTitle } from "./pictures";
+import { Zoomable } from "./picture-zoom";
+import { PictureCaption, pictureSize, pictureTitle } from "./pictures";
 import { useProjectContext } from "./shell";
 
 /*
@@ -140,10 +141,12 @@ function FrameSlot({ shot, slot, label, hint, aspect, onView, onSet }: { shot: S
         {asset && reviewChip(asset) && <span className="st-chip">{tr(reviewChip(asset)!)}</span>}
       </div>
       {asset ? (
-        <button type="button" className="st-frame-view" style={frameBox(aspect)} onClick={() => onView(asset)} title={tr("Open full size")}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
-        </button>
+        <Zoomable url={asset.url} title={pictureTitle(asset)} facts={pictureSize(asset)}>
+          <button type="button" className="st-frame-view" style={frameBox(aspect)} onClick={() => onView(asset)} title={tr("Open full size")}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={(asset.meta.previewUrl as string | undefined) ?? asset.url} alt={pictureTitle(asset)} />
+          </button>
+        </Zoomable>
       ) : (
         <div className="st-frame-empty" style={frameBox(aspect)}>
           <span>
@@ -302,11 +305,13 @@ function PicturePicker({ title, current, onPick, onClose }: { title: string; cur
         <div className="st-thumbs st-thumbs--named">
           {images.map((a) => (
             <div key={a.id} className="st-pic">
-              <button type="button" className="st-thumb" aria-pressed={current === a.id} onClick={() => onPick(a.id)} title={pictureTitle(a)}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
-                {a.source === "frame-extract" && <span className="st-thumb-tag">{tr("TAKE FRAME")}</span>}
-              </button>
+              <Zoomable url={a.url} title={pictureTitle(a)} facts={pictureSize(a)}>
+                <button type="button" className="st-thumb" aria-pressed={current === a.id} onClick={() => onPick(a.id)} title={pictureTitle(a)}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={pictureTitle(a)} loading="lazy" />
+                  {a.source === "frame-extract" && <span className="st-thumb-tag">{tr("TAKE FRAME")}</span>}
+                </button>
+              </Zoomable>
               <PictureCaption asset={a} />
             </div>
           ))}

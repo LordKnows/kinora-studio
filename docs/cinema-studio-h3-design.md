@@ -695,7 +695,7 @@ Higgsfield 图像模型的产物由 Worker 拿到 CDN URL 后立即回拉写入 
 用户在 Grok/Claude 里：  "给我做一支 60 秒的霓虹雨夜追逐短片，主角是……"
    │
    ├─ agent 调 create_project(name, look 草案)
-   ├─ agent 写剧本 → 调 save_script(projectId, text)
+   ├─ agent 写剧本和处理稿 → 调 save_script(projectId, text, treatment)
    ├─ agent 调 list_elements → 发现没有角色 → 调 create_element(kind=character, description)
    ├─ agent 拆镜头 → 调 save_shotlist(projectId, shots[])   ← 严格 JSON schema
    └─ 用户在 Web Studio 的 /script 点 approve，再到 /board 看分镜表并点 approve
@@ -765,7 +765,7 @@ OAuth 由 Cloudflare 的 `workers-oauth-provider` 提供（§4.7）。
 | `list_projects` / `create_project` | name, look? | 项目 |
 | `get_project` | projectId | 返回 look、元素、场景、镜头摘要（agent 的工作记忆） |
 | `update_look` | projectId, LookSettings 部分字段 | 项目级风格 |
-| `save_script` | projectId, text | 新版本 |
+| `save_script` | projectId, text, treatment | 新版本；项目还没有处理稿时必须带 treatment，处理稿有错则剧本和处理稿都不保存 |
 | `list_elements` / `create_element` / `update_element` | kind, name, description | 元素 |
 | `generate_character_sheet` / `generate_element_ref` | elementId | 调图像模型，返回候选图 URL |
 | `select_element_refs` | elementId, assetIds | 用户 / agent 选定 |

@@ -12,7 +12,7 @@ export const pages: Record<string, string> = {
   "just now": "刚刚", "{n} min ago": "{n} 分钟前", "{n} hr ago": "{n} 小时前", "{n} d ago": "{n} 天前",
   /* everyday words */
   "Save": "保存", "Saved": "已保存", "Cancel": "取消", "Delete": "删除", "Create": "创建", "Remove": "移除", "Undo": "撤销", "Put back": "恢复",
-  "Back": "返回", "Back to top": "返回顶部", "Try again": "重试", "Could not load this.": "加载失败。",
+  "Back": "返回", "Back to top": "返回顶部", "Back to the page you came from": "回到来时的页面", "Earlier shots": "前面的镜头", "Later shots": "后面的镜头", "Try again": "重试", "Could not load this.": "加载失败。",
   "Generate": "生成", "Rename": "改名", "Screening": "放映", "{n} s": "{n} 秒", ", ||list": "、", "; ||list": "；", "{why}.": "{why}。",
 
   /* Script */
@@ -124,9 +124,6 @@ export const pages: Record<string, string> = {
   "unsaved": "未保存", "Brief": "简报", "Save brief": "保存简报",
   "The film, in your own words": "用你自己的话说这部片子", "A 60-second neon rain chase: Mara runs, looks back, vanishes into the crowd…": "一段 60 秒的霓虹雨夜追逐：玛拉奔跑、回头，消失在人群里…",
   "Target running time (s)": "目标片长（秒）", "Board vs target": "分镜对目标", "{board} s of {target} s on the Board": "分镜 {board} 秒 / 目标 {target} 秒", "set a target to compare": "设个目标来对照",
-  "Plan: {n} shots · {durations} s. {note}": "计划：{n} 个镜头 · {durations} 秒。{note}",
-  "{n} shots averaging {avg} s. Give establishing and emotional beats the longer slots; montage beats the 5 s ones.": "{n} 个镜头，平均 {avg} 秒。交代和情绪的段落给长一些的时长；蒙太奇段落用 5 秒的。",
-  "{total} s cannot be tiled with {n} shots of 5–15 s; the plan uses {m} shots.": "{total} 秒没法用 {n} 个 5–15 秒的镜头排满；计划用 {m} 个镜头。",
   "Close presets": "收起预设", "Change preset": "换预设", "Choose a preset": "选预设", "Save style": "保存风格",
   "the preset compiled into the fields below; the Board’s “Apply style” fills each shot’s cinematography from it.": "预设已编译进下面的字段；分镜页的“应用风格”会用它填每个镜头的摄影。",
   "Sixteen presets from the director layer (ink wash, cel anime, clay diorama, city symphony…). Picking one fills genre, palette, camera, lens, lighting and constraints; you can still edit everything.": "导演层的十六种预设（水墨、赛璐璐动画、黏土微缩景观、城市交响曲…）。选一个会填好类型、色调、摄影机、镜头焦段、光线和约束；一切仍然可以改。",
@@ -166,16 +163,16 @@ export const pages: Record<string, string> = {
   "Delete \"{name}\" and everything in it? For 14 days it can be put back from the Projects page (Recently deleted).": "删除“{name}”及其全部内容？14 天内可以在项目页（最近删除）恢复。",
   "Name, budget and who sees the film. What the director may do is on the Director page; the GPU, the library and the connection live under Machine, Library and Connect.": "名称、预算，以及谁能看到这部片子。导演能做什么在导演台页；GPU、素材库和连接分别在机器、素材库和连接页。",
   "Project name": "项目名称", "Budget cap (USD)": "预算上限（美元）",
-  "Takes, 2K passes and exports are refused once reservations would cross it.": "一旦预留金额会超过上限，镜次、2K 渲染和导出都会被拒绝。",
-  "spent so far {usd}": "已花费 {usd}", "Elsewhere": "其他页面", "Danger zone": "危险操作",
-  "Deleting the project removes its script, elements, shotlist, takes and exports. For 14 days it can be put back from the Projects page (Recently deleted); after that it is gone. Files already on R2 are not reclaimed automatically.": "删除项目会移除它的剧本、元素、分镜、镜次和导出。14 天内可以在项目页（最近删除）恢复，之后就彻底没了。已经存到 R2 上的文件不会自动回收。",
+  "Past it, takes and exports are refused.": "超过后不再拍摄和导出。",
+  "spent so far {usd}": "已花费 {usd}", "Elsewhere": "其他页面", "Delete the project": "删除项目",
+  "Everything in it goes. For 14 days it can be put back from the Projects page.": "项目里的所有内容都会删除。14 天内可以在项目页恢复。",
   "Delete project": "删除项目",
   "Share this project? Every signed-in user of this studio will see its script, pictures, takes and exports, and can change them.": "共享这个项目？这个工作室里每个已登录的用户都能看到它的剧本、图片、镜次和导出，也能修改。",
   "Sharing": "共享", "Who sees it": "谁能看到", "Shared": "共享", "every signed-in user": "所有已登录用户", "Private": "私有", "only you": "仅你", "only its owner": "仅所有者",
   "Owner: {who}. ": "所有者：{who}。", "you": "你",
   "This project is from before private projects and has no owner{rest} ": "这个项目建于私有项目功能之前，没有所有者{rest}",
   ": making it private makes it yours.": "：设为私有后就归你。", "; an admin can make it private.": "；管理员可以把它设为私有。",
-  "A private project is hidden from everyone else, on the web and through their director connectors. The GPU pod, the painters and the libraries stay shared: other users see that the pod is busy, not with what. Picture links (/media/…) work for whoever has them.": "私有项目对其他所有人隐藏，网页上和他们的导演连接器里都看不到。GPU 机器、绘图机和素材库仍然共用：其他用户能看到机器在忙，但看不到在忙什么。图片链接（/media/…）谁拿到都能打开。",
+  "Private hides it from everyone else, on the web and through their connectors.": "私有：其他人在网页和连接器里都看不到。",
 
   /* Projects */
   "One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.": "一部片子一个项目。故事、美术、分镜、镜次、剪辑——按这个顺序，中间有两次批准。项目打开时是它的全片：整部片子排在一条时间线上，还有等你决定的事。",

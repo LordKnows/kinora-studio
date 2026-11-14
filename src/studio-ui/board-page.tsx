@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
@@ -15,6 +16,8 @@ import { RemakePanel } from "./remake-panel";
 import { del, describe, get, patch, post, put, usd } from "./api";
 import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
+import { Zoomable } from "./picture-zoom";
+import { useShotSort } from "./shot-sort";
 import { plural, type T, useLang, useT } from "./i18n";
 import { CheckCircleIcon, ChevronIcon, CloseIcon, DraftIcon, ErrorIcon, InfoIcon, PlusIcon, WarningIcon } from "./icons";
 import { lintLine } from "./zh/lint";
@@ -91,8 +94,31 @@ function useShotAddress() {
   };
 }
 
+/* Which scenes are folded to their heading: kept per project in this browser, so a long board opens the way it was left. */
+function useFoldedScenes(projectId: string): [Set<string>, (next: Set<string>) => void] {
+  const key = `studio.board.folded.${projectId}`;
+  const [folded, setFolded] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    try {
+      setFolded(new Set(JSON.parse(localStorage.getItem(key) ?? "[]") as string[]));
+    } catch {
+      setFolded(new Set());
+    }
+  }, [key]);
+  const set = useCallback((next: Set<string>) => {
+    setFolded(next);
+    try {
+      localStorage.setItem(key, JSON.stringify([...next]));
+    } catch {
+      /* private mode: the folds hold for this page only */
+    }
+  }, [key]);
+  return [folded, set];
+}
+
 function Board() {
   const { projectId, view, reload } = useProjectContext();
+  const [folded, setFolded] = useFoldedScenes(projectId);
   const tr = useT();
   const lang = useLang();
   const undoable = useUndoable(reload);
@@ -101,13 +127,17 @@ function Board() {
   const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
   const [lint, setLint] = useState<LintReport | null>(null);
   const [lintFailed, setLintFailed] = useState(false);
-  const [lintOpen, setLintOpen] = useState(false);
+  /* the Lint drawer and the Render batch drawer belong to a scene: each is opened from that scene's buttons */
+  const [lintScene, setLintScene] = useState<string | null>(null);
   /* the sketch is opened from a scene; `whole` shows the film instead of that scene */
   const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
   const [sketchGray, setSketchGray] = useState(false);
   const [sketchKey, setSketchKey] = useState(0);
   const [batch, setBatch] = useState<BatchPlan | null>(null);
-  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchScene, setBatchScene] = useState<string | null>(null);
+  const [planning, setPlanning] = useState<string | null>(null);
+  const stopPass = useRef(false);
+  const [stopping, setStopping] = useState(false);
   /* a scene just added from the top of the page: brought into view once the board has it */
   const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
@@ -132,13 +162,37 @@ function Board() {
     }
     return m;
   }, [lint]);
-  const plan = useAction(async () => {
-    setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true }));
-    setBatchOpen(true);
+  const plan = useAction(async (_c, sceneId: string) => {
+    setPlanning(sceneId);
+    try {
+      setBatch(await post<BatchPlan>(`/api/projects/${projectId}/batch`, { takesPerShot: 1, onlyMissing: true, sceneId }));
+      setBatchScene(sceneId);
+    } finally {
+      setPlanning(null);
+    }
   });
+  /* A pass queues its takes one shot after another. Stop ends it between two shots and cancels the
+     takes this pass had already queued, so a stopped batch leaves nothing of its own rolling. */
   const renderPass = useAction(async (confirm, ids: string[]) => {
-    for (const id of ids) await post(`/api/shots/${id}/takes`, { n: 1, confirm });
-    setBatchOpen(false);
+    stopPass.current = false;
+    setStopping(false);
+    const queued: string[] = [];
+    try {
+      for (const id of ids) {
+        if (stopPass.current) break;
+        const r = await post<{ takes?: Array<{ id: string }> }>(`/api/shots/${id}/takes`, { n: 1, confirm });
+        for (const t of r.takes ?? []) queued.push(t.id);
+      }
+      if (stopPass.current) for (const id of queued) await post(`/api/takes/${id}/cancel`).catch(() => undefined);
+      else setBatchScene(null);
+    } finally {
+      setStopping(false);
+      await reload();
+    }
+  });
+  /* a batch that is already rolling: every queued or running take of the scene is cancelled */
+  const cancelScene = useAction(async (_c, scene: SceneView) => {
+    for (const t of scene.shots.flatMap((sh) => sh.takes)) if (t.status === "queued" || t.status === "running") await post(`/api/takes/${t.id}/cancel`);
     await reload();
   });
 
@@ -151,13 +205,21 @@ function Board() {
     document.getElementById(`scene-${addedScene}`)?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     setAddedScene(null);
   }, [addedScene, view]);
-  const reorder = useAction(async (_c, scene: SceneView, from: number, to: number) => {
+  /* a scene's shots in a new order: from a card dragged to its place, or nudged one place with Alt and an arrow key */
+  const reorder = useAction(async (_c, sceneId: string, ids: string[]) => {
+    await post("/api/shots/reorder", { sceneId, shotIds: ids });
+    await reload();
+  });
+  const reorderFire = reorder.fire;
+  const sort = useShotSort(useCallback((sceneId: string, ids: string[]) => reorderFire(sceneId, ids), [reorderFire]));
+  const nudge = (scene: SceneView, from: number, by: -1 | 1) => {
+    const to = from + by;
+    if (to < 0 || to >= scene.shots.length || reorder.busy) return;
     const ids = scene.shots.map((s) => s.id);
     const [moved] = ids.splice(from, 1);
     ids.splice(to, 0, moved!);
-    await post("/api/shots/reorder", { sceneId: scene.id, shotIds: ids });
-    await reload();
-  });
+    void reorder.fire(scene.id, ids);
+  };
   const removeScene = useAction(async (_c, scene: SceneView) => {
     const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
@@ -170,6 +232,9 @@ function Board() {
   const shotCount = view.scenes.reduce((n, s) => n + s.shots.length, 0);
   const error = approve.error ?? reorder.error ?? removeScene.error;
   const sketchScene = sketch ? view.scenes.find((s) => s.id === sketch.sceneId) : undefined;
+  const lintOf = lintScene ? view.scenes.find((s) => s.id === lintScene) : undefined;
+  const batchOf = batchScene ? view.scenes.find((s) => s.id === batchScene) : undefined;
+  const slateOf = new Map(view.scenes.flatMap((sc, si) => sc.shots.map((sh, i) => [sh.id, `${si + 1}·${i + 1}`] as const)));
   const sketchSrc = (extra?: Record<string, string>) => {
     const q = new URLSearchParams({ ...(sketchScene && !sketch?.whole ? { scene: sketchScene.id } : {}), ...(sketchGray ? { gray: "1" } : {}), ...extra });
     return `/api/projects/${projectId}/sketch${q.size ? `?${q}` : ""}`;
@@ -181,20 +246,16 @@ function Board() {
         <div>
           <h1 className="st-title">{tr("Board")}</h1>
           <p className="st-subtitle">
-            {/* the shotlist's state: a green tick once approved, an amber pencil while it is a draft */}
+            {/* the shotlist's state and nothing else: a green tick once approved, an amber pencil while it is a draft */}
             <Status tone={approved ? "ok" : "warn"} icon={approved ? <CheckCircleIcon /> : <DraftIcon />}>
               {approved ? (view.delegated?.shotlist ? tr("Shotlist approved by the director") : tr("Shotlist approved")) : tr("Shotlist draft")}
             </Status>
-            {" · "}
-            {tr("Checkpoint 2. Structural edits return the shotlist to draft.")} {view.canGenerate ? tr("Ready to render.") : tr("Blocked: {list}.", { list: view.blockers.join(", ") })}
           </p>
         </div>
         <div className="st-actions">
-          {shotCount > 0 && (
-            <Button kind={lint && (lint.counts.error || lint.counts.warn) ? "default" : "quiet"} onClick={() => setLintOpen(true)} title={lint ? tr("Lint · {e} errors, {w} warnings, {i} notes", { e: lint.counts.error, w: lint.counts.warn, i: lint.counts.info }) : tr("Rhythm and craft lint of the shotlist")}>
-              {tr("Lint")}
-              {lint && lint.counts.error > 0 && <span className="st-sev" data-severity="error"><ErrorIcon size={13} />{lint.counts.error}</span>}
-              {lint && lint.counts.warn > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{lint.counts.warn}</span>}
+          {view.scenes.length > 1 && (
+            <Button kind="quiet" onClick={() => setFolded(folded.size >= view.scenes.length ? new Set() : new Set(view.scenes.map((s) => s.id)))}>
+              {folded.size >= view.scenes.length ? tr("Unfold all") : tr("Fold all")}
             </Button>
           )}
           <Popover label={<><PlusIcon size={13} />{tr("Add scene")}</>} title={tr("Add a scene at the end of the board")} panelLabel={tr("Add scene")}>
@@ -205,24 +266,31 @@ function Board() {
               {tr("Approve shotlist")}
             </Button>
           )}
-          {approved && (
-            <Button kind="tally" busy={plan.busy} onClick={() => void plan.fire()} title={tr("Order the shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
-              {tr("Render batch")}
-            </Button>
-          )}
         </div>
       </div>
-      <ErrorBanner error={error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
+      <ErrorBanner error={error ?? plan.error ?? cancelScene.error} projectId={projectId} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); cancelScene.dismiss(); }} />
 
       {view.scenes.length === 0 && (
         <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.")} />
       )}
 
-      {view.scenes.map((scene) => (
-        <section key={scene.id} id={`scene-${scene.id}`} className="st-scene">
+      {view.scenes.map((scene) => {
+        const found = (lint?.warnings ?? []).filter((w) => w.scene === scene.slug);
+        const errors = found.filter((w) => w.severity === "error").length;
+        const warns = found.filter((w) => w.severity === "warn").length;
+        const rolling = scene.shots.flatMap((sh) => sh.takes).filter((t) => t.status === "queued" || t.status === "running").length;
+        const isFolded = folded.has(scene.id);
+        const fold = (to: boolean) => { const next = new Set(folded); if (to) next.add(scene.id); else next.delete(scene.id); setFolded(next); };
+        return (
+        <section key={scene.id} id={`scene-${scene.id}`} className="st-scene" data-folded={isFolded ? "true" : undefined}>
           <div className="st-scene-head">
             <div>
-              <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
+              {/* the heading folds the scene to this line and opens it again */}
+              <button type="button" className="st-scene-fold" aria-expanded={!isFolded} aria-controls={`scene-shots-${scene.id}`} onClick={() => fold(!isFolded)} title={isFolded ? tr("Show this scene's shots") : tr("Fold this scene")}>
+                <ChevronIcon size={12} />
+                <span className="st-scene-slug">{scene.index + 1}. {scene.slug}</span>
+              </button>
+              {isFolded && <span className="st-scene-summary"> ·{plural(tr, scene.shots.length, "1 shot", "{n} shots")} · {tr("{s} s", { s: scene.shots.reduce((n, sh) => n + sh.spec.durationS, 0) })}</span>}
               {scene.summary && <span className="st-scene-summary"> · {scene.summary}</span>}
               {scene.palette && (
                 <span className="st-row" style={{ display: "inline-flex", gap: 2, marginLeft: 8, verticalAlign: "middle" }} title={scene.palette.note ?? tr("scene palette")}>
@@ -237,8 +305,23 @@ function Board() {
               <Popover size="sm" kind="quiet" label={tr("Palette||scene colours")} title={tr("This scene's colour script; it compiles into every shot")} panelLabel={tr("Colour script · {slug}", { slug: scene.slug })}>
                 {(close) => <PaletteForm scene={scene} onDone={close} />}
               </Popover>
+              <Button size="sm" kind="quiet" disabled={scene.shots.length === 0} onClick={() => setLintScene(scene.id)} title={tr("Rhythm and craft lint of this scene's shots")}>
+                {tr("Lint")}
+                {errors > 0 && <span className="st-sev" data-severity="error"><ErrorIcon size={13} />{errors}</span>}
+                {warns > 0 && <span className="st-sev" data-severity="warn"><WarningIcon size={13} />{warns}</span>}
+              </Button>
+              {approved && scene.shots.length > 0 && (rolling > 0 ? (
+                <ConfirmButton size="sm" kind="default" busy={cancelScene.busy} title={tr("Cancel the takes of this scene that are queued or rolling")} confirmLabel={tr("Cancel rendering")} cancelLabel={tr("Keep rolling")} onConfirm={() => void cancelScene.fire(scene)}
+                  question={plural(tr, rolling, "Cancel the 1 take of this scene that is queued or rolling?", "Cancel the {n} takes of this scene that are queued or rolling?")}>
+                  {tr("Cancel rendering · {n}", { n: rolling })}
+                </ConfirmButton>
+              ) : (
+                <Button size="sm" busy={plan.busy && planning === scene.id} disabled={plan.busy && planning !== scene.id} onClick={() => void plan.fire(scene.id)} title={tr("Order this scene's shots without a take: R2VA first, anchors before linked shots, one estimate. Nothing renders until you confirm it.")}>
+                  {tr("Render batch")}
+                </Button>
+              ))}
               <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot at the end of this scene")} panelLabel={tr("Add shot")}>
-                {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
+                {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onSaved={() => fold(false)} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
               </Popover>
               <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
                 question={tr("Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.", { i: view.scenes.indexOf(scene) + 1, slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" })}>
@@ -246,27 +329,33 @@ function Board() {
               </ConfirmButton>
             </div>
           </div>
-          {scene.shots.length === 0 ? (
+          {isFolded ? null : scene.shots.length === 0 ? (
             <Empty title={tr("Empty scene")} />
           ) : (
-            <div className="st-shots">
-              {scene.shots.map((shot, i) => (
-                <ShotCard
-                  key={shot.id}
-                  shot={shot}
-                  index={i}
-                  slate={`${view.scenes.indexOf(scene) + 1}·${i + 1}`}
-                  lint={lintByShot.get(shotKey(scene.slug, i)) ?? []}
-                  open={openId === shot.id}
-                  onOpen={() => setOpenId(shot.id)}
-                  onUp={i > 0 ? () => void reorder.fire(scene, i, i - 1) : undefined}
-                  onDown={i < scene.shots.length - 1 ? () => void reorder.fire(scene, i, i + 1) : undefined}
-                />
-              ))}
+            <div className="st-shots" id={`scene-shots-${scene.id}`} data-sorting={sort.drag?.sceneId === scene.id ? "true" : undefined}>
+              {/* while a card is held, the grid shows the order it would leave */}
+              {(sort.drag?.sceneId === scene.id ? sort.drag.order.map((id) => scene.shots.find((s) => s.id === id)).filter((s): s is ShotView => Boolean(s)) : scene.shots).map((shot, i) => {
+                const was = scene.shots.indexOf(shot);
+                return (
+                  <ShotCard
+                    key={shot.id}
+                    shot={shot}
+                    index={i}
+                    slate={`${view.scenes.indexOf(scene) + 1}·${i + 1}`}
+                    lint={lintByShot.get(shotKey(scene.slug, was)) ?? []}
+                    open={openId === shot.id}
+                    onOpen={() => setOpenId(shot.id)}
+                    held={sort.drag?.id === shot.id}
+                    onPress={sort.press(scene.id, scene.shots.map((s) => s.id), shot.id)}
+                    onNudge={(by) => nudge(scene, was, by)}
+                  />
+                );
+              })}
             </div>
           )}
         </section>
-      ))}
+        );
+      })}
 
       <BackToTop />
 
@@ -294,24 +383,40 @@ function Board() {
           <img key={sketchSrc({ v: String(sketchKey) })} src={sketchSrc({ v: String(sketchKey) })} alt={tr("Colour-block storyboard")} style={{ width: "100%", height: "auto", borderRadius: 0 }} />
         </Drawer>
       )}
-      {lintOpen && (
-        <Drawer title={lint ? tr("Lint · {e} errors, {w} warnings, {i} notes", { e: lint.counts.error, w: lint.counts.warn, i: lint.counts.info }) : tr("Lint · …")} onClose={() => setLintOpen(false)}>
-          {!lint ? (
-            lintFailed ? (
-              <div className="st-row">
-                <span className="st-muted">{tr("The lint could not be loaded.")}</span>
-                <Button size="sm" onClick={() => void refreshLint()}>{tr("Try again")}</Button>
+      {lintOf && (() => {
+        /* this scene's findings; what belongs to no scene (the script, the treatment, the cut) is on the Reel */
+        const found = (lint?.warnings ?? []).filter((w) => w.scene === lintOf.slug);
+        const count = (sev: LintWarning["severity"]) => found.filter((w) => w.severity === sev).length;
+        const elsewhere = (lint?.warnings ?? []).filter((w) => !w.scene).length;
+        return (
+          <Drawer title={`${tr("Lint")} · ${view.scenes.indexOf(lintOf) + 1}. ${lintOf.slug}${lint ? ` · ${tr("{e} errors, {w} warnings, {i} notes", { e: count("error"), w: count("warn"), i: count("info") })}` : ""}`} onClose={() => setLintScene(null)}>
+            {!lint ? (
+              lintFailed ? (
+                <div className="st-row">
+                  <span className="st-muted">{tr("The lint could not be loaded.")}</span>
+                  <Button size="sm" onClick={() => void refreshLint()}>{tr("Try again")}</Button>
+                </div>
+              ) : <Loading />
+            ) : (
+              <div className="st-stack">
+                {found.length === 0 ? (
+                  <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass in this scene.")} />
+                ) : (
+                  <LintGroups warnings={found} lang={lang} />
+                )}
+                {elsewhere > 0 && (
+                  <p className="st-muted">
+                    {plural(tr, elsewhere, "1 more finding belongs to no scene (the script, the treatment, the cut).", "{n} more findings belong to no scene (the script, the treatment, the cut).")}{" "}
+                    <Link className="st-link" href={`/p/${projectId}#problems`}>{tr("See them on the Reel")}</Link>
+                  </p>
+                )}
               </div>
-            ) : <Loading />
-          ) : lint.warnings.length === 0 ? (
-            <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass.")} />
-          ) : (
-            <LintGroups warnings={lint.warnings} lang={lang} />
-          )}
-        </Drawer>
-      )}
-      {batchOpen && batch && (
-        <Drawer title={tr("Render batch")} onClose={() => setBatchOpen(false)}>
+            )}
+          </Drawer>
+        );
+      })()}
+      {batchOf && batch && (
+        <Drawer title={`${tr("Render batch")} · ${view.scenes.indexOf(batchOf) + 1}. ${batchOf.slug}`} onClose={() => { if (!renderPass.busy) setBatchScene(null); }}>
           <div className="st-stack">
             <div className="st-card st-stack st-stack--tight">
               <div className="st-row st-row--between">
@@ -321,6 +426,7 @@ function Board() {
               <span className="st-muted">{tr("R2VA shots first, then the fl2va family; linked shots wait for their anchors in the next pass. Estimates marked fallback come from the planner, the others from the compiler.")}</span>
               {batch.warnings.map((w, i) => <span key={i} className="st-warn">{w}</span>)}
             </div>
+            <ErrorBanner error={renderPass.error} projectId={projectId} onConfirm={() => void renderPass.confirm()} onDismiss={renderPass.dismiss} />
             {batch.probe && batch.probe.shotIds.length > 0 && (
               <div className="st-card st-row st-row--between">
                 <span><strong>{tr("Probe first.")}</strong> <span className="st-muted">{batch.probe.why} · ≈ {usd(batch.probe.estimateUsd)}</span></span>
@@ -357,9 +463,15 @@ function Board() {
                 </table>
               </div>
             ))}
-            {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => d.shotId).join(", ") })}</span>}
+            {batch.deferred.length > 0 && <span className="st-muted">{tr("Waiting for an anchor: {list}", { list: batch.deferred.map((d) => tr("{shot} for {anchor}", { shot: slateOf.get(d.shotId) ?? d.shotId, anchor: slateOf.get(d.waitingFor) ?? d.waitingFor })).join(", ") })}</span>}
+            <span className="st-muted">{tr("Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.")}</span>
             <div className="st-row st-row--between">
-              <span className="st-muted">{tr("Rendering pass 1 queues one take per shot; come back for the next pass once anchors have takes.")}</span>
+              {/* the way out: before anything is queued, Cancel; while the pass is being queued, Stop */}
+              {renderPass.busy ? (
+                <Button busy={stopping} onClick={() => { stopPass.current = true; setStopping(true); }} title={tr("Stop queuing, and cancel the takes this pass has queued so far")}>{tr("Stop and cancel")}</Button>
+              ) : (
+                <Button kind="quiet" onClick={() => setBatchScene(null)}>{tr("Cancel")}</Button>
+              )}
               <Button kind="tally" busy={renderPass.busy} disabled={!batch.passes[0]?.length} onClick={() => void renderPass.fire(batch.passes[0] ?? [])}>
                 {tr("Render pass 1 ({n})", { n: batch.passes[0]?.length ?? 0 })} <span className="st-btn-price">· ≈ {usd((batch.passes[0] ?? []).reduce((n, id) => n + (batch.estimates.find((x) => x.shotId === id)?.usd ?? 0), 0))}</span>
               </Button>
@@ -454,7 +566,7 @@ function AddSceneForm({ onAdded }: { onAdded: (sceneId: string) => void }) {
    on its card), and the popup says whether the save went through. */
 const SHOT_NAME_MIN = 5;
 
-function AddShotForm({ scene, sceneNumber, onOpen, onClose }: { scene: SceneView; sceneNumber: number; onOpen: (shotId: string) => void; onClose: () => void }) {
+function AddShotForm({ scene, sceneNumber, onSaved, onOpen, onClose }: { scene: SceneView; sceneNumber: number; onSaved?: () => void; onOpen: (shotId: string) => void; onClose: () => void }) {
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   const [name, setName] = useState("");
@@ -467,6 +579,7 @@ function AddShotForm({ scene, sceneNumber, onOpen, onClose }: { scene: SceneView
     await reload();
     setSaved({ id: shot.id, slate: `${sceneNumber}·${shot.index + 1}`, name: intent });
     setName("");
+    onSaved?.();
   });
   if (saved) {
     return (
@@ -570,7 +683,12 @@ function linkLabel(spec: ShotView["spec"]): string | null {
   return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
 }
 
-function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onUp?: () => void; onDown?: () => void }) {
+/* A shot on the board. It is picked up by holding it (shot-sort.ts) and dragged to its place in the
+   scene; from the keyboard, Alt with an arrow key moves it one place. */
+function ShotCard({ shot, index, slate, lint, open, onOpen, held, onPress, onNudge }: {
+  shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void;
+  held?: boolean; onPress?: (e: ReactPointerEvent) => void; onNudge?: (by: -1 | 1) => void;
+}) {
   const tr = useT();
   const lang = useLang();
   const latest = shot.takes[0];
@@ -580,21 +698,27 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
   const problems = lint.filter((w) => w.severity !== "info").length;
   const { loras: library } = useLoraLibrary();
   const loraChips = shotLoraChips(shot.spec, library);
+  /* Poster order: the selected take, else the newest completed take, else the hero frame. */
+  const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
   return (
-    <div className="st-shot" aria-pressed={open}>
-      <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
-        {(() => {
-          /* Poster order: the selected take, else the newest completed take, else the hero frame. */
-          const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
-          return poster ? <img src={poster} alt="" /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>;
-        })()}
-        <span className="st-shot-index">{slate ?? index + 1}</span>
-        {latest && (
-          <span className="st-shot-status">
-            <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
-          </span>
-        )}
-      </button>
+    <div className="st-shot" aria-pressed={open} data-shot-id={shot.id} data-scene-id={shot.sceneId} data-held={held ? "true" : undefined} title={tr("Hold and drag to reorder (Alt + arrow keys from the keyboard)")}
+      onPointerDown={onPress}
+      onKeyDown={(e) => {
+        if (!e.altKey || !onNudge) return;
+        if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); onNudge(-1); }
+        else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); onNudge(1); }
+      }}>
+      <Zoomable url={poster} title={`${slate ?? index + 1} · ${shot.spec.intent || tr("Untitled shot")}`}>
+        <button type="button" className="st-shot-media" onClick={onOpen} style={{ display: "block", width: "100%" }}>
+          {poster ? <img src={poster} alt="" draggable={false} /> : <div className="st-placeholder">{latest ? "" : tr("no take yet")}</div>}
+          <span className="st-shot-index">{slate ?? index + 1}</span>
+          {latest && (
+            <span className="st-shot-status">
+              <Lamp state={latest.status} label={tr(statusLabel(latest.status))} />
+            </span>
+          )}
+        </button>
+      </Zoomable>
       <div className="st-shot-body">
         <div className="st-shot-tags">
           {codes.length ? codes.map((c) => <span key={c} className="st-chip st-chip--mono">{c}</span>) : <span className="st-chip st-chip--mono st-chip--warn">{tr("no cinematography")}</span>}
@@ -612,14 +736,6 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, onUp, onDown }: { sh
         <div className="st-shot-facts">
           {tr("{d} s · {mode} · {move}", { d: shot.spec.durationS, mode: tr(shot.spec.mode), move: tr(shot.spec.camera.move.replace("_", " ")) })}
           {shot.takes.length > 0 && plural(tr, shot.takes.length, " · 1 take · {cost}", " · {n} takes · {cost}", { cost: usd(cost) })}
-        </div>
-        <div className="st-row" style={{ gap: 4 }}>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onUp} onClick={onUp} aria-label={tr("Move up")}>
-            ↑
-          </button>
-          <button type="button" className="st-btn st-btn--quiet st-btn--sm" disabled={!onDown} onClick={onDown} aria-label={tr("Move down")}>
-            ↓
-          </button>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 
@@ -127,9 +127,34 @@ function Stave({ label, sub, href, children, last }: { label: string; sub?: stri
   );
 }
 
+/* More shots than this and the staves no longer fit the page: they keep about this many to a screen
+   (the film is still to scale, so a long shot takes more of it) and scroll sideways, labels in place. */
+const SHOTS_ACROSS = 5;
+
 function Staves({ view, shots, total, here, lint, base, onPick }: { view: ProjectView; shots: FilmShot[]; total: number; here?: FilmShot; lint: LintReport | null; base: string; onPick: (s: FilmShot) => void }) {
   const pct = (s: number) => `${(s / total) * 100}%`;
-  const step = total <= 90 ? 10 : total <= 300 ? 30 : total <= 900 ? 60 : 300;
+  const wide = shots.length > SHOTS_ACROSS;
+  /* the ruler's marks follow the seconds on screen, not the whole film's */
+  const onScreen = wide ? (total * SHOTS_ACROSS) / shots.length : total;
+  const step = onScreen <= 90 ? 10 : onScreen <= 300 ? 30 : onScreen <= 900 ? 60 : 300;
+  const scroller = useRef<HTMLElement>(null);
+  /* the width of the labels, as the stylesheet sets it (--sc-label) */
+  const labelPx = () => (scroller.current ? parseFloat(getComputedStyle(scroller.current.firstElementChild as Element).getPropertyValue("--sc-label")) || 136 : 136);
+  const hereId = here?.shot.id, hereFrom = here?.startS ?? 0, hereFor = here?.durationS ?? 0;
+  /* the shot under the playhead is brought to the middle when it is not wholly in view */
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el || !wide || !hereId) return;
+    const label = labelPx();
+    const track = el.scrollWidth - label, visible = el.clientWidth - label;
+    const from = (hereFrom / total) * track, to = ((hereFrom + hereFor) / total) * track;
+    if (from >= el.scrollLeft && to <= el.scrollLeft + visible) return;
+    el.scrollLeft = Math.max(0, (from + to) / 2 - visible / 2);
+  }, [hereId, hereFrom, hereFor, total, wide]);
+  const page = (dir: 1 | -1) => {
+    const el = scroller.current;
+    if (el) el.scrollBy({ left: dir * (el.clientWidth - labelPx()), behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  };
   const marks: number[] = [];
   for (let x = 0; x < total; x += step) marks.push(x);
   /* the playhead stands where the shot starts, as on any timeline */
@@ -146,8 +171,8 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
   let cutAt = 0;
 
   return (
-    <section className="sc-score" aria-label={t("Score")}>
-      <div className="sc-score-inner" style={{ ["--sc-total" as string]: total }}>
+    <section className="sc-score" aria-label={t("Score")} ref={scroller} data-wide={wide ? "true" : undefined}>
+      <div className="sc-score-inner" style={{ ["--sc-total" as string]: total, ...(wide ? { width: `calc(var(--sc-label) + (100% - var(--sc-label)) * ${shots.length / SHOTS_ACROSS})` } : {}) }}>
         {here && (
           <>
             <div className="sc-head-line" aria-hidden="true" style={{ left: `calc(var(--sc-label) + (100% - var(--sc-label)) * ${headAt / total})` }} />
@@ -157,7 +182,15 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
         )}
 
         <div className="sc-stave sc-stave--ruler">
-          <div className="sc-stave-label"><span className="sc-cap">{t("Time")}</span></div>
+          <div className="sc-stave-label">
+            <span className="sc-cap">{t("Time")}</span>
+            {wide && (
+              <span className="sc-pager">
+                <button type="button" aria-label={t("Earlier shots")} title={t("Earlier shots")} onClick={() => page(-1)}>‹</button>
+                <button type="button" aria-label={t("Later shots")} title={t("Later shots")} onClick={() => page(1)}>›</button>
+              </span>
+            )}
+          </div>
           <div className="sc-stave-track sc-ruler">
             {marks.map((x) => <span key={x} className="st-num" style={{ left: pct(x) }}>{tc(x)}</span>)}
             <span className="st-num sc-ruler-end">{tc(total)}</span>
@@ -170,8 +203,11 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
               const secs = sc.shots.reduce((n, x) => n + x.spec.durationS, 0);
               return (
                 <div key={sc.id} className="sc-scene" style={{ flexGrow: secs }} title={sc.summary}>
-                  <span className="sc-slate">{i + 1}</span>
-                  <span className="sc-scene-text"><strong>{sc.slug}</strong><span className="st-num">{secs} s</span><span className="sc-scene-sum">{sc.summary}</span></span>
+                  {/* one group, so on a film that scrolls it can stay in view for as long as its scene does */}
+                  <span className="sc-scene-in">
+                    <span className="sc-slate">{i + 1}</span>
+                    <span className="sc-scene-text"><strong>{sc.slug}</strong><span className="st-num">{secs} s</span><span className="sc-scene-sum">{sc.summary}</span></span>
+                  </span>
                 </div>
               );
             })}
@@ -236,7 +272,7 @@ function Staves({ view, shots, total, here, lint, base, onPick }: { view: Projec
             {view.scenes.map((sc) => {
               const secs = sc.shots.reduce((n, x) => n + x.spec.durationS, 0);
               const text = sc.sound?.ambience || sc.shots.find((x) => x.spec.sound?.ambience)?.spec.sound?.ambience || "";
-              return <div key={sc.id} style={{ flexGrow: secs }} title={text}>{text || t("no ambience written")}</div>;
+              return <div key={sc.id} style={{ flexGrow: secs }} title={text}><span>{text || t("no ambience written")}</span></div>;
             })}
           </div>
           <div className="sc-music" data-none={noMusic ? "true" : undefined}><span className="st-num">{noMusic ? t("no music in any shot, no music track") : view.timeline.music ? t("music track on the timeline") : t("music is asked for in some shots; no music track")}</span></div>

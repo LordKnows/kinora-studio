@@ -8,6 +8,7 @@ import { post, usd } from "./api";
 import { Button, ErrorBanner, Field, useAction } from "./common";
 import { useT } from "./i18n";
 import { EditRegion, ImageButton, reviewChip } from "./image-tools";
+import { ZoomButton } from "./picture-zoom";
 import { SelectBar, SelectMark, usePictureSelection } from "./pictures";
 import { useProjectContext } from "./shell";
 
@@ -60,6 +61,7 @@ export function RemakePanel({ take, onClose }: { take: Take; onClose: () => void
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={(a.meta.previewUrl as string | undefined) ?? a.url} alt={a.name ?? ""} style={{ width: "100%", aspectRatio: "16 / 9", objectFit: "cover", borderRadius: 0 }} />
                   {sel.selecting && <SelectMark on={sel.selected.includes(a.id)} />}
+                  <ZoomButton url={a.url} title={label(a)} />
                 </span>
                 <span className="st-muted st-num">{label(a)}{reviewChip(a) ? ` · ${tr(reviewChip(a)!)}` : ""}</span>
                 <span className="st-row" style={{ gap: 6 }}>

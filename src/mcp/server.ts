@@ -186,7 +186,7 @@ export function createStudioServer(actor: Actor): McpServer {
     const elements = projectId ? (await repo.listElements(projectId, true)).map((e) => ({ id: e.id, name: e.name, kind: e.kind, fixedFeatures: e.fixedFeatures })) : undefined;
     return director.lintShotlist(shotlist as never, { totalSeconds, errorsAndWarningsOnly, elements });
   });
-  tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {
+  tool("validate_treatment", "Check a treatment (logline, arc, three candidate structures and the chosen one, benchmark, hook ≤ 3 s, ending echo, signature shot, native move, sequences with pace, sound design, silences, J/L cuts). Its fields are those of save_script's `treatment`. Returns warnings and TREATMENT.md to put in save_script.", z.object({ treatment: z.any(), style: z.string().optional() }), async ({ treatment, style }) => {
     const s = style ? await styles.resolveStyle(style) : undefined;
     const r = director.validateTreatment(treatment, s?.style.nativeMoves.map((m) => m.name));
     return { ...r, markdown: r.ok ? director.treatmentToMarkdown(treatment) : undefined };
@@ -255,19 +255,13 @@ export function createStudioServer(actor: Actor): McpServer {
     return { capUsd: p.budgetCapUsd, spentUsd: p.spentUsd, remainingUsd: Math.max(0, p.budgetCapUsd - p.spentUsd) };
   });
 
-  tool("save_script", "Save a new script version (returns to draft; the user approves on the Story page). Send the treatment with it: the structured object validate_treatment checks (logline, arc, three candidate structures and the chosen one, benchmark, hook, signature shot, native move, sequences with paces, sound design, silences, sound bridges). It is checked and kept beside this version; the lint, the story review, the export and the Story page read it. Without one the answer warns, and so does lint_project until one is sent.", z.object({
+  tool("save_script", "Save a new script version (returns to draft; the user approves on the Story page), with its treatment: the plan behind the script, as the fields of `treatment` spell it out. A project's first script is refused without one, so write it as you write the script; a later version may leave it out when the film's shape did not change, and the one on file stands. A treatment with errors saves nothing, neither it nor the script: the answer names them, and validate_treatment checks one beforehand. The treatment is kept beside this version; the lint, the story review, the export and the Story page read it.", z.object({
     projectId: id, text: z.string().min(1).max(200_000),
-    treatment: z.any().optional().describe("The treatment object, as validate_treatment takes it"),
+    treatment: director.TreatmentSchema.optional().describe("The treatment of this script. Required while the project has none; validate_treatment takes the same object"),
     style: z.string().optional().describe("Style slug or name, to check the treatment's native move against; default: the project's style"),
   }), async ({ projectId, text, treatment, style }) => {
     const project = await repo.getProject(projectId);
-    const script = await repo.createScript(projectId, text);
-    if (treatment === undefined || treatment === null) {
-      const kept = await treatments.currentTreatment(projectId);
-      return { script, treatment: kept ? { kept: false, note: `no treatment sent; the one written for script v${kept.scriptVersion} still stands. Send it again if the film's shape changed` } : { kept: false }, warnings: kept ? [] : [treatments.missingTreatmentWarning()] };
-    }
-    const saved = await treatments.saveTreatment(projectId, script.version, treatment, style ?? project.look.style);
-    return { script, treatment: { kept: saved.kept, ...(saved.kept ? {} : { note: "the treatment has errors and was not kept; the script was saved. Fix them and send the treatment again with the same text" }) }, warnings: saved.warnings };
+    return treatments.saveScriptWithTreatment(projectId, text, treatment, style ?? project.look.style);
   });
   tool("get_script", "Latest script and its approval state, with the treatment kept for the project (which script version it was written for, its own warnings).", z.object({ projectId: id }), async ({ projectId }) => {
     const script = (await repo.latestScript(projectId)) ?? null;
@@ -624,7 +618,7 @@ export function createStudioServer(actor: Actor): McpServer {
         text: [
           `You are the director. Call start_film with name "${name ?? "Untitled film"}", this brief and totalSeconds ${totalSeconds}; read what it returns.`,
           "Before anything else ask me for the total budget and whether I want music and subtitles; record what I ask for with add_requirements.",
-          "Tier 1: write the Look from the brief (update_look) and the script (save_script) — every turn as problem → solution → the others' staggered reaction, nothing AI video gets wrong. Have a fresh reviewer read the script (review_packet stage story → record_review), then ask me to approve it (or approve_script yourself if get_delegation says I let you).",
+          "Tier 1: write the Look from the brief (update_look), then the script and its treatment together (save_script takes both; the first script is refused without the treatment) — every turn as problem → solution → the others' staggered reaction, nothing AI video gets wrong. Have a fresh reviewer read the script (review_packet stage story → record_review), then ask me to approve it (or approve_script yourself if get_delegation says I let you).",
           "Tier 2: build the shotlist that tiles the running time; choose a link type for every shot from the editing grammar; create every element first.",
           "Tier 3: every shot gets cinematography (size, angle, lens, lighting, grade at least; animation on every shot if the film is animated), one camera move, blocking in screen terms, what moves, the composition, verbatim dialogue and sound; every scene a palette. Save Tier 2 and 3 together with save_shotlist, fix every warning it returns, show me sketch_board, then ask me to approve it.",
           "Pictures before takes when image_status says image generation is on: plan_frames, then generate_element_sheet and generate_shot_frame in its order, each picture reviewed (review_packet stage frame) before anything is built on it.",
