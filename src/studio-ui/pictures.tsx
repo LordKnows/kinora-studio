@@ -6,7 +6,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState, type ReactNode } f
 import type { Asset } from "@/studio/types";
 
 import { ApiError, get, patch, post } from "./api";
-import { Button, Empty, ErrorBanner, Skeleton, useAction } from "./common";
+import { Button, Empty, ErrorBanner, Loading, useAction } from "./common";
 import { CheckIcon } from "./icons";
 import { describeVerdict, faceLabel, pictureTag, type FaceVerdict } from "@/studio/face-verdict";
 
@@ -284,7 +284,7 @@ function Pictures() {
         {twins.size > 0 && <Button size="sm" kind={filter === "twice" ? "primary" : "quiet"} onClick={() => setFilter("twice")} title={t("The same file under more than one handle")}>{t("Listed twice {n}", { n: twins.size })}</Button>}
       </div>
       {!pictures ? (
-        <Skeleton />
+        <Loading big />
       ) : shown.length === 0 ? (
         <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
       ) : (

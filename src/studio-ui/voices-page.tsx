@@ -113,7 +113,7 @@ export function VoicesPage() {
       <section className="vc-part" aria-label={t("Voice cards")}>
         <div className="vc-part-head"><h2 className="st-h2">{t("Voice cards")}</h2>{cards && <span className="st-num st-muted">{cards.length}</span>}</div>
         {!cards ? (
-          failed ? <Button size="sm" onClick={() => void load()}>{t("Try again")}</Button> : <Loading />
+          failed ? <Button size="sm" onClick={() => void load()}>{t("Try again")}</Button> : <Loading big />
         ) : cards.length === 0 ? (
           <Empty title={t("No voice cards yet")} hint={t("Import one from a description and a recording, or ask the director to make one.")} />
         ) : (

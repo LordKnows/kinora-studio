@@ -290,10 +290,11 @@ export function ConfirmButton({ children, question, confirmLabel, cancelLabel, o
 }
 
 /** Something is being fetched: a turning ring and a word, where the content will be. */
-export function Loading({ label }: { label?: string }) {
+/** `big`: a whole page or tab is being fetched, so the ring is large and fills the place the content will be. */
+export function Loading({ label, big }: { label?: string; big?: boolean }) {
   const t = useT();
   return (
-    <span className="st-loading" role="status">
+    <span className="st-loading" data-big={big ? "true" : undefined} role="status">
       <i aria-hidden="true" />
       {label ?? t("Loading…")}
     </span>

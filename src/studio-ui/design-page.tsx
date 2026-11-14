@@ -4,10 +4,12 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
+import { Loading } from "./common";
 import { ElementsPage } from "./elements-page";
 import { useT } from "./i18n";
 import { LookPage } from "./look-page";
 import { PicturesPage } from "./pictures";
+import { useProjectContext } from "./shell";
 import { VoicesPage } from "./voices-page";
 
 /* The Design page: the art department. Four tabs, kept in the address
@@ -27,7 +29,7 @@ export type DesignTab = (typeof DESIGN_TABS)[number]["id"];
 
 export function DesignPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<Loading big />}>
       <DesignPageInner />
     </Suspense>
   );
@@ -35,6 +37,7 @@ export function DesignPage() {
 
 function DesignPageInner() {
   const t = useT();
+  const { view } = useProjectContext();
   const pathname = usePathname();
   const asked = useSearchParams().get("tab");
   const tab: DesignTab = DESIGN_TABS.some((x) => x.id === asked) ? (asked as DesignTab) : "look";
@@ -49,7 +52,8 @@ function DesignPageInner() {
           ))}
         </nav>
       </div>
-      {tab === "look" ? <LookPage /> : tab === "elements" ? <ElementsPage /> : tab === "voices" ? <VoicesPage /> : <PicturesPage />}
+      {/* the tabs read the project: until it has come, one large loading in their place */}
+      {!view ? <Loading big /> : tab === "look" ? <LookPage /> : tab === "elements" ? <ElementsPage /> : tab === "voices" ? <VoicesPage /> : <PicturesPage />}
     </>
   );
 }

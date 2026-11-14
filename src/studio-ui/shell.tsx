@@ -10,7 +10,7 @@ import type { Job } from "@/studio/types";
 
 import { usd } from "./api";
 import { BrandMark, BrandWord } from "./brand-mark";
-import { Skeleton, usePopover, whenT } from "./common";
+import { Loading, Skeleton, usePopover, whenT } from "./common";
 import { DirectorPanel } from "./director-panel";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
@@ -286,6 +286,9 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
               <span>{error}</span>
             </div>
           </div>
+        ) : !view && loading && pathname === `${base}/design` ? (
+          /* the Design page has no sketch of its own to show: one large loading until the project is here */
+          <div className="st-page"><Loading big /></div>
         ) : !view && loading ? (
           <div className="st-page st-stack">
             <Skeleton height={28} />

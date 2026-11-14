@@ -99,7 +99,7 @@ export const cut: Record<string, string> = {
   "What the director may do, and what it has decided": "导演可以做什么，以及它做了哪些决定",
   "Image generation": "图片生成",
   "Lets the buttons and the director draw pictures with the model below. Off by default.": "允许按钮和导演用下面的模型出图。默认关闭。",
-  "Allow image generation by agent": "允许导演生成图片", "Model": "模型", " · GPU pod": " · GPU 机器", " · not ready": " · 未就绪",
+  "Allow image generation by agent": "允许导演生成图片", "Unsaved changes": "有未保存的修改", "All saved": "已全部保存", "Discard changes": "放弃修改", "Model": "模型", " · GPU pod": " · GPU 机器", " · not ready": " · 未就绪",
   "Quality": "画质", "low (drafts)": "低（草稿）", "medium||quality": "中", "high||quality": "高", "Image limit": "图片上限", "{used} used · {left} left": "已用 {used} · 剩 {left}",
   "LoRAs": "LoRA", "Picking one applies its card's settings to the director's pictures.": "选一个，它卡片上的设置会用在导演画的图上。",
   "No LoRA in the library is trained for {model} (Library → LoRAs).": "素材库里没有为 {model} 训练的 LoRA（素材库 → LoRA）。",
