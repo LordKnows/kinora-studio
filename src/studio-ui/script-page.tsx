@@ -100,18 +100,19 @@ function StoryPageInner() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Story")}</h1>
-        </div>
-        <div className="st-actions">
-          {/* the script's state, as the Board shows the shotlist's: a green tick once the latest version is approved, an amber pencil while it is a draft */}
+          {/* the subtitle is the script's state and nothing else, as the Board's is the shotlist's: a green tick once the
+              latest version is approved, an amber pencil while it is a draft */}
           {latest && (
-            <span title={latest.approval === "approved" && view?.delegated?.script ? t("Approved under delegated approval; overturn it in the Director panel, under Decisions") : undefined}>
+            <p className="st-subtitle" title={latest.approval === "approved" && view?.delegated?.script ? t("Approved under delegated approval; overturn it in the Director panel, under Decisions") : undefined}>
               <Status tone={latest.approval === "approved" ? "ok" : "warn"} icon={latest.approval === "approved" ? <CheckCircleIcon /> : <DraftIcon />}>
                 {latest.approval === "approved"
                   ? (view?.delegated?.script ? t("Script v{v} approved by the director", { v: latest.version }) : t("Script v{v} approved", { v: latest.version }))
                   : t("Script v{v} draft", { v: latest.version })}
               </Status>
-            </span>
+            </p>
           )}
+        </div>
+        <div className="st-actions">
           <Button kind="quiet" onClick={promptPack}>
             {copied ? t("Copied") : t("Copy prompt pack")}
           </Button>
