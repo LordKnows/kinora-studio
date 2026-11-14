@@ -10,6 +10,7 @@ import { del, get, post } from "./api";
 import { Button, ErrorBanner, Lamp, statusLabel, useAction, whenT } from "./common";
 import { filmShots } from "./film";
 import { useT } from "./i18n";
+import { useGpu } from "./gpu-panel";
 import { useProjectContext } from "./shell";
 
 /* The queue: everything of this project that is waiting or under way and
@@ -82,10 +83,23 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
     await refreshJobs();
   });
   const empty = takes.length === 0 && regens.length === 0 && jobs.length === 0;
+  /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
+  const gpu = useGpu();
+  const gpuUp = gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
+  const stopWhenDone = useAction(async (_c, enabled: boolean) => {
+    await post("/api/gpu/stop-when-done", { enabled });
+    await gpu.reload();
+  });
 
   return (
     <div className="side-body">
-      <ErrorBanner error={cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); }} />
+      <ErrorBanner error={cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); }} />
+      {gpuUp && (
+        <label className="q-autostop" title={t("Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.")}>
+          <input type="checkbox" checked={!!gpu.state?.stopWhenDone} disabled={stopWhenDone.busy} onChange={(e) => void stopWhenDone.fire(e.target.checked)} />
+          <span>{t("Stop the GPU when everything has rendered")}</span>
+        </label>
+      )}
       {empty && <p className="st-muted">{t("Nothing is queued or under way.")}</p>}
 
       {(takes.length > 0 || regens.length > 0) && (

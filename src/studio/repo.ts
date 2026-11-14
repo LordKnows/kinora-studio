@@ -1553,6 +1553,8 @@ export type GpuPod = {
   accumulatedSeconds: number;
   lastActivityAt?: number;
   adopted: boolean;
+  /** Stop the pod once nothing is left to render (a one-shot, cleared when the pod stops). */
+  stopWhenDone: boolean;
   updatedAt: number;
 };
 
@@ -1561,7 +1563,7 @@ function mapGpuPod(r: Row): GpuPod {
     id: str(r.id), name: str(r.name), image: str(r.image), gpuTypeId: opt(r.gpu_type_id, str), gpuName: opt(r.gpu_name, str),
     dataCenter: opt(r.data_center, str), status: str(r.status) as GpuPodStatus, message: opt(r.message, str), costPerHr: opt(r.cost_per_hr, num),
     hostUrl: opt(r.host_url, str), createdAt: num(r.created_at), startedAt: opt(r.started_at, num), stoppedAt: opt(r.stopped_at, num),
-    accumulatedSeconds: num(r.accumulated_seconds), lastActivityAt: opt(r.last_activity_at, num), adopted: num(r.adopted) === 1, updatedAt: num(r.updated_at),
+    accumulatedSeconds: num(r.accumulated_seconds), lastActivityAt: opt(r.last_activity_at, num), adopted: num(r.adopted) === 1, stopWhenDone: num(r.stop_when_done) === 1, updatedAt: num(r.updated_at),
   };
 }
 
@@ -1607,6 +1609,10 @@ export async function updateGpuPod(id: string, patch: Partial<{
     ],
   );
   return (await getGpuPod(id))!;
+}
+
+export async function setGpuStopWhenDone(id: string, on: boolean): Promise<void> {
+  await (await db()).run("UPDATE gpu_pods SET stop_when_done = ?, updated_at = ? WHERE id = ?", [on ? 1 : 0, Date.now(), id]);
 }
 
 /** Back to the pending queue: no request id, no finish time. */

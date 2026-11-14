@@ -2323,6 +2323,20 @@ button.st-pill {
 .studio .bp-table input[type="checkbox"]:disabled {
   cursor: default;
 }
+.studio .q-autostop {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.studio .q-autostop input {
+  margin: 0;
+  accent-color: var(--accent);
+}
 /* what became of a shot the batch asked for, under its name; and the line that sums it up */
 .studio .bp-result {
   margin-top: 3px;

@@ -26,6 +26,8 @@ export type GpuState = {
   allowedGpuTypes: string[];
   idleStopMinutes: number;
   pendingTakes: number;
+  /** The pod stops by itself once everything queued has rendered (set from the Queue panel; one time). */
+  stopWhenDone: boolean;
 };
 
 const UNAVAILABLE_PREFIX = "unavailable_";
@@ -140,7 +142,7 @@ export async function getGpuState(): Promise<GpuState> {
   }
   const pod = await repo.currentGpuPod();
   const pending = (await repo.listPendingTakes()).length;
-  if (!pod) return { mode, configured, status: "none", uptimeSeconds: 0, sessionUsd: 0, lifetimeUsd: 0, allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending };
+  if (!pod) return { mode, configured, status: "none", uptimeSeconds: 0, sessionUsd: 0, lifetimeUsd: 0, allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending, stopWhenDone: false };
   const uptime = pod.status === "running" || pod.status === "starting" ? Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000)) : 0;
   const rate = (pod.costPerHr ?? 0) / 3600;
   return {
@@ -149,7 +151,7 @@ export async function getGpuState(): Promise<GpuState> {
     uptimeSeconds: uptime,
     sessionUsd: round(uptime * rate),
     lifetimeUsd: round((pod.accumulatedSeconds + uptime) * rate),
-    allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending,
+    allowedGpuTypes: allowed, idleStopMinutes: idle, pendingTakes: pending, stopWhenDone: pod.stopWhenDone,
   };
 }
 
@@ -345,6 +347,19 @@ export async function stopGpu(asker?: { actor: Actor; confirm: boolean }): Promi
   }
   const uptime = Math.max(0, Math.floor((Date.now() - (pod.startedAt ?? pod.createdAt)) / 1000));
   await repo.updateGpuPod(pod.id, { status: "stopped", message: null, stoppedAt: Date.now(), startedAt: null, accumulatedSeconds: pod.accumulatedSeconds + uptime });
+  /* a pod that has stopped, for whatever reason, has done what "stop when done" asked */
+  await repo.setGpuStopWhenDone(pod.id, false);
+  return getGpuState();
+}
+
+/** "Stop the GPU when everything has rendered": on or off for the pod that is up (it is one for all projects,
+    so it waits for every project's work). Cleared by any stop. */
+export async function setStopWhenDone(on: boolean): Promise<GpuState> {
+  const pod = await repo.currentGpuPod();
+  if (!pod || pod.id.startsWith(UNAVAILABLE_PREFIX) || !["running", "starting", "creating"].includes(pod.status)) {
+    throw new StudioError("validation", "There is no GPU running, so there is nothing to stop afterwards.");
+  }
+  await repo.setGpuStopWhenDone(pod.id, on);
   return getGpuState();
 }
 

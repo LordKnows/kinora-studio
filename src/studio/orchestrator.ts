@@ -1011,6 +1011,21 @@ export async function refreshExport(exportId: string): Promise<ExportJob> {
 
 /* ---------- sweep (cron) ---------- */
 
+/** The pod stops once it has been asked to ("stop when done") and nothing is left for it, in any project:
+    takes (also 2K regenerations), exports, voice jobs, and a picture the pod itself is drawing. Called by the
+    sweep and by a project's event stream. Nothing is stopped that is rendering. */
+export async function stopGpuIfDone(): Promise<boolean> {
+  if (config.runpodMode() !== "pod" || !gpu.gpuConfigured()) return false;
+  const pod = await repo.currentGpuPod();
+  if (!pod?.stopWhenDone || pod.status !== "running") return false;
+  const { podIsPainting } = await import("./painter");
+  const busy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveUpscales()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveVoiceJobs()).length > 0 || (await podIsPainting());
+  if (busy) return false;
+  await gpu.stopGpu();
+  await repo.updateGpuPod(pod.id, { message: "stopped: everything that was queued has rendered" });
+  return true;
+}
+
 export async function sweep(): Promise<{ takes: number; exports: number; images: number; gpu?: string; autoStopped?: boolean }> {
   let gpuStatus: string | undefined;
   if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
@@ -1094,7 +1109,7 @@ export async function sweep(): Promise<{ takes: number; exports: number; images:
     const { podIsPainting } = await import("./painter");
     const stillBusy = (await repo.listActiveTakes()).length > 0 || (await repo.listActiveExports()).length > 0 || (await repo.listActiveVoiceJobs()).length > 0 || (await podIsPainting());
     try {
-      autoStopped = await gpu.autoStopIfIdle(stillBusy);
+      autoStopped = (await stopGpuIfDone()) || (await gpu.autoStopIfIdle(stillBusy));
     } catch {
       autoStopped = false;
     }

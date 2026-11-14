@@ -243,6 +243,36 @@ describe("pod mode", () => {
     expect((await gpu.refreshGpu())?.message ?? null).toBeNull();
   });
 
+  it("stops the pod once, when asked and nothing is left to render", async () => {
+    const pod = (await repo.currentGpuPod())!;
+    await repo.updateGpuPod(pod.id, { status: "running" });
+    scenario.healthy = true;
+    /* what the tests before left in flight is not part of this one */
+    for (const t of await repo.listActiveTakes()) await repo.updateTake(t.id, { status: "canceled", finishedAt: Date.now() });
+    /* not asked: an idle pod is left to the idle timer */
+    expect(await orch.stopGpuIfDone()).toBe(false);
+    expect((await gpu.setStopWhenDone(true)).stopWhenDone).toBe(true);
+    /* a take in flight: it is not stopped */
+    const take = (await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).takes[0]!;
+    expect(await orch.stopGpuIfDone()).toBe(false);
+    expect((await repo.currentGpuPod())!.status).toBe("running");
+    /* everything has rendered: it stops, and the switch is spent */
+    await repo.updateTake(take.id, { status: "canceled", finishedAt: Date.now() });
+    expect(await orch.stopGpuIfDone()).toBe(true);
+    const after = (await repo.currentGpuPod())!;
+    expect(after.status).toBe("stopped");
+    expect(after.stopWhenDone).toBe(false);
+    /* with no pod up there is nothing to ask for */
+    await expect(gpu.setStopWhenDone(true)).rejects.toMatchObject({ code: "validation" });
+    /* a stop by hand spends the switch too */
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null });
+    await gpu.setStopWhenDone(true);
+    await gpu.stopGpu();
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(false);
+    /* leave the pod running for the tests after this one */
+    await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null, startedAt: Date.now() });
+  });
+
   it("does not auto-stop while work is in flight, and stops once idle", async () => {
     expect(await gpu.autoStopIfIdle(true)).toBe(false);
     const pod = (await repo.currentGpuPod())!;
