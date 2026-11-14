@@ -15,7 +15,6 @@ export const core: Record<string, string> = {
   /* the Score */
   "1 scene": "1 场", "{n} scenes": "{n} 场", "1 shot": "1 个镜头", "{n} shots": "{n} 个镜头",
   "Running": "片长", "Spent": "已花费", "Takes": "镜次", "Rolling": "正在拍",
-  "of {cap} cap": "上限 {cap}", "{n} circled": "圈选 {n}", " · {n} NG": " · NG {n}", "on the GPU": "GPU 上", "nothing on the GPU": "GPU 空闲",
   "Write the script": "写剧本", "Plan the shots": "排镜头", "Approve the shotlist": "批准分镜",
   "Render 1 shot": "拍 1 个镜头", "Render {n} shots": "拍 {n} 个镜头", "Screen the takes": "看镜次", "Cut and export": "剪辑并导出",
   "No shots yet": "还没有镜头", "The score fills in as the film is planned: scenes and shots first, then frames, takes and the cut.": "总谱会随着片子推进逐层填满：先是场和镜头，然后是画面、镜次和剪辑。",
