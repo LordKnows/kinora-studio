@@ -14,7 +14,7 @@ import { plural, useLang, useT } from "./i18n";
 import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
 import { ProblemsList } from "./problems-list";
 import { useProjectContext } from "./shell";
-import { Loading } from "./common";
+import { BackToTop, Loading } from "./common";
 import { useLintState } from "./use-lint";
 import { lintLine } from "./zh/lint";
 
@@ -81,6 +81,7 @@ function Score() {
       )}
 
       <ProblemsList view={view} lint={lint} base={base} />
+      <BackToTop />
     </div>
   );
 }
@@ -105,7 +106,6 @@ export function NeedsYou({ needs, full, loading }: { needs: Need[]; base: string
             <div className="sc-need-title"><span className="sc-slate">{n.count}</span><strong>{n.title}</strong></div>
             <p>{n.detail}</p>
             <Link className={`st-btn${i === 0 ? " st-btn--primary" : ""}`} href={n.action.href}>{n.action.label}</Link>
-            {n.note && <span className="st-num sc-need-note">{n.note}</span>}
           </div>
         ))
       )}

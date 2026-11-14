@@ -293,7 +293,7 @@ export function TimelinePage() {
           {/* three columns, each about one thing: what is seen, what is heard, when it falls. Every panel has the same head (its
               name and count, its one action at the right); what a panel is for is behind its info icon. */}
           <div className="cut-groups">
-            <div className="cut-group" data-tone="a" aria-label={tr("Picture||cut")}>
+            <div className="cut-group st-card" aria-label={tr("Picture||cut")}>
               <h3 className="cut-group-h">{tr("Picture||cut")}</h3>
             <section className="cut-panel" id="seams" aria-label={tr("Seams")}>
               <div className="cut-h-row">
@@ -327,7 +327,7 @@ export function TimelinePage() {
 
               <TitlesPanel timeline={timeline} total={total} onChange={set} />
             </div>
-            <div className="cut-group" data-tone="b" aria-label={tr("Sound||cut")}>
+            <div className="cut-group st-card" aria-label={tr("Sound||cut")}>
               <h3 className="cut-group-h">{tr("Sound||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Mix")}>
               <div className="cut-h-row">
@@ -353,7 +353,7 @@ export function TimelinePage() {
 
               <SilencesPanel timeline={timeline} audio={music} onChange={set} />
             </div>
-            <div className="cut-group" data-tone="c" aria-label={tr("Timing||cut")}>
+            <div className="cut-group st-card" aria-label={tr("Timing||cut")}>
               <h3 className="cut-group-h">{tr("Timing||cut")}</h3>
             <section className="cut-panel" aria-label={tr("Beat grid")}>
               <div className="cut-h-row">

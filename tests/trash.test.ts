@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { assertVisible } from "@/auth/scope";
 import { getDb, setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
-import { getProjectView, removeElement, removeProject, removeScene, removeShot, removeTake } from "@/studio/orchestrator";
+import { getProjectView, removeElement, removeProject, removeScene, removeShot, removeTake, selectTake } from "@/studio/orchestrator";
 import { deletePictures } from "@/studio/pictures";
 import * as repo from "@/studio/repo";
 import { ShotInput } from "@/studio/schemas";
@@ -198,5 +198,15 @@ describe("a take", () => {
     await trash.restore(trashId);
     expect((await repo.getTake(done.id)).status).toBe("completed");
     expect((await repo.getShot(shotId)).selectedTakeId).toBe(done.id);
+  });
+});
+
+describe("a pick", () => {
+  it("is taken off with a null take, and made again", async () => {
+    const shotId = shots[0]!;
+    const t = await repo.updateTake((await repo.createTake({ projectId, shotId, backend: "runpod", workflow: "T2VA", prompt: "p", input: {} })).id, { status: "completed", finishedAt: Date.now(), resultUrl: "https://r2/y.mp4" });
+    expect((await selectTake(shotId, t.id)).selectedTakeId).toBe(t.id);
+    expect((await selectTake(shotId, null)).selectedTakeId).toBeUndefined();
+    expect((await selectTake(shotId, t.id)).selectedTakeId).toBe(t.id);
   });
 });

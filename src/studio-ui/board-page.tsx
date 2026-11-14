@@ -1160,8 +1160,8 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
     await post(`/api/takes/${take.id}/review`, { score, notes, faults, ...(audioOk !== undefined ? { audioOk } : {}) });
     await reload();
   });
-  const select = useAction(async () => {
-    await post(`/api/shots/${shot.id}/select-take`, { takeId: take.id });
+  const select = useAction(async (_c, pick: boolean = true) => {
+    await post(`/api/shots/${shot.id}/select-take`, { takeId: pick ? take.id : null });
     await reload();
   });
   /* One click says what was wrong: a tag is saved as it is set, with the score the take has or 2
@@ -1333,6 +1333,11 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
           {take.status === "completed" && !selected && (
             <Button size="sm" kind="secondary" busy={select.busy} onClick={() => void select.fire()}>
               {tr("Use this take")}
+            </Button>
+          )}
+          {selected && (
+            <Button size="sm" kind="quiet" busy={select.busy} onClick={() => void select.fire(false)} title={tr("Take it off as this shot's pick: the shot is left with none")}>
+              {tr("Unselect")}
             </Button>
           )}
           {take.status === "queued" && (

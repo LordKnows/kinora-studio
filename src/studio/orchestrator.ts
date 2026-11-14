@@ -800,7 +800,9 @@ export async function reviewTake(takeId: string, score: number, notes: string, a
   } });
 }
 
-export async function selectTake(shotId: string, takeId: string): Promise<Shot> {
+/** Pick a completed take for the shot, or (takeId null) leave the shot with no pick. */
+export async function selectTake(shotId: string, takeId: string | null): Promise<Shot> {
+  if (takeId === null) return repo.updateShot(shotId, { selectedTakeId: null });
   const take = await repo.getTake(takeId);
   if (take.shotId !== shotId) throw new StudioError("validation", "take belongs to another shot");
   if (take.status !== "completed") throw new StudioError("validation", "only completed takes can be selected");

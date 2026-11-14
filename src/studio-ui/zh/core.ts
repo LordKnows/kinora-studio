@@ -45,7 +45,7 @@ export const core: Record<string, string> = {
   "shot with takes, none circled": "个镜头有镜次但没圈选", "shots with takes, none circled": "个镜头有镜次但没圈选", "{list}: choose the take that goes into the cut.": "{list}：选一条进剪辑。", "Screen them": "去看",
   "circled take unreviewed": "条圈选镜次没打分", "circled takes unreviewed": "条圈选镜次没打分", "No take in the cut has a score yet.": "剪辑里的镜次都还没打分。",
   "{p} takes are in the cut; {r} has a score.": "剪辑里有 {p} 条镜次，{r} 条打了分。", "{p} takes are in the cut; {r} have a score.": "剪辑里有 {p} 条镜次，{r} 条打了分。",
-  "Screen them in order": "按顺序看", "starts at {s}": "从 {s} 开始",
+  "Screen them in order": "按顺序看",
   "picture awaits review": "张图片待审", "pictures await review": "张图片待审", "{range}: pass each one or have it redrawn.": "{range}：逐张通过或重画。", "Pass each one or have it redrawn.": "逐张通过或重画。", "Review them": "去审",
   "treatment with the script": "份处理稿", "No logline, arc or sound design is written down, so nothing holds the cut to them.": "没有写下一句话梗概、弧线或声音设计，剪辑就没有可对照的东西。", "Open the script": "打开剧本",
   "script line on no shot": "句剧本没有镜头拍", "script lines on no shot": "句剧本没有镜头拍",

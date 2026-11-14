@@ -4431,10 +4431,6 @@ button.st-pill {
   white-space: normal;
   text-align: center;
 }
-.studio .sc-need-note {
-  font-size: 11px;
-  color: var(--tx2);
-}
 .studio .sc-needs[data-full="true"] {
   display: block;
   border-top: 0;
@@ -5527,28 +5523,12 @@ button.st-pill {
   align-items: start;
   padding-top: 24px;
 }
-/* each column a card, in its own tone: the lightest, a step between, the deepest */
-.studio .cut-groups {
-  --tone-a: var(--s2);
-  --tone-b: color-mix(in srgb, var(--s2) 45%, var(--s3));
-  --tone-c: var(--s3);
-}
+/* each column is a card, the same card as the Look's Aspect ratio (st-card) */
 .studio .cut-group {
   display: flex;
   flex-direction: column;
   gap: 26px;
   min-width: 0;
-  padding: 18px 20px 22px;
-  border: 1px solid var(--line-2);
-}
-.studio .cut-group[data-tone="a"] {
-  background: var(--tone-a);
-}
-.studio .cut-group[data-tone="b"] {
-  background: var(--tone-b);
-}
-.studio .cut-group[data-tone="c"] {
-  background: var(--tone-c);
 }
 .studio .cut-group-h {
   font-family: var(--font-mono);
