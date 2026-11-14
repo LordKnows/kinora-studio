@@ -224,6 +224,7 @@ export function compileShot(ctx: CompileContext): CompiledJob {
   const audios = voiceReferences(ctx, workflow, warnings);
   const guide = audioGuide(ctx, workflow, warnings);
   dialogueWarnings(spec, warnings);
+  speechLeakWarnings(spec, ctx, warnings);
 
   /* One turbo LoRA, the one trained for this workflow, and the shot's assigned
      LoRAs that are trained for H3 and for it (shot-loras.ts). */
@@ -347,6 +348,21 @@ export function lineSeconds(line: Line): number {
 /* The [Shot k] segment a moment falls in: one more for every hard cut at or before it. */
 function segmentAt(spec: ShotInput, t: number): number {
   return spec.beats.filter((b) => b.cut && b.from <= t + 1e-6).length;
+}
+
+/* The prompt is read by a model that speaks what it reads in quotes, and tends to speak Chinese words it finds
+   in the middle of English ones. The shot's intent is a sentence for people and goes into the prompt as it is;
+   the characters are called by their names. Chinese in either, or a quotation mark, can be voiced as a line
+   nobody wrote: said here, where the shot is compiled, since nothing downstream checks it. */
+const HAN = /[\u3400-\u9fff\uf900-\ufaff]/;
+const QUOTES = /["“”「」『』]/;
+function speechLeakWarnings(spec: ShotInput, ctx: CompileContext, warnings: string[]): void {
+  if (HAN.test(spec.intent) || QUOTES.test(spec.intent)) {
+    warnings.push(`the shot's intent goes into the prompt and has ${HAN.test(spec.intent) ? "Chinese" : "a quotation mark"} in it: the model may speak it aloud as a line. Write the intent in English without quotes (the spoken lines are the dialogue's)`);
+  }
+  const named = [...spec.characters, ...spec.dialogue.map((l) => l.speaker)].filter((id, i, all) => all.indexOf(id) === i)
+    .map((id) => ctx.elements.get(id)?.name).filter((n): n is string => !!n && HAN.test(n));
+  if (named.length) warnings.push(`${named.map((n) => `"${n}"`).join(", ")} ${named.length > 1 ? "are" : "is"} called by a Chinese name in the prompt: the model may speak the name, or the words in it, aloud. Give the character an English name or a code (S1) while it is compiled`);
 }
 
 function dialogueWarnings(spec: ShotInput, warnings: string[]): void {

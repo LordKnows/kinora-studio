@@ -260,3 +260,17 @@ describe("voice cards are a global library", () => {
     await expect(repo.createElement(p.id, { kind: "character", name: "Y", description: "", voiceCardId: "vc_missing" })).rejects.toThrow();
   });
 });
+
+describe("Chinese and quotes that the model may speak", () => {
+  it("warns when the intent has Chinese or a quotation mark, and when a character has a Chinese name", () => {
+    const clean = compile(shotOf());
+    expect(clean.warnings.join(" ")).not.toContain("may speak");
+    const intent = compile(shotOf({ intent: "她说“你来了”，递过茶" }));
+    expect(intent.warnings.join(" ")).toContain("the shot's intent goes into the prompt and has Chinese in it");
+    const quoted = compile(shotOf({ intent: 'She says "you came" and offers the tea' }));
+    expect(quoted.warnings.join(" ")).toContain("a quotation mark");
+    const named = compile(shotOf(), { elements: new Map([["mara", { ...mara, name: "沈知微（十八岁·女装）" }], ["theo", theo]]) });
+    expect(named.warnings.join(" ")).toContain("沈知微（十八岁·女装）");
+    expect(named.warnings.join(" ")).toContain("called by a Chinese name");
+  });
+});
