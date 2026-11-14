@@ -1816,21 +1816,31 @@ button.st-pill {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.studio .st-shot[data-held="true"] {
-  position: relative;
-  z-index: 2;
-  outline: 2px solid var(--tx);
-  outline-offset: 2px;
+.studio .st-shot[data-shot-id] {
+  cursor: grab;
+}
+/* Dragging a card (shot-sort.ts, SortableJS). The slot: the card itself, where it would land if let
+   go now — a dashed frame in the accent, its content faint, so the place reads before the card does. */
+.studio .st-shot.st-shot--slot {
+  border-color: transparent;
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-08);
+  box-shadow: none;
+  transform: none;
+}
+.studio .st-shot.st-shot--slot > * {
+  opacity: 0.22;
+}
+/* The lifted card: a copy that follows the pointer, a little see-through, with a shadow under it. */
+.studio .st-shot.st-shot--lifted {
+  opacity: 0.86 !important;
+  border-color: var(--tx);
   box-shadow: var(--shadow-3);
-  transform: scale(1.02);
   cursor: grabbing;
 }
-/* while one is held the others do not react to the pointer passing over them */
-.studio .st-shots[data-sorting="true"] .st-shot:not([data-held="true"]) {
-  opacity: 0.72;
-}
-.studio .st-shots[data-sorting="true"] .st-shot * {
-  pointer-events: none;
+.studio .st-shot.st-shot--lifted .st-zoom {
+  display: none;
 }
 /* the heading is the fold: a chevron and the scene's name */
 .studio .st-scene-fold {
@@ -3377,14 +3387,30 @@ button.st-pill {
 .studio .sc-bar-end {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px 18px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 /* the three tools beside the pages: Screening, the Director panel, Settings */
+/* Screen, Queue, Director and Settings: one group of joined buttons, at the right edge of the bar */
 .studio .sc-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
+  margin-left: auto;
+}
+.studio .sc-tools .sc-tool + .sc-tool {
+  margin-left: -1px;
+}
+.studio .sc-tools .sc-tool:hover,
+.studio .sc-tools .sc-tool[aria-expanded="true"],
+.studio .sc-tools .sc-tool:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+.studio .sc-tools .sc-tool[aria-expanded="true"] {
+  background: var(--s3);
 }
 .studio .sc-tool {
   display: inline-flex;
@@ -3782,23 +3808,36 @@ button.st-pill {
   padding: 0 20px 8px;
   min-height: 34px;
 }
-.studio .sc-line-scroll {
+.studio .sc-line-track {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-}
-/* a film of more than thirty shots: thirty or so to a screen, the rest a scroll away */
-.studio .sc-line-scroll[data-long="true"] {
-  overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-2) transparent;
-  overscroll-behavior-x: contain;
-}
-.studio .sc-line-track {
-  position: relative;
   display: flex;
-  min-width: 100%;
   border-right: 1px solid var(--line-3);
+}
+/* a film of more than thirty shots is shown a page at a time: the page before at the far left, the page after at the far right */
+.studio .sc-line-page {
+  flex: none;
+  width: 24px;
+  height: 26px;
+  border: 1px solid var(--line-3);
+  color: var(--tx);
+  font-size: 16px;
+  line-height: 22px;
+  text-align: center;
+}
+.studio .sc-line-page:hover:not(:disabled) {
+  background: var(--tx);
+  color: var(--bg);
+}
+.studio .sc-line-page:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+/* what a last, shorter page leaves empty */
+.studio .sc-seg-rest {
+  flex: 1 1 0;
+  min-width: 0;
+  border-left: 1px solid var(--line-3);
 }
 .studio .sc-line-end {
   flex: none;

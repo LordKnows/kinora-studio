@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { describeParams, type InferenceParams } from "@/studio/models";
 import type { SceneView, ShotView } from "@/studio/orchestrator";
@@ -210,8 +210,12 @@ function Board() {
     await post("/api/shots/reorder", { sceneId, shotIds: ids });
     await reload();
   });
-  const reorderFire = reorder.fire;
-  const sort = useShotSort(useCallback((sceneId: string, ids: string[]) => reorderFire(sceneId, ids), [reorderFire]));
+  /* the order a card was just dropped into, shown until the board comes back with it (or the save fails) */
+  const [dropped, setDropped] = useState<Record<string, string[]>>({});
+  const sorted = (sceneId: string, ids: string[]) => {
+    setDropped((d) => ({ ...d, [sceneId]: ids }));
+    void reorder.fire(sceneId, ids).finally(() => setDropped((d) => { const { [sceneId]: _done, ...rest } = d; return rest; }));
+  };
   const nudge = (scene: SceneView, from: number, by: -1 | 1) => {
     const to = from + by;
     if (to < 0 || to >= scene.shots.length || reorder.busy) return;
@@ -332,9 +336,8 @@ function Board() {
           {isFolded ? null : scene.shots.length === 0 ? (
             <Empty title={tr("Empty scene")} />
           ) : (
-            <div className="st-shots" id={`scene-shots-${scene.id}`} data-sorting={sort.drag?.sceneId === scene.id ? "true" : undefined}>
-              {/* while a card is held, the grid shows the order it would leave */}
-              {(sort.drag?.sceneId === scene.id ? sort.drag.order.map((id) => scene.shots.find((s) => s.id === id)).filter((s): s is ShotView => Boolean(s)) : scene.shots).map((shot, i) => {
+            <ShotGrid scene={scene} order={dropped[scene.id]} onSorted={(ids) => sorted(scene.id, ids)}>
+              {(shot, i) => {
                 const was = scene.shots.indexOf(shot);
                 return (
                   <ShotCard
@@ -345,13 +348,11 @@ function Board() {
                     lint={lintByShot.get(shotKey(scene.slug, was)) ?? []}
                     open={openId === shot.id}
                     onOpen={() => setOpenId(shot.id)}
-                    held={sort.drag?.id === shot.id}
-                    onPress={sort.press(scene.id, scene.shots.map((s) => s.id), shot.id)}
                     onNudge={(by) => nudge(scene, was, by)}
                   />
                 );
-              })}
-            </div>
+              }}
+            </ShotGrid>
           )}
         </section>
         );
@@ -683,11 +684,22 @@ function linkLabel(spec: ShotView["spec"]): string | null {
   return EDIT_GRAMMAR.find((g) => g.type === type)?.label.toLowerCase() ?? type;
 }
 
-/* A shot on the board. It is picked up by holding it (shot-sort.ts) and dragged to its place in the
-   scene; from the keyboard, Alt with an arrow key moves it one place. */
-function ShotCard({ shot, index, slate, lint, open, onOpen, held, onPress, onNudge }: {
-  shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void;
-  held?: boolean; onPress?: (e: ReactPointerEvent) => void; onNudge?: (by: -1 | 1) => void;
+/* A scene's shots, as cards that can be dragged into a new order (shot-sort.ts). `order` is the order
+   a card was just dropped into, drawn until the board itself comes back with it. */
+function ShotGrid({ scene, order, onSorted, children }: { scene: SceneView; order?: string[]; onSorted: (ids: string[]) => void; children: (shot: ShotView, index: number) => ReactNode }) {
+  const shots = order ? order.map((id) => scene.shots.find((s) => s.id === id)).filter((s): s is ShotView => Boolean(s)) : scene.shots;
+  const grid = useShotSort(scene.id, shots.map((s) => s.id), onSorted);
+  return (
+    <div className="st-shots" id={`scene-shots-${scene.id}`} ref={grid}>
+      {shots.map(children)}
+    </div>
+  );
+}
+
+/* A shot on the board. It is dragged to its place in the scene; from the keyboard, Alt with an arrow
+   key moves it one place. */
+function ShotCard({ shot, index, slate, lint, open, onOpen, onNudge }: {
+  shot: ShotView; index: number; slate?: string; lint: LintWarning[]; open: boolean; onOpen: () => void; onNudge?: (by: -1 | 1) => void;
 }) {
   const tr = useT();
   const lang = useLang();
@@ -701,8 +713,7 @@ function ShotCard({ shot, index, slate, lint, open, onOpen, held, onPress, onNud
   /* Poster order: the selected take, else the newest completed take, else the hero frame. */
   const poster = shot.selectedTake?.thumbUrls[0] ?? shot.takes.find((t) => t.status === "completed" && t.thumbUrls[0])?.thumbUrls[0] ?? shot.hero?.url;
   return (
-    <div className="st-shot" aria-pressed={open} data-shot-id={shot.id} data-scene-id={shot.sceneId} data-held={held ? "true" : undefined} title={tr("Hold and drag to reorder (Alt + arrow keys from the keyboard)")}
-      onPointerDown={onPress}
+    <div className="st-shot" aria-pressed={open} data-shot-id={shot.id} title={tr("Drag to reorder (on a touch screen, hold first; from the keyboard, Alt + arrow keys)")}
       onKeyDown={(e) => {
         if (!e.altKey || !onNudge) return;
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); onNudge(-1); }

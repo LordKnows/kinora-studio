@@ -48,7 +48,7 @@ export const board: Record<string, string> = {
 
   /* shot cards */
   "no take yet": "还没有镜次", "no cinematography": "没设摄影", "{d} s · {mode} · {move}": "{d} 秒 · {mode} · {move}",
-  " · 1 take · {cost}": " · 1 条镜次 · {cost}", " · {n} takes · {cost}": " · {n} 条镜次 · {cost}", "Hold and drag to reorder (Alt + arrow keys from the keyboard)": "按住拖动可以排序（键盘：Alt + 方向键）",
+  " · 1 take · {cost}": " · 1 条镜次 · {cost}", " · {n} takes · {cost}": " · {n} 条镜次 · {cost}", "Drag to reorder (on a touch screen, hold first; from the keyboard, Alt + arrow keys)": "拖动可以排序（触屏先长按；键盘：Alt + 方向键）",
   "Show large": "看大图", "Picture": "图片",
   "continuous (long take)": "连续（长镜头）", "bridge (first → last frame)": "桥接（首帧 → 尾帧）", "insert, then return": "插入后返回", "shot / reverse shot": "正反打", "montage beat": "蒙太奇段落", "loop (periodic motion)": "循环（周期运动）",
   "insert_return": "插入后返回", "match_cut": "匹配剪辑", "jump_cut": "跳切",
