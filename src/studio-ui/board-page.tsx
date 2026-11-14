@@ -13,7 +13,8 @@ import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
 import { del, describe, get, patch, post, put, usd } from "./api";
-import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
+import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
+import { REGENERATE_ENABLED } from "./flags";
 import { plural, type T, useLang, useT } from "./i18n";
 import { CheckCircleIcon, ChevronIcon, CloseIcon, DraftIcon, ErrorIcon, InfoIcon, PlusIcon, WarningIcon } from "./icons";
 import { lintLine } from "./zh/lint";
@@ -99,6 +100,7 @@ function Board() {
   const openId = address.openId;
   const setOpenId = (id: string | null) => (id ? address.open(id) : address.close());
   const [lint, setLint] = useState<LintReport | null>(null);
+  const [lintFailed, setLintFailed] = useState(false);
   const [lintOpen, setLintOpen] = useState(false);
   /* the sketch is opened from a scene; `whole` shows the film instead of that scene */
   const [sketch, setSketch] = useState<{ sceneId: string; whole: boolean } | null>(null);
@@ -110,10 +112,12 @@ function Board() {
   const [addedScene, setAddedScene] = useState<string | null>(null);
   const shotKey = (scene: string, i: number) => `${scene}#${i + 1}`;
   const refreshLint = useCallback(async () => {
+    setLintFailed(false);
     try {
       setLint(await get<LintReport>(`/api/projects/${projectId}/lint`));
     } catch {
       setLint(null);
+      setLintFailed(true);
     }
   }, [projectId]);
   useEffect(() => {
@@ -147,11 +151,6 @@ function Board() {
     document.getElementById(`scene-${addedScene}`)?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     setAddedScene(null);
   }, [addedScene, view]);
-  const addShot = useAction(async (_c, sceneId: string) => {
-    const { shot } = await post<{ shot: { id: string } }>(`/api/scenes/${sceneId}/shots`, { ...BLANK_SHOT, intent: "New shot — describe it" });
-    await reload();
-    setOpenId(shot.id);
-  });
   const reorder = useAction(async (_c, scene: SceneView, from: number, to: number) => {
     const ids = scene.shots.map((s) => s.id);
     const [moved] = ids.splice(from, 1);
@@ -169,7 +168,7 @@ function Board() {
   const open = view.scenes.flatMap((s) => s.shots).find((s) => s.id === openId) ?? null;
   const approved = view.project.shotlistApproval === "approved";
   const shotCount = view.scenes.reduce((n, s) => n + s.shots.length, 0);
-  const error = approve.error ?? addShot.error ?? reorder.error ?? removeScene.error;
+  const error = approve.error ?? reorder.error ?? removeScene.error;
   const sketchScene = sketch ? view.scenes.find((s) => s.id === sketch.sceneId) : undefined;
   const sketchSrc = (extra?: Record<string, string>) => {
     const q = new URLSearchParams({ ...(sketchScene && !sketch?.whole ? { scene: sketchScene.id } : {}), ...(sketchGray ? { gray: "1" } : {}), ...extra });
@@ -213,7 +212,7 @@ function Board() {
           )}
         </div>
       </div>
-      <ErrorBanner error={error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); addShot.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
+      <ErrorBanner error={error ?? plan.error ?? renderPass.error} projectId={projectId} onConfirm={renderPass.error ? () => void renderPass.confirm() : undefined} onDismiss={() => { approve.dismiss(); reorder.dismiss(); removeScene.dismiss(); plan.dismiss(); renderPass.dismiss(); }} />
 
       {view.scenes.length === 0 && (
         <Empty title={tr("No scenes yet")} hint={tr("Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.")} />
@@ -238,9 +237,9 @@ function Board() {
               <Popover size="sm" kind="quiet" label={tr("Palette||scene colours")} title={tr("This scene's colour script; it compiles into every shot")} panelLabel={tr("Colour script · {slug}", { slug: scene.slug })}>
                 {(close) => <PaletteForm scene={scene} onDone={close} />}
               </Popover>
-              <Button size="sm" busy={addShot.busy} onClick={() => void addShot.fire(scene.id)}>
-                {tr("Add shot")}
-              </Button>
+              <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot at the end of this scene")} panelLabel={tr("Add shot")}>
+                {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
+              </Popover>
               <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
                 question={tr("Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.", { i: view.scenes.indexOf(scene) + 1, slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" })}>
                 {tr("Delete")}
@@ -298,7 +297,12 @@ function Board() {
       {lintOpen && (
         <Drawer title={lint ? tr("Lint · {e} errors, {w} warnings, {i} notes", { e: lint.counts.error, w: lint.counts.warn, i: lint.counts.info }) : tr("Lint · …")} onClose={() => setLintOpen(false)}>
           {!lint ? (
-            <span className="st-muted">{tr("Loading…")}</span>
+            lintFailed ? (
+              <div className="st-row">
+                <span className="st-muted">{tr("The lint could not be loaded.")}</span>
+                <Button size="sm" onClick={() => void refreshLint()}>{tr("Try again")}</Button>
+              </div>
+            ) : <Loading />
           ) : lint.warnings.length === 0 ? (
             <Empty title={tr("Nothing to fix")} hint={tr("Rhythm, variety, breath, links and cinematography all pass.")} />
           ) : (
@@ -441,6 +445,57 @@ function AddSceneForm({ onAdded }: { onAdded: (sceneId: string) => void }) {
       <ErrorBanner error={add.error} projectId={projectId} onDismiss={add.dismiss} />
       <div className="st-row">
         <Button type="submit" kind="primary" size="sm" busy={add.busy} disabled={!slug.trim()}>{tr("Add scene")}</Button>
+      </div>
+    </form>
+  );
+}
+
+/* A new shot, from a scene's Add shot: it is saved only with a name (the shot's intent, the line
+   on its card), and the popup says whether the save went through. */
+const SHOT_NAME_MIN = 5;
+
+function AddShotForm({ scene, sceneNumber, onOpen, onClose }: { scene: SceneView; sceneNumber: number; onOpen: (shotId: string) => void; onClose: () => void }) {
+  const { projectId, reload } = useProjectContext();
+  const tr = useT();
+  const [name, setName] = useState("");
+  const [saved, setSaved] = useState<{ id: string; slate: string; name: string } | null>(null);
+  const add = useAction(async () => {
+    const intent = name.trim();
+    /* a shot needs one beat with an action in it (the schema refuses an empty one, which is why the old
+       one-click Add shot was refused): the name stands in as that action until the shot is edited */
+    const { shot } = await post<{ shot: { id: string; index: number } }>(`/api/scenes/${scene.id}/shots`, { ...BLANK_SHOT, intent, beats: [{ from: 0, to: BLANK_SHOT.durationS, action: intent }] });
+    await reload();
+    setSaved({ id: shot.id, slate: `${sceneNumber}·${shot.index + 1}`, name: intent });
+    setName("");
+  });
+  if (saved) {
+    return (
+      <div className="st-stack st-stack--tight" role="status">
+        <Status tone="ok" icon={<CheckCircleIcon />}>{tr("Saved as shot {slate}", { slate: saved.slate })}</Status>
+        <span className="st-pop-quote">{saved.name}</span>
+        <div className="st-row">
+          <Button size="sm" kind="primary" onClick={() => onOpen(saved.id)}>{tr("Open the shot")}</Button>
+          <Button size="sm" onClick={() => setSaved(null)}>{tr("Add another")}</Button>
+          <Button size="sm" kind="quiet" onClick={onClose}>{tr("Close")}</Button>
+        </div>
+      </div>
+    );
+  }
+  const short = name.trim().length < SHOT_NAME_MIN;
+  return (
+    <form className="st-stack st-stack--tight" onSubmit={(e) => { e.preventDefault(); if (!short) void add.fire(); }}>
+      <Field label={tr("Shot name")} hint={tr("One sentence: what this shot is for, at least {n} characters. It is the line on the shot's card; the rest is filled in under Edit.", { n: SHOT_NAME_MIN })}>
+        <input className="st-input" autoFocus maxLength={300} placeholder={tr("e.g. the courier crosses the wet square")} value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      {add.error ? (
+        <div className="st-stack st-stack--tight" role="alert">
+          <Status tone="err" icon={<ErrorIcon />}>{tr("The shot was not saved")}</Status>
+          <ErrorBanner error={add.error} projectId={projectId} onDismiss={add.dismiss} />
+        </div>
+      ) : null}
+      <div className="st-row">
+        <Button type="submit" kind="primary" size="sm" busy={add.busy} disabled={short}>{tr("Save")}</Button>
+        <Button size="sm" kind="quiet" onClick={onClose}>{tr("Cancel")}</Button>
       </div>
     </form>
   );
@@ -672,14 +727,18 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
   const [data, setData] = useState<Compiled | null>(null);
   const [basisGpu, setBasisGpu] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
   const load = useCallback(async () => {
     setError(null);
+    setLoading(true);
     try {
       setData(await get<Compiled>(`/api/shots/${shotId}/compile${steps ? `?steps=${steps}` : ""}`));
       get<{ estimateBasis?: { gpuTypeId?: string } }>("/api/gpu/stats").then((r) => setBasisGpu(r.estimateBasis?.gpuTypeId ?? null)).catch(() => setBasisGpu(null));
     } catch (caught) {
       setError(caught);
       setData(null);
+    } finally {
+      setLoading(false);
     }
   }, [shotId, steps]);
   useEffect(() => {
@@ -725,7 +784,8 @@ function CompilePanel({ shotId, dirty }: { shotId: string; dirty: boolean }) {
           <span>{data.warnings.join(" · ")}</span>
         </div>
       ) : null}
-      {data && <pre className="st-pre">{data.prompt}</pre>}
+      {loading && <Loading label={tr("Compiling…")} />}
+      {data && <pre className="st-pre" aria-busy={loading}>{data.prompt}</pre>}
     </div>
   );
 }
@@ -863,6 +923,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
   });
   const up = take.upscale;
   const upActive = up?.status === "queued" || up?.status === "running";
+  const rolling = take.status === "queued" || take.status === "running";
   const active = take.status === "queued" || take.status === "running" || Boolean(upActive);
   const playUrl = up?.status === "completed" && up.url && show2k ? up.url : take.resultUrl;
   const selected = shot.selectedTakeId === take.id;
@@ -912,35 +973,31 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
               </>
             ) : (
               <>
-                <select className="st-input st-input--sm" value={resolution} onChange={(e) => setResolution(e.target.value as typeof resolution)} style={{ width: 90 }}>
+                <select className="st-input st-input--sm" value={resolution} disabled={!REGENERATE_ENABLED} onChange={(e) => setResolution(e.target.value as typeof resolution)} style={{ width: 90 }}>
                   <option value="1080p">1080p</option>
                   <option value="2k">2K</option>
                   <option value="4k">4K</option>
                 </select>
                 <label className="st-row" style={{ gap: 4 }}>
-                  <input type="checkbox" checked={closeToDraft} onChange={(e) => setCloseToDraft(e.target.checked)} />
+                  <input type="checkbox" checked={closeToDraft} disabled={!REGENERATE_ENABLED} onChange={(e) => setCloseToDraft(e.target.checked)} />
                   <span className="st-muted">{tr("stay close to the draft")}</span>
                 </label>
-                <Button size="sm" busy={regen.busy} onClick={() => void regen.fire()} title={tr("Open-H3-Regenerate-2K: three refine steps on the pod")}>{tr("Regenerate {res}", { res: resolution.toUpperCase() })}</Button>
+                <Button size="sm" busy={regen.busy} disabled={!REGENERATE_ENABLED} onClick={() => void regen.fire()} title={REGENERATE_ENABLED ? tr("Open-H3-Regenerate-2K: three refine steps on the pod") : tr("Regenerating at a higher resolution is switched off for now")}>{tr("Regenerate {res}", { res: resolution.toUpperCase() })}</Button>
                 {up?.status === "failed" && <span className="st-danger">{up.error ?? tr("regeneration failed")}</span>}
               </>
             )}
           </div>
         )}
-        {take.thumbUrls.length > 0 && (
-          <div className="st-row" style={{ gap: 4 }}>
-            {take.thumbUrls.map((u) => (
-              <img key={u} src={u} alt="" style={{ width: 64, aspectRatio: "16 / 9", objectFit: "contain", background: "#000", borderRadius: 0 }} />
-            ))}
+        {/* nothing to score while the take is still rolling */}
+        {!rolling && (
+          <div className="st-row">
+            <Stars value={score} onChange={setScore} />
+            <input className="st-input st-input--sm" style={{ flex: 1, minWidth: 120 }} placeholder={tr("Review notes")} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <Button size="sm" busy={review.busy} disabled={!score} onClick={() => void review.fire()}>
+              {tr("Save review")}
+            </Button>
           </div>
         )}
-        <div className="st-row">
-          <Stars value={score} onChange={setScore} />
-          <input className="st-input st-input--sm" style={{ flex: 1, minWidth: 120 }} placeholder={tr("Review notes")} value={notes} onChange={(e) => setNotes(e.target.value)} />
-          <Button size="sm" busy={review.busy} disabled={!score} onClick={() => void review.fire()}>
-            {tr("Save review")}
-          </Button>
-        </div>
         {measured.length > 0 && (
           <div className="st-stack st-stack--tight">
             <span className="st-muted">{tr("Measured on the file — places to look, not a verdict")}</span>

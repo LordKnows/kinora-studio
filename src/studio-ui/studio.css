@@ -10,8 +10,9 @@
    ink marks that differ in shape, not colour — except on a state's own mark
    where it has to be told apart at a glance, which takes one of four signal
    hues (--sig-ok / -warn / -err / -info): the shotlist's status on the
-   Board, the severities of its Lint drawer, a requirement met or dropped in
-   the Director panel, and the button that confirms a deletion. Type: Archivo for text (its
+   Board, the errors and warnings of its Lint drawer (its notes are ink), a
+   requirement met or dropped in the Director panel, and the button that
+   confirms a deletion. Type: Archivo for text (its
    width axis: wide for the film's name, condensed for slate numbers), IBM
    Plex Mono for everything measured, a system Songti for script text. */
 
@@ -597,6 +598,23 @@ button.st-pill {
 .studio .st-status[data-tone="info"] {
   color: var(--sig-info);
 }
+/* something is being fetched: a turning ring and a word, where the content will be */
+.studio .st-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--tx3);
+}
+.studio .st-loading i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  animation: st-spin 0.8s linear infinite;
+}
 /* a count by severity, on the Lint button */
 .studio .st-sev {
   display: inline-flex;
@@ -809,33 +827,89 @@ button.st-pill {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
 }
 /* the Story page: versions | the script | its treatment */
-.studio .sp-story {
+/* The Story page: two parts, Brief and Versions. Versions is a narrow rail
+   of the script's versions and, beside it, the one picked. */
+.studio .sp-part + .sp-part {
+  margin-top: 32px;
+}
+.studio .sp-part-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--line-3);
+}
+.studio .sp-tools {
+  margin-bottom: 16px;
+}
+.studio .sp-versions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  grid-template-areas: "left read" "left treat";
+  grid-template-columns: 136px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
 }
-.studio .sp-left {
-  grid-area: left;
+.studio .sp-rail {
+  position: sticky;
+  top: calc(var(--topbar) + 104px);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - var(--topbar) - 128px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  border: 1px solid var(--line-2);
+  background: var(--s1);
 }
-.studio .sp-read {
-  grid-area: read;
+.studio .sp-rail::-webkit-scrollbar {
+  display: none;
 }
-.studio .sp-treat {
-  grid-area: treat;
+.studio .sp-rail-item {
+  flex: none;
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  color: var(--tx2);
+  border-bottom: 1px solid var(--line);
 }
-@media (min-width: 1800px) {
-  .studio .sp-story {
-    /* the script keeps its reading width (72ch and the tramlines); the sides share the rest */
-    grid-template-columns: minmax(0, 0.9fr) minmax(600px, 820px) minmax(0, 1.1fr);
-    grid-template-areas: "left read treat";
-  }
+.studio .sp-rail-item:last-child {
+  border-bottom: 0;
 }
-@media (max-width: 1000px) {
-  .studio .sp-story {
+.studio .sp-rail-item strong {
+  font-size: 15px;
+  color: var(--tx);
+}
+.studio .sp-rail-item:hover {
+  background: var(--hover);
+}
+.studio .sp-rail-item[aria-current="true"] {
+  background: var(--s2);
+  box-shadow: inset 3px 0 0 var(--tx);
+}
+.studio .sp-draft {
+  min-height: 46dvh;
+  resize: vertical;
+}
+@media (max-width: 760px) {
+  .studio .sp-versions {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "left" "read" "treat";
+    gap: 12px;
+  }
+  /* phones: the rail lies down above the script */
+  .studio .sp-rail {
+    position: static;
+    flex-direction: row;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  .studio .sp-rail-item {
+    min-width: 116px;
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+  .studio .sp-rail-item[aria-current="true"] {
+    box-shadow: inset 0 3px 0 var(--tx);
   }
 }
 @media (max-width: 1000px) {
@@ -1032,6 +1106,13 @@ button.st-pill {
 }
 .studio .st-confirm p {
   margin-bottom: 12px;
+}
+/* what was just saved, said back in its popover */
+.studio .st-pop-quote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line-3);
+  color: var(--tx2);
+  overflow-wrap: anywhere;
 }
 /* phones: a button may sit anywhere in a wrapped row, so the panel takes the foot of the screen */
 @media (max-width: 640px) {
@@ -1839,6 +1920,28 @@ button.st-pill {
   overflow-y: auto;
   padding: 20px;
 }
+/* Panels scroll without a scrollbar drawn in them: the drawers, the popups,
+   the popovers and the lists of the Director panel. The wheel, a swipe and
+   the keys move them as before. */
+.studio .st-drawer-body,
+.studio .st-modal-body,
+.studio .st-pop,
+.studio .dir-log,
+.studio .dir-sec-body {
+  scrollbar-width: none;
+}
+.studio .st-drawer-body::-webkit-scrollbar,
+.studio .st-modal-body::-webkit-scrollbar,
+.studio .st-pop::-webkit-scrollbar,
+.studio .dir-log::-webkit-scrollbar,
+.studio .dir-sec-body::-webkit-scrollbar {
+  display: none;
+}
+/* and nothing inside a drawer is a second box that scrolls: a compiled prompt is shown whole */
+.studio .st-drawer-body .st-pre {
+  max-height: none;
+  overflow: visible;
+}
 .studio .st-tabs {
   display: flex;
   gap: 2px;
@@ -2371,9 +2474,10 @@ button.st-pill {
   --sev: var(--sig-warn);
   --sev-bg: var(--sig-warn-bg);
 }
+/* notes are ink: only what is wrong, or may be, takes a colour */
 .studio .st-lint-group[data-severity="info"] {
-  --sev: var(--sig-info);
-  --sev-bg: var(--sig-info-bg);
+  --sev: var(--tx);
+  --sev-bg: var(--hover);
 }
 .studio .st-lint-group h3 {
   font: inherit;
