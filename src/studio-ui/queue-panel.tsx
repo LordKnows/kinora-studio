@@ -83,8 +83,18 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
     await refreshJobs();
   });
   const empty = takes.length === 0 && regens.length === 0 && jobs.length === 0;
+  /* Ask for where everything stands, now: the GPU first (its state decides whether a waiting take can go), then each
+     shot with a take in flight (the server asks the pod, and hands a waiting take over), then the page's own view and
+     the pictures. The page also follows by itself, a few seconds behind; this is for when it has not caught up. */
+  const refreshAll = useAction(async () => {
+    await gpuReload();
+    const inFlight = new Set(shots.filter((s) => s.shot.takes.some((x) => ACTIVE(x.status) || (x.upscale && ACTIVE(x.upscale.status)))).map((s) => s.shot.id));
+    await Promise.all([...inFlight].map((id) => get(`/api/shots/${id}/takes`).catch(() => undefined)));
+    await Promise.all([reload(), refreshJobs()]);
+  });
   /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
   const gpu = useGpu();
+  const gpuReload = gpu.reload;
   const gpuUp = gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
   const stopWhenDone = useAction(async (_c, enabled: boolean) => {
     await post("/api/gpu/stop-when-done", { enabled });
@@ -93,7 +103,10 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
 
   return (
     <div className="side-body">
-      <ErrorBanner error={cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); }} />
+      <div className="q-top">
+        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
+      </div>
+      <ErrorBanner error={refreshAll.error ?? cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); refreshAll.dismiss(); }} />
       {gpuUp && (
         <label className="q-autostop" title={t("Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.")}>
           <input type="checkbox" checked={!!gpu.state?.stopWhenDone} disabled={stopWhenDone.busy} onChange={(e) => void stopWhenDone.fire(e.target.checked)} />

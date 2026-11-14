@@ -2323,6 +2323,11 @@ button.st-pill {
 .studio .bp-table input[type="checkbox"]:disabled {
   cursor: default;
 }
+.studio .q-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
 .studio .q-autostop {
   display: flex;
   align-items: center;
