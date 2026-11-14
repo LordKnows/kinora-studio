@@ -32,9 +32,8 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
 
   if (!view.script) {
     out.push({ key: "script", count: 0, title: t("script"), detail: t("Nothing can be planned or rendered before there is a script."), action: { label: t("Write the script"), href: `${base}/story` } });
-  } else if (view.script.approval !== "approved") {
-    out.push({ key: "script", count: 1, title: t("script to approve"), detail: t("Version {v} is a draft. The shotlist is held to an approved script.", { v: view.script.version }), action: { label: t("Read and approve"), href: `${base}/story` } });
   }
+  /* a draft script is approved on the Story page, where its approve button is; the Reel does not ask for it */
   if (shots.length > 0 && view.project.shotlistApproval !== "approved") {
     out.push({ key: "shotlist", count: 1, title: t("shotlist to approve"), detail: t("{n} shots are planned and none can render until you approve them.", { n: shots.length }), action: { label: t("Open the Board"), href: `${base}/board` } });
   }
@@ -108,11 +107,11 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
   return out;
 }
 
-/** The one next step of a project, for the red button. */
-export function nextStep(view: ProjectView, base: string, t: T = EN): { label: string; href: string } {
+/** The one next step of a project, for the red button. None while the script is a draft: it is approved on the Story page. */
+export function nextStep(view: ProjectView, base: string, t: T = EN): { label: string; href: string } | null {
   const shots = filmShots(view);
   if (!view.script) return { label: t("Write the script"), href: `${base}/story` };
-  if (view.script.approval !== "approved") return { label: t("Approve the script"), href: `${base}/story` };
+  if (view.script.approval !== "approved") return null;
   if (shots.length === 0) return { label: t("Plan the shots"), href: `${base}/board` };
   if (view.project.shotlistApproval !== "approved") return { label: t("Approve the shotlist"), href: `${base}/board` };
   const bare = shots.filter((s) => !s.shot.takes.some((x) => x.status === "completed" || x.status === "queued" || x.status === "running"));

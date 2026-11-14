@@ -15,9 +15,8 @@ export const core: Record<string, string> = {
   /* the Score */
   "1 scene": "1 场", "{n} scenes": "{n} 场", "1 shot": "1 个镜头", "{n} shots": "{n} 个镜头",
   "Running": "片长", "Spent": "已花费", "Takes": "镜次", "Rolling": "正在拍",
-  "no target set": "未设目标", "on target, {t} s": "符合目标 {t} 秒", "{d} s against {t} s": "比目标 {t} 秒 {d} 秒",
   "of {cap} cap": "上限 {cap}", "{n} circled": "圈选 {n}", " · {n} NG": " · NG {n}", "on the GPU": "GPU 上", "nothing on the GPU": "GPU 空闲",
-  "Write the script": "写剧本", "Approve the script": "批准剧本", "Plan the shots": "排镜头", "Approve the shotlist": "批准分镜",
+  "Write the script": "写剧本", "Plan the shots": "排镜头", "Approve the shotlist": "批准分镜",
   "Render 1 shot": "拍 1 个镜头", "Render {n} shots": "拍 {n} 个镜头", "Screen the takes": "看镜次", "Cut and export": "剪辑并导出",
   "No shots yet": "还没有镜头", "The score fills in as the film is planned: scenes and shots first, then frames, takes and the cut.": "总谱会随着片子推进逐层填满：先是场和镜头，然后是画面、镜次和剪辑。",
   "Needs you": "等你决定", "All {n}": "全部 {n} 项",
@@ -40,7 +39,6 @@ export const core: Record<string, string> = {
 
   /* Needs you */
   "script": "剧本", "Nothing can be planned or rendered before there is a script.": "有剧本之前什么都排不了、拍不了。",
-  "script to approve": "份剧本待批准", "Version {v} is a draft. The shotlist is held to an approved script.": "v{v} 是草稿。分镜要以批准的剧本为准。", "Read and approve": "阅读并批准",
   "shotlist to approve": "份分镜待批准", "{n} shots are planned and none can render until you approve them.": "已排 {n} 个镜头，你批准之前一个都不能拍。", "Open the Board": "打开分镜",
   "error in the shotlist": "处分镜错误", "errors in the shotlist": "处分镜错误", "See the problems": "看问题清单",
   "seam jumps": "处接缝跳帧", "seams jump": "处接缝跳帧", "A continuous shot starts on its anchor's last frame, and the cut leaves the anchor before it.": "连续镜头从上一条的最后一帧开始，而剪辑在那一帧之前就切走了。", "Open the cut": "打开剪辑",

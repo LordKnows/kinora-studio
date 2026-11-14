@@ -50,7 +50,6 @@ function Score() {
   const allTakes = shots.flatMap((s) => s.shot.takes);
   const rolling = allTakes.filter((x) => x.status === "queued" || x.status === "running").length;
   const ng = allTakes.filter((x) => x.status === "failed" || x.status === "timeout").length;
-  const target = view.project.targetSeconds;
 
   return (
     <div className="st-page sc-page">
@@ -63,12 +62,12 @@ function Score() {
           </p>
         </div>
         <dl className="sc-readouts">
-          <div><dt className="sc-cap">{t("Running")}</dt><dd className="st-num">{tc(total)}</dd><dd>{target === undefined ? t("no target set") : total === target ? t("on target, {t} s", { t: target }) : t("{d} s against {t} s", { d: `${total > target ? "+" : "−"}${Math.abs(total - target)}`, t: target })}</dd></div>
+          <div><dt className="sc-cap">{t("Running")}</dt><dd className="st-num">{tc(total)}</dd></div>
           <div><dt className="sc-cap">{t("Spent")}</dt><dd className="st-num">{usd(view.project.spentUsd)}</dd><dd>{t("of {cap} cap", { cap: usd(view.project.budgetCapUsd) })}</dd></div>
           <div><dt className="sc-cap">{t("Takes")}</dt><dd className="st-num">{allTakes.length}</dd><dd>{t("{n} circled", { n: shots.filter((s) => s.picked).length })}{ng ? t(" · {n} NG", { n: ng }) : ""}</dd></div>
           <div><dt className="sc-cap">{t("Rolling")}</dt><dd className="st-num">{rolling}</dd><dd>{rolling ? <span className="st-lamp" data-state="running">{t("on the GPU")}</span> : t("nothing on the GPU")}</dd></div>
         </dl>
-        <Link className="st-btn st-btn--tally sc-next" href={step.href}>{step.label}</Link>
+        {step && <Link className="st-btn st-btn--tally sc-next" href={step.href}>{step.label}</Link>}
       </header>
 
       <NeedsYou needs={needs} base={base} loading={lintLoading} />
@@ -96,7 +95,7 @@ export function NeedsYou({ needs, full, loading }: { needs: Need[]; base: string
     <section className="sc-needs" aria-label={t("Needs you")} data-full={full ? "true" : undefined}>
       <div className="sc-needs-head">
         <h2>{t("Needs you")}</h2>
-        {loading ? <Loading label={t("Checking…")} /> : <span className="st-num">{needs.length}</span>}
+        {loading && <Loading label={t("Checking…")} />}
         {!full && needs.length > 4 && <button type="button" className="st-link" onClick={() => setAll((v) => !v)}>{all ? t("Fewer") : t("All {n}", { n: needs.length })}</button>}
       </div>
       {needs.length === 0 ? (
