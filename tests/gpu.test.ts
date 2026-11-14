@@ -138,6 +138,8 @@ describe("pod mode", () => {
     /* the pod is "unavailable" here: no GPU to render on */
     await expect(orch.createTakes(shotId, { n: 1, confirm: true }, web)).rejects.toMatchObject({ code: "validation", details: { gpuNotRunning: true } });
     await expect(orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
+    /* a batch too: refused before it asks the user to confirm a spend that cannot start */
+    await expect(orch.createTakeBatch(projectId, { n: 1, confirm: false, skipReview: "test: the user asked to render it as it is" }, mcp)).rejects.toMatchObject({ code: "forbidden", details: { gpuNotRunning: true } });
     expect(await repo.listShotTakes(shotId)).toHaveLength(0);
   });
 
@@ -279,6 +281,16 @@ describe("pod mode", () => {
     expect((await repo.currentGpuPod())!.stopWhenDone).toBe(false);
     /* leave the pod running for the tests after this one */
     await repo.updateGpuPod(pod.id, { status: "running", stoppedAt: null, startedAt: Date.now() });
+  });
+
+  it("adds the stop_when_done column itself on a deploy that has not applied the migration", async () => {
+    const { getDb } = await import("@/db");
+    const pod = (await repo.currentGpuPod())!;
+    await (await getDb()).run("ALTER TABLE gpu_pods DROP COLUMN stop_when_done");
+    await repo.setGpuStopWhenDone(pod.id, true);
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(true);
+    await repo.setGpuStopWhenDone(pod.id, false);
+    expect((await repo.currentGpuPod())!.stopWhenDone).toBe(false);
   });
 
   it("the director can stop the GPU", async () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ProjectView } from "@/studio/orchestrator";
 import type { Job, Take } from "@/studio/types";
@@ -95,7 +95,10 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   /* the GPU is one for all projects: the check stops it once nothing of anyone's is left, one time */
   const gpu = useGpu();
   const gpuReload = gpu.reload;
-  const gpuUp = gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
+  /* the GPU store is the browser's: drawn after mount, so the page the server sent and the first draw agree */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const gpuUp = mounted && gpu.state?.mode === "pod" && gpu.state.configured && ["running", "starting", "creating"].includes(gpu.state.status);
   const stopWhenDone = useAction(async (_c, enabled: boolean) => {
     await post("/api/gpu/stop-when-done", { enabled });
     await gpu.reload();
@@ -103,9 +106,6 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
 
   return (
     <div className="side-body">
-      <div className="q-top">
-        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
-      </div>
       <ErrorBanner error={refreshAll.error ?? cancelTakes.error ?? cancelRegen.error ?? cancelJobs.error ?? stopWhenDone.error} projectId={projectId} onDismiss={() => { cancelTakes.dismiss(); cancelRegen.dismiss(); cancelJobs.dismiss(); stopWhenDone.dismiss(); refreshAll.dismiss(); }} />
       {gpuUp && (
         <label className="q-autostop" title={t("Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.")}>
@@ -171,6 +171,9 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <p className="st-muted">{t("A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.")}</p>
         </section>
       )}
+      <div className="q-top">
+        <Button size="sm" busy={refreshAll.busy} onClick={() => void refreshAll.fire()} title={t("Ask where everything stands, now")}>{t("Refresh")}</Button>
+      </div>
     </div>
   );
 }

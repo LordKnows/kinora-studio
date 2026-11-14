@@ -56,7 +56,7 @@ export function ElementsPage() {
           <p className="st-subtitle">{t("Characters, locations and props. Each carries the reference images the compiler hands to H3; the first one is primary.")}</p>
         </div>
         <div className="st-actions">
-          <Button kind="primary" onClick={() => setCreating(true)}>
+          <Button kind="secondary" onClick={() => setCreating(true)}>
             {t("New element")}
           </Button>
         </div>

@@ -7,7 +7,7 @@ import type { LoraRef } from "@/studio/schemas";
 import type { DirectorNote, StageReview } from "@/studio/types";
 
 import { del, get, patch, post, put } from "./api";
-import { Button, ErrorBanner, Field, Loading, useAction, whenT } from "./common";
+import { Button, ErrorBanner, Field, InfoTip, Loading, useAction, whenT } from "./common";
 import { useT } from "./i18n";
 import { BanIcon, CheckCircleIcon, CheckIcon, ChevronIcon, UndoIcon } from "./icons";
 import { LoraPicker, useLoraLibrary } from "./lora-picker";
@@ -270,9 +270,6 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
 
       <div className="st-stack st-stack--tight">
         <strong>{t("Image generation")}</strong>
-        <span className="st-muted">
-          {t("Lets the buttons and the director draw pictures with the model below. Off by default.")}
-        </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!di || save.busy} checked={!!di?.enabled} onChange={(e) => editImg({ enabled: e.target.checked })} />
           <span>{t("Allow image generation by agent")}</span>
@@ -332,12 +329,10 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
             <label className="st-row" style={{ gap: 8 }}>
               <input type="checkbox" disabled={save.busy} checked={di.agentCanvas} onChange={(e) => editImg({ agentCanvas: e.target.checked })} />
               <span>{t("Agent use Canvas")}</span>
-            </label>
-            <span className="st-muted">
-              {di.agentCanvas
+              <InfoTip text={di.agentCanvas
                 ? t("The director may build a character's look from the Canvas library. It counts against the image limit.")
-                : t("Off: the director draws characters from element sheets only.")}
-            </span>
+                : t("Off: the director draws characters from element sheets only.")} />
+            </label>
           </div>
         )}
         {di?.enabled && runtime !== "pod" && (
@@ -353,7 +348,6 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
                 <option value={2}>2</option>
               </select>
             </Field>
-            <span className="st-muted">{t("A redraw counts as a picture.")}</span>
           </div>
         )}
         {img?.stoppedReason && (
@@ -362,7 +356,6 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
             <Button size="sm" busy={resume.busy} onClick={() => void resume.fire()}>{t("Resume||images")}</Button>
           </div>
         )}
-        {savedModel && img?.enabled && img.note && <span className="st-muted">{img.note}</span>}
         {savedModel && img?.enabled && (() => {
           const r = ready.find((x) => x.id === img.model)?.painters;
           return r && !r.ready && r.note ? <span className="st-warn">{r.note}</span> : null;
@@ -372,9 +365,6 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
 
       <div className="st-stack st-stack--tight">
         <strong>{t("Voice generation")}</strong>
-        <span className="st-muted">
-          {t("Lets the director make character voices and speak lines with the model below, up to the character budget. Off by default.")}
-        </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!dv || save.busy} checked={!!dv?.enabled} onChange={(e) => editVoice({ enabled: e.target.checked })} />
           <span>{t("Allow voice API use by agent")}</span>
@@ -390,20 +380,17 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
               <input className="st-input st-input--sm" type="number" min={100} max={10000000} value={dv.maxChars} disabled={save.busy} onChange={(e) => editVoice({ maxChars: e.target.value })} style={{ width: 110 }} />
             </Field>
             <span className="st-muted">{t("{used} used · {left} left", { used: voice.usedChars.toLocaleString(), left: voice.leftChars.toLocaleString() })}</span>
+            {voice.models.find((m) => m.id === dv.model)?.note && <InfoTip text={voice.models.find((m) => m.id === dv.model)!.note} />}
             {voice.usedChars > 0 && <Button size="sm" busy={resetUsed.busy} onClick={() => void resetUsed.fire()}>{t("Reset count")}</Button>}
           </div>
         )}
-        {voice && dv?.enabled && <span className="st-muted">{voice.models.find((m) => m.id === dv.model)?.note}</span>}
         {voice && dv?.enabled && !voice.keyReady && (voice.models.find((m) => m.id === dv.model)?.provider === "pod"
           ? <span className="st-warn">{t("Without the Worker's TOKENSAIL_API_KEY the takes get no pronunciation check.")}</span>
           : voice.note && <span className="st-warn">{voice.note}</span>)}
       </div>
 
       <div className="st-stack st-stack--tight">
-        <strong>{t("Spend envelope")}</strong>
-        <span className="st-muted">
-          {t("Inside it the director renders reviewed shots without asking. Every spend is logged under Decisions.")}
-        </span>
+        <span><strong>{t("Spend envelope")}</strong><InfoTip text={t("Inside it the director renders reviewed shots without asking. Every spend is logged under Decisions.")} /></span>
         {ap?.active ? (
           <div className="st-row st-row--between">
             <span className="st-num">{t("${used} of ${envelope} used", { used: ap.usedUsd?.toFixed(2) ?? "", envelope: ap.envelopeUsd?.toFixed(2) ?? "" })}{ap.expiresAt ? t(" · until {date}", { date: new Date(ap.expiresAt).toLocaleString() }) : ""}</span>
@@ -424,9 +411,6 @@ export function DirectorPanel({ projectId, part }: { projectId: string; part: "s
 
       <div className="st-stack st-stack--tight">
         <strong>{t("Delegated approval")}</strong>
-        <span className="st-muted">
-          {t("Lets the director approve for you: the script after a fresh review passes, the shotlist with no lint errors. Overturn any under Decisions. Off by default.")}
-        </span>
         <label className="st-row" style={{ gap: 8 }}>
           <input type="checkbox" disabled={!dd || save.busy} checked={!!dd?.script} onChange={(e) => editDeleg({ script: e.target.checked })} />
           <span>{t("Let the director approve the script")}</span>

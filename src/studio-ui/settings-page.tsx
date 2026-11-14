@@ -45,7 +45,7 @@ export function SettingsPanel({ onDone }: { onDone?: () => void }) {
         <Field label={t("Project name")}>
           <input className="st-input" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field label={t("Budget cap (USD)")} hint={t("Past it, takes and exports are refused.")}>
+        <Field label={t("Budget cap (USD)")}>
           <input className="st-input" type="number" min={0} step={1} value={cap} onChange={(e) => setCap(e.target.value)} />
         </Field>
         <div className="st-row st-row--between">
@@ -112,10 +112,7 @@ function SharingCard() {
           {t("Private")}<small>{mine || !p.owner ? t("only you") : t("only its owner")}</small>
         </button>
       </div>
-      <p className="st-muted">
-        {p.owner ? t("Owner: {who}. ", { who: mine ? t("you") : p.owner }) : t("This project is from before private projects and has no owner{rest} ", { rest: me?.admin ? t(": making it private makes it yours.") : t("; an admin can make it private.") })}
-        {t("Private hides it from everyone else, on the web and through their connectors.")}
-      </p>
+      {p.owner && <p className="st-muted">{t("Owner: {who}. ", { who: mine ? t("you") : p.owner })}</p>}
     </div>
   );
 }

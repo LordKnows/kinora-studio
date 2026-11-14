@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { ArrowUpIcon, CheckIcon, CloseIcon, CopyIcon, UploadIcon, WarningIcon } from "./icons";
+import { ArrowUpIcon, CheckIcon, CloseIcon, CopyIcon, InfoIcon, UploadIcon, WarningIcon } from "./icons";
 import { uploadMedia } from "./upload";
 
 import { ApiError, describe, usd, when } from "./api";
@@ -104,6 +104,16 @@ export function Field({ label, children, hint, group }: { label: string; childre
       {children}
       {hint && <span className="st-muted" style={{ marginTop: 4 }}>{hint}</span>}
     </Tag>
+  );
+}
+
+/** An explanation behind an info icon: shown on hover (or focus), not written out on the page. */
+export function InfoTip({ text }: { text: string }) {
+  return (
+    <span className="st-info" tabIndex={0} role="note" aria-label={text}>
+      <InfoIcon size={13} />
+      <span className="st-info-pop" role="tooltip">{text}</span>
+    </span>
   );
 }
 

@@ -260,6 +260,18 @@ export async function removeScene(sceneId: string, by?: string): Promise<{ trash
   return { trashId };
 }
 
+/** The shots that use an element (as a character, a prop, the location, or a speaker), by slate ("2·3"). */
+export async function elementUses(elementId: string): Promise<string[]> {
+  const el = await repo.getElement(elementId);
+  const view = await getProjectView(el.projectId ?? "");
+  const out: string[] = [];
+  view.scenes.forEach((scene, si) => scene.shots.forEach((sh) => {
+    const s = sh.spec;
+    if (s.characters.includes(elementId) || s.props.includes(elementId) || s.location === elementId || s.dialogue.some((l) => l.speaker === elementId)) out.push(`${si + 1}·${sh.index + 1}`);
+  }));
+  return out;
+}
+
 export async function removeElement(elementId: string, by?: string): Promise<{ trashId: string }> {
   const el = await repo.getElement(elementId);
   const trashId = await trash.put({ projectId: el.projectId, kind: "element", label: `${el.kind} · ${el.name}`, by }, await trash.snapshot("element", elementId));
@@ -419,14 +431,7 @@ export async function createTakes(shotId: string, req: TakeRequest, actor: Actor
 
   if (!runpodOrNull()) throw new StudioError("backend_error", "RunPod is not configured (RUNPOD_API_KEY, RUNPOD_WEBHOOK_SECRET)");
 
-  /* A render waits for the GPU to be running: a person starts it on purpose (the pod bills per hour), never as a
-     side effect of a click or of the director's call. */
-  if (config.runpodMode() === "pod" && gpu.gpuConfigured()) {
-    await gpu.refreshGpu().catch(() => undefined);
-    if ((await repo.currentGpuPod())?.status !== "running") {
-      throw new StudioError(actor.via === "mcp" ? "forbidden" : "validation", actor.via === "mcp" ? gpu.DIRECTOR_CANNOT_START_GPU : "The GPU is not running. Start it first (GPU, in the top bar), then render again.", { gpuNotRunning: true });
-    }
-  }
+  await assertGpuRunning(actor);
 
   let gpuState: gpu.GpuState | undefined;
   if (config.runpodMode() === "pod") {
@@ -1303,16 +1308,28 @@ async function takeReadiness(shotId: string, n: number, steps?: number): Promise
  * is the one generate_take has: a confirmation accepts the price, not an
  * unread shot.
  */
-export async function createTakeBatch(projectId: string, req: { shotIds?: string[]; n: number; steps?: number; confirm: boolean; skipReview?: string; change?: string }, actor: Actor): Promise<TakeBatchResult> {
+/** A render waits for the GPU to be running: a person starts it on purpose (the pod bills per hour), never as a
+    side effect of a click or of the director's call. Serverless has no pod to wait for. */
+export async function assertGpuRunning(actor: Actor): Promise<void> {
+  if (config.runpodMode() !== "pod" || !gpu.gpuConfigured()) return;
+  await gpu.refreshGpu().catch(() => undefined);
+  if ((await repo.currentGpuPod())?.status !== "running") {
+    throw new StudioError(actor.via === "mcp" ? "forbidden" : "validation", actor.via === "mcp" ? gpu.DIRECTOR_CANNOT_START_GPU : "The GPU is not running. Start it first (GPU, in the top bar), then render again.", { gpuNotRunning: true });
+  }
+}
+
+export async function createTakeBatch(projectId: string, req: { shotIds?: string[]; sceneId?: string; n: number; steps?: number; confirm: boolean; skipReview?: string; change?: string }, actor: Actor): Promise<TakeBatchResult> {
   /* The two checkpoints first: without them no take renders, whatever its review says. */
   assertCanGenerate(await repo.getProject(projectId), await repo.latestScript(projectId));
-  const plan = await planProjectBatch(projectId, { takesPerShot: req.n, onlyMissing: !req.shotIds?.length });
+  /* and the GPU: there is no point asking the user to confirm a spend that cannot start */
+  await assertGpuRunning(actor);
+  const plan = await planProjectBatch(projectId, { takesPerShot: req.n, onlyMissing: !req.shotIds?.length, ...(req.sceneId ? { sceneId: req.sceneId } : {}) });
   const label = new Map(plan.shots.map((x) => [x.shotId, x.label]));
   const now = new Set(plan.passes[0] ?? []);
   /* Every shot the plan holds, or the ones asked for; those that cannot render now are reported as waiting. */
   const asked = req.shotIds?.length ? plan.order.filter((id) => req.shotIds!.includes(id)) : [...plan.order, ...plan.deferred.map((d) => d.shotId)];
   const unknown = (req.shotIds ?? []).filter((id) => !label.has(id));
-  if (unknown.length) throw new StudioError("validation", `not shots of this project: ${unknown.join(", ")}`);
+  if (unknown.length) throw new StudioError("validation", `not shots of this ${req.sceneId ? "scene" : "project"}: ${unknown.join(", ")}`);
   if (asked.length === 0) throw new StudioError("validation", "nothing to render: every shot has a take, or the ones without wait for an anchor's take (plan_project_batch shows which)");
 
   const ready: TakeBatchRow[] = [];

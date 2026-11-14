@@ -1314,7 +1314,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
             </Button>
           )}
           {take.status === "completed" && !selected && (
-            <Button size="sm" kind="primary" busy={select.busy} onClick={() => void select.fire()}>
+            <Button size="sm" kind="secondary" busy={select.busy} onClick={() => void select.fire()}>
               {tr("Use this take")}
             </Button>
           )}

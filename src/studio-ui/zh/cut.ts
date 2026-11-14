@@ -98,7 +98,6 @@ export const cut: Record<string, string> = {
   "Why overturn this decision? The director reads it.": "为什么推翻这个决定？导演会读到。",
   "What the director may do, and what it has decided": "导演可以做什么，以及它做了哪些决定",
   "Image generation": "图片生成",
-  "Lets the buttons and the director draw pictures with the model below. Off by default.": "允许按钮和导演用下面的模型出图。默认关闭。",
   "Allow image generation by agent": "允许导演生成图片", "Unsaved changes": "有未保存的修改", "All saved": "已全部保存", "Discard changes": "放弃修改", "Model": "模型", " · GPU pod": " · GPU 机器", " · not ready": " · 未就绪",
   "Quality": "画质", "low (drafts)": "低（草稿）", "medium||quality": "中", "high||quality": "高", "Image limit": "图片上限", "{used} used · {left} left": "已用 {used} · 剩 {left}",
   "LoRAs": "LoRA", "Picking one applies its card's settings to the director's pictures.": "选一个，它卡片上的设置会用在导演画的图上。",
@@ -110,10 +109,8 @@ export const cut: Record<string, string> = {
   "The director may build a character's look from the Canvas library. It counts against the image limit.": "导演可以用画布素材给角色做造型。计入图片上限。",
   "Off: the director draws characters from element sheets only.": "关闭：导演只用设定图画角色。",
   "A fresh Codex session looks at every drawn picture beside its references and brief (anatomy, extra people, identity, mirrored features, text, framing) before it reaches you. Uses Codex usage, not image quota.": "每张画好的图在交给你之前，都由一个全新的 Codex 会话对照参考图和简报检查一遍（解剖结构、多余的人、身份、镜像特征、文字、构图）。消耗的是 Codex 用量，不占图片额度。",
-  "Self-check every picture": "每张图都自检", "Redraws on a blocker": "遇到硬伤时重画", "0 (just flag it)": "0（只标出来）", "A redraw counts as a picture.": "重画一次算一张图。",
-  "Stopped: {reason}": "已停止：{reason}", "Resume||images": "继续",
+  "Self-check every picture": "每张图都自检", "Redraws on a blocker": "遇到硬伤时重画", "0 (just flag it)": "0（只标出来）",  "Stopped: {reason}": "已停止：{reason}", "Resume||images": "继续",
   "Voice generation": "语音生成",
-  "Lets the director make character voices and speak lines with the model below, up to the character budget. Off by default.": "允许导演用下面的模型做角色声音、念台词，不超过字符预算。默认关闭。",
   "Allow voice API use by agent": "允许导演使用语音 API", "Voice model": "语音模型", " · clone or design": " · 克隆或设计", " · clone": " · 克隆",
   " · our GPU, takes to pick from": " · 自己的 GPU，生成几条来挑",
   "Allow voice generation on this project? The director may then speak lines with {model} on the GPU pod, only while it runs (it bills per hour), several takes for you to pick from, up to the character budget below.": "在这个项目上允许生成语音？之后导演可以用 GPU 机器上的 {model} 念台词，只在机器运行时可用（按小时计费），每句生成几条给你挑，最多用到下面的字符预算。",
@@ -127,7 +124,6 @@ export const cut: Record<string, string> = {
   "${used} of ${envelope} used": "已用 ${used}，额度 ${envelope}", " · until {date}": " · 到 {date} 为止",
   "Revoke": "收回", "Envelope (USD)": "额度（美元）", "For (hours)": "时长（小时）", "Grant": "授予",
   "Delegated approval": "代为批准",
-  "Lets the director approve for you: the script after a fresh review passes, the shotlist with no lint errors. Overturn any under Decisions. Off by default.": "允许导演代你批准：剧本要先通过全新评审，分镜要检查没有错误。可在“决定”里推翻。默认关闭。",
   "Let the director approve the script": "让导演批准剧本", "Let the director approve the shotlist": "让导演批准分镜",
 
   /* requirements, decisions, reviews */

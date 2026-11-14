@@ -58,7 +58,7 @@ export function VoicesPage() {
           <p className="st-subtitle">{t("Voice cards: who speaks with which voice. A card's description goes into the prompt as written; its recordings are what the voice is matched to.")}</p>
         </div>
         <div className="st-actions">
-          <Button kind="primary" onClick={() => setImporting(true)}>
+          <Button kind="secondary" onClick={() => setImporting(true)}>
             <PlusIcon size={13} />
             {t("Import a voice card")}
           </Button>

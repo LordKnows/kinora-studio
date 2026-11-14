@@ -308,6 +308,28 @@ describe("a batch of takes on one confirmation", () => {
   });
 });
 
+describe("a batch of one scene", () => {
+  it("plans and renders only that scene's shots", async () => {
+    const project = await repo.createProject({ name: "Two scenes", budgetCapUsd: 20 });
+    const script = await repo.createScript(project.id, "EXT. RIVER");
+    const view = await orch.saveShotlist(project.id, ShotlistInput.parse({ scenes: [{ slug: "a", shots: [shot(), shot({ intent: "The far bank" })] }, { slug: "b", shots: [shot({ intent: "The oar" })] }] }));
+    await repo.approveScript(script.id);
+    await repo.setShotlistApproval(project.id, "approved");
+    const [a, b] = view.scenes;
+    const why = "the user asked to render the previz without a review";
+    // the plan of scene b holds its shot alone
+    const plan = await orch.planProjectBatch(project.id, { sceneId: b!.id });
+    expect(plan.shots.map((x) => x.shotId)).toEqual([b!.shots[0]!.id]);
+    // the batch asks about scene b's shot only
+    let asked: { code?: string; details?: { shots: Array<{ shotId: string }> } } = {};
+    await orch.createTakeBatch(project.id, { sceneId: b!.id, n: 1, confirm: false, skipReview: why }, mcp).catch((e) => { asked = e; });
+    expect(asked.code).toBe("needs_confirm");
+    expect(asked.details!.shots.map((x) => x.shotId)).toEqual([b!.shots[0]!.id]);
+    // a shot of another scene is not this scene's
+    await expect(orch.createTakeBatch(project.id, { sceneId: b!.id, shotIds: [a!.shots[0]!.id], n: 1, confirm: false, skipReview: why }, mcp)).rejects.toMatchObject({ code: "validation", message: expect.stringContaining("not shots of this scene") });
+  });
+});
+
 describe("LoRAs are the director's to assign, shot by shot", () => {
   it("the lint asks for the pass, naming what the style suggests; assign_loras answers it", async () => {
     const project = await repo.createProject({ name: "Cel", budgetCapUsd: 20 });

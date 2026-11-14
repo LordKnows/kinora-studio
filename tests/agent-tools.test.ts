@@ -164,6 +164,41 @@ describe("the aggregate tools fit in a tool result", () => {
   });
 });
 
+describe("delete_element", () => {
+  let projectId: string;
+  let shotId: string;
+  beforeAll(async () => {
+    projectId = (await repo.createProject({ name: "Elements", brief: "b" })).id;
+    const script = await repo.createScript(projectId, "EXT. SQUARE - DAY\nA courier crosses.");
+    await repo.approveScript(script.id);
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "square", shots: [shot()] }] }));
+    shotId = (await repo.listShots(projectId))[0]!.id;
+  });
+
+  it("asks first, refuses an element a shot uses, and puts a deleted one in the trash", async () => {
+    const lonely = await repo.createElement(projectId, { kind: "prop", name: "Spare lantern", description: "an unused lantern" });
+    /* not confirmed: it asks */
+    const asked = await call("delete_element", { elementId: lonely.id });
+    expect(asked.isError).toBe(true);
+    expect(asked.text).toContain("confirm: true");
+    expect(await repo.getElement(lonely.id)).toBeTruthy();
+    /* confirmed: gone, and named in the trash */
+    const done = await call("delete_element", { elementId: lonely.id, confirm: true });
+    expect(done.isError).toBe(false);
+    expect(done.data.deleted).toMatchObject({ kind: "prop", name: "Spare lantern" });
+    expect(done.data.trashId).toBeTruthy();
+    await expect(repo.getElement(lonely.id)).rejects.toThrow();
+    /* a shot uses it: refused, whatever confirm says */
+    const used = await repo.createElement(projectId, { kind: "character", name: "Used one", description: "a courier" });
+    const sh = await repo.getShot(shotId);
+    await repo.updateShot(shotId, { spec: { ...sh.spec, characters: [used.id] } });
+    const refused = await call("delete_element", { elementId: used.id, confirm: true });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("is used by shot");
+    expect(await repo.getElement(used.id)).toBeTruthy();
+  });
+});
+
 describe("prompt lines read as sentences", () => {
   it("a fixed feature's place keeps its own preposition or determiner", () => {
     expect(placedFeature({ feature: "thin black rectangular glasses", where: "on his face" })).toBe("thin black rectangular glasses on his face");

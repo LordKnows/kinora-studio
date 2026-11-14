@@ -49,7 +49,6 @@ function Score() {
   const step = nextStep(view, base, t);
   const allTakes = shots.flatMap((s) => s.shot.takes);
   const rolling = allTakes.filter((x) => x.status === "queued" || x.status === "running").length;
-  const ng = allTakes.filter((x) => x.status === "failed" || x.status === "timeout").length;
 
   return (
     <div className="st-page sc-page">
@@ -63,9 +62,9 @@ function Score() {
         </div>
         <dl className="sc-readouts">
           <div><dt className="sc-cap">{t("Running")}</dt><dd className="st-num">{tc(total)}</dd></div>
-          <div><dt className="sc-cap">{t("Spent")}</dt><dd className="st-num">{usd(view.project.spentUsd)}</dd><dd>{t("of {cap} cap", { cap: usd(view.project.budgetCapUsd) })}</dd></div>
-          <div><dt className="sc-cap">{t("Takes")}</dt><dd className="st-num">{allTakes.length}</dd><dd>{t("{n} circled", { n: shots.filter((s) => s.picked).length })}{ng ? t(" · {n} NG", { n: ng }) : ""}</dd></div>
-          <div><dt className="sc-cap">{t("Rolling")}</dt><dd className="st-num">{rolling}</dd><dd>{rolling ? <span className="st-lamp" data-state="running">{t("on the GPU")}</span> : t("nothing on the GPU")}</dd></div>
+          <div><dt className="sc-cap">{t("Spent")}</dt><dd className="st-num">{usd(view.project.spentUsd)}</dd></div>
+          <div><dt className="sc-cap">{t("Takes")}</dt><dd className="st-num">{allTakes.length}</dd></div>
+          <div><dt className="sc-cap">{t("Rolling")}</dt><dd className="st-num">{rolling}</dd></div>
         </dl>
         {step && <Link className="st-btn st-btn--tally sc-next" href={step.href}>{step.label}</Link>}
       </header>
