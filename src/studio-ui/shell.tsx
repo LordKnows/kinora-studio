@@ -15,7 +15,7 @@ import { DirectorPanel } from "./director-panel";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
 import { plural, setLang, useLang, useT } from "./i18n";
-import { ArrowLeftIcon, MenuIcon } from "./icons";
+import { ArrowLeftIcon, CloseIcon, MenuIcon } from "./icons";
 import { NavIcon, type NavIconName } from "./nav-icons";
 import { NoticeProvider, useTakeNotices } from "./notices";
 import { QueuePanel, useImageQueue } from "./queue-panel";
@@ -369,7 +369,7 @@ function Panels({ projectId, view, rolling, imageJobs, onJobs }: { projectId: st
             </button>
           ))}
         </div>
-        <button type="button" className="st-iconbtn dir-drawer-close" aria-label={t("Close")} onClick={() => open(null)}>×</button>
+        <button type="button" className="st-btn st-btn--quiet st-btn--sm dir-drawer-close" aria-label={t("Close")} onClick={() => open(null)}><CloseIcon size={13} /></button>
       </div>
       {panel === "director" && (
         <>
