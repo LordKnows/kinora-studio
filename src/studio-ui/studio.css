@@ -5,8 +5,10 @@
    writing and planning; .st-lightsdown flips the same tokens to a dark room
    where the picture is the only bright thing, for watching and judging.
    The chrome has no hue. The one accent (--accent, the tally red) means
-   three things only: you are here, the camera is rolling (money is being
-   spent), and the next step. Selection, approval, warnings and failures are
+   three things: you are here, the camera is rolling (money is being
+   spent), and the next step — which is every primary button: a primary
+   button is the accent, a plain (secondary) one is filled ink, a quiet one
+   is text alone. Selection, approval, warnings and failures are
    ink marks that differ in shape, not colour — except on a state's own mark
    where it has to be told apart at a glance, which takes one of four signal
    hues (--sig-ok / -warn / -err / -info): the shotlist's status on the
@@ -643,6 +645,10 @@ button.st-pill {
 .studio .st-sev[data-severity="warn"] {
   color: var(--sig-warn);
 }
+/* on a filled button the count takes the button's ink: the hues are too dark on it, and the mark's shape still says which it is */
+.studio .st-btn:not(.st-btn--quiet):not(.st-btn--danger) .st-sev {
+  color: inherit;
+}
 
 .studio .st-lamp {
   display: inline-flex;
@@ -964,11 +970,12 @@ button.st-pill {
   height: 36px;
   padding: 0 14px;
   border-radius: 0;
-  border: 1.5px solid var(--line-3);
-  background: transparent;
+  border: 1.5px solid var(--tx);
+  /* the plain button is the secondary one: ink, filled. Primary is the accent; quiet is text alone. */
+  background: var(--tx);
   font-size: 13px;
   font-weight: 600;
-  color: var(--tx);
+  color: var(--bg);
   white-space: nowrap;
   text-decoration: none;
   transition:
@@ -978,8 +985,8 @@ button.st-pill {
     opacity 0.13s ease;
 }
 .studio .st-btn:hover {
-  background: var(--hover);
-  border-color: var(--line-3);
+  background: var(--tx2);
+  border-color: var(--tx2);
 }
 .studio .st-btn:active {
   transform: scale(0.985);
@@ -990,15 +997,15 @@ button.st-pill {
   transform: none;
 }
 .studio .st-btn--primary {
-  background: var(--tx);
-  border-color: var(--tx);
-  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 .studio .st-btn--primary:hover {
-  background: var(--tx2);
-  border-color: var(--tx2);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
 }
-/* the tally: the one red button on a page is the next step, or a spend */
+/* the tally: a primary button with its lamp lit — the next step, or a spend */
 .studio .st-btn--tally {
   background: var(--accent);
   border-color: var(--accent);
@@ -2002,6 +2009,10 @@ button.st-pill {
     opacity: 0;
   }
 }
+/* a list to read beside the page: the Lint */
+.studio .st-drawer[data-size="narrow"] {
+  width: min(520px, 100vw);
+}
 .studio .st-drawer-head {
   display: flex;
   align-items: center;
@@ -2690,14 +2701,25 @@ button.st-pill {
   overflow: auto;
   padding: 16px;
 }
+/* The popup of one picture (picture-zoom.tsx). --fit is the picture's width over its height, --room
+   the height the screen leaves for it under the popup's head: the popup is as wide as the picture
+   is at that height, and no wider than 1100px, so a 16:9 frame fills it edge to edge. */
+.studio .st-modal[data-size="picture"] {
+  --room: calc(100dvh - 180px);
+  width: min(1100px, 100%, calc(var(--room) * var(--fit, 1.7778) + 34px));
+  min-width: min(320px, 100%);
+}
 .studio .st-lightbox-img {
   display: block;
   width: 100%;
-  height: 100%;
-  max-height: calc(100dvh - 170px);
+  height: auto;
+  max-height: var(--room, calc(100dvh - 180px));
   object-fit: contain;
   background: #000;
   border-radius: 0;
+}
+.studio .st-lightbox-facts {
+  margin-top: 8px;
 }
 
 /* ---------- the Frames tab ---------- */
@@ -3712,6 +3734,10 @@ button.st-pill {
   height: 28px;
   padding: 0 10px;
 }
+/* outlined in their own colour, not the filled ink of a plain button */
+.studio .dir-act[data-act] {
+  background: transparent;
+}
 /* met is green with a tick, drop is red with a bar through a circle: two answers that must not be mistaken */
 .studio .dir-act[data-act="met"] {
   color: var(--sig-ok);
@@ -4690,7 +4716,7 @@ button.st-pill {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--tx);
+  background: currentColor;
 }
 .studio .scr-main {
   display: flex;

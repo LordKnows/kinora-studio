@@ -10,7 +10,7 @@ import { get, post } from "./api";
 import { Button, Empty, ErrorBanner, Field, Modal, Section, UploadButton, useAction } from "./common";
 import { useT } from "./i18n";
 import { hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
-import { Zoomable } from "./picture-zoom";
+import { PicturePopup, Zoomable } from "./picture-zoom";
 import { PictureCaption, pictureSize, pictureTitle } from "./pictures";
 import { useProjectContext } from "./shell";
 
@@ -323,14 +323,7 @@ function PicturePicker({ title, current, onPick, onClose }: { title: string; cur
 
 /** A picture at full size. */
 export function Lightbox({ asset, onClose }: { asset: Asset; onClose: () => void }) {
-  const tr = useT();
-  return (
-    <Modal title={pictureTitle(asset)} size="full" onClose={onClose} head={<a className="st-btn st-btn--sm st-btn--quiet" href={asset.url} target="_blank" rel="noreferrer">{tr("Open original")}</a>}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img className="st-lightbox-img" src={asset.url} alt={pictureTitle(asset)} />
-      <p className="st-muted st-num" style={{ marginTop: 8 }}>{asset.width ? `${asset.width}×${asset.height}` : ""}{asset.meta.purpose ? ` · ${String(asset.meta.purpose)}` : ""}</p>
-    </Modal>
-  );
+  return <PicturePopup url={asset.url} title={pictureTitle(asset)} facts={pictureSize(asset)} onClose={onClose} />;
 }
 
 /* ---------- reference mode: the sheets this shot reads ---------- */

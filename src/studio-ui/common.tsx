@@ -434,7 +434,9 @@ export function Stars({ value, onChange }: { value?: number; onChange: (n: numbe
 }
 
 /** A popup over everything (also over a drawer): Esc or a click outside closes it, and only it. */
-export function Modal({ title, onClose, children, size = "md", head }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "md" | "lg" | "full"; head?: ReactNode }) {
+/** `fit`: the popup is for one picture of this width-to-height ratio; it is as wide as the picture can
+    be shown whole on the screen, so nothing is left empty beside it. */
+export function Modal({ title, onClose, children, size = "md", head, fit }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "md" | "lg" | "full"; head?: ReactNode; fit?: number }) {
   const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -448,7 +450,7 @@ export function Modal({ title, onClose, children, size = "md", head }: { title: 
   if (typeof document === "undefined") return null;
   return createPortal(
     <div className="st-modal-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="st-modal" data-size={size} role="dialog" aria-modal="true">
+      <div className="st-modal" data-size={fit ? "picture" : size} style={fit ? { ["--fit" as string]: fit } : undefined} role="dialog" aria-modal="true">
         <div className="st-modal-head">
           <div className="st-modal-title">{title}</div>
           {head}
@@ -463,7 +465,8 @@ export function Modal({ title, onClose, children, size = "md", head }: { title: 
   );
 }
 
-export function Drawer({ title, onClose, children, head }: { title: string; onClose: () => void; children: ReactNode; head?: ReactNode }) {
+/** `size="narrow"`: a list to read beside the page (the Lint), not a place to work in. */
+export function Drawer({ title, onClose, children, head, size }: { title: string; onClose: () => void; children: ReactNode; head?: ReactNode; size?: "narrow" }) {
   const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -475,7 +478,7 @@ export function Drawer({ title, onClose, children, head }: { title: string; onCl
   return (
     <>
       <div className="st-drawer-back" onClick={onClose} />
-      <aside className="st-drawer" role="dialog" aria-label={title}>
+      <aside className="st-drawer" data-size={size} role="dialog" aria-label={title}>
         <div className="st-drawer-head">
           <div className="st-drawer-title">{title}</div>
           {head}

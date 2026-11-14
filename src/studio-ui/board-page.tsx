@@ -390,7 +390,7 @@ function Board() {
         const count = (sev: LintWarning["severity"]) => found.filter((w) => w.severity === sev).length;
         const elsewhere = (lint?.warnings ?? []).filter((w) => !w.scene).length;
         return (
-          <Drawer title={`${tr("Lint")} · ${view.scenes.indexOf(lintOf) + 1}. ${lintOf.slug}${lint ? ` · ${tr("{e} errors, {w} warnings, {i} notes", { e: count("error"), w: count("warn"), i: count("info") })}` : ""}`} onClose={() => setLintScene(null)}>
+          <Drawer title={`${tr("Lint")} · ${view.scenes.indexOf(lintOf) + 1}. ${lintOf.slug}${lint ? ` · ${tr("{e} errors, {w} warnings, {i} notes", { e: count("error"), w: count("warn"), i: count("info") })}` : ""}`} size="narrow" onClose={() => setLintScene(null)}>
             {!lint ? (
               lintFailed ? (
                 <div className="st-row">
