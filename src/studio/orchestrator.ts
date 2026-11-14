@@ -689,19 +689,41 @@ export async function cancelUpscale(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
   const up = take.upscale;
   if (!up || (up.status !== "queued" && up.status !== "running")) return take;
+  if (up.status === "running") throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
   if (up.requestId) {
     const backend = await videoBackend();
-    if (backend) await backend.cancel(up.requestId);
+    if (backend) {
+      /* the pod's queue may have reached it since the last look: then it is rendering, and is left to finish */
+      const now = await backend.status(up.requestId).catch(() => undefined);
+      if (now?.state === "running") {
+        await applyUpscaleStatus(take, now);
+        throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
+      }
+      await backend.cancel(up.requestId);
+    }
   }
   return repo.updateTake(take.id, { upscale: { ...up, status: "canceled", finishedAt: Date.now(), progress: undefined } });
 }
 
+const RENDERING_CANNOT_BE_CANCELLED = "a take that is rendering cannot be cancelled; only a queued one can be";
+
+/** Call off a take that is still waiting. One that is rendering is not: it runs to its end (its cost is
+    spent either way), so the answer is an error, and its status is brought up to date so the page shows it. */
 export async function cancelTake(takeId: string): Promise<Take> {
   const take = await repo.getTake(takeId);
+  if (take.status === "running") throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
   if (take.status === "queued" && !take.requestId) return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
-  if (take.requestId && (take.status === "queued" || take.status === "running")) {
+  if (take.requestId && take.status === "queued") {
     const backend = await videoBackend();
-    if (backend) await backend.cancel(take.requestId);
+    if (backend) {
+      /* the pod's queue may have reached it since the last look */
+      const now = await backend.status(take.requestId).catch(() => undefined);
+      if (now?.state === "running") {
+        await applyTakeStatus(take, now);
+        throw new StudioError("validation", RENDERING_CANNOT_BE_CANCELLED);
+      }
+      await backend.cancel(take.requestId);
+    }
     return repo.updateTake(takeId, { status: "canceled", finishedAt: Date.now() });
   }
   return take;

@@ -61,6 +61,8 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   const shots = view ? filmShots(view) : [];
   const takes = shots.flatMap((s) => s.shot.takes.filter((x) => ACTIVE(x.status)).map((take) => ({ s, take })));
   const regens = shots.flatMap((s) => s.shot.takes.filter((x) => x.upscale && ACTIVE(x.upscale.status)).map((take) => ({ s, take })));
+  /* only what is still waiting can be called off; what is rendering runs to its end */
+  const waiting = takes.filter((x) => x.take.status === "queued");
 
   const cancelTakes = useAction(async (_c, list: Take[]) => {
     for (const take of list) await post(`/api/takes/${take.id}/cancel`);
@@ -86,7 +88,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <div className="q-head">
             <h3>{t("Takes")}</h3>
             <span className="st-num">{takes.length + regens.length}</span>
-            {takes.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(takes.map((x) => x.take))}>{t("Cancel all {n}", { n: takes.length })}</Button>}
+            {waiting.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(waiting.map((x) => x.take))}>{t("Cancel all {n}", { n: waiting.length })}</Button>}
           </div>
           {takes.map(({ s, take }) => (
             <div key={take.id} className="q-row">
@@ -98,7 +100,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
                 </span>
               </div>
-              <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>
+              {take.status === "queued" ? <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
             </div>
           ))}
           {regens.map(({ s, take }) => (
@@ -109,7 +111,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <Lamp state={take.upscale!.status} label={t("Regenerate {res}: {status}", { res: take.upscale!.resolution.toUpperCase(), status: t(take.upscale!.status) })} />
                 </span>
               </div>
-              <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>
+              {take.upscale!.status === "queued" ? <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button> : <span className="st-muted q-fixed">{t("Rendering: it cannot be cancelled")}</span>}
             </div>
           ))}
         </section>

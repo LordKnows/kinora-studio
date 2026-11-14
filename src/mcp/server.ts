@@ -393,7 +393,7 @@ export function createStudioServer(actor: Actor): McpServer {
     return { take, ...(measured ? { measured } : {}), ...(take.review?.faults?.length ? { fixes: director.faultRoutes(take.review.faults) } : {}) };
   });
   tool("list_takes", "All takes of a shot, one summary each (status, steps, LoRAs, cost, urls, review); get_take has the prompt, input and thumbnails of one.", z.object({ shotId: id }), async ({ shotId }) => ({ takes: (await repo.listShotTakes(shotId)).map(compactTake) }));
-  tool("cancel_take", "Cancel a queued or running take.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));
+  tool("cancel_take", "Cancel a queued take. A take that is already rendering cannot be cancelled; it runs to its end.", z.object({ takeId: id }), async ({ takeId }) => ({ take: await orch.cancelTake(takeId) }));
   tool("retry_take", "Retry a failed or timed-out take (costs money; confirm).", z.object({ takeId: id, confirm: z.boolean().default(false) }), async ({ takeId, confirm }) => ({ take: await orch.retryTake(takeId, actor, confirm) }));
   tool("regenerate_take", "Open-H3-Regenerate-2K: re-generate a completed take at 1080p / 2K / 4K in three refine steps (costs money; confirm). It redraws, not just upscales: start_sigma 0 is sharper, 0.8 stays closer to the draft (use for character shots). The 2K file sits beside the 768p take and the master-upscaled export uses it.", z.object({ takeId: id }).extend(UpscaleRequest.shape), async ({ takeId, ...req }) => orch.regenerateTake(takeId, req, actor));
   tool("select_take", "Mark a completed take as the shot's pick.", z.object({ shotId: id, takeId: id }), async ({ shotId, takeId }) => ({ shot: await orch.selectTake(shotId, takeId) }));

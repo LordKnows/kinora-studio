@@ -29,7 +29,7 @@ async function memoryDb(): Promise<Db> {
   return db;
 }
 
-type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; startFails: boolean; volumeKind: "network" | "global"; noresWithVolume?: boolean; health?: unknown };
+type Scenario = { createMode: "ok" | "nores"; podStatus: "RUNNING" | "EXITED"; healthy: boolean; jobState?: string; startFails: boolean; volumeKind: "network" | "global"; noresWithVolume?: boolean; health?: unknown };
 const scenario: Scenario = { createMode: "ok", podStatus: "RUNNING", healthy: true, startFails: false, volumeKind: "network" };
 const calls: Array<{ method: string; url: string; body?: unknown }> = [];
 const podsV2 = new Map<string, { env?: Record<string, string>; args?: string }>();
@@ -97,7 +97,7 @@ beforeAll(async () => {
       if (!scenario.healthy) return new Response("bad gateway", { status: 502 });
       if (url.endsWith("/health")) return json(200, scenario.health ?? { ok: true });
       if (url.endsWith("/run") || url.endsWith("/assemble")) return json(200, { id: `job-${calls.length}`, status: "IN_QUEUE" });
-      if (url.includes("/status/")) return json(200, { id: "job", status: "IN_PROGRESS" });
+      if (url.includes("/status/")) return json(200, { id: "job", status: scenario.jobState ?? "IN_PROGRESS" });
       if (url.includes("/cancel/")) return json(200, { id: "job", status: "CANCELLED" });
     }
     return json(404, { error: `unmocked ${method} ${url}` });
@@ -195,7 +195,46 @@ describe("pod mode", () => {
     await orch.handOverWaitingTakes([id]);
     expect(calls.filter((c) => c.url.endsWith("/run")).length).toBe(runs);
     /* nothing of this test is left in flight for the ones after it */
-    await orch.cancelTake(id);
+    await repo.updateTake(id, { status: "canceled", finishedAt: Date.now() });
+  });
+
+  it("cancels a take that is queued and refuses one that is rendering", async () => {
+    const make = async () => (await orch.createTakes(shotId, { n: 1, confirm: true, skipReview: "test: the user asked to render it as it is" }, mcp)).takes[0]!;
+    const cancels = () => calls.filter((c) => c.url.includes("/cancel/")).length;
+    /* rendering on the pod: refused, nothing sent to the pod, and the take is brought up to date */
+    scenario.jobState = "IN_PROGRESS";
+    const rendering = await make();
+    expect(rendering.requestId).toMatch(/^job-/);
+    const before = cancels();
+    await expect(orch.cancelTake(rendering.id)).rejects.toMatchObject({ code: "validation" });
+    expect(cancels()).toBe(before);
+    expect((await repo.getTake(rendering.id)).status).toBe("running");
+    await expect(orch.cancelTake(rendering.id)).rejects.toMatchObject({ code: "validation" });
+    /* waiting in the pod's line: cancelled */
+    scenario.jobState = "IN_QUEUE";
+    const waiting = await make();
+    expect((await orch.cancelTake(waiting.id)).status).toBe("canceled");
+    expect(cancels()).toBe(before + 1);
+    /* not yet handed over: cancelled here, the pod is not asked */
+    scenario.healthy = false;
+    const parked = await make();
+    expect(parked.requestId).toBeUndefined();
+    expect((await orch.cancelTake(parked.id)).status).toBe("canceled");
+    expect(cancels()).toBe(before + 1);
+    scenario.healthy = true;
+    scenario.jobState = undefined;
+    await repo.updateTake(rendering.id, { status: "canceled", finishedAt: Date.now() });
+  });
+
+  it("keeps calling a pod that was running running when one health look fails", async () => {
+    const pod = (await repo.currentGpuPod())!;
+    await repo.updateGpuPod(pod.id, { status: "running" });
+    scenario.healthy = false;
+    const seen = await gpu.refreshGpu();
+    expect(seen?.status).toBe("running");
+    expect(seen?.message).toContain("did not answer just now");
+    scenario.healthy = true;
+    expect((await gpu.refreshGpu())?.message ?? null).toBeNull();
   });
 
   it("does not auto-stop while work is in flight, and stops once idle", async () => {
