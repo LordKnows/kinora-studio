@@ -105,7 +105,8 @@ export function ShotEditor({
         </Field>
         <Field label={tr("Mode")}>
           <select className="st-select" value={value.mode} onChange={(e) => set("mode", e.target.value as ShotDraft["mode"])}>
-            {SHOT_MODES.map((m) => (
+            {/* text mode (no picture at all) is not offered; a shot already in it keeps showing it */}
+            {SHOT_MODES.filter((m) => m !== "text" || value.mode === "text").map((m) => (
               <option key={m} value={m}>
                 {tr(m)}
               </option>

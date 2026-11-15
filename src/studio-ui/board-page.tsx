@@ -54,7 +54,7 @@ function cineCodes(spec: ShotView["spec"]): string[] {
 
 const BLANK_SHOT: ShotInput = {
   durationS: 8,
-  mode: "text",
+  mode: "reference",
   intent: "",
   beats: [{ from: 0, to: 8, action: "" }],
   camera: { move: "static", amplitude: "moderate", speed: "slow" },
