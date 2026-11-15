@@ -15,6 +15,18 @@ import { useT } from "./i18n";
 
 type VoicingLite = { enabled: boolean; model: string; models: Array<{ id: string; provider?: string }> };
 
+/** A recording to listen to and keep: the player and a download link. */
+export function AudioClip({ url, filename }: { url: string; filename: string }) {
+  const tr = useT();
+  const ext = /\.([a-z0-9]{2,4})(?:[?#].*)?$/i.exec(url)?.[1] ?? "wav";
+  return (
+    <span className="st-row st-audio-clip">
+      <audio className="vc-audio" controls preload="none" src={url} />
+      <a className="st-btn st-btn--quiet st-btn--sm" href={url} download={`${filename}.${ext}`} target="_blank" rel="noreferrer">{tr("Download")}</a>
+    </span>
+  );
+}
+
 const OUT = (j: VoiceJob) => j.status === "queued" || j.status === "running";
 
 export function useVoiceTakes(projectId: string, shotId?: string) {
@@ -78,7 +90,6 @@ export function LineTakes({ projectId, shotId, lineIndex, lineText, audioAssetId
         <Button size="sm" onClick={() => void speak.fire()} busy={speak.busy} disabled={out || !lineText.trim()} title={tr("Speaks the saved line on the GPU pod, several times")}>
           {out ? tr("Speaking…") : tr("Speak takes")}
         </Button>
-        {audioAssetId && <span className="st-muted">{tr("This line has its audio.")}</span>}
       </div>
       <ErrorBanner error={speak.error ?? pick.error} onDismiss={() => { speak.dismiss(); pick.dismiss(); }} projectId={projectId} />
       {open && mine.map((job) => (

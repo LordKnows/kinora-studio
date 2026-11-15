@@ -2203,9 +2203,23 @@ button.st-pill {
 }
 .studio .st-line {
   display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.6fr) 76px minmax(110px, 0.8fr) auto;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.6fr) minmax(120px, 0.7fr) 76px minmax(110px, 0.8fr) auto;
   gap: 8px;
   align-items: start;
+}
+.studio .st-line-audio {
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.studio .st-audio-clip {
+  gap: 8px;
+  align-items: center;
+}
+.studio .st-audio-clip .vc-audio {
+  width: 260px;
+  max-width: 100%;
+  flex: none;
 }
 @media (max-width: 640px) {
   .studio .st-beat,
@@ -5578,6 +5592,14 @@ button.st-pill {
 }
 .studio .cut-row .st-field:first-child {
   flex: 1 1 96px;
+}
+.studio .cut-narr-info {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 13px;
 }
 
 /* ---------- Director: who decides what ---------- */

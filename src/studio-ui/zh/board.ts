@@ -127,7 +127,7 @@ export const board: Record<string, string> = {
   /* voice takes of a line (voice-takes.tsx) */
   "Hide takes": "收起", "Voice takes ({n})": "语音备选（{n}）", "Speak takes": "念几条", "Speaking…": "正在念…",
   "Speaks the saved line on the GPU pod, several times": "在 GPU 机器上把已保存的这句台词念几遍",
-  "This line has its audio.": "这句已经有音频了。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
+  "Final voice": "定稿声音", "The recording is no longer in the library.": "这条录音已不在素材库里。", "Line kind": "台词类型", "On screen": "画内", "Off-screen voice": "画外音", "Inner monologue": "独白", "On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.": "画内：说话人的嘴在画面里，由模型出声。画外音和独白由声音卡片合成，铺到片子上。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
   "made for an earlier wording: “{text}”": "是按之前的写法念的：“{text}”", "on the GPU…": "GPU 上生成中…", "failed: {e}": "失败：{e}",
   "Closeness to the voice card's reference audio (speaker embeddings); short clips score low": "和声音卡参考音频的相似度（说话人特征）；片段短时分数偏低",
   "voice {s}": "像 {s}", "heard “{h}”": "听成“{h}”", "In use": "正在用", "Keep this take": "用这一条",

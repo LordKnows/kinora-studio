@@ -40,7 +40,7 @@ export const cut: Record<string, string> = {
   "Hide SRT": "隐藏 SRT", "Show SRT": "显示 SRT", "Copy SRT": "复制 SRT", "(no dialogue in the cut)": "（剪辑里没有对白）",
 
   /* exports */
-  "Exports": "导出记录", "No exports yet": "还没有导出", "Status": "状态", "Started": "开始时间", "Download": "下载",
+  "Shot {slate}": "镜头 {slate}", "Not any shot's line (an upload or a free recording)": "不属于任何镜头的台词（上传或自由录音）", "Exports": "导出记录", "No exports yet": "还没有导出", "Status": "状态", "Started": "开始时间", "Download": "下载",
   "queued||status": "排队中", "running||status": "进行中", "completed||status": "已完成", "failed||status": "失败",
   "Spent so far: {spent} of {cap}.": "目前已花费 {spent}，上限 {cap}。",
 
