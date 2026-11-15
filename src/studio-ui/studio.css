@@ -3976,6 +3976,11 @@ button.st-pill {
 /* The Director panel: beside any page, under the top bar. It does not scroll
    as a whole: its three headings (requirements, decisions, reviews) are
    always on it, and the one that is open scrolls its entries between them. */
+/* the mask behind a side panel starts under the top bar, which stays usable */
+.studio .dir-back {
+  top: var(--topbar);
+  z-index: 59;
+}
 .studio .dir-drawer {
   position: fixed;
   z-index: 60;

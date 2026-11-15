@@ -354,6 +354,9 @@ function Panels({ projectId, view, rolling, imageJobs, onJobs }: { projectId: st
   if (!panel) return null;
   const title = panel === "director" ? t("Director") : panel === "queue" ? t("Queue") : t("Project settings");
   return (
+    <>
+    {/* the page behind the panel is masked, as behind the other drawers; a click on it closes the panel */}
+    <div className="st-drawer-back dir-back" onClick={() => open(null)} />
     <aside id="side-panel" className="dir-drawer" data-panel={panel} aria-label={title}>
       <div className="dir-drawer-head">
         <NavIcon name={panel} on={panel === "director" ? rolling > 0 : panel === "queue" ? rolling + imageJobs.length > 0 : false} size={22} />
@@ -382,6 +385,7 @@ function Panels({ projectId, view, rolling, imageJobs, onJobs }: { projectId: st
       {panel === "queue" && <QueuePanel view={view} jobs={imageJobs} refreshJobs={refresh} />}
       {panel === "settings" && <SettingsPanel onDone={() => open(null)} />}
     </aside>
+    </>
   );
 }
 
