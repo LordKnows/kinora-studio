@@ -254,10 +254,6 @@ export function ProjectShell({ projectId, children }: { projectId: string; child
                 {meter}
               </div>
               <div className="sc-tools">
-                <Link className="sc-tool" href={`${base}/screening`} title={t("Screening: watch the takes and the cut full screen")}>
-                  <NavIcon name="screen" />
-                  <span className="sc-tool-label">{t("Screen")}</span>
-                </Link>
                 <Suspense fallback={<span className="sc-tool"><NavIcon name="director" on={rolling > 0} /><span className="sc-tool-label">{t("Director")}</span></span>}>
                   <PanelToggle panel="queue" icon="queue" label={t("Queue")} on={rolling + imageJobs.length > 0} count={rolling + imageJobs.length}
                     title={rolling + imageJobs.length ? t("{takes} take(s) and {pictures} picture(s) queued or under way", { takes: rolling, pictures: imageJobs.length }) : t("The takes and pictures that wait or are under way; cancel any")} />

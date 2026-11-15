@@ -11,10 +11,11 @@ import { cutAfter, filmSeconds, filmShots, pipState, rendersSeconds, shotPicture
 import { coverage } from "@/studio/coverage";
 
 import { plural, useLang, useT } from "./i18n";
-import { lintOfShot, needsOf, nextStep, type LintReport, type Need } from "./needs";
+import { lintOfShot, needsOf, type LintReport, type Need } from "./needs";
 import { ProblemsList } from "./problems-list";
 import { useProjectContext } from "./shell";
 import { BackToTop, Loading } from "./common";
+import { NavIcon } from "./nav-icons";
 import { useLintState } from "./use-lint";
 import { lintLine } from "./zh/lint";
 
@@ -46,7 +47,6 @@ function Score() {
   const here = shots.find((s) => s.shot.id === params.get("shot")) ?? shots.find((s) => !s.picked) ?? shots[0];
   const goto = (s: FilmShot) => router.replace(`${pathname}?shot=${s.shot.id}`, { scroll: false });
   const needs = needsOf(view, lint, base, t);
-  const step = nextStep(view, base, t);
   const allTakes = shots.flatMap((s) => s.shot.takes);
   const rolling = allTakes.filter((x) => x.status === "queued" || x.status === "running").length;
 
@@ -66,7 +66,11 @@ function Score() {
           <div><dt className="sc-cap">{t("Takes")}</dt><dd className="st-num">{allTakes.length}</dd></div>
           <div><dt className="sc-cap">{t("Rolling")}</dt><dd className="st-num">{rolling}</dd></div>
         </dl>
-        {step && <Link className="st-btn st-btn--tally sc-next" href={step.href}>{step.label}</Link>}
+        {/* the only place Screening is opened from: the Reel */}
+        <Link className="st-btn st-btn--secondary sc-next" href={`${base}/screening${here ? `?shot=${here.shot.id}` : ""}`} title={t("Screening: watch the takes and the cut full screen")}>
+          <NavIcon name="screen" size={16} />
+          {t("Screen")}
+        </Link>
       </header>
 
       <NeedsYou needs={needs} base={base} loading={lintLoading} />

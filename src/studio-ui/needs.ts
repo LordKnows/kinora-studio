@@ -106,20 +106,6 @@ export function needsOf(view: ProjectView, lint: LintReport | null, base: string
   return out;
 }
 
-/** The one next step of a project, for the red button. None while the script is a draft: it is approved on the Story page. */
-export function nextStep(view: ProjectView, base: string, t: T = EN): { label: string; href: string } | null {
-  const shots = filmShots(view);
-  if (!view.script) return { label: t("Write the script"), href: `${base}/story` };
-  if (view.script.approval !== "approved") return null;
-  if (shots.length === 0) return { label: t("Plan the shots"), href: `${base}/board` };
-  if (view.project.shotlistApproval !== "approved") return { label: t("Approve the shotlist"), href: `${base}/board` };
-  const bare = shots.filter((s) => !s.shot.takes.some((x) => x.status === "completed" || x.status === "queued" || x.status === "running"));
-  if (bare.length > 0) return { label: plural(t, bare.length, "Render 1 shot", "Render {n} shots"), href: `${base}/board` };
-  const open = shots.find((s) => !s.picked || !s.picked.review);
-  if (open) return { label: t("Screen the takes"), href: `${base}/screening?shot=${open.shot.id}` };
-  return { label: t("Cut and export"), href: `${base}/cut` };
-}
-
 /** Lint entries of one shot (the Board keys them by scene slug and the shot's place in it, from 1). */
 export function lintOfShot(lint: LintReport | null, sceneSlug: string, shotIndex: number): LintWarning[] {
   return (lint?.warnings ?? []).filter((w) => w.scene === sceneSlug && w.shot === shotIndex + 1);
