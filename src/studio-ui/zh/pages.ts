@@ -188,7 +188,7 @@ export const pages: Record<string, string> = {
   ": making it private makes it yours.": "：设为私有后就归你。", "; an admin can make it private.": "；管理员可以把它设为私有。",
 
   /* Projects */
-  "One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.": "一部片子一个项目。故事、美术、分镜、镜次、剪辑——按这个顺序，中间有两次批准。项目打开时是它的全片：整部片子排在一条时间线上，还有等你决定的事。",
+  "One project per film, with two approvals along the way.": "一部片子一个项目，中间有两次批准。", "You approve before it goes on": "批准后才往下走", "Approval": "批准关卡",
   "New project": "新项目", "Neon rain chase": "霓虹雨夜追逐",
   "Every signed-in user of this studio": "这个工作室里每个已登录的用户", "Only you, on the web and through your director connector": "只有你，网页上和你的导演连接器里",
   "No projects yet": "还没有项目", "Create one above, or let your director agent call start_film over MCP.": "在上面建一个，或者让你的导演通过 MCP 调用 start_film。",
