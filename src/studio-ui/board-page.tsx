@@ -581,17 +581,12 @@ function BatchPicker({ title, batch, slateOf, taken, onClose }: { title: string;
 }
 
 /* Shown when Roll take is clicked while the GPU is not running: the GPU first. The roll waits for it
-   and goes on from here once it runs; Close leaves nothing sent. */
+   and goes on from here once it runs; closing it (the × or Esc) leaves nothing sent. */
 function RollGate({ onClose }: { onClose: () => void }) {
   const tr = useT();
   return (
     <Modal title={tr("Start the GPU first")} onClose={onClose}>
-      <div className="st-stack">
-        <GpuGate what={tr("rolling a take")} />
-        <div className="st-row">
-          <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
-        </div>
-      </div>
+      <GpuGate what={tr("rolling a take")} />
     </Modal>
   );
 }
