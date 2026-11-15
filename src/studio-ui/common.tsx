@@ -449,24 +449,21 @@ export function Stars({ value, onChange }: { value?: number; onChange: (n: numbe
 /** `fit`: the popup is for one picture of this width-to-height ratio; it is as wide as the picture can
     be shown whole on the screen, so nothing is left empty beside it. */
 /* While a drawer, popup or side panel is open the page behind it does not scroll. Counted, so one opened over
-   another (a popup over a drawer) keeps the lock until the last one closes; the page keeps its width when the
-   scrollbar goes. */
+   another (a popup over a drawer) keeps the lock until the last one closes. The page draws no scrollbar
+   (base.css), so nothing shifts when it is locked. */
 let scrollLocks = 0;
-let scrollWas: { overflow: string; paddingRight: string } | null = null;
+let scrollWas: { overflow: string } | null = null;
 export function useScrollLock(on = true) {
   useEffect(() => {
     if (!on) return;
     const body = document.body;
     if (scrollLocks++ === 0) {
-      scrollWas = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
-      const bar = window.innerWidth - document.documentElement.clientWidth;
-      if (bar > 0) body.style.paddingRight = `${(parseFloat(getComputedStyle(body).paddingRight) || 0) + bar}px`;
+      scrollWas = { overflow: body.style.overflow };
       body.style.overflow = "hidden";
     }
     return () => {
       if (--scrollLocks === 0 && scrollWas) {
         body.style.overflow = scrollWas.overflow;
-        body.style.paddingRight = scrollWas.paddingRight;
         scrollWas = null;
       }
     };
