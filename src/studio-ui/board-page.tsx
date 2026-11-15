@@ -294,7 +294,7 @@ function Board() {
                   {tr("Cancel queued · {n}", { n: waiting })}
                 </ConfirmButton>
               )}
-              <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot at the end of this scene")} panelLabel={tr("Add shot")}>
+              <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot to this scene, at the end or at a place you choose")} panelLabel={tr("Add shot")}>
                 {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onSaved={() => fold(false)} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
               </Popover>
               <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
@@ -683,15 +683,22 @@ function AddShotForm({ scene, sceneNumber, onSaved, onOpen, onClose }: { scene: 
   const { projectId, reload } = useProjectContext();
   const tr = useT();
   const [name, setName] = useState("");
-  const [saved, setSaved] = useState<{ id: string; slate: string; name: string } | null>(null);
+  const [saved, setSaved] = useState<{ id: string; slate: string; name: string; pushed?: string } | null>(null);
+  /* where it goes: "end", or the number it takes in the scene (the shots from there on move down one) */
+  const [at, setAt] = useState("end");
+  const place = at === "end" ? undefined : Number(at);
+  const following = place ? scene.shots[place - 1] : undefined;
+  /* a shot that continues from the one before it will continue from the new shot instead */
+  const continues = !!following && (following.spec.link?.type ?? following.spec.linkToPrev) === "continuous";
   const add = useAction(async () => {
     const intent = name.trim();
     /* a shot needs one beat with an action in it (the schema refuses an empty one, which is why the old
        one-click Add shot was refused): the name stands in as that action until the shot is edited */
-    const { shot } = await post<{ shot: { id: string; index: number } }>(`/api/scenes/${scene.id}/shots`, { ...BLANK_SHOT, intent, beats: [{ from: 0, to: BLANK_SHOT.durationS, action: intent }] });
+    const { shot } = await post<{ shot: { id: string; index: number } }>(`/api/scenes/${scene.id}/shots${place ? `?position=${place}` : ""}`, { ...BLANK_SHOT, intent, beats: [{ from: 0, to: BLANK_SHOT.durationS, action: intent }] });
     await reload();
-    setSaved({ id: shot.id, slate: `${sceneNumber}·${shot.index + 1}`, name: intent });
+    setSaved({ id: shot.id, slate: `${sceneNumber}·${shot.index + 1}`, name: intent, pushed: continues ? `${sceneNumber}·${shot.index + 2}` : undefined });
     setName("");
+    setAt("end");
     onSaved?.();
   });
   if (saved) {
@@ -699,6 +706,7 @@ function AddShotForm({ scene, sceneNumber, onSaved, onOpen, onClose }: { scene: 
       <div className="st-stack st-stack--tight" role="status">
         <Status tone="ok" icon={<CheckCircleIcon />}>{tr("Saved as shot {slate}", { slate: saved.slate })}</Status>
         <span className="st-pop-quote">{saved.name}</span>
+        {saved.pushed && <span className="st-muted">{tr("Shot {slate} continues from the shot before it, which is now this one: check it.", { slate: saved.pushed })}</span>}
         <div className="st-row">
           <Button size="sm" kind="primary" onClick={() => onOpen(saved.id)}>{tr("Open the shot")}</Button>
           <Button size="sm" onClick={() => setSaved(null)}>{tr("Add another")}</Button>
@@ -713,6 +721,16 @@ function AddShotForm({ scene, sceneNumber, onSaved, onOpen, onClose }: { scene: 
       <Field label={tr("Shot name")} hint={tr("One sentence: what this shot is for, at least {n} characters. It is the line on the shot's card; the rest is filled in under Edit.", { n: SHOT_NAME_MIN })}>
         <input className="st-input" autoFocus maxLength={300} placeholder={tr("e.g. the courier crosses the wet square")} value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
+      {scene.shots.length > 0 && (
+        <Field label={tr("Place")} hint={continues ? tr("Shot {slate} continues from the shot before it; it will continue from the new shot instead.", { slate: `${sceneNumber}·${place}` }) : undefined}>
+          <select className="st-select" value={at} onChange={(e) => setAt(e.target.value)}>
+            <option value="end">{tr("At the end, after {slate}", { slate: `${sceneNumber}·${scene.shots.length}` })}</option>
+            {scene.shots.map((sh, i) => (
+              <option key={sh.id} value={String(i + 1)}>{tr("Before {slate} · {name}", { slate: `${sceneNumber}·${i + 1}`, name: sh.spec.intent.length > 28 ? `${sh.spec.intent.slice(0, 28)}…` : sh.spec.intent })}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       {add.error ? (
         <div className="st-stack st-stack--tight" role="alert">
           <Status tone="err" icon={<ErrorIcon />}>{tr("The shot was not saved")}</Status>

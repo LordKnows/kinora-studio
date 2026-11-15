@@ -23,7 +23,7 @@ export const board: Record<string, string> = {
   "No scenes yet": "还没有场次", "Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.": "让导演调用 save_shotlist，或点右上角的“加一场”，手动搭镜头。",
   "scene palette": "本场色板", "Palette||scene colours": "色板", "This scene's colour script; it compiles into every shot": "本场的色彩脚本，会编进每个镜头",
   /* a new shot, in its popover */
-  "Add a shot at the end of this scene": "在本场末尾加一个镜头", "Shot name": "镜头名字",
+  "Shot name": "镜头名字",
   "One sentence: what this shot is for, at least {n} characters. It is the line on the shot's card; the rest is filled in under Edit.": "一句话说明这个镜头是干什么的，至少 {n} 个字。它就是镜头卡片上的那行字；其余内容到“编辑”里补全。",
   "e.g. the courier crosses the wet square": "例如：信使穿过湿漉漉的广场", "Saved as shot {slate}": "已保存为镜头 {slate}", "Add another": "再加一个", "The shot was not saved": "镜头没有保存",
   "The lint could not be loaded.": "检查结果加载失败。", "Compiling…": "编译中…", "Regenerating at a higher resolution is switched off for now": "高分辨率重生成暂时停用",
@@ -127,7 +127,7 @@ export const board: Record<string, string> = {
   /* voice takes of a line (voice-takes.tsx) */
   "Hide takes": "收起", "Voice takes ({n})": "语音备选（{n}）", "Speak takes": "念几条", "Speaking…": "正在念…",
   "Speaks the saved line on the GPU pod, several times": "在 GPU 机器上把已保存的这句台词念几遍",
-  "Final voice": "定稿声音", "The recording is no longer in the library.": "这条录音已不在素材库里。", "Line kind": "台词类型", "On screen": "画内", "Off-screen voice": "画外音", "Inner monologue": "独白", "On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.": "画内：说话人的嘴在画面里，由模型出声。画外音和独白由声音卡片合成，铺到片子上。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
+  "Place": "位置", "At the end, after {slate}": "放在最后，{slate} 之后", "Before {slate} · {name}": "放在 {slate} 之前 · {name}", "Add a shot to this scene, at the end or at a place you choose": "给这一场加一个镜头，放在最后或你选的位置", "Shot {slate} continues from the shot before it; it will continue from the new shot instead.": "镜头 {slate} 原本接着它前面那个镜头；加入后它会接在新镜头后面。", "Shot {slate} continues from the shot before it, which is now this one: check it.": "镜头 {slate} 原本接着它前面那个镜头，现在前面是这个新镜头：请检查它。", "Final voice": "定稿声音", "The recording is no longer in the library.": "这条录音已不在素材库里。", "Line kind": "台词类型", "On screen": "画内", "Off-screen voice": "画外音", "Inner monologue": "独白", "On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.": "画内：说话人的嘴在画面里，由模型出声。画外音和独白由声音卡片合成，铺到片子上。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
   "made for an earlier wording: “{text}”": "是按之前的写法念的：“{text}”", "on the GPU…": "GPU 上生成中…", "failed: {e}": "失败：{e}",
   "Closeness to the voice card's reference audio (speaker embeddings); short clips score low": "和声音卡参考音频的相似度（说话人特征）；片段短时分数偏低",
   "voice {s}": "像 {s}", "heard “{h}”": "听成“{h}”", "In use": "正在用", "Keep this take": "用这一条",

@@ -364,8 +364,8 @@ export function createStudioServer(actor: Actor): McpServer {
     const view = await orch.getProjectView(projectId);
     return { approval: view.project.shotlistApproval, canGenerate: view.canGenerate, blockers: view.blockers, scenes: compactScenes(view) };
   });
-  tool("add_shot", "Append a shot to a scene, with its link and cinematography.", z.object({ sceneId: id, shot: ShotInput }), async ({ sceneId, shot }) => {
-    const saved = await orch.addShot(sceneId, shot);
+  tool("add_shot", "Add a shot to a scene, with its link and cinematography: at the end, or at `position` (1 = first; the shots from there on move down one). The shot that then follows keeps its own link, so a `continuous` one now continues from the new shot: re-check it.", z.object({ sceneId: id, shot: ShotInput, position: z.number().int().min(1).optional().describe("Place the shot at this number in the scene (1 = first). Leave out for the end") }), async ({ sceneId, shot, position }) => {
+    const saved = await orch.addShot(sceneId, shot, position);
     return { shot: saved, warnings: shotWarnings(saved.id, saved.spec) };
   });
   tool("revise_shot", "Patch a shot: only the keys you pass change. Structural changes (beats, camera move, dialogue, mode…) reset the shotlist approval; promptOverride and camera.note do not.", z.object({ shotId: id, patch: ShotPatch }), async ({ shotId, patch }) => ({ shot: await orch.patchShot(shotId, patch) }));
