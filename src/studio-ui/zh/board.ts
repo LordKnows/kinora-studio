@@ -23,7 +23,7 @@ export const board: Record<string, string> = {
   "No scenes yet": "还没有场次", "Ask the director agent to save_shotlist, or add a scene (top right) and build shots by hand.": "让导演调用 save_shotlist，或点右上角的“加一场”，手动搭镜头。",
   "scene palette": "本场色板", "Palette||scene colours": "色板", "This scene's colour script; it compiles into every shot": "本场的色彩脚本，会编进每个镜头",
   /* a new shot, in its popover */
-  "Add a shot at the end of this scene": "在本场末尾加一个镜头", "Shot name": "镜头名字",
+  "Shot name": "镜头名字",
   "One sentence: what this shot is for, at least {n} characters. It is the line on the shot's card; the rest is filled in under Edit.": "一句话说明这个镜头是干什么的，至少 {n} 个字。它就是镜头卡片上的那行字；其余内容到“编辑”里补全。",
   "e.g. the courier crosses the wet square": "例如：信使穿过湿漉漉的广场", "Saved as shot {slate}": "已保存为镜头 {slate}", "Add another": "再加一个", "The shot was not saved": "镜头没有保存",
   "The lint could not be loaded.": "检查结果加载失败。", "Compiling…": "编译中…", "Regenerating at a higher resolution is switched off for now": "高分辨率重生成暂时停用",
@@ -45,7 +45,7 @@ export const board: Record<string, string> = {
   "Shots without a take are ticked. Ones already rendered or in the queue are listed, not ticked; tick one to render it again. R2VA shots go first; a shot linked to another waits until its anchor has a take.": "还没有镜次的镜头默认勾选；已经拍过或在队列里的也列出来，但不勾选，要重拍就勾上。先拍 R2VA 镜头；衔接镜头要等它的锚点有了镜次。",
   "In the queue": "在队列里", "Rendered": "已拍", "A take of this shot is queued or rendering": "这个镜头有镜次在排队或正在拍", "This shot already has a finished take": "这个镜头已经有拍好的镜次",
   "Probe first.": "先试拍。", "Tick only the probe ({n})": "只选试拍镜头（{n}）", "No shot of this scene can render now.": "这一场现在没有能拍的镜头。",
-  "Tick all": "全选", "Unselect": "取消选中", "Take it off as this shot's pick: the shot is left with none": "取消这一条的选中：这个镜头就没有选中的镜次", "Deleted take {n}": "已删除镜次 {n}", "Delete take": "删除镜次", "Delete takes": "删除这些镜次", "Delete these {n}": "删除这 {n} 条", "Delete these {n} takes? They can be put back from Recently deleted for 14 days.": "删除这 {n} 条镜次吗？14 天内可以在“最近删除”里放回去。", "Delete take {n}, the pick of this shot? It can be put back from Recently deleted for 14 days.": "删除镜次 {n} 吗？它是这个镜头选中的一条。14 天内可以在“最近删除”里放回去。", "Delete take {n}? It can be put back from Recently deleted for 14 days.": "删除镜次 {n} 吗？14 天内可以在“最近删除”里放回去。", "Ask where everything stands, now": "立刻问一遍现在的进度", "Stop the GPU when everything has rendered": "全部渲染完后自动关闭 GPU", "Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.": "只关一次：所有项目的镜次、导出和图片都做完之后关闭 GPU。下一轮要再勾一次。", "Start the GPU first": "先启动 GPU", "rendering": "拍摄", "rolling a take": "拍镜次", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
+  "Tick all": "全选", "the element sheets guide the take": "元素设定图来引导镜次", "Choose how this shot starts": "选择这个镜头怎么开始", "The element sheets guide it (reference), or it starts from one picture, or from a first and an end frame.": "用元素设定图来引导（参考图），或者从一张图开始，或者从首帧和尾帧开始。", "Unselect": "取消选中", "Take it off as this shot's pick: the shot is left with none": "取消这一条的选中：这个镜头就没有选中的镜次", "Deleted take {n}": "已删除镜次 {n}", "Delete take": "删除镜次", "Delete takes": "删除这些镜次", "Delete these {n}": "删除这 {n} 条", "Delete these {n} takes? They can be put back from Recently deleted for 14 days.": "删除这 {n} 条镜次吗？14 天内可以在“最近删除”里放回去。", "Delete take {n}, the pick of this shot? It can be put back from Recently deleted for 14 days.": "删除镜次 {n} 吗？它是这个镜头选中的一条。14 天内可以在“最近删除”里放回去。", "Delete take {n}? It can be put back from Recently deleted for 14 days.": "删除镜次 {n} 吗？14 天内可以在“最近删除”里放回去。", "Ask where everything stands, now": "立刻问一遍现在的进度", "Stop the GPU when everything has rendered": "全部渲染完后自动关闭 GPU", "Stops the GPU one time, once every take, export and picture of every project has finished. Turn it on again for the next run.": "只关一次：所有项目的镜次、导出和图片都做完之后关闭 GPU。下一轮要再勾一次。", "Start the GPU first": "先启动 GPU", "rendering": "拍摄", "rolling a take": "拍镜次", "Ordering this scene's shots…": "正在给这一场的镜头排序…", "Render {shot}": "拍 {shot}", "Can render now": "现在能拍", "Pass {n} · waits for its anchors": "第 {n} 轮 · 等锚点",
   "Mode": "模式", "Link": "衔接", "Fragile": "易错", "Weak spots of AI video found in the shot (fragile.* in Lint)": "镜头里 AI 视频容易出错的地方（检查里的 fragile.*）", "Est.": "估价", " · careful": " · 谨慎",
   "Waiting for an anchor: {list}": "等锚点：{list}",
   "Render the ticked ({n})": "拍选中的（{n}）",
@@ -127,7 +127,7 @@ export const board: Record<string, string> = {
   /* voice takes of a line (voice-takes.tsx) */
   "Hide takes": "收起", "Voice takes ({n})": "语音备选（{n}）", "Speak takes": "念几条", "Speaking…": "正在念…",
   "Speaks the saved line on the GPU pod, several times": "在 GPU 机器上把已保存的这句台词念几遍",
-  "This line has its audio.": "这句已经有音频了。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
+  "Place": "位置", "At the end, after {slate}": "放在最后，{slate} 之后", "Before {slate} · {name}": "放在 {slate} 之前 · {name}", "Add a shot to this scene, at the end or at a place you choose": "给这一场加一个镜头，放在最后或你选的位置", "Shot {slate} continues from the shot before it; it will continue from the new shot instead.": "镜头 {slate} 原本接着它前面那个镜头；加入后它会接在新镜头后面。", "Shot {slate} continues from the shot before it, which is now this one: check it.": "镜头 {slate} 原本接着它前面那个镜头，现在前面是这个新镜头：请检查它。", "Final voice": "定稿声音", "The recording is no longer in the library.": "这条录音已不在素材库里。", "Line kind": "台词类型", "On screen": "画内", "Off-screen voice": "画外音", "Inner monologue": "独白", "On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.": "画内：说话人的嘴在画面里，由模型出声。画外音和独白由声音卡片合成，铺到片子上。", "Delivery: {d}": "语气：{d}", "Neutral delivery": "平静语气",
   "made for an earlier wording: “{text}”": "是按之前的写法念的：“{text}”", "on the GPU…": "GPU 上生成中…", "failed: {e}": "失败：{e}",
   "Closeness to the voice card's reference audio (speaker embeddings); short clips score low": "和声音卡参考音频的相似度（说话人特征）；片段短时分数偏低",
   "voice {s}": "像 {s}", "heard “{h}”": "听成“{h}”", "In use": "正在用", "Keep this take": "用这一条",
@@ -283,9 +283,6 @@ export const board: Record<string, string> = {
 
   /* frames */
   "Use one hero frame only? The end frame is taken off this shot (the picture stays in Pictures).": "只用一张首帧？尾帧会从这个镜头上拿掉（图片仍留在图片里）。",
-  "No frame": "无画面", "the model draws it from the shot's description": "只靠模型按镜头描写生成",
-  "H3 draws this shot from its prompt alone. It is linked to its anchor shot, so the take still starts on the anchor take's last frame; change the link in the Edit tab to start free.": "H3 只凭提示词画这个镜头。它衔接着锚点镜头，所以仍从锚点镜次的最后一帧开始；要自由开头，到编辑页改衔接方式。",
-  "H3 draws this shot from its prompt alone: the description, the camera and the elements. To start from a picture, choose a hero frame or a first and an end frame above.": "H3 只凭提示词画这个镜头：描写、机位和元素。想从一张图开始，就在上面选首帧，或首帧加尾帧。",
   "Reference sheets": "参考设定图", "Frames of this shot": "这个镜头的画面", "Hero frame": "首帧", "one picture → the take starts from it": "一张图 → 镜次从它开始",
   "First + end frame": "首帧 + 尾帧", "the take goes from one to the other": "镜次从一张走到另一张",
   "Reference frame": "参考帧", "First and end frame": "首帧和尾帧", "Reference frame (optional)": "参考帧（可选）", "First frame": "首帧", "End frame": "尾帧",

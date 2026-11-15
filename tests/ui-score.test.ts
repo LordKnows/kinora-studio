@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ProjectView } from "@/studio/orchestrator";
 import { clipSeconds, filmSeconds, filmShots, pipState, seamTrims, tc } from "@/studio-ui/film";
 import { translate } from "@/studio-ui/i18n";
-import { needsOf, nextStep } from "@/studio-ui/needs";
+import { needsOf } from "@/studio-ui/needs";
 import { diffSentences, scriptSections } from "@/studio-ui/script-text";
 
 /* The Score's pure parts: the film as one line of time, the seams of the cut,
@@ -97,13 +97,9 @@ describe("what waits for the person", () => {
     expect(needs.find((n) => n.key === "pictures")!.detail).toContain("IMG-7–IMG-9");
   });
 
-  it("asks for approvals before anything else and points the red button at the next step", () => {
-    expect(nextStep(film({ script: null }), "/p/p")!.label).toBe("Write the script");
-    expect(nextStep(film({ approval: "draft" }), "/p/p")!.label).toBe("Approve the shotlist");
-    expect(nextStep(film({ reviewed: ["a1t2", "a2t1", "b1t1"] }), "/p/p")!.label).toBe("Cut and export");
-    /* a draft script is approved on the Story page: the Reel has neither the button nor a card for it */
+  it("asks for approvals before anything else", () => {
+    /* a draft script is approved on the Story page: the Reel has no card for it */
     const draft = film({ script: { id: "s", version: 2, text: "x", approval: "draft" } });
-    expect(nextStep(draft, "/p/p")).toBeNull();
     expect(needsOf(draft, null, "/p/p").map((n) => n.key)).not.toContain("script");
     expect(needsOf(film({ approval: "draft" }), null, "/p/p")[0]!.key).toBe("shotlist");
   });

@@ -10,6 +10,7 @@ import { get, post, put, usd } from "./api";
 import { Button, Drawer, Empty, ErrorBanner, Field, InfoTip, Lamp, useAction, UploadButton, whenT } from "./common";
 import { clipSeconds, filmShots, seamTrims, takePicture, tc, type FilmShot } from "./film";
 import { RoughCut } from "./rough-cut";
+import { AudioClip } from "./voice-takes";
 import { plural, useLang, useT } from "./i18n";
 import { useNotify } from "./notices";
 import { useProjectContext } from "./shell";
@@ -183,6 +184,11 @@ export function TimelinePage() {
   const clips = timeline.clips;
   const total = clips.reduce((n, c) => n + clipSeconds(c), 0);
   const music = view.assets.filter((a) => a.kind === "audio");
+  /* which shot's line a recording is the final voice of (Line.audioAssetId), so the narration can say what it speaks */
+  const narrationLines: NarrationLines = new Map();
+  for (const f of shots) f.shot.spec.dialogue.forEach((l) => {
+    if (l.audioAssetId) narrationLines.set(l.audioAssetId, { slate: f.slate, speaker: view.elements.find((e) => e.id === l.speaker)?.name ?? "", kind: l.kind ?? "onscreen", text: l.text });
+  });
   const seams = seamTrims(shots, timeline);
   const otherSeams = (lint?.warnings ?? []).filter((w) => w.code.startsWith("seam.") && w.code !== "seam.trim");
   const selected = clips[Math.min(sel, clips.length - 1)];
@@ -351,7 +357,7 @@ export function TimelinePage() {
               </div>
             </section>
 
-              <SilencesPanel timeline={timeline} audio={music} onChange={set} />
+              <SilencesPanel timeline={timeline} audio={music} lines={narrationLines} onChange={set} />
             </div>
             <div className="cut-group st-card" aria-label={tr("Timing||cut")}>
               <h3 className="cut-group-h">{tr("Timing||cut")}</h3>
@@ -645,7 +651,10 @@ function TitlesPanel({ timeline, total, onChange }: { timeline: TimelineInput; t
 
 /* ---- silences and narration ---- */
 
-function SilencesPanel({ timeline, audio, onChange }: { timeline: TimelineInput; audio: Array<{ id: string; name?: string; meta: Record<string, unknown> }>; onChange: (t: TimelineInput) => void }) {
+type NarrationLines = Map<string, { slate: string; speaker: string; kind: string; text: string }>;
+const KIND_LABEL: Record<string, string> = { onscreen: "On screen", offscreen: "Off-screen voice", inner: "Inner monologue" };
+
+function SilencesPanel({ timeline, audio, lines, onChange }: { timeline: TimelineInput; audio: Array<{ id: string; name?: string; url: string; meta: Record<string, unknown> }>; lines: NarrationLines; onChange: (t: TimelineInput) => void }) {
   const silences = timeline.silences ?? [];
   const narration = timeline.narration ?? [];
   const tr = useT();
@@ -678,6 +687,18 @@ function SilencesPanel({ timeline, audio, onChange }: { timeline: TimelineInput;
           </Field>
           <Field label={tr("At (s)")}><input className="st-input st-input--sm" type="number" min={0} step={0.1} value={n.atS} onChange={(e) => onChange({ ...timeline, narration: narration.map((x, j) => (j === i ? { ...x, atS: Math.max(0, Number(e.target.value)) } : x)) })} /></Field>
           <Button size="sm" kind="danger" onClick={() => onChange({ ...timeline, narration: narration.filter((_, j) => j !== i) })}>{tr("Remove")}</Button>
+          {(() => {
+            const clip = audio.find((a) => a.id === n.assetId);
+            const line = lines.get(n.assetId);
+            return (
+              <div className="cut-narr-info">
+                {clip && <AudioClip url={clip.url} filename={line ? `${line.speaker || "line"}-${line.slate}` : (clip.name ?? "narration")} />}
+                <span className="st-muted">
+                  {line ? `${tr("Shot {slate}", { slate: line.slate })} · ${line.speaker ? `${line.speaker} · ` : ""}${tr(KIND_LABEL[line.kind] ?? line.kind)} · “${line.text}”` : tr("Not any shot's line (an upload or a free recording)")}
+                </span>
+              </div>
+            );
+          })()}
         </div>
       ))}
     </section>

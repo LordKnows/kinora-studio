@@ -80,16 +80,16 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
     await reload();
   });
   const mode = shot.spec.mode;
-  /* "No frame" is the shot's text mode: nothing starts the take, the model draws it from the shot's description */
-  const frameMode: "none" | "hero" | "first_last" = mode === "text" ? "none" : shot.endAssetId ? "first_last" : keyMode;
-  const setShotMode = useAction(async (_c, next: "text" | "keyframe") => {
+  /* How the shot starts: the reference sheets (reference mode), one hero frame, or a first and an end frame
+     (keyframe mode). A shot with none of these (the old text mode) has none chosen until one is. */
+  const frameMode: "reference" | "hero" | "first_last" | null = mode === "reference" ? "reference" : mode === "keyframe" ? (shot.endAssetId ? "first_last" : keyMode) : null;
+  const setShotMode = useAction(async (_c, next: "reference" | "keyframe") => {
     await patch(`/api/shots/${shot.id}`, { mode: next });
     await reload();
   });
-  const chooseMode = async (m: "none" | "hero" | "first_last") => {
-    if (m === "none") {
-      if (mode === "text") return;
-      await setShotMode.fire("text");
+  const chooseMode = async (m: "reference" | "hero" | "first_last") => {
+    if (m === "reference") {
+      if (mode !== "reference") await setShotMode.fire("reference");
       return;
     }
     if (m === "hero" && shot.endAssetId) {
@@ -97,32 +97,30 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
       await setFrame.fire("last", null);
     }
     setFrameMode(m);
-    if (mode === "text") await setShotMode.fire("keyframe");
+    if (mode !== "keyframe") await setShotMode.fire("keyframe");
   };
   const chooser = (
     <div className="st-row" style={{ flexWrap: "wrap", gap: 12 }}>
       <div className="st-seg" role="group" aria-label={tr("Frames of this shot")}>
+        <button type="button" aria-pressed={frameMode === "reference"} disabled={setShotMode.busy} onClick={() => void chooseMode("reference")}>
+          {tr("Reference sheets")}<small>{tr("the element sheets guide the take")}</small>
+        </button>
         <button type="button" aria-pressed={frameMode === "hero"} disabled={setShotMode.busy} onClick={() => void chooseMode("hero")}>
           {tr("Hero frame")}<small>{tr("one picture → the take starts from it")}</small>
         </button>
         <button type="button" aria-pressed={frameMode === "first_last"} disabled={setShotMode.busy} onClick={() => void chooseMode("first_last")}>
           {tr("First + end frame")}<small>{tr("the take goes from one to the other")}</small>
         </button>
-        <button type="button" aria-pressed={frameMode === "none"} disabled={setShotMode.busy} onClick={() => void chooseMode("none")}>
-          {tr("No frame")}<small>{tr("the model draws it from the shot's description")}</small>
-        </button>
       </div>
     </div>
   );
+  /* a shot in the old text mode has no frames: the choices, and nothing else until one is made */
   if (mode === "text") {
     return (
       <div className="st-stack">
         <ErrorBanner error={setShotMode.error ?? setFrame.error} projectId={projectId} onDismiss={() => { setShotMode.dismiss(); setFrame.dismiss(); }} />
         {chooser}
-        {/* no slots and no generator here: only what the shot is drawn from, and (when linked) what the link still does */}
-        <Empty title={tr("No frame")} hint={plan?.first === "anchor"
-          ? tr("H3 draws this shot from its prompt alone. It is linked to its anchor shot, so the take still starts on the anchor take's last frame; change the link in the Edit tab to start free.")
-          : tr("H3 draws this shot from its prompt alone: the description, the camera and the elements. To start from a picture, choose a hero frame or a first and an end frame above.")} />
+        <Empty title={tr("Choose how this shot starts")} hint={tr("The element sheets guide it (reference), or it starts from one picture, or from a first and an end frame.")} />
       </div>
     );
   }
@@ -148,7 +146,7 @@ export function FramesPanel({ shot }: { shot: ShotView }) {
         </Section>
       )}
 
-      {mode === "keyframe" && chooser}
+      {(mode === "keyframe" || mode === "reference") && chooser}
 
       <Section title={tr(mode === "reference" ? "Reference frame" : frameMode === "hero" ? "Hero frame" : "First and end frame")}>
         <div className="st-frame-slots">

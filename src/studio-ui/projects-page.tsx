@@ -7,6 +7,8 @@ import type { Project, ProjectVisibility } from "@/studio/types";
 
 import { get, post, usd } from "./api";
 import { Button, Empty, ErrorBanner, Field, Skeleton, whenT } from "./common";
+import { CheckCircleIcon, ChevronIcon, InfoIcon } from "./icons";
+import { NavIcon, type NavIconName } from "./nav-icons";
 import { useT } from "./i18n";
 import { RecentlyDeleted } from "./recently-deleted";
 
@@ -23,6 +25,8 @@ export function ProjectsPage() {
   const [cap, setCap] = useState("50");
   const [visibility, setVisibility] = useState<ProjectVisibility>("shared");
   const [busy, setBusy] = useState(false);
+  /* the path a film takes is one click away, not always on the page */
+  const [flow, setFlow] = useState(false);
 
   const reload = useCallback(async () => {
     try {
@@ -58,9 +62,15 @@ export function ProjectsPage() {
       <div className="st-page-head">
         <div>
           <h1 className="st-title">{t("Projects")}</h1>
-          <p className="st-subtitle">{t("One project per film. Story, design, shotlist, takes, the cut — in that order, with two approvals along the way. A project opens on its Reel: the whole film on one line of time, and what waits for you.")}</p>
+          <p className="st-subtitle">
+            {t("One project per film, with two approvals along the way.")}
+            <button type="button" className="st-flow-toggle" aria-expanded={flow} aria-controls="film-flow" title={t("How a film moves through the studio")} aria-label={t("How a film moves through the studio")} onClick={() => setFlow(!flow)}>
+              <InfoIcon size={16} />
+            </button>
+          </p>
         </div>
       </div>
+      {flow && <FilmFlow />}
 
       <form className="st-card" onSubmit={create}>
         <div className="st-row" style={{ alignItems: "flex-end", gap: 12 }}>
@@ -111,18 +121,40 @@ export function ProjectsPage() {
       <div className="st-section">
         <RecentlyDeleted onRestored={reload} />
       </div>
-
-      <div className="st-section">
-        <div className="st-section-title"><span>{t("How a film moves through the studio")}</span></div>
-        <div className="st-steps">
-          <div className="st-stepcard"><span className="st-step">01</span><strong>{t("Story")}</strong><span>{t("What the film is and how long; the treatment and the screenplay. You approve it.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">02</span><strong>{t("Design")}</strong><span>{t("One of the 16 looks; characters, places and props with reference images.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">03</span><strong>{t("Board")}</strong><span>{t("Shots with links and cinematography; you approve, then render.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">04</span><strong>{t("Screening")}</strong><span>{t("Takes side by side; score them, circle one per shot.")}</span></div>
-          <div className="st-stepcard"><span className="st-step">05</span><strong>{t("Cut")}</strong><span>{t("Order, trim, titles, sound; every pick at 2K; export.")}</span></div>
-        </div>
-      </div>
     </div>
+  );
+}
+
+/* The film's path, one card a stage, each in its own colour; the two stages you approve say so. */
+const FLOW: Array<{ icon: NavIconName; name: string; text: string; hue: string; approval?: boolean }> = [
+  { icon: "story", name: "Story", text: "What the film is and how long; the treatment and the screenplay. You approve it.", hue: "info", approval: true },
+  { icon: "design", name: "Design", text: "One of the 16 looks; characters, places and props with reference images.", hue: "warn" },
+  { icon: "board", name: "Board", text: "Shots with links and cinematography; you approve, then render.", hue: "ok", approval: true },
+  { icon: "screen", name: "Screening", text: "Takes side by side; score them, circle one per shot.", hue: "accent" },
+  { icon: "cut", name: "Cut", text: "Order, trim, titles, sound; every pick at 2K; export.", hue: "ink" },
+];
+
+function FilmFlow() {
+  const t = useT();
+  return (
+    <section id="film-flow" className="st-flow" aria-label={t("How a film moves through the studio")}>
+      <div className="st-flow-head">
+        <h2 className="st-h2">{t("How a film moves through the studio")}</h2>
+        <span className="st-flow-key"><CheckCircleIcon size={14} />{t("You approve before it goes on")}</span>
+      </div>
+      <ol className="st-flow-steps">
+        {FLOW.map((f, i) => (
+          <li key={f.name} className="st-flow-step" data-hue={f.hue}>
+            <span className="st-flow-ico"><NavIcon name={f.icon} size={26} /></span>
+            <span className="st-flow-no">{String(i + 1).padStart(2, "0")}</span>
+            <strong>{t(f.name)}</strong>
+            <span className="st-flow-text">{t(f.text)}</span>
+            {f.approval && <span className="st-flow-ok"><CheckCircleIcon size={13} />{t("Approval")}</span>}
+            {i < FLOW.length - 1 && <span className="st-flow-next" aria-hidden="true"><ChevronIcon size={16} /></span>}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

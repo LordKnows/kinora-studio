@@ -228,11 +228,18 @@ export async function loraPlan(projectId: string) {
   };
 }
 
-export async function addShot(sceneId: string, spec: ShotInput): Promise<Shot> {
+/** Add a shot to a scene: at the end, or at `position` (1 = first; the shots from there on move down one; a
+    position past the end is the end). The shot that now follows keeps its own link: one that was `continuous`
+    now continues from the new shot, which the caller should say. */
+export async function addShot(sceneId: string, spec: ShotInput, position?: number): Promise<Shot> {
   const scene = await repo.getScene(sceneId);
   const shot = await repo.createShot(scene.projectId, sceneId, spec);
   await repo.setShotlistApproval(scene.projectId, "draft");
-  return shot;
+  if (position === undefined) return shot;
+  const ids = (await repo.listSceneShots(sceneId)).map((s) => s.id).filter((id) => id !== shot.id);
+  ids.splice(Math.max(0, Math.min(ids.length, Math.floor(position) - 1)), 0, shot.id);
+  await repo.reorderShots(sceneId, ids);
+  return repo.getShot(shot.id);
 }
 
 /* Deletes keep what they remove in the trash first (trash.ts), so the web can

@@ -5,6 +5,12 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* the page scrolls (wheel, swipe, keys) without a scrollbar drawn beside it, like every panel in it */
+  scrollbar-width: none;
+}
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
 }
 
 html,

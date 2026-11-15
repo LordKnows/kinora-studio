@@ -2142,6 +2142,7 @@ button.st-pill {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
 }
 /* Panels scroll without a scrollbar drawn in them: the drawers, the popups,
@@ -2203,9 +2204,23 @@ button.st-pill {
 }
 .studio .st-line {
   display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.6fr) 76px minmax(110px, 0.8fr) auto;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.6fr) minmax(120px, 0.7fr) 76px minmax(110px, 0.8fr) auto;
   gap: 8px;
   align-items: start;
+}
+.studio .st-line-audio {
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.studio .st-audio-clip {
+  gap: 8px;
+  align-items: center;
+}
+.studio .st-audio-clip .vc-audio {
+  width: 260px;
+  max-width: 100%;
+  flex: none;
 }
 @media (max-width: 640px) {
   .studio .st-beat,
@@ -2713,6 +2728,122 @@ button.st-pill {
 
 /* ---------- step list (home) ---------- */
 
+/* Projects: the path a film takes (opened from the icon beside the subtitle). Each stage has its own hue. */
+.studio .st-flow-toggle {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 8px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--tx3);
+  cursor: pointer;
+}
+.studio .st-flow-toggle:hover,
+.studio .st-flow-toggle[aria-expanded="true"] {
+  color: var(--accent);
+}
+.studio .st-flow {
+  margin: -8px 0 24px;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
+  background: var(--s1);
+}
+.studio .st-flow-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.studio .st-flow-head .st-h2 {
+  margin: 0;
+}
+.studio .st-flow-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--sig-ok);
+}
+.studio .st-flow-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
+  gap: 14px;
+}
+.studio .st-flow-step {
+  --hue: var(--tx);
+  --hue-bg: var(--hover);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px 14px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--hue);
+  background: var(--s2);
+}
+.studio .st-flow-step[data-hue="info"] { --hue: var(--sig-info); --hue-bg: var(--sig-info-bg); }
+.studio .st-flow-step[data-hue="warn"] { --hue: var(--sig-warn); --hue-bg: var(--sig-warn-bg); }
+.studio .st-flow-step[data-hue="ok"] { --hue: var(--sig-ok); --hue-bg: var(--sig-ok-bg); }
+.studio .st-flow-step[data-hue="accent"] { --hue: var(--accent); --hue-bg: var(--accent-08); }
+.studio .st-flow-ico {
+  --bg: var(--s2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  color: var(--hue);
+  background: var(--hue-bg);
+}
+.studio .st-flow-no {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--hue);
+}
+.studio .st-flow-step strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.studio .st-flow-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--tx2);
+}
+.studio .st-flow-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--sig-ok);
+  background: var(--sig-ok-bg);
+}
+.studio .st-flow-next {
+  position: absolute;
+  top: 28px;
+  right: -13px;
+  z-index: 1;
+  display: inline-flex;
+  width: 12px;
+  color: var(--tx3);
+  transform: rotate(-90deg);
+}
+@media (max-width: 860px) {
+  .studio .st-flow-next {
+    display: none;
+  }
+}
 .studio .st-steps {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -2940,6 +3071,7 @@ button.st-pill {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 16px;
 }
 /* The popup of one picture (picture-zoom.tsx). --fit is the picture's width over its height, --room
@@ -5578,6 +5710,14 @@ button.st-pill {
 }
 .studio .cut-row .st-field:first-child {
   flex: 1 1 96px;
+}
+.studio .cut-narr-info {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 13px;
 }
 
 /* ---------- Director: who decides what ---------- */

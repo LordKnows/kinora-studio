@@ -324,6 +324,28 @@ export function createStudioServer(actor: Actor): McpServer {
     if (!confirm) throw new StudioError("needs_confirm", `delete ${el.kind} "${el.name}"? Ask the user, then call again with confirm: true`, { element: { id: el.id, kind: el.kind, name: el.name } });
     return { deleted: { id: el.id, kind: el.kind, name: el.name }, ...(await orch.removeElement(elementId, actor.user)) };
   });
+  /* Shots and takes: a delete asks first, is kept in the trash for 14 days, and never touches what is under way or in the cut. */
+  const slateOf = async (projectId: string, shot: { sceneId: string; index: number }) => `${(await repo.listScenes(projectId)).findIndex((s) => s.id === shot.sceneId) + 1}·${shot.index + 1}`;
+  tool("delete_shot", "Delete a shot with its takes. Asks first: call with confirm only after the user agreed. Refused while a take of it waits or renders (cancel_take the one that waits; let the one that renders finish) and while the cut uses one of its takes (take it out of the timeline first). Deleting a shot puts the shotlist back to draft. What is deleted can be put back from the project's Settings page (Recently deleted) for 14 days; the answer's trashId names it. To drop shots as part of a rewrite use save_shotlist, which refuses shots that have takes.", z.object({ shotId: id, confirm: z.boolean().default(false) }), async ({ shotId, confirm }) => {
+    const shot = await repo.getShot(shotId);
+    const slate = await slateOf(shot.projectId, shot);
+    const takes = await repo.listShotTakes(shotId);
+    const out = takes.filter((t) => t.status === "queued" || t.status === "running" || (t.upscale && (t.upscale.status === "queued" || t.upscale.status === "running")));
+    if (out.length) throw new StudioError("validation", `shot ${slate} has ${out.length} take${out.length > 1 ? "s" : ""} waiting or rendering (${out.map((t) => `take ${t.n}`).join(", ")}): cancel_take the one that waits, let the one that renders finish, then delete the shot`, { takes: out.map((t) => ({ id: t.id, n: t.n, status: t.status })) });
+    const inCut = (await repo.getTimeline(shot.projectId)).clips.findIndex((c) => c.shotId === shotId || takes.some((t) => t.id === c.takeId));
+    if (inCut >= 0) throw new StudioError("validation", `shot ${slate} is in the cut (clip ${inCut + 1}): take it out of the timeline first (save_timeline)`);
+    if (!confirm) throw new StudioError("needs_confirm", `delete shot ${slate} "${shot.spec.intent}"${takes.length ? ` and its ${takes.length} take${takes.length > 1 ? "s" : ""}` : ""}? Ask the user, then call again with confirm: true`, { shot: { id: shot.id, slate, intent: shot.spec.intent, takes: takes.length } });
+    return { deleted: { id: shot.id, slate, intent: shot.spec.intent, takes: takes.length }, ...(await orch.removeShot(shotId, actor.user)) };
+  });
+  tool("delete_take", "Delete a finished take (a failed, cancelled or finished one). Asks first: call with confirm only after the user agreed. Refused while it waits or renders (cancel_take the one that waits) and while the cut uses it (take it out of the timeline first). If it was the shot's pick, the pick is cleared. What it cost stays spent. What is deleted can be put back from the project's Settings page (Recently deleted) for 14 days; the answer's trashId names it.", z.object({ takeId: id, confirm: z.boolean().default(false) }), async ({ takeId, confirm }) => {
+    const take = await repo.getTake(takeId);
+    const shot = await repo.getShot(take.shotId);
+    const slate = await slateOf(take.projectId, shot);
+    if (!confirm) {
+      throw new StudioError("needs_confirm", `delete take ${take.n} of shot ${slate}${shot.selectedTakeId === takeId ? " (the pick of that shot)" : ""}? Ask the user, then call again with confirm: true`, { take: { id: take.id, n: take.n, shot: slate, status: take.status, picked: shot.selectedTakeId === takeId } });
+    }
+    return { deleted: { id: take.id, n: take.n, shot: slate }, ...(await orch.removeTake(takeId, actor.user)) };
+  });
   tool("import_element", "Copy a library element into the project.", z.object({ projectId: id, elementId: id }), async ({ projectId, elementId }) => ({ element: await repo.copyElement(elementId, projectId) }));
   tool("list_assets", "Images, videos and audio available to the project (uploads, last frames of finished takes, exports), one line each; pass ids with full for whole records. Every picture has a handle (IMG-12, per project) and a name: use the handle when you talk with the user about a picture, and either the id or the handle in the picture tools (select_element_refs / select_hero_frame / select_end_frame / edit_frame / view_frames / review_packet). rename_picture names one; delete_pictures removes unused ones. With image generation on (image_status) draw them with generate_element_sheet / generate_shot_frame / edit_frame; otherwise the user uploads them, or import_image brings in what your own tools drew.", z.object({
     projectId: id, kind: z.enum(["image", "video", "audio"]).optional(),
@@ -364,8 +386,8 @@ export function createStudioServer(actor: Actor): McpServer {
     const view = await orch.getProjectView(projectId);
     return { approval: view.project.shotlistApproval, canGenerate: view.canGenerate, blockers: view.blockers, scenes: compactScenes(view) };
   });
-  tool("add_shot", "Append a shot to a scene, with its link and cinematography.", z.object({ sceneId: id, shot: ShotInput }), async ({ sceneId, shot }) => {
-    const saved = await orch.addShot(sceneId, shot);
+  tool("add_shot", "Add a shot to a scene, with its link and cinematography: at the end, or at `position` (1 = first; the shots from there on move down one). The shot that then follows keeps its own link, so a `continuous` one now continues from the new shot: re-check it.", z.object({ sceneId: id, shot: ShotInput, position: z.number().int().min(1).optional().describe("Place the shot at this number in the scene (1 = first). Leave out for the end") }), async ({ sceneId, shot, position }) => {
+    const saved = await orch.addShot(sceneId, shot, position);
     return { shot: saved, warnings: shotWarnings(saved.id, saved.spec) };
   });
   tool("revise_shot", "Patch a shot: only the keys you pass change. Structural changes (beats, camera move, dialogue, mode…) reset the shotlist approval; promptOverride and camera.note do not.", z.object({ shotId: id, patch: ShotPatch }), async ({ shotId, patch }) => ({ shot: await orch.patchShot(shotId, patch) }));

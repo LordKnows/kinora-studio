@@ -3,20 +3,22 @@
 import { CloseIcon } from "./icons";
 import { CINEMA, type CinemaCategoryKey } from "@/studio/cinematography";
 import { EDIT_GRAMMAR, type LinkType } from "@/studio/editing";
-import { CAMERA_MOVES, MOTION_SOURCES, SCREEN_POSITIONS, SHOT_MODES, type ShotInput } from "@/studio/schemas";
+import { CAMERA_MOVES, LINE_KINDS, MOTION_SOURCES, SCREEN_POSITIONS, SHOT_MODES, type ShotInput } from "@/studio/schemas";
 import type { Element, Take } from "@/studio/types";
 
 import { Button, Chips, Field, NumberInput } from "./common";
 import { translate, type T, useT } from "./i18n";
 import { ShotLorasField } from "./shot-loras-field";
 import { useProjectContext } from "./shell";
-import { LineTakes, useVoiceTakes } from "./voice-takes";
+import { AudioClip, LineTakes, useVoiceTakes } from "./voice-takes";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
    obvious mistakes (beats not tiling the duration) are caught before the
    request leaves the browser. */
 
 export type ShotDraft = ShotInput;
+
+const LINE_KIND_LABEL = { onscreen: "On screen", offscreen: "Off-screen voice", inner: "Inner monologue" } as const;
 
 export function validateDraft(d: ShotDraft, t: T = translate("en")): string[] {
   const problems: string[] = [];
@@ -105,7 +107,8 @@ export function ShotEditor({
         </Field>
         <Field label={tr("Mode")}>
           <select className="st-select" value={value.mode} onChange={(e) => set("mode", e.target.value as ShotDraft["mode"])}>
-            {SHOT_MODES.map((m) => (
+            {/* text mode (no picture at all) is not offered; a shot already in it keeps showing it */}
+            {SHOT_MODES.filter((m) => m !== "text" || value.mode === "text").map((m) => (
               <option key={m} value={m}>
                 {tr(m)}
               </option>
@@ -407,12 +410,26 @@ export function ShotEditor({
               ))}
             </select>
             <input className="st-input st-input--sm" placeholder={tr("The exact line")} value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
+            <select className="st-select st-input--sm" value={l.kind ?? "onscreen"} aria-label={tr("Line kind")} title={tr("On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.")}
+              onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, kind: e.target.value as (typeof LINE_KINDS)[number] } : x)))}>
+              {LINE_KINDS.map((k) => <option key={k} value={k}>{tr(LINE_KIND_LABEL[k])}</option>)}
+            </select>
             <input className="st-input st-input--sm" placeholder="zh" value={l.language ?? ""} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, language: e.target.value || undefined } : x)))} aria-label={tr("Language")} />
             <input className="st-input st-input--sm" placeholder={tr("delivery")} value={l.delivery} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, delivery: e.target.value } : x)))} aria-label={tr("Delivery")} />
             <button type="button" className="st-btn st-btn--quiet st-btn--sm" aria-label={tr("Remove line")} onClick={() => set("dialogue", value.dialogue.filter((_, j) => j !== i))}>
               <CloseIcon size={11} />
             </button>
           </div>
+          {l.audioAssetId && (() => {
+            const clip = view?.assets.find((a) => a.id === l.audioAssetId);
+            const who = characters.find((c) => c.id === l.speaker)?.name ?? "line";
+            return (
+              <div className="st-row st-line-audio">
+                <span className="st-label" style={{ marginBottom: 0 }}>{tr("Final voice")}</span>
+                {clip ? <AudioClip url={clip.url} filename={`${who}-${i + 1}`} /> : <span className="st-muted">{tr("The recording is no longer in the library.")}</span>}
+              </div>
+            );
+          })()}
           {voiceTakes.onPod && shotId && (
             <LineTakes
               projectId={projectId} shotId={shotId} lineIndex={i} lineText={l.text} audioAssetId={l.audioAssetId}

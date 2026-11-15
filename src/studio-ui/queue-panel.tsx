@@ -70,17 +70,45 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
   /* only what is still waiting can be called off; what is rendering runs to its end */
   const waiting = takes.filter((x) => x.take.status === "queued");
 
-  const cancelTakes = useAction(async (_c, list: Take[]) => {
-    for (const take of list) await post(`/api/takes/${take.id}/cancel`);
-    await reload();
+  /* What is being called off right now, by id: a Cancel shows its busy state only for the row it was pressed on
+     (and "Cancel all" only for itself); the others stay as they were. */
+  const [going, setGoing] = useState<string[]>([]);
+  const mark = (ids: string[]) => setGoing((g) => [...g, ...ids]);
+  const unmark = (ids: string[]) => setGoing((g) => g.filter((x) => !ids.includes(x)));
+  const cancelTakes = useAction(async (_c, list: Take[], all?: boolean) => {
+    const ids = list.map((x) => x.id);
+    mark(all ? [...ids, "all:takes"] : ids);
+    try {
+      for (const take of list) {
+        await post(`/api/takes/${take.id}/cancel`);
+        unmark([take.id]);
+      }
+      await reload();
+    } finally {
+      unmark(all ? [...ids, "all:takes"] : ids);
+    }
   });
   const cancelRegen = useAction(async (_c, take: Take) => {
-    await del(`/api/takes/${take.id}/regenerate`);
-    await reload();
+    mark([`up-${take.id}`]);
+    try {
+      await del(`/api/takes/${take.id}/regenerate`);
+      await reload();
+    } finally {
+      unmark([`up-${take.id}`]);
+    }
   });
-  const cancelJobs = useAction(async (_c, list: Job[]) => {
-    for (const job of list) await post(`/api/jobs/${job.id}/cancel`);
-    await refreshJobs();
+  const cancelJobs = useAction(async (_c, list: Job[], all?: boolean) => {
+    const ids = list.map((x) => x.id);
+    mark(all ? [...ids, "all:jobs"] : ids);
+    try {
+      for (const job of list) {
+        await post(`/api/jobs/${job.id}/cancel`);
+        unmark([job.id]);
+      }
+      await refreshJobs();
+    } finally {
+      unmark(all ? [...ids, "all:jobs"] : ids);
+    }
   });
   const empty = takes.length === 0 && regens.length === 0 && jobs.length === 0;
   /* Ask for where everything stands, now: the GPU first (its state decides whether a waiting take can go), then each
@@ -123,7 +151,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
             <span className="st-num">{takes.length + regens.length}</span>
             <span className="q-acts">
               {refreshButton}
-              {waiting.length > 1 && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire(waiting.map((x) => x.take))}>{t("Cancel all {n}", { n: waiting.length })}</Button>}
+              {waiting.length > 1 && <Button size="sm" busy={going.includes("all:takes")} onClick={() => void cancelTakes.fire(waiting.map((x) => x.take), true)}>{t("Cancel all {n}", { n: waiting.length })}</Button>}
             </span>
           </div>
           {takes.map(({ s, take }) => (
@@ -136,7 +164,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <span className="st-muted st-num">{take.progress?.stage === "sampling" && take.progress.total ? t("step {a}/{b}", { a: take.progress.step ?? 0, b: take.progress.total }) : whenT(t, take.createdAt)}</span>
                 </span>
               </div>
-              {take.status === "queued" && <Button size="sm" busy={cancelTakes.busy} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>}
+              {take.status === "queued" && <Button size="sm" busy={going.includes(take.id)} onClick={() => void cancelTakes.fire([take])}>{t("Cancel")}</Button>}
             </div>
           ))}
           {regens.map(({ s, take }) => (
@@ -147,7 +175,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <Lamp state={take.upscale!.status} label={t("Regenerate {res}: {status}", { res: take.upscale!.resolution.toUpperCase(), status: t(take.upscale!.status) })} />
                 </span>
               </div>
-              {take.upscale!.status === "queued" && <Button size="sm" busy={cancelRegen.busy} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>}
+              {take.upscale!.status === "queued" && <Button size="sm" busy={going.includes(`up-${take.id}`)} onClick={() => void cancelRegen.fire(take)}>{t("Cancel")}</Button>}
             </div>
           ))}
         </section>
@@ -158,7 +186,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
           <div className="q-head">
             <h3>{t("Pictures")}</h3>
             <span className="st-num">{jobs.length}</span>
-            {jobs.length > 1 && <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire(jobs)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
+            {jobs.length > 1 && <Button size="sm" busy={going.includes("all:jobs")} onClick={() => void cancelJobs.fire(jobs, true)}>{t("Cancel all {n}", { n: jobs.length })}</Button>}
           </div>
           {lined.map((job) => (
             <div key={job.id} className="q-row">
@@ -169,7 +197,7 @@ export function QueuePanel({ view, jobs, refreshJobs }: { view: ProjectView | nu
                   <span className="st-muted st-num">{typeof job.input.model === "string" ? `${job.input.model} · ` : ""}{whenT(t, job.createdAt)}</span>
                 </span>
               </div>
-              <Button size="sm" busy={cancelJobs.busy} onClick={() => void cancelJobs.fire([job])}>{t("Cancel")}</Button>
+              <Button size="sm" busy={going.includes(job.id)} onClick={() => void cancelJobs.fire([job])}>{t("Cancel")}</Button>
             </div>
           ))}
           <p className="st-muted">{t("A painter that is already drawing a cancelled picture finishes it, but the picture is not kept or counted.")}</p>
