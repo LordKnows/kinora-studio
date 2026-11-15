@@ -2142,6 +2142,7 @@ button.st-pill {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
 }
 /* Panels scroll without a scrollbar drawn in them: the drawers, the popups,
@@ -3070,6 +3071,7 @@ button.st-pill {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 16px;
 }
 /* The popup of one picture (picture-zoom.tsx). --fit is the picture's width over its height, --room

@@ -10,7 +10,7 @@ import type { Job } from "@/studio/types";
 
 import { usd } from "./api";
 import { BrandMark, BrandWord } from "./brand-mark";
-import { Loading, Skeleton, usePopover, whenT } from "./common";
+import { Loading, Skeleton, usePopover, useScrollLock, whenT } from "./common";
 import { DirectorPanel } from "./director-panel";
 import { filmSeconds, filmShots, tc, type FilmShot } from "./film";
 import { GpuMenu } from "./gpu-panel";
@@ -344,6 +344,7 @@ function Panels({ projectId, view, rolling, imageJobs, onJobs }: { projectId: st
   const t = useT();
   const { panel, open } = usePanel();
   const refresh = useImageQueue(projectId, panel === "queue", onJobs);
+  useScrollLock(!!panel);
   useEffect(() => {
     if (!panel) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") open(null); };

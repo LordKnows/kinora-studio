@@ -448,8 +448,34 @@ export function Stars({ value, onChange }: { value?: number; onChange: (n: numbe
 /** A popup over everything (also over a drawer): Esc or a click outside closes it, and only it. */
 /** `fit`: the popup is for one picture of this width-to-height ratio; it is as wide as the picture can
     be shown whole on the screen, so nothing is left empty beside it. */
+/* While a drawer, popup or side panel is open the page behind it does not scroll. Counted, so one opened over
+   another (a popup over a drawer) keeps the lock until the last one closes; the page keeps its width when the
+   scrollbar goes. */
+let scrollLocks = 0;
+let scrollWas: { overflow: string; paddingRight: string } | null = null;
+export function useScrollLock(on = true) {
+  useEffect(() => {
+    if (!on) return;
+    const body = document.body;
+    if (scrollLocks++ === 0) {
+      scrollWas = { overflow: body.style.overflow, paddingRight: body.style.paddingRight };
+      const bar = window.innerWidth - document.documentElement.clientWidth;
+      if (bar > 0) body.style.paddingRight = `${(parseFloat(getComputedStyle(body).paddingRight) || 0) + bar}px`;
+      body.style.overflow = "hidden";
+    }
+    return () => {
+      if (--scrollLocks === 0 && scrollWas) {
+        body.style.overflow = scrollWas.overflow;
+        body.style.paddingRight = scrollWas.paddingRight;
+        scrollWas = null;
+      }
+    };
+  }, [on]);
+}
+
 export function Modal({ title, onClose, children, size = "md", head, fit }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "md" | "lg" | "full"; head?: ReactNode; fit?: number }) {
   const t = useT();
+  useScrollLock();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -480,6 +506,7 @@ export function Modal({ title, onClose, children, size = "md", head, fit }: { ti
 /** `size="narrow"`: a list to read beside the page (the Lint), not a place to work in. */
 export function Drawer({ title, onClose, children, head, size }: { title: string; onClose: () => void; children: ReactNode; head?: ReactNode; size?: "narrow" }) {
   const t = useT();
+  useScrollLock();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
