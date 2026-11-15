@@ -10,7 +10,7 @@ import { Button, Chips, Field, NumberInput } from "./common";
 import { translate, type T, useT } from "./i18n";
 import { ShotLorasField } from "./shot-loras-field";
 import { useProjectContext } from "./shell";
-import { AudioClip, LineTakes, useVoiceTakes } from "./voice-takes";
+import { LineVoice, useVoiceTakes } from "./voice-takes";
 
 /* The structured shot form. Validation mirrors ShotInput's refinements so the
    obvious mistakes (beats not tiling the duration) are caught before the
@@ -402,14 +402,13 @@ export function ShotEditor({
         {value.dialogue.map((l, i) => (
           <div key={i} className="st-stack st-stack--tight">
           <div className="st-line">
-            <select className="st-select st-input--sm" value={l.speaker} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, speaker: e.target.value } : x)))}>
+            <select className="st-select st-input--sm" value={l.speaker} aria-label={tr("Speaker")} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, speaker: e.target.value } : x)))}>
               {characters.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </select>
-            <input className="st-input st-input--sm" placeholder={tr("The exact line")} value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
             <select className="st-select st-input--sm" value={l.kind ?? "onscreen"} aria-label={tr("Line kind")} title={tr("On screen: the speaker's mouth is in frame and the model voices it. Off-screen voice and inner monologue are spoken from the voice card and laid on the film.")}
               onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, kind: e.target.value as (typeof LINE_KINDS)[number] } : x)))}>
               {LINE_KINDS.map((k) => <option key={k} value={k}>{tr(LINE_KIND_LABEL[k])}</option>)}
@@ -420,23 +419,13 @@ export function ShotEditor({
               <CloseIcon size={11} />
             </button>
           </div>
-          {l.audioAssetId && (() => {
-            const clip = view?.assets.find((a) => a.id === l.audioAssetId);
-            const who = characters.find((c) => c.id === l.speaker)?.name ?? "line";
-            return (
-              <div className="st-row st-line-audio">
-                <span className="st-label" style={{ marginBottom: 0 }}>{tr("Final voice")}</span>
-                {clip ? <AudioClip url={clip.url} filename={`${who}-${i + 1}`} /> : <span className="st-muted">{tr("The recording is no longer in the library.")}</span>}
-              </div>
-            );
-          })()}
-          {voiceTakes.onPod && shotId && (
-            <LineTakes
-              projectId={projectId} shotId={shotId} lineIndex={i} lineText={l.text} audioAssetId={l.audioAssetId}
-              jobs={voiceTakes.jobs} reload={voiceTakes.reload}
-              onUse={(assetId) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, audioAssetId: assetId } : x)))}
-            />
-          )}
+          <textarea className="st-textarea" rows={2} placeholder={tr("The exact line")} aria-label={tr("The exact line")} value={l.text} onChange={(e) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
+          <LineVoice
+            projectId={projectId} shotId={shotId} lineIndex={i} lineText={l.text} name={characters.find((c) => c.id === l.speaker)?.name ?? "line"}
+            audioAssetId={l.audioAssetId} clipUrl={l.audioAssetId ? view?.assets.find((a) => a.id === l.audioAssetId)?.url : undefined}
+            canSpeak={voiceTakes.onPod && !!shotId} jobs={voiceTakes.jobs} reload={voiceTakes.reload}
+            onUse={(assetId) => set("dialogue", value.dialogue.map((x, j) => (j === i ? { ...x, audioAssetId: assetId } : x)))}
+          />
           </div>
         ))}
       </div>
