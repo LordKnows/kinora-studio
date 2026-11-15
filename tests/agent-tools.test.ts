@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { setDb, type Db } from "@/db";
+import { getDb, setDb, type Db } from "@/db";
 import { migrate } from "@/db/migrate";
 import { agentProjectView } from "@/studio/agent-view";
 import { compileShot, placedFeature } from "@/studio/compiler";
@@ -196,6 +196,68 @@ describe("delete_element", () => {
     expect(refused.isError).toBe(true);
     expect(refused.text).toContain("is used by shot");
     expect(await repo.getElement(used.id)).toBeTruthy();
+  });
+});
+
+describe("delete_shot and delete_take", () => {
+  let projectId: string;
+  let shotIds: string[];
+  beforeAll(async () => {
+    projectId = (await repo.createProject({ name: "Deletes", brief: "b" })).id;
+    const script = await repo.createScript(projectId, "EXT. SQUARE - DAY\nA courier crosses.");
+    await repo.approveScript(script.id);
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "square", shots: [shot({ intent: "first shot here" }), shot({ intent: "second shot here" }), shot({ intent: "third shot here" })] }] }));
+    shotIds = (await repo.listShots(projectId)).map((s) => s.id);
+  });
+  const newTake = async (shotId: string, status: "completed" | "queued") => {
+    const t = await repo.createTake({ projectId, shotId, backend: "runpod", workflow: "T2VA", prompt: "p", input: {} });
+    if (status === "completed") await (await getDb()).run("UPDATE takes SET status = 'completed' WHERE id = ?", [t.id]);
+    return t;
+  };
+
+  it("delete_take asks, clears the pick, refuses a waiting take, and goes to the trash", async () => {
+    const waiting = await newTake(shotIds[0]!, "queued");
+    const refusedWaiting = await call("delete_take", { takeId: waiting.id, confirm: true });
+    expect(refusedWaiting.isError).toBe(true);
+    expect(refusedWaiting.text).toContain("waiting or rendering");
+    const done = await newTake(shotIds[0]!, "completed");
+    await repo.updateShot(shotIds[0]!, { selectedTakeId: done.id });
+    const asked = await call("delete_take", { takeId: done.id });
+    expect(asked.isError).toBe(true);
+    expect(asked.text).toContain("confirm: true");
+    expect(asked.text).toContain("the pick");
+    expect(await repo.getTake(done.id)).toBeTruthy();
+    const gone = await call("delete_take", { takeId: done.id, confirm: true });
+    expect(gone.isError).toBe(false);
+    expect(gone.data.trashId).toBeTruthy();
+    await expect(repo.getTake(done.id)).rejects.toThrow();
+    expect((await repo.getShot(shotIds[0]!)).selectedTakeId).toBeUndefined();
+  });
+
+  it("delete_shot asks, refuses a shot with a take under way or in the cut, then deletes and drafts the shotlist", async () => {
+    const target = shotIds[1]!;
+    const waiting = await newTake(target, "queued");
+    const underWay = await call("delete_shot", { shotId: target, confirm: true });
+    expect(underWay.isError).toBe(true);
+    expect(underWay.text).toContain("waiting or rendering");
+    await (await getDb()).run("UPDATE takes SET status = 'cancelled' WHERE id = ?", [waiting.id]);
+    const finished = await newTake(target, "completed");
+    await repo.setTimeline(projectId, { ...(await repo.getTimeline(projectId)), clips: [{ shotId: target, takeId: finished.id, inS: 0, outS: 5, transition: "cut", repeat: 1, speed: 1, muteOwnAudio: false }] });
+    const inCut = await call("delete_shot", { shotId: target, confirm: true });
+    expect(inCut.isError).toBe(true);
+    expect(inCut.text).toContain("in the cut");
+    await repo.setTimeline(projectId, { ...(await repo.getTimeline(projectId)), clips: [] });
+    const asked = await call("delete_shot", { shotId: target });
+    expect(asked.isError).toBe(true);
+    expect(asked.text).toContain("confirm: true");
+    expect(await repo.getShot(target)).toBeTruthy();
+    await repo.setShotlistApproval(projectId, "approved");
+    const gone = await call("delete_shot", { shotId: target, confirm: true });
+    expect(gone.isError).toBe(false);
+    expect(gone.data.deleted).toMatchObject({ intent: "second shot here" });
+    expect(gone.data.trashId).toBeTruthy();
+    await expect(repo.getShot(target)).rejects.toThrow();
+    expect((await repo.getProject(projectId)).shotlistApproval).toBe("draft");
   });
 });
 
