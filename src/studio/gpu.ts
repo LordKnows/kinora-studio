@@ -159,6 +159,18 @@ export function podBackend(pod: repo.GpuPod, kind: "video" | "assemble" | "voice
   return new PodBackend({ hostUrl: pod.hostUrl, token: config.runpodPod().workerToken, kind });
 }
 
+/** What a pod that does not answer yet is doing. RunPod's proxy answers 404 for a pod with no running container
+    (a stopped pod answers the same), so with the job-server port listed as http a 404 after a start is the image
+    being pulled or the container being started, not a fault; without the port it is the pod's settings. */
+export function bootingMessage(why: string | undefined, exposedPorts: string[], podPort: number): string {
+  if (!/404/.test(why ?? "")) return `booting: ${why ?? "not answering yet"}`;
+  if (exposedPorts.includes(`${podPort}/http`)) {
+    return `booting: the container is not running yet — RunPod is still pulling the image or starting it (several minutes on a machine that has not run this image before). Port ${podPort} is exposed as http; RunPod's proxy answers 404 until the container runs. Leave it running; if this stays past 15 minutes, see the container log in the RunPod console.`;
+  }
+  const ports = exposedPorts.length ? ` RunPod reports exposed ports: ${exposedPorts.join(", ")}.` : " RunPod reports no exposed ports yet.";
+  return `booting: ${why}${ports}`;
+}
+
 /** Ask RunPod and the pod itself where things stand, and persist it. */
 export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
   const pod = await repo.currentGpuPod();
@@ -177,8 +189,7 @@ export async function refreshGpu(): Promise<repo.GpuPod | undefined> {
        rolled meanwhile. A pod that really died is seen in RunPod's own status above. */
     const wasUp = pod.status === "running";
     patch.status = health.ok || wasUp ? "running" : "starting";
-    const ports = record.exposedPorts.length ? ` RunPod reports exposed ports: ${record.exposedPorts.join(", ")}.` : " RunPod reports no exposed ports yet.";
-    patch.message = health.ok ? null : wasUp ? `busy, did not answer just now: ${health.why ?? "no reason given"}` : `booting: ${health.why ?? "not answering yet"}${/\(404\)|404/.test(health.why ?? "") ? ports : ""}`;
+    patch.message = health.ok ? null : wasUp ? `busy, did not answer just now: ${health.why ?? "no reason given"}` : bootingMessage(health.why, record.exposedPorts, config.runpodPod().podPort);
     if (pod.status !== "running" && pod.status !== "starting") patch.startedAt = Date.now();
     else if (!pod.startedAt) patch.startedAt = Date.now();
   } else if (desired === "EXITED" || desired === "STOPPED" || desired === "TERMINATED") {

@@ -242,6 +242,20 @@ describe("pod mode", () => {
     await repo.updateTake(rendering.id, { status: "canceled", finishedAt: Date.now() });
   });
 
+  it("reads a proxy 404 after a start as a container that is not up yet, unless the port is not exposed", () => {
+    const why = "proxy 404: RunPod has no route to the job-server port — the container is not running yet, or the pod does not expose the port as http";
+    const pulling = gpu.bootingMessage(why, ["8000/http", "8188/http"], 8000);
+    expect(pulling).toContain("the container is not running yet");
+    expect(pulling).toContain("Leave it running");
+    expect(pulling).not.toContain("does not expose");
+    /* the port is not there, or not as http: that is the pod's settings, and the ports are named */
+    expect(gpu.bootingMessage(why, ["8188/http"], 8000)).toContain("RunPod reports exposed ports: 8188/http.");
+    expect(gpu.bootingMessage(why, ["8000/tcp"], 8000)).toContain("does not expose the port as http");
+    expect(gpu.bootingMessage(why, [], 8000)).toContain("RunPod reports no exposed ports yet.");
+    expect(gpu.bootingMessage("nothing listening on the job-server port yet (proxy 502)", ["8000/http"], 8000)).toBe("booting: nothing listening on the job-server port yet (proxy 502)");
+    expect(gpu.bootingMessage(undefined, [], 8000)).toBe("booting: not answering yet");
+  });
+
   it("keeps calling a pod that was running running when one health look fails", async () => {
     const pod = (await repo.currentGpuPod())!;
     await repo.updateGpuPod(pod.id, { status: "running" });
