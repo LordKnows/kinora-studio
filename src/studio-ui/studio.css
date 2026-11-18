@@ -3537,6 +3537,11 @@ button.st-pill {
   flex-direction: column;
   gap: 10px;
 }
+.studio .st-pic-search {
+  width: 260px;
+  max-width: 100%;
+  margin-left: auto;
+}
 .studio .st-ref-search {
   width: 260px;
   max-width: 100%;

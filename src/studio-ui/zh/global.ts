@@ -98,7 +98,7 @@ export const global: Record<string, string> = {
   "A portrait gets its face check: 模拟 (3D, illustrated or AI) can go into any picture, R18 included; 真实 into everything but R18.": "人像会做人脸检查：模拟（3D、插画或 AI）可以用在任何图片里，包括 R18；真实 可以用在除 R18 以外的所有图片里。",
   "A costume or a pose gets no face check.": "服装和姿势不做人脸检查。",
   " Drop a picture here too. Your pictures show in every project, and in the Portraits, Costumes and Poses tabs under {mine}.": "也可以把图片拖到这里。你的图片在每个项目里都能用，也会出现在人像、服装和姿势标签页的“{mine}”下。",
-  "Kind": "类型", "Search 搜索 (name, tags)": "搜索（名称、标签）", "No picture matches": "没有符合条件的图片", "Nothing of yours yet": "还没有你自己的图片", "Upload a portrait, a costume or a pose above.": "在上面上传人像、服装或姿势。",
+  "Search by title (IMG-12, a name…)": "按标题搜索（IMG-12、名称…）", "Search by title": "按标题搜索", "Kind": "类型", "Search 搜索 (name, tags)": "搜索（名称、标签）", "No picture matches": "没有符合条件的图片", "Nothing of yours yet": "还没有你自己的图片", "Upload a portrait, a costume or a pose above.": "在上面上传人像、服装或姿势。",
   "Tags, separated by commas": "标签，用逗号分隔", "Checking…": "检查中…", "Check again": "重新检查",
   "Take {name} out of {mine}? Pictures already drawn from it stay.": "把 {name} 移出“{mine}”？已经用它画出的图片会保留。", "Delete": "删除",
 
