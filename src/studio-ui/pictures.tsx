@@ -29,6 +29,13 @@ export function pictureTitle(a: Asset): string {
 }
 
 /** A picture's pixel size and what it was drawn for, under the picture shown large. */
+/** Does the search text match a picture's title (handle and name), case-insensitively, every word present? */
+export function titleMatches(a: Asset, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const title = pictureTitle(a).toLowerCase();
+  return words.every((w) => title.includes(w));
+}
+
 export function pictureSize(a: Asset): string | undefined {
   return [a.width ? `${a.width}×${a.height}` : "", a.meta.purpose ? String(a.meta.purpose) : ""].filter(Boolean).join(" · ") || undefined;
 }
@@ -253,8 +260,8 @@ function Pictures() {
   }, [pictures]);
   /* the search reads a picture's title as the page shows it (its handle and its name): every word has to be in it */
   const [query, setQuery] = useState("");
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  const titled = (a: Listed) => !words.length || words.every((w) => pictureTitle(a).toLowerCase().includes(w));
+  const searching = query.trim().length > 0;
+  const titled = (a: Listed) => titleMatches(a, query);
   const shown = useMemo(() => (pictures ?? []).filter(filter === "twice" ? (a) => twins.has(a.id) : FILTERS.find((f) => f.key === filter)!.test).filter(titled).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [pictures, filter, twins, query]);
@@ -293,7 +300,7 @@ function Pictures() {
       {!pictures ? (
         <Loading big />
       ) : shown.length === 0 ? (
-        words.length ? <Empty title={t("No picture matches")} hint={t("Clear a filter or the search.")} /> : <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
+        searching ? <Empty title={t("No picture matches")} hint={t("Clear a filter or the search.")} /> : <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {shown.map((a) => {

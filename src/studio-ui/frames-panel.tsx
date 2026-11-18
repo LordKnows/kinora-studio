@@ -11,7 +11,7 @@ import { Button, Empty, ErrorBanner, Field, Modal, Section, UploadButton, useAct
 import { useT } from "./i18n";
 import { hasQualityTiers, ImageButton, reviewChip, useImagingOn } from "./image-tools";
 import { PicturePopup, Zoomable } from "./picture-zoom";
-import { PictureCaption, pictureSize, pictureTitle } from "./pictures";
+import { PictureCaption, pictureSize, pictureTitle, titleMatches } from "./pictures";
 import { useProjectContext } from "./shell";
 
 /*
@@ -336,11 +336,21 @@ function GenerateFrame({ shot, plan, targets }: { shot: ShotView; plan: PlanRow 
 function PicturePicker({ title, current, onPick, onClose }: { title: string; current?: string; onPick: (id: string) => void; onClose: () => void }) {
   const { view } = useProjectContext();
   const tr = useT();
-  const images = (view?.assets ?? []).filter((a) => a.kind === "image" && a.projectId === view?.project.id).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
+  const [query, setQuery] = useState("");
+  const all = (view?.assets ?? []).filter((a) => a.kind === "image" && a.projectId === view?.project.id).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0));
+  const images = all.filter((a) => titleMatches(a, query));
   return (
     <Modal title={title} size="lg" onClose={onClose}>
-      {images.length === 0 ? (
+      {all.length > 0 && (
+        <div className="st-row" style={{ marginBottom: 12 }}>
+          <input className="st-input st-input--sm st-pic-search" style={{ marginLeft: 0 }} type="search" autoFocus value={query} placeholder={tr("Search by title (IMG-12, a name…)")} aria-label={tr("Search by title")} onChange={(e) => setQuery(e.target.value)} />
+          {query.trim() && <span className="st-muted st-num">{images.length} / {all.length}</span>}
+        </div>
+      )}
+      {all.length === 0 ? (
         <Empty title={tr("No pictures yet")} hint={tr("Upload one, or generate it.")} />
+      ) : images.length === 0 ? (
+        <Empty title={tr("No picture matches")} hint={tr("Clear a filter or the search.")} />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {images.map((a) => (
