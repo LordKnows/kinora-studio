@@ -901,6 +901,11 @@ export async function createScene(projectId: string, input: { slug: string; summ
   return getScene(id);
 }
 
+export async function reorderScenes(projectId: string, sceneIds: string[]): Promise<void> {
+  const d = await scenesDb();
+  for (const [i, id] of sceneIds.entries()) await d.run("UPDATE scenes SET idx = ? WHERE id = ? AND project_id = ?", [i, id, projectId]);
+}
+
 export async function updateScene(id: string, patch: Partial<{ slug: string; summary: string; location: string | null; palette: ScenePalette | null; sound: SceneSound | null }>): Promise<Scene> {
   const current = await getScene(id);
   const palette = patch.palette === undefined ? current.palette : patch.palette;

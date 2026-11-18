@@ -386,6 +386,16 @@ export function createStudioServer(actor: Actor): McpServer {
     const view = await orch.getProjectView(projectId);
     return { approval: view.project.shotlistApproval, canGenerate: view.canGenerate, blockers: view.blockers, scenes: compactScenes(view) };
   });
+  tool("add_scene", "Add a scene to a project: at the end, or at `position` (1 = first; the scenes from there on move down one). Pass `shots` to put its shots in at the same time, or add them later with add_shot: either way only this scene is sent, nothing else in the shotlist is touched or re-sent (save_shotlist, which takes the whole list, drops what is missing from it). The slug names the scene in the shotlist (save_shotlist matches scenes by it), so it must not already be in the project. `location` is a location element's id (list_elements). Puts the shotlist back to draft.", z.object({ projectId: id, slug: z.string().trim().min(1).max(60).describe("Short handle, e.g. 'alley-chase'"), summary: z.string().max(400).optional().describe("What happens in the scene, a line or two"), location: id.optional().describe("A location element of this project"), shots: z.array(ShotInput).max(40).optional().describe("The scene's shots, in order, each a full shot (link, cinematography…) as in save_shotlist"), position: z.number().int().min(1).optional().describe("Place the scene at this number in the film (1 = first). Leave out for the end") }), async ({ projectId, slug, summary, location, shots, position }) => {
+    const scene = await orch.addScene(projectId, { slug, summary, location, shots }, position);
+    const saved = await repo.listSceneShots(scene.id);
+    return {
+      scene,
+      shots: saved.map((s) => ({ id: s.id, index: s.index + 1, intent: s.spec.intent })),
+      warnings: saved.flatMap((s) => shotWarnings(`shot ${s.index + 1}`, s.spec)),
+      next: shots?.length ? "the shotlist is a draft again: lint_shotlist, then ask for approval" : "add_shot puts shots in it; the shotlist is a draft again",
+    };
+  });
   tool("add_shot", "Add a shot to a scene, with its link and cinematography: at the end, or at `position` (1 = first; the shots from there on move down one). The shot that then follows keeps its own link, so a `continuous` one now continues from the new shot: re-check it.", z.object({ sceneId: id, shot: ShotInput, position: z.number().int().min(1).optional().describe("Place the shot at this number in the scene (1 = first). Leave out for the end") }), async ({ sceneId, shot, position }) => {
     const saved = await orch.addShot(sceneId, shot, position);
     return { shot: saved, warnings: shotWarnings(saved.id, saved.spec) };

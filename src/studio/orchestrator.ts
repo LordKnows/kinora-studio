@@ -228,6 +228,30 @@ export async function loraPlan(projectId: string) {
   };
 }
 
+/** Add a scene to a project: at the end, or at `position` (1 = first; the scenes from there on move down one).
+    The slug names the scene in the shotlist (save_shotlist matches scenes by it), so it must be new to the
+    project. A scene starts empty unless `shots` come with it (each already validated as a ShotInput, saved in
+    order), so one scene and its shots go in without sending the whole shotlist again; every other scene, shot
+    and take stays as it is. The shotlist goes back to draft. */
+export async function addScene(projectId: string, input: { slug: string; summary?: string; location?: string; shots?: ShotInput[] }, position?: number): Promise<Scene> {
+  await repo.getProject(projectId);
+  const slug = input.slug.trim();
+  const scenes = await repo.listScenes(projectId);
+  if (scenes.some((s) => s.slug === slug)) throw new StudioError("validation", `the project already has a scene "${slug}": scenes are matched by slug, so pick another name (or add the shot to that scene with add_shot)`, { sceneId: scenes.find((s) => s.slug === slug)!.id });
+  if (input.location) {
+    const el = await repo.getElement(input.location);
+    if (el.projectId !== projectId || el.kind !== "location") throw new StudioError("validation", `location must be a location element of this project (list_elements); ${input.location} is not`);
+  }
+  const scene = await repo.createScene(projectId, { slug, summary: input.summary ?? "", location: input.location });
+  for (const spec of input.shots ?? []) await repo.createShot(projectId, scene.id, spec);
+  await repo.setShotlistApproval(projectId, "draft");
+  if (position === undefined) return scene;
+  const ids = scenes.map((s) => s.id);
+  ids.splice(Math.max(0, Math.min(ids.length, Math.floor(position) - 1)), 0, scene.id);
+  await repo.reorderScenes(projectId, ids);
+  return repo.getScene(scene.id);
+}
+
 /** Add a shot to a scene: at the end, or at `position` (1 = first; the shots from there on move down one; a
     position past the end is the end). The shot that now follows keeps its own link: one that was `continuous`
     now continues from the new shot, which the caller should say. */
