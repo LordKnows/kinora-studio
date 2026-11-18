@@ -367,6 +367,21 @@ export function useAction<Args extends unknown[]>(run: (confirm: boolean, ...arg
   return { fire, confirm, dismiss, busy, error };
 }
 
+/** Which of several buttons of one kind (a row's Delete, Put back, Keep…) is working: busy by key, so pressing
+    one shows its own busy state and not every row's. `run` keeps a key busy for as long as its work takes. */
+export function useBusyKeys() {
+  const [keys, setKeys] = useState<string[]>([]);
+  const run = useCallback(async (key: string, work: () => Promise<void>) => {
+    setKeys((k) => [...k, key]);
+    try {
+      await work();
+    } finally {
+      setKeys((k) => { const at = k.indexOf(key); return at < 0 ? k : [...k.slice(0, at), ...k.slice(at + 1)]; });
+    }
+  }, []);
+  return { busy: (key: string) => keys.includes(key), run };
+}
+
 export function CopyRow({ label, value }: { label: string; value: string }) {
   const tr = useT();
   const [done, setDone] = useState(false);

@@ -29,6 +29,13 @@ export function pictureTitle(a: Asset): string {
 }
 
 /** A picture's pixel size and what it was drawn for, under the picture shown large. */
+/** Does the search text match a picture's title (handle and name), case-insensitively, every word present? */
+export function titleMatches(a: Asset, query: string): boolean {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const title = pictureTitle(a).toLowerCase();
+  return words.every((w) => title.includes(w));
+}
+
 export function pictureSize(a: Asset): string | undefined {
   return [a.width ? `${a.width}×${a.height}` : "", a.meta.purpose ? String(a.meta.purpose) : ""].filter(Boolean).join(" · ") || undefined;
 }
@@ -251,7 +258,13 @@ function Pictures() {
     }
     return map;
   }, [pictures]);
-  const shown = useMemo(() => (pictures ?? []).filter(filter === "twice" ? (a) => twins.has(a.id) : FILTERS.find((f) => f.key === filter)!.test).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)), [pictures, filter, twins]);
+  /* the search reads a picture's title as the page shows it (its handle and its name): every word has to be in it */
+  const [query, setQuery] = useState("");
+  const searching = query.trim().length > 0;
+  const titled = (a: Listed) => titleMatches(a, query);
+  const shown = useMemo(() => (pictures ?? []).filter(filter === "twice" ? (a) => twins.has(a.id) : FILTERS.find((f) => f.key === filter)!.test).filter(titled).sort((a, b) => (b.seq ?? 0) - (a.seq ?? 0)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pictures, filter, twins, query]);
   const verdict = useAction(async (_c, asset: Listed, v: "pass" | "fail", problem: string) => {
     await post(`/api/projects/${projectId}/pictures/${encodeURIComponent(asset.id)}/review`, { verdict: v, ...(problem.trim() ? { problem: problem.trim() } : {}) });
     /* on to the next one that waits, oldest first, as a sheet is drawn */
@@ -282,11 +295,12 @@ function Pictures() {
           );
         })}
         {twins.size > 0 && <Button size="sm" kind={filter === "twice" ? "primary" : "quiet"} onClick={() => setFilter("twice")} title={t("The same file under more than one handle")}>{t("Listed twice {n}", { n: twins.size })}</Button>}
+        <input className="st-input st-input--sm st-pic-search" type="search" value={query} placeholder={t("Search by title (IMG-12, a name…)")} aria-label={t("Search by title")} onChange={(e) => setQuery(e.target.value)} />
       </div>
       {!pictures ? (
         <Loading big />
       ) : shown.length === 0 ? (
-        <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
+        searching ? <Empty title={t("No picture matches")} hint={t("Clear a filter or the search.")} /> : <Empty title={t("No pictures here")} hint={t("Uploads, generated sheets and frames, edits and frames grabbed from takes all land here.")} />
       ) : (
         <div className="st-thumbs st-thumbs--named">
           {shown.map((a) => {

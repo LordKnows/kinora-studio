@@ -261,6 +261,59 @@ describe("delete_shot and delete_take", () => {
   });
 });
 
+describe("add_scene", () => {
+  let projectId: string;
+  beforeAll(async () => {
+    projectId = (await repo.createProject({ name: "Scenes", brief: "b" })).id;
+    const script = await repo.createScript(projectId, "EXT. SQUARE - DAY\nA courier crosses.");
+    await repo.approveScript(script.id);
+    await orch.saveShotlist(projectId, ShotlistInput.parse({ scenes: [{ slug: "square", shots: [shot()] }, { slug: "roof", shots: [shot()] }] }));
+    await repo.setShotlistApproval(projectId, "approved");
+  });
+  const slugs = async () => (await repo.listScenes(projectId)).map((s) => s.slug);
+
+  it("adds an empty scene at the end, and puts the shotlist back to draft", async () => {
+    const r = await call("add_scene", { projectId, slug: "epilogue", summary: "The square, empty." });
+    expect(r.isError).toBe(false);
+    expect(r.data.scene).toMatchObject({ slug: "epilogue", summary: "The square, empty." });
+    expect(await slugs()).toEqual(["square", "roof", "epilogue"]);
+    expect((await repo.listSceneShots(r.data.scene.id))).toHaveLength(0);
+    expect((await repo.getProject(projectId)).shotlistApproval).toBe("draft");
+  });
+
+  it("puts a scene at a position, the others move down", async () => {
+    await call("add_scene", { projectId, slug: "opening", position: 1 });
+    await call("add_scene", { projectId, slug: "middle", position: 3 });
+    expect(await slugs()).toEqual(["opening", "square", "middle", "roof", "epilogue"]);
+    expect((await repo.listScenes(projectId)).map((s) => s.index)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  it("takes the scene's shots with it, and leaves every other scene and its takes alone", async () => {
+    const before = await repo.listShots(projectId);
+    const withTake = before[0]!;
+    await repo.createTake({ projectId, shotId: withTake.id, backend: "runpod", workflow: "T2VA", prompt: "p", input: {} });
+    const r = await call("add_scene", { projectId, slug: "chase", shots: [shot({ intent: "first chase shot" }), shot({ intent: "second chase shot" })] });
+    expect(r.isError).toBe(false);
+    expect(r.data.shots.map((s: { intent: string }) => s.intent)).toEqual(["first chase shot", "second chase shot"]);
+    expect((await repo.listShots(projectId)).filter((s) => before.some((b) => b.id === s.id))).toHaveLength(before.length);
+    expect(await repo.listShotTakes(withTake.id)).toHaveLength(1);
+  });
+
+  it("refuses a slug the project already has, and a location that is not one", async () => {
+    const dup = await call("add_scene", { projectId, slug: "roof" });
+    expect(dup.isError).toBe(true);
+    expect(dup.text).toContain("already has a scene");
+    const person = await repo.createElement(projectId, { kind: "character", name: "Someone", description: "a courier" });
+    const bad = await call("add_scene", { projectId, slug: "cellar", location: person.id });
+    expect(bad.isError).toBe(true);
+    expect(bad.text).toContain("location element");
+    const place = await repo.createElement(projectId, { kind: "location", name: "Cellar", description: "a damp cellar" });
+    const good = await call("add_scene", { projectId, slug: "cellar", location: place.id });
+    expect(good.isError).toBe(false);
+    expect(good.data.scene.locationElementId).toBe(place.id);
+  });
+});
+
 describe("prompt lines read as sentences", () => {
   it("a fixed feature's place keeps its own preposition or determiner", () => {
     expect(placedFeature({ feature: "thin black rectangular glasses", where: "on his face" })).toBe("thin black rectangular glasses on his face");

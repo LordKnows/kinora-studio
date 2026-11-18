@@ -2204,14 +2204,158 @@ button.st-pill {
 }
 .studio .st-line {
   display: grid;
-  grid-template-columns: minmax(130px, 0.7fr) minmax(0, 1.6fr) minmax(120px, 0.7fr) 76px minmax(110px, 0.8fr) auto;
+  grid-template-columns: minmax(100px, 1fr) minmax(120px, 1.1fr) 64px minmax(110px, 1.5fr) auto;
   gap: 8px;
   align-items: start;
 }
-.studio .st-line-audio {
+/* A dialogue line's voice: the final voice, Speak takes, and the batches of takes (voice-takes.tsx) */
+.studio .vt {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+}
+.studio .vt-final {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1.5px solid var(--line-3);
+  background: var(--s2);
+}
+.studio .vt-final--empty {
+  border: 1.5px dashed var(--line-2);
+  background: transparent;
+}
+.studio .vt-batch {
+  border: 1px solid var(--line-2);
+  background: var(--s2);
+}
+.studio .vt-batch-head {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
+  gap: 4px 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: var(--s1);
+  color: var(--tx);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio .vt-batch-head svg {
+  margin-left: auto;
+  transition: transform 0.13s ease;
+}
+.studio .vt-batch[data-open="false"] .vt-batch-head svg {
+  transform: rotate(-90deg);
+}
+.studio .vt-prog {
+  height: 3px;
+  margin: 0 12px 8px;
+  background: var(--s3);
+  overflow: hidden;
+}
+.studio .vt-prog i {
+  display: block;
+  height: 100%;
+  width: 35%;
+  background: var(--accent);
+  animation: vt-run 1.3s ease-in-out infinite;
+}
+@keyframes vt-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+.studio .vt-take {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 40px auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+}
+.studio .vt-take[data-current="true"] {
+  background: var(--accent-08);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.studio .vt-take audio {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+}
+.studio .vt-n {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--tx3);
+}
+.studio .vt-score {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.studio .vt-score--low {
+  color: var(--sig-warn);
+}
+.studio .vt-acts {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: 98px;
+}
+.studio .vt-sub {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.studio .vt-batch > .vt-sub {
+  padding: 0 12px 8px;
+}
+.studio .vt-sub mark {
+  background: var(--sig-err-bg);
+  color: var(--sig-err);
+  font-weight: 700;
+  text-decoration: underline wavy var(--sig-err);
+  text-underline-offset: 3px;
+}
+.studio .vt-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.studio .vt-tag--ok { color: var(--sig-ok); background: var(--sig-ok-bg); width: 58px; }
+.studio .vt-tag--warn { color: var(--sig-warn); background: var(--sig-warn-bg); }
+.studio .vt-tag--err { color: var(--sig-err); background: var(--sig-err-bg); }
+.studio .vt-more {
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: var(--tx3);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.studio .vt-more:hover {
+  color: var(--tx);
+}
+.studio .vt-final .st-audio-clip {
+  width: 100%;
+}
+.studio .vt-final .st-audio-clip .vc-audio {
+  flex: 1;
+  width: auto;
+  max-width: none;
 }
 .studio .st-audio-clip {
   gap: 8px;
@@ -3393,6 +3537,11 @@ button.st-pill {
   flex-direction: column;
   gap: 10px;
 }
+.studio .st-pic-search {
+  width: 260px;
+  max-width: 100%;
+  margin-left: auto;
+}
 .studio .st-ref-search {
   width: 260px;
   max-width: 100%;
@@ -3832,6 +3981,11 @@ button.st-pill {
 /* The Director panel: beside any page, under the top bar. It does not scroll
    as a whole: its three headings (requirements, decisions, reviews) are
    always on it, and the one that is open scrolls its entries between them. */
+/* the mask behind a side panel starts under the top bar, which stays usable */
+.studio .dir-back {
+  top: var(--topbar);
+  z-index: 59;
+}
 .studio .dir-drawer {
   position: fixed;
   z-index: 60;

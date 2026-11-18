@@ -159,11 +159,22 @@ function Board() {
     }
     return m;
   }, [lint]);
+  /* what a scene's own buttons are doing right now, by scene: pressing Delete or Cancel queued on one scene
+     shows busy on that scene's button only */
+  const [going, setGoing] = useState<string[]>([]);
+  const whileGoing = async (key: string, run: () => Promise<void>) => {
+    setGoing((g) => [...g, key]);
+    try {
+      await run();
+    } finally {
+      setGoing((g) => g.filter((x) => x !== key));
+    }
+  };
   /* the takes of the scene that are still queued are cancelled; one that is rendering is left to finish */
-  const cancelScene = useAction(async (_c, scene: SceneView) => {
+  const cancelScene = useAction(async (_c, scene: SceneView) => whileGoing(`cancel:${scene.id}`, async () => {
     for (const t of scene.shots.flatMap((sh) => sh.takes)) if (t.status === "queued") await post(`/api/takes/${t.id}/cancel`);
     await reload();
-  });
+  }));
 
   const approve = useAction(async () => {
     await post(`/api/projects/${projectId}/shotlist/approve`);
@@ -193,11 +204,11 @@ function Board() {
     ids.splice(to, 0, moved!);
     void reorder.fire(scene.id, ids);
   };
-  const removeScene = useAction(async (_c, scene: SceneView) => {
+  const removeScene = useAction(async (_c, scene: SceneView) => whileGoing(`delete:${scene.id}`, async () => {
     const { trashId } = await del<{ trashId?: string }>(`/api/scenes/${scene.id}`);
     await reload();
     undoable(trashId, tr("Deleted scene {i} · {slug}{shots}", { i: view ? view.scenes.indexOf(scene) + 1 : "", slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" }));
-  });
+  }));
 
   if (!view) return null;
   const open = view.scenes.flatMap((s) => s.shots).find((s) => s.id === openId) ?? null;
@@ -289,7 +300,7 @@ function Board() {
                 </Button>
               )}
               {approved && waiting > 0 && (
-                <ConfirmButton size="sm" kind="default" busy={cancelScene.busy} title={tr("Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled")} confirmLabel={tr("Cancel queued")} cancelLabel={tr("Keep them")} onConfirm={() => void cancelScene.fire(scene)}
+                <ConfirmButton size="sm" kind="default" busy={going.includes(`cancel:${scene.id}`)} title={tr("Cancel the takes of this scene that are still queued; a take that is rendering is not cancelled")} confirmLabel={tr("Cancel queued")} cancelLabel={tr("Keep them")} onConfirm={() => void cancelScene.fire(scene)}
                   question={plural(tr, waiting, "Cancel the 1 queued take of this scene? A take that is already rendering keeps going.", "Cancel the {n} queued takes of this scene? A take that is already rendering keeps going.")}>
                   {tr("Cancel queued · {n}", { n: waiting })}
                 </ConfirmButton>
@@ -297,7 +308,7 @@ function Board() {
               <Popover size="sm" label={tr("Add shot")} title={tr("Add a shot to this scene, at the end or at a place you choose")} panelLabel={tr("Add shot")}>
                 {(close) => <AddShotForm scene={scene} sceneNumber={view.scenes.indexOf(scene) + 1} onSaved={() => fold(false)} onOpen={(id) => { close(); setOpenId(id); }} onClose={close} />}
               </Popover>
-              <ConfirmButton size="sm" busy={removeScene.busy} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
+              <ConfirmButton size="sm" busy={going.includes(`delete:${scene.id}`)} title={tr("Delete scene")} confirmLabel={tr("Delete scene")} onConfirm={() => void removeScene.fire(scene)}
                 question={tr("Delete scene {i} · {slug}{shots}? For 14 days it can be put back from Recently deleted, on the Settings page.", { i: view.scenes.indexOf(scene) + 1, slug: scene.slug, shots: scene.shots.length ? plural(tr, scene.shots.length, " and its 1 shot", " and its {n} shots") : "" })}>
                 {tr("Delete")}
               </ConfirmButton>
@@ -581,17 +592,12 @@ function BatchPicker({ title, batch, slateOf, taken, onClose }: { title: string;
 }
 
 /* Shown when Roll take is clicked while the GPU is not running: the GPU first. The roll waits for it
-   and goes on from here once it runs; Close leaves nothing sent. */
+   and goes on from here once it runs; closing it (the × or Esc) leaves nothing sent. */
 function RollGate({ onClose }: { onClose: () => void }) {
   const tr = useT();
   return (
     <Modal title={tr("Start the GPU first")} onClose={onClose}>
-      <div className="st-stack">
-        <GpuGate what={tr("rolling a take")} />
-        <div className="st-row">
-          <Button kind="quiet" onClick={onClose}>{tr("Close")}</Button>
-        </div>
-      </div>
+      <GpuGate what={tr("rolling a take")} />
     </Modal>
   );
 }
