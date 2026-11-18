@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { get, post } from "./api";
-import { Button, ErrorBanner, useAction, whenT } from "./common";
+import { Button, ErrorBanner, useAction, useBusyKeys, whenT } from "./common";
 import { useT } from "./i18n";
 
 /* What was deleted and can still be put back: a project's shots, scenes,
@@ -26,11 +26,12 @@ export function RecentlyDeleted({ projectId, onRestored }: { projectId?: string;
   useEffect(() => {
     void load().catch(() => setList([]));
   }, [load]);
-  const restore = useAction(async (_c, entry: Entry) => {
+  const going = useBusyKeys();
+  const restore = useAction(async (_c, entry: Entry) => going.run(entry.id, async () => {
     await post(`/api/trash/${entry.id}/restore`);
     await load();
     await onRestored?.(entry);
-  });
+  }));
   if (!list || (list.length === 0 && !projectId)) return null;
   return (
     <section className="rd" aria-label={t("Recently deleted")}>
@@ -47,7 +48,7 @@ export function RecentlyDeleted({ projectId, onRestored }: { projectId?: string;
             <span className="rd-kind st-num">{t(`${e.kind}||deleted`)}</span>
             <span className="rd-label">{e.label}</span>
             <span className="st-num rd-when">{whenT(t, e.createdAt)}{e.by ? ` · ${e.by}` : ""}</span>
-            <Button size="sm" busy={restore.busy} onClick={() => void restore.fire(e)}>{t("Put back")}</Button>
+            <Button size="sm" busy={going.busy(e.id)} onClick={() => void restore.fire(e)}>{t("Put back")}</Button>
           </div>
         ))
       )}

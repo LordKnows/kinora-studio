@@ -5,7 +5,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import type { Painter, PainterPod } from "@/studio/types";
 
 import { del, get, post, usd } from "./api";
-import { Button, ErrorBanner, Lamp, useAction, whenT } from "./common";
+import { Button, ErrorBanner, Lamp, useAction, useBusyKeys, whenT } from "./common";
 import { plural, useT } from "./i18n";
 
 type Listed = Painter & { online: boolean };
@@ -57,14 +57,15 @@ export function PaintersPanel() {
     const t = setInterval(() => void refresh(), pending ? 3000 : 15000);
     return () => clearInterval(t);
   }, [pending, refresh]);
-  const login = useAction(async (_c, id: string) => {
+  const going = useBusyKeys();
+  const login = useAction(async (_c, id: string) => going.run(`login:${id}`, async () => {
     await post(`/api/painters/${encodeURIComponent(id)}/login`);
     await refresh();
-  });
-  const forget = useAction(async (_c, id: string) => {
+  }));
+  const forget = useAction(async (_c, id: string) => going.run(`forget:${id}`, async () => {
     await del(`/api/painters/${encodeURIComponent(id)}`);
     await refresh();
-  });
+  }));
   const online = (painters ?? []).filter((p) => p.online);
   const cpu = online.filter((p) => !p.info.onPod);
   const tokenName = setup?.ownToken ? "PAINTER_TOKEN" : "STUDIO_WORKER_TOKEN";
@@ -124,11 +125,11 @@ export function PaintersPanel() {
               </span>
               <span className="st-row">
                 {p.online && codex?.installed && !codex.logged_in && (
-                  <Button size="sm" kind="primary" busy={login.busy} disabled={loginAsked} onClick={() => void login.fire(p.id)}>
+                  <Button size="sm" kind="primary" busy={going.busy(`login:${p.id}`)} disabled={loginAsked} onClick={() => void login.fire(p.id)}>
                     {loginAsked ? t("Asking the painter…") : t("Log in with a device code")}
                   </Button>
                 )}
-                {!p.online && <Button size="sm" kind="quiet" busy={forget.busy} onClick={() => void forget.fire(p.id)}>{t("Forget")}</Button>}
+                {!p.online && <Button size="sm" kind="quiet" busy={going.busy(`forget:${p.id}`)} onClick={() => void forget.fire(p.id)}>{t("Forget")}</Button>}
               </span>
             </div>
             {l && l.state === "pending" && (

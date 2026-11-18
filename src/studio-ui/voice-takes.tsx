@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { VoiceJob } from "@/studio/types";
 
 import { get, post } from "./api";
-import { Button, ErrorBanner, useAction, whenT } from "./common";
+import { Button, ErrorBanner, useAction, useBusyKeys, whenT } from "./common";
 import { ChevronIcon } from "./icons";
 import { useT } from "./i18n";
 
@@ -113,11 +113,12 @@ export function LineVoice({ projectId, shotId, lineIndex, lineText, name, audioA
     setShow(true);
     await reload();
   });
-  const pick = useAction(async (_confirm, job: VoiceJob, take: number) => {
+  const going = useBusyKeys();
+  const pick = useAction(async (_confirm, job: VoiceJob, take: number) => going.run(`${job.id}:${take}`, async () => {
     const r = await post<{ asset: { id: string } }>(`/api/projects/${projectId}/voice-jobs/${job.id}/pick`, { take });
     onUse(r.asset.id);
     await reload();
-  });
+  }));
   const out = mine.some(OUT);
   const from = audioAssetId ? mine.find((j) => j.pickedAssetId === audioAssetId && j.picked !== undefined) : undefined;
   const fromTake = from?.takes.find((t) => t.index === from.picked);
@@ -184,7 +185,7 @@ export function LineVoice({ projectId, shotId, lineIndex, lineText, name, audioA
                   <span className="vt-acts">
                     {inUse
                       ? <span className="vt-tag vt-tag--ok">{tr("In use")}</span>
-                      : <Button size="sm" busy={pick.busy} onClick={() => void pick.fire(job, take.index)}>{tr("Keep")}</Button>}
+                      : <Button size="sm" busy={going.busy(`${job.id}:${take.index}`)} onClick={() => void pick.fire(job, take.index)}>{tr("Keep")}</Button>}
                     <a className="st-btn st-btn--quiet st-btn--sm" href={take.url} download={`${name}-${lineIndex + 1}-b${numberOf(job)}-${take.index}.wav`} target="_blank" rel="noreferrer" aria-label={tr("Download")} title={tr("Download")}>⤓</a>
                   </span>
                   {(low || take.flags.includes("misread")) && (
