@@ -8,12 +8,12 @@ import { MAX_DETAILS, REF_VIEWS, type FixedFeature, type RefView } from "@/studi
 import { detailTargets, sheetStage } from "@/studio/sheet";
 
 import { del, get, patch, post } from "./api";
-import { Button, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction } from "./common";
+import { Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Section, UploadButton, useAction, useBusyKeys } from "./common";
 import { type T, plural, useT } from "./i18n";
 import { useProjectContext } from "./shell";
 import { useUndoable } from "./notices";
 import { ImageButton, useImagingOn } from "./image-tools";
-import { Zoomable } from "./picture-zoom";
+import { PicturePopup, Zoomable } from "./picture-zoom";
 import { PictureCaption, pictureSize, pictureTitle, SelectBar, SelectMark, usePictureSelection } from "./pictures";
 
 type ElementRow = Element & { refs: Asset[] };
@@ -47,6 +47,26 @@ export function ElementsPage() {
   }, [load, view?.elements.length]);
 
   const current = elements?.find((e) => e.id === open) ?? null;
+  /* a card's own Delete: busy on that card only; what it removes can be put back (Recently deleted, or Undo) */
+  const going = useBusyKeys();
+  const undoable = useUndoable(async () => { await load(); await reload(); });
+  const slates = (id: string) => (view?.scenes ?? []).flatMap((sc, si) => sc.shots.flatMap((sh, i) => {
+    const s = sh.spec;
+    return s.characters.includes(id) || s.props.includes(id) || s.location === id || s.dialogue.some((l) => l.speaker === id) ? [`${si + 1}·${i + 1}`] : [];
+  }));
+  const removeFromList = async (el: ElementRow) => {
+    await going.run(el.id, async () => {
+      try {
+        const { trashId } = await del<{ trashId?: string }>(`/api/elements/${el.id}`);
+        if (open === el.id) setOpen(null);
+        await load();
+        await reload();
+        undoable(trashId, t("Deleted {name}", { name: el.name }));
+      } catch (caught) {
+        setError(caught);
+      }
+    });
+  };
 
   return (
     <div className="st-page">
@@ -76,7 +96,8 @@ export function ElementsPage() {
           <Section key={kind} title={t(KIND_LABEL[kind])} aside={<small>{list.length}</small>}>
             <div className="st-grid">
               {list.map((el) => (
-                <button key={el.id} type="button" className="st-shot" aria-pressed={open === el.id} onClick={() => setOpen(el.id)}>
+                <div key={el.id} className="st-el">
+                <button type="button" className="st-shot" aria-pressed={open === el.id} onClick={() => setOpen(el.id)}>
                   <div className="st-shot-media" style={{ aspectRatio: kind === "character" ? "3 / 4" : "16 / 9" }}>
                     {el.refs[0] ? <img src={el.refs[0].url} alt={el.name} /> : <div className="st-placeholder"><span className="st-placeholder-initial">{el.name.slice(0, 1).toUpperCase()}</span></div>}
                     <span className="st-shot-status">
@@ -88,6 +109,13 @@ export function ElementsPage() {
                     <div className="st-shot-facts">{el.description || t("No description yet")}</div>
                   </div>
                 </button>
+                <div className="st-row st-el-actions">
+                  <Button size="sm" kind="quiet" onClick={() => setOpen(el.id)}>{el.kind === "character" ? t("Look at the sheet") : t("Open")}</Button>
+                  <ConfirmButton size="sm" kind="quiet" busy={going.busy(el.id)} confirmLabel={t("Delete {name}", { name: el.name })} onConfirm={() => void removeFromList(el)} question={deleteQuestion(t, el, slates(el.id))}>
+                    {t("Delete")}
+                  </ConfirmButton>
+                </div>
+                </div>
               ))}
             </div>
           </Section>
@@ -128,6 +156,7 @@ export function ElementsPage() {
         <ElementEditor
           projectId={projectId}
           element={current}
+          slates={slates(current.id)}
           onClose={() => setOpen(null)}
           onSaved={async () => {
             await load();
@@ -147,12 +176,15 @@ export function ElementsPage() {
 function ElementEditor({
   projectId,
   element,
+  slates = [],
   onClose,
   onSaved,
   onDeleted,
 }: {
   projectId: string;
   element?: ElementRow;
+  /** the slates ("2·3") of the shots that use this element, for the delete question */
+  slates?: string[];
   onClose: () => void;
   onSaved: () => Promise<void>;
   onDeleted?: () => Promise<void>;
@@ -226,6 +258,7 @@ function ElementEditor({
     <Drawer title={element ? element.name : t("New element")} onClose={onClose}>
       <div className="st-stack">
         <ErrorBanner error={save.error ?? saveRefs.error ?? remove.error ?? promote.error} onDismiss={() => { save.dismiss(); saveRefs.dismiss(); remove.dismiss(); promote.dismiss(); }} />
+        {element && <SheetGallery element={element} />}
         <div className="st-fields">
           <Field label={t("Kind")}>
             <select className="st-select" value={kind} onChange={(e) => setKind(e.target.value as (typeof KINDS)[number])}>
@@ -267,9 +300,9 @@ function ElementEditor({
         <div className="st-row st-row--between">
           <div className="st-row">
             {element && (
-              <Button kind="danger" size="sm" busy={remove.busy} onClick={() => void remove.fire()}>
+              <ConfirmButton kind="danger" size="sm" busy={remove.busy} confirmLabel={t("Delete {name}", { name: element.name })} onConfirm={() => void remove.fire()} question={deleteQuestion(t, element, slates)}>
                 {t("Delete")}
-              </Button>
+              </ConfirmButton>
             )}
             {element && (
               <Button kind="quiet" size="sm" busy={promote.busy} onClick={() => void promote.fire()} title={t("Copy into the shared library")}>
@@ -362,6 +395,64 @@ function ElementEditor({
         )}
       </div>
     </Drawer>
+  );
+}
+
+/* What a delete asks: which shots still use the element, and that it can be put back. */
+function deleteQuestion(t: T, el: { kind: string; name: string }, slates: string[]) {
+  return t("Delete {kind} {name}?{uses} It can be put back from Recently deleted for 14 days.", {
+    kind: t(el.kind), name: el.name,
+    uses: slates.length ? ` ${t("Shots {list} use it and will not find it once it is deleted.", { list: slates.join(", ") })}` : "",
+  });
+}
+
+/* The element's pictures by view, at the top of its drawer: face, front, three quarter, side, back, full body,
+   the expressions and the details, each named, a click shows it large. A view of the character's sheet that
+   is not drawn yet is a dashed tile, so what is missing shows as well as what is there. */
+const SHEET_CORE: RefView[] = ["face", "front", "side", "back", "expression"];
+
+function SheetGallery({ element }: { element: ElementRow }) {
+  const t = useT();
+  const [shown, setShown] = useState<Asset | null>(null);
+  const viewOf = (a: Asset): RefView | "" => element.refViews?.[a.id] ?? "";
+  const order = (v: RefView | "") => (v === "" ? REF_VIEWS.length : REF_VIEWS.indexOf(v));
+  const tiles = element.refs.map((a, i) => ({ a, v: viewOf(a), i })).sort((x, y) => order(x.v) - order(y.v) || x.i - y.i);
+  const missing = element.kind === "character" ? SHEET_CORE.filter((v) => !tiles.some((x) => x.v === v)) : [];
+  if (tiles.length === 0 && missing.length === 0) return null;
+  const label = (x: { a: Asset; v: RefView | "" }) => {
+    const feature = x.v === "detail" ? element.refFeatures?.[x.a.id] : undefined;
+    return x.v === "" ? t("no view tagged") : feature ? t("detail: {feature}", { feature }) : viewName(t, x.v);
+  };
+  /* an expression comes four at a time: say which of them this is */
+  const seen = new Map<string, number>();
+  return (
+    <Section title={t("Sheet")} aside={<small>{plural(t, element.refs.length, "1 picture", "{n} pictures")}</small>}>
+      <div className="st-thumbs st-thumbs--named">
+        {tiles.map((x) => {
+          const n = (seen.get(x.v) ?? 0) + 1;
+          seen.set(x.v, n);
+          const same = tiles.filter((y) => y.v === x.v).length;
+          const name = same > 1 ? `${label(x)} ${n}` : label(x);
+          return (
+            <div key={x.a.id} className="st-pic">
+              <button type="button" className={`st-thumb${element.kind === "character" ? " st-thumb--tall" : ""}`} title={name} onClick={() => setShown(x.a)}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={(x.a.meta.previewUrl as string | undefined) ?? x.a.url} alt={name} loading="lazy" />
+                {x.i === 0 && <span className="st-thumb-tag">{t("PRIMARY")}</span>}
+              </button>
+              <span className="st-pic-caption st-num">{name}</span>
+            </div>
+          );
+        })}
+        {missing.map((v) => (
+          <div key={v} className="st-pic st-pic--missing">
+            <div className="st-thumb st-thumb--tall st-thumb--empty" aria-hidden="true" />
+            <span className="st-pic-caption st-muted">{viewName(t, v)} · {t("not drawn yet")}</span>
+          </div>
+        ))}
+      </div>
+      {shown && <PicturePopup url={shown.url} title={`${element.name} · ${pictureTitle(shown)}`} facts={pictureSize(shown)} onClose={() => setShown(null)} />}
+    </Section>
   );
 }
 

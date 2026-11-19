@@ -74,7 +74,7 @@ export const pages: Record<string, string> = {
   "Create the first one": "建第一个", "Characters": "角色", "Locations": "地点", "Props": "道具",
   "character": "角色", "location": "地点", "prop": "道具",
   "1 ref": "1 张参考图", "{n} refs": "{n} 张参考图", "No description yet": "还没有描述", "shared across projects": "各项目共用",
-  "Deleted {name}": "已删除 {name}", "Kind": "类型", "Name": "名称", "Mara": "玛拉",
+  "Sheet": "设定图", "1 picture": "1 张", "{n} pictures": "{n} 张", "no view tagged": "没标视角", "not drawn yet": "还没画", "Look at the sheet": "看设定图", "Delete {name}": "删除 {name}", "Delete {kind} {name}?{uses} It can be put back from Recently deleted for 14 days.": "删除{kind}“{name}”吗？{uses}14 天内可以在“最近删除”里放回去。", "Shots {list} use it and will not find it once it is deleted.": "镜头 {list} 在用它，删掉后这些镜头里就找不到它了。", "Deleted {name}": "已删除 {name}", "Kind": "类型", "Name": "名称", "Mara": "玛拉",
   "Visual description": "外观描述", "Age, build, hair, wardrobe, materials, light. The image model and the compiler both read this.": "年龄、体型、发型、服装、材质、光线。图像模型和编译器都读这一段。",
   "Fixed features": "固定特征",
   "Details that must never move or vanish, with the element's own left/right (a tattoo on the LEFT forearm, a red beret). Restated in every shot; one-sided ones are flagged as fragile. For a character, tick detail on up to three that are not on the face: the sheet draws each close, and the whole-figure views copy it.": "绝不能移位或消失的细节，左右按元素自己的左右来（左前臂上的纹身、一顶红色贝雷帽）。每个镜头都会重申；只在一侧的会标为易丢。角色最多可给三个不在脸上的特征勾选“特写”：设定图给每个画一张特写，全身视图照着画。",

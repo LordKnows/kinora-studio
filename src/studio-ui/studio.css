@@ -1711,6 +1711,20 @@ button.st-pill {
   aspect-ratio: 1 / 1;
 }
 /* pictures with their handle and name under them */
+.studio .st-el {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.studio .st-el-actions {
+  justify-content: space-between;
+}
+.studio .st-thumb--empty {
+  border: 1.5px dashed var(--line-2);
+  background: transparent;
+  cursor: default;
+}
 .studio .st-pic {
   display: flex;
   flex-direction: column;
