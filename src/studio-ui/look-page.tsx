@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { checkConstraint } from "@director/lint/constraints";
+import { lookScope } from "@director/lint/look-scope";
 
 import type { LookSettings } from "@/studio/schemas";
 import type { Asset, Project } from "@/studio/types";
@@ -35,6 +36,7 @@ type CompiledStyle = { look: Partial<LookSettings>; cinematographyDefaults?: Rec
 
 /** The part of the Look the Style card owns. */
 type StyleDraft = Pick<LookSettings, "style" | "genre" | "palette" | "camera" | "lens" | "lighting" | "negative">;
+const FIELD_LABEL = { genre: "Genre and tone", palette: "Palette", camera: "Camera", lens: "Lens", lighting: "Lighting" } as const;
 const styleOf = (l: StyleDraft): StyleDraft => ({ style: l.style, genre: l.genre, palette: l.palette, camera: l.camera, lens: l.lens, lighting: l.lighting, negative: l.negative });
 const sameStyle = (a: StyleDraft, b: StyleDraft) => JSON.stringify(styleOf(a)) === JSON.stringify(styleOf(b));
 
@@ -152,6 +154,8 @@ export function LookPage() {
   const saved = view.project.look;
   const styleDirty = !sameStyle(style, styleOf(saved));
   const set = <K extends keyof StyleDraft>(key: K, value: StyleDraft[K]) => setStyle({ ...style, [key]: value });
+  /* what the Look says about some scenes only (the director layer's lint reads the same) */
+  const scope = lookScope(style);
 
   return (
     <div className="st-page">
@@ -198,10 +202,16 @@ export function LookPage() {
             <Field label={t("Camera")}><input className="st-input" value={style.camera} onChange={(e) => set("camera", e.target.value)} placeholder={t("Arri Alexa, anamorphic")} /></Field>
             <Field label={t("Lens")}><input className="st-input" value={style.lens} onChange={(e) => set("lens", e.target.value)} placeholder={t("35mm, shallow depth of field")} /></Field>
           </div>
-          <Field label={t("Lighting")}><input className="st-input" value={style.lighting} onChange={(e) => set("lighting", e.target.value)} placeholder={t("practical sources, hard key")} /></Field>
+          <Field label={t("Lighting")} hint={t("The Look is written into every shot: keep here what holds for the whole film. Light that belongs to a place or a weather goes in that scene's colour script (Board, Palette); one shot's own light in its Edit tab.")}>
+            <input className="st-input" value={style.lighting} onChange={(e) => set("lighting", e.target.value)} placeholder={t("practical sources, hard key")} />
+          </Field>
+          {scope.scoped.length > 0 && <span className="st-warn">{t("“{text}” reads as true of some scenes only ({field}), but this goes into every shot: move it to that scene's colour script.", { text: scope.scoped[0]!.text, field: t(FIELD_LABEL[scope.scoped[0]!.field]) })}</span>}
+          {!scope.scoped.length && scope.timed && <span className="st-muted">{t("“{text}” in the lighting goes into every shot, interiors and other times of day included. If only some scenes are like this, use their colour script.", { text: scope.timed })}</span>}
           <Field label={t("Constraints")} group>
             <Chips values={style.negative} onRemove={(i) => set("negative", style.negative.filter((_, j) => j !== i))} onAdd={(v) => style.negative.length < 10 && set("negative", [...style.negative, v])} placeholder={t("exactly two people in the room")} />
             <span className="st-muted">{t("What the picture shows. H3 has no negative prompt: a word written here is drawn, so “blurry” or “no logos” work against you.")}</span>
+            <span className="st-muted">{t("It goes into every shot too: something that is in some shots only (a plaque over a door) is an element, put on those shots.")}</span>
+            {scope.constraints.map((c, i) => <span key={`${c}-${i}`} className="st-warn">{t("“{text}” is written for some scenes only: move it out of the Look.", { text: c })}</span>)}
             {style.negative.map(checkConstraint).filter((v) => v.kind !== "ok").map((v, i) => (
               <span key={`${v.text}-${i}`} className="st-muted">
                 {t("“{text}” {what}: {suggest}.", { text: v.text, what: v.inPrompt ? t("is a ban and can add what it names") : t("is left out of the prompt"), suggest: v.suggest ? t(v.suggest) : "" })}

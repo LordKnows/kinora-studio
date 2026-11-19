@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { checkConstraint, lintConstraints, promptConstraints } from "@director/lint/constraints";
+import { lintLookScope } from "@director/lint/look-scope";
 import { LookSettings } from "@/studio/schemas";
 
 describe("the Look's constraints on a model with no negative prompt", () => {
@@ -72,5 +73,39 @@ describe("the Look's constraints on a model with no negative prompt", () => {
 
   it("a new Look starts with no constraints", () => {
     expect(LookSettings.parse({ genre: "", palette: "", camera: "", lens: "", lighting: "" }).negative).toEqual([]);
+  });
+});
+
+describe("what the Look says about some scenes only", () => {
+  it("flags a line written for some scenes: the Look goes into every shot", () => {
+    const w = lintLookScope({ genre: "Live-action drama", lighting: "Jiangnan scenes: cold grey daylight" });
+    expect(w.map((x) => [x.code, x.severity])).toEqual([["look.scoped", "warn"]]);
+    expect(w[0]!.message).toContain("set_scene_palette");
+    expect(lintLookScope({ palette: "Night exteriors - deep blue shadows" }).map((x) => x.code)).toEqual(["look.scoped"]);
+    expect(lintLookScope({ genre: "for the temple scenes, warm candle light" }).map((x) => x.code)).toEqual(["look.scoped"]);
+    expect(lintLookScope({ lighting: "江南场景：冷灰色日光" }).map((x) => x.code)).toEqual(["look.scoped"]);
+  });
+
+  it("flags a constraint written for some scenes: what it names is drawn in all of them", () => {
+    const w = lintLookScope({ negative: ["Jiangnan scenes: a plaque over every doorway", "the street is empty"] });
+    expect(w.map((x) => [x.code, x.severity])).toEqual([["look.constraints.scoped", "warn"]]);
+    expect(w[0]!.message).toContain("an element");
+    expect(w[0]!.message).toContain("plaque");
+  });
+
+  it("notes a time or weather in the lighting as a lead, not an error", () => {
+    expect(lintLookScope({ lighting: "low dusk light, long shadows" }).map((x) => [x.code, x.severity])).toEqual([["look.lighting.timed", "info"]]);
+    expect(lintLookScope({ lighting: "soft even daylight" })).toEqual([]);
+    expect(lintLookScope({ genre: "Live-action", palette: "muted greens", camera: "steady", lens: "35mm", lighting: "soft even light", negative: ["the street is empty"] })).toEqual([]);
+  });
+
+  it("no style preset's Look has a scope label, and its constraints stay quiet", () => {
+    const dir = join(__dirname, "../packages/director/styles");
+    const slugs = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith("_")).map((d) => d.name);
+    for (const slug of slugs) {
+      const engine = JSON.parse(readFileSync(join(dir, slug, "style.json"), "utf8")).engine;
+      const w = lintLookScope({ ...engine.look, negative: engine.negative });
+      expect(w.filter((x) => x.severity === "warn"), slug).toEqual([]);
+    }
   });
 });

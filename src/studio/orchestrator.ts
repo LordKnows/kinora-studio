@@ -1224,7 +1224,7 @@ function coverageLint(view: ProjectView): LintWarning[] {
 export async function lintProject(projectId: string, opts?: { totalSeconds?: number }): Promise<{ warnings: LintWarning[]; counts: { error: number; warn: number; info: number } }> {
   const { view, shotlist } = await shotlistOf(projectId);
   /* the Look's constraints are checked with or without a shotlist: they ride in every prompt */
-  const lookWarnings = director.lintConstraints(view.project.look.negative ?? []) as LintWarning[];
+  const lookWarnings = [...director.lintConstraints(view.project.look.negative ?? []), ...director.lintLookScope(view.project.look)] as LintWarning[];
   if (shotlist.scenes.length === 0) {
     const counts = { error: 0, warn: 0, info: 0 };
     for (const x of lookWarnings) counts[x.severity]++;

@@ -18,6 +18,7 @@ export { FAULT_ROUTES, faultRoutes, faultClass, pictureFaults, fixSummary, type 
 export { AB_TESTS, planAb, abFits, type AbTest, type AbPlan, type AbArm } from "@director/ab";
 export { splitShot, splitPoint } from "@director/split";
 export { checkConstraint, promptConstraints, lintConstraints, type ConstraintVerdict } from "@director/lint/constraints";
+export { lintLookScope, lookScope, type LookScopeInput } from "@director/lint/look-scope";
 export { checkCueMap, cutOnBeats, hitTimes, type CueMap } from "@director/sound/cuemap";
 export { checkTimeline, toStudioTimeline, type ExtTimeline } from "@director/timeline/extended";
 export { checkLines, placeLines, toSrt, spellNumbersForSpeech, type Line } from "@director/narration/srt";

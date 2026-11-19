@@ -11,6 +11,7 @@ export { FAULT_ROUTES, faultRoutes, faultClass, pictureFaults, fixSummary, type 
 export { AB_TESTS, planAb, abFits, type AbTest, type AbPlan, type AbArm } from "./ab.js";
 export { splitShot, splitPoint } from "./split.js";
 export { checkConstraint, promptConstraints, lintConstraints, type ConstraintKind, type ConstraintVerdict } from "./lint/constraints.js";
+export { lintLookScope, lookScope, type LookScopeInput } from "./lint/look-scope.js";
 export * from "./sound/cuemap.js";
 export * from "./timeline/extended.js";
 export { buildCommand, assemble, type AssembleOptions } from "./timeline/assemble.js";
