@@ -367,6 +367,31 @@ export function useAction<Args extends unknown[]>(run: (confirm: boolean, ...arg
   return { fire, confirm, dismiss, busy, error };
 }
 
+/** A take's video with our own loading mark: the browser draws a black ring over the picture while a video
+    loads or buffers (it cannot be styled), so that one is hidden (studio.css) and a light ring with the
+    accent's head is drawn in its place, over the poster. */
+export function WaitingVideo({ src, poster, className, preload = "metadata" }: { src: string; poster?: string; className?: string; preload?: "none" | "metadata" | "auto" }) {
+  const t = useT();
+  const [wait, setWait] = useState(false);
+  const ref = useRef<HTMLVideoElement>(null);
+  /* the page can come from the server with the video already loading, before these handlers are attached */
+  useEffect(() => {
+    const v = ref.current;
+    if (v && v.networkState === 2 && v.readyState < 1 && !v.error) setWait(true);
+  }, []);
+  return (
+    <span className="st-video-box">
+      <video
+        ref={ref} className={className} src={src} poster={poster} controls preload={preload}
+        onLoadStart={() => setWait(true)} onWaiting={() => setWait(true)} onSeeking={() => setWait(true)}
+        onLoadedMetadata={() => setWait(false)} onLoadedData={() => setWait(false)} onCanPlay={() => setWait(false)}
+        onPlaying={() => setWait(false)} onSeeked={() => setWait(false)} onError={() => setWait(false)} onAbort={() => setWait(false)}
+      />
+      {wait && <span className="st-video-wait" role="status" aria-label={t("Loading the video")}><i /></span>}
+    </span>
+  );
+}
+
 /** Which of several buttons of one kind (a row's Delete, Put back, Keep…) is working: busy by key, so pressing
     one shows its own busy state and not every row's. `run` keeps a key busy for as long as its work takes. */
 export function useBusyKeys() {

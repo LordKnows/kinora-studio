@@ -1831,6 +1831,37 @@ button.st-pill {
   aspect-ratio: 16 / 9;
   display: block;
 }
+/* a take's video with our own loading mark (WaitingVideo): the browser's black ring is hidden */
+.studio .st-video-box {
+  position: relative;
+  display: block;
+}
+.studio .st-video-box video::-webkit-media-controls-loading-panel {
+  display: none !important;
+}
+.studio .st-video-wait {
+  position: absolute;
+  inset: 0 0 44px;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.studio .st-video-wait i {
+  width: 38px;
+  height: 38px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  /* no dark disc behind it: a soft shadow keeps the ring readable on a light picture and a dark one */
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55));
+  animation: st-spin 0.85s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio .st-video-wait i {
+    animation-duration: 2.4s;
+  }
+}
 .studio .st-placeholder {
   width: 100%;
   height: 100%;

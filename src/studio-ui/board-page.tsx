@@ -15,7 +15,7 @@ import { FramesPanel } from "./frames-panel";
 import { RemakePanel } from "./remake-panel";
 
 import { ApiError, del, describe, get, patch, post, put, usd } from "./api";
-import { BackToTop, Button, ConfirmButton, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
+import { BackToTop, Button, ConfirmButton, WaitingVideo, Drawer, Empty, ErrorBanner, Field, Lamp, Loading, Modal, NumberInput, Popover, Stars, Status, statusLabel, useAction } from "./common";
 import { REGENERATE_ENABLED } from "./flags";
 import { GpuGate, gpuBlocksRender, useGpu } from "./gpu-panel";
 import { useShotSort } from "./shot-sort";
@@ -1233,7 +1233,7 @@ function TakeRow({ take, shot }: { take: Take; shot: ShotView }) {
     <div className="st-take" data-selected={selected}>
       <div>
         {playUrl ? (
-          <video className="st-video" src={playUrl} controls preload="metadata" poster={take.thumbUrls[0]} />
+          <WaitingVideo className="st-video" src={playUrl} poster={take.thumbUrls[0]} />
         ) : (
           <div className="st-video" style={{ display: "grid", placeItems: "center" }}>
             <Lamp state={take.status} label={tr(statusLabel(take.status, take))} />
